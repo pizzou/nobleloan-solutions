@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Noble Loan Solutions — Launch Readiness Tracker</title>
+<style>
+  :root {
+    --primary: #0F1B3D;
+    --accent: #C9A227;
+    --bg: #FAFAFA;
+    --card: #FFFFFF;
+    --border: #E5E7EB;
+    --text: #1F2937;
+    --muted: #6B7280;
+    --danger: #B42318;
+    --danger-bg: #FEF3F2;
+    --warn: #92600A;
+    --warn-bg: #FFFBEB;
+    --ok: #067647;
+    --ok-bg: #ECFDF3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    background: var(--primary);
+    color: #fff;
+    padding: 40px 24px 32px;
+  }
+  header .inner { max-width: 920px; margin: 0 auto; }
+  header .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+  header h1 {
+    font-family: 'Georgia', 'Playfair Display', serif;
+    font-size: 30px;
+    margin: 0 0 10px;
+    line-height: 1.25;
+  }
+  header p { color: rgba(255,255,255,0.65); font-size: 15px; max-width: 640px; line-height: 1.6; margin: 0; }
+
+  .progress-wrap {
+    max-width: 920px;
+    margin: -22px auto 0;
+    padding: 0 24px;
+  }
+  .progress-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 8px 24px rgba(15,27,61,0.10);
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .progress-num { font-size: 32px; font-weight: 800; color: var(--primary); min-width: 90px; }
+  .progress-bar-track {
+    flex: 1;
+    min-width: 200px;
+    height: 10px;
+    border-radius: 999px;
+    background: #EEF0F4;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary), var(--accent));
+    width: 0%;
+    transition: width .3s ease;
+  }
+  .progress-label { font-size: 13px; color: var(--muted); font-weight: 600; }
+
+  main { max-width: 920px; margin: 0 auto; padding: 40px 24px 80px; }
+  main > .legend { margin-top: 4px; }
+
+  .section { margin-bottom: 40px; }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .section-head h2 {
+    font-family: 'Georgia', 'Playfair Display', serif;
+    font-size: 20px;
+    margin: 0;
+  }
+  .section-count { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .section-desc { font-size: 14px; color: var(--muted); margin: 0 0 18px; line-height: 1.6; max-width: 720px; }
+
+  .tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 3px 10px;
+    border-radius: 999px;
+    margin-left: 10px;
+    vertical-align: middle;
+  }
+  .tag-blocker { background: var(--danger-bg); color: var(--danger); }
+  .tag-should { background: var(--warn-bg); color: var(--warn); }
+  .tag-done { background: var(--ok-bg); color: var(--ok); }
+
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 9px;
+    border-radius: 6px;
+    margin-top: 8px;
+    margin-left: 8px;
+  }
+  .badge-code { background: #EEF2FF; color: #3730A3; }
+  .badge-nocode { background: #F3F4F6; color: #4B5563; }
+
+  .legend {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    font-size: 12.5px;
+    color: var(--muted);
+    margin: -8px 0 26px;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+
+  .item {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    transition: opacity .2s ease, background .2s ease;
+  }
+  .item input[type="checkbox"] {
+    margin-top: 3px;
+    width: 18px;
+    height: 18px;
+    accent-color: var(--primary);
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+  .item .body { flex: 1; }
+  .item .title { font-weight: 700; font-size: 14.5px; margin-bottom: 3px; }
+  .item .desc { font-size: 13.5px; color: var(--muted); line-height: 1.55; }
+  .item .desc code, .order-list code {
+    background: #F3F4F6;
+    color: #111827;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 12.5px;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  }
+  .item .owner {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--primary);
+    background: var(--primary);
+    background: color-mix(in srgb, var(--primary) 8%, transparent);
+    padding: 2px 9px;
+    border-radius: 6px;
+  }
+  .item.checked { opacity: 0.5; background: #FAFAFA; }
+  .item.checked .title { text-decoration: line-through; }
+
+  .already-done {
+    background: var(--ok-bg);
+    border: 1px solid #B7E4C7;
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .already-done ul { margin: 8px 0 0; padding-left: 20px; }
+  .already-done li { font-size: 13.5px; line-height: 1.9; color: #14532D; }
+
+  .order-list {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px 24px;
+  }
+  .order-list ol { margin: 0; padding-left: 20px; }
+  .order-list li { font-size: 14.5px; line-height: 2.1; }
+
+  footer {
+    text-align: center;
+    padding: 30px 24px 50px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .reset-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12.5px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .reset-btn:hover { background: #F3F4F6; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="inner">
+    <div class="eyebrow">Noble Loan Solutions Ltd — Internal</div>
+    <h1>Launch Readiness Tracker</h1>
+    <p>What's already solid, what genuinely blocks onboarding real customers or real money, and what should get done before go-live but isn't a hard blocker. Check items off as they close — progress is saved in this browser.</p>
+  </div>
+</header>
+
+<div class="progress-wrap">
+  <div class="progress-card">
+    <div class="progress-num" id="progressNum">0%</div>
+    <div style="flex:1; min-width:200px;">
+      <div class="progress-bar-track"><div class="progress-bar-fill" id="progressBar"></div></div>
+      <div class="progress-label" id="progressLabel" style="margin-top:8px;">0 of 0 items closed</div>
+    </div>
+    <button class="reset-btn" onclick="resetAll()">Reset checklist</button>
+  </div>
+</div>
+
+<main>
+
+  <div class="legend">
+    <span><span class="dot" style="background:#3730A3;"></span> Requires coding</span>
+    <span><span class="dot" style="background:#9CA3AF;"></span> No coding — vendor, legal, or your own decision/action</span>
+  </div>
+
+  <div class="section">
+    <div class="section-head">
+      <h2>Blockers</h2>
+      <span class="tag tag-blocker">Do not launch without these</span>
+    </div>
+    <p class="section-desc">Each of these is something a regulator, auditor, or your own risk team will ask about directly. None of these are code-review nitpicks.</p>
+
+    <div class="item" data-id="b1">
+      <input type="checkbox" onchange="toggle(this)">
+      <div class="body">
+        <div class="title">Real credit bureau / KYC provider under contract</div>
+        <div class="desc">Every credit check today is simulated (clearly labeled, but still fake). Start a relationship with TransUnion Rwanda or a regional KYC/liveness provider like Smile Identity — this has the longest lead time of anything on this list, so start it first.</div>
+        <span class="owner">Business / Compliance</span><span class="badge badge-nocode">No coding</span>
+      </div>
+    </div>
+
+    <div class="item" data-id="b2">
+      <input type="checkbox" onchange="toggle(this)">
+      <div class="body">
+        <div class="title">Independent penetration test</div>
+        <div class="desc">The self-review in this codebase checked a handful of files and found no issues in what it looked at — that is explicitly not a security audit. Commission a real third-party pen test and fix findings before launch.</div>
+        <span class="owner">Security</span><span class="badge badge-nocode">No coding</span>
+      </div>
+    </div>
+
+    <div class="item" data-id="b3">
+      <input type="checkbox" onchange="toggle(this)">
+      <div class="body">
+        <div class="title">Real payment provider keys, tested end to end</div>
+        <div class="desc">Flutterwave secret key, public key, and webhook secret are still placeholders. Nothing disburses or collects real money until these are real and the webhook retry/reconciliation path has been pressure-tested.</div>
+        <span class="owner">Engineering + Finance</span><span class="badge badge-nocode">No coding — needs real account</span>
+      </div>
+    </div>
+
+    <div class="item" data-id="b4">
+      <input type="checkbox" onchange="toggle(this)">
+      <div class="body">
+        <div class="title">Secrets moved to a real secrets manager</div>
+        <div class="desc">Everything currently lives in a .env file on one server. Fine for a demo, not for production credentials — move to Docker/K8s secrets, AWS Secrets Manager, or Vault.</div>
+        <span class="owner">Infrastructure</span><span class="badge badge-nocode">No coding — infra decision</span>
+      </div>
+    </div>
+
+    <div class="item" data-id="b5">
+      <input type="checkbox" onchange="toggle(this)">
+      <div class="body">
+        <div class="title">Encryption keys generated and set</div>
+        <div class="desc">APP_ENCRYPTION_KEY and APP_INDEX_KEY (protect national ID, phone, address, bank account) are currently unset. Must be real before any borrower's real data touches the database. No key-rotation tooling exists yet if you ever need to rotate them. <strong>Run <code>./deploy/scripts/generate-secrets.sh</code></strong> — it now prints strong, unique values for both keys (plus JWT_SECRET and BACKUP_ENCRYPTION_KEY) ready to paste into your real environment. Generating them is done; putting them into your actual deployment is still on you.</div>
+        <span class="owner">Engineering</span><span class="badge badge-code">Coding — script added ✓</span>
+      </div>
+    </div>
+
+    <div class="item" data-id="b6">
+      <input type="checkbox" onchange="toggle(this)">
+      <div class="body">
+        <div class="title">Terms, Privacy, and Loan Agreement reviewed by a lawyer</div>
+        <div class="desc">Draft templates exist and are already wired in (consent is enforced server-side, with a timestamp recorded). The actual legal text still needs review by someone licensed in your jurisdiction before real applications are collected.</div>
+        <span class="owner">Legal</span><span class="badge badge-nocode">No coding</span>
+      </div>
+    </div>
+
+    <div class="item" data-id="b7">
+      <input type="checkbox" onchange="toggle(this)">
+      <div class="body">
+        <div class="title">Regulatory license confirmed for this platform's products</div>
+        <div class="desc">Confirm Noble Loan Solutions's license class with the National Bank of Rwanda (or applicable regulator) actually authorizes what this platform offers, and that data handling meets that license's conditions.</div>
+        <span class="owner">Compliance</span><span class="badge badge-nocode">No coding</span>
+      </div>
+    </div>
+
+    <div class="item" data-id="b8">
+      <input type="checkbox" onchange="toggle(this)">
+      <div class="body">
+        <div class="title">Incident response plan written and rehearsed</div>
+        <div class="desc">Who gets paged, who talks to the regulator, who talks to affected customers, and within what legally required timeframe. Needs to exist and be rehearsed before you need it.</div>
+        <span class="owner">Compliance + Security</span><span class="badge badge-nocode">No coding</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-head">
+      <h2>Should fix before go-live</h2>
+      <span class="tag tag-should">Not a hard blocker for an internal pilot</span>
+    </div>
+    <p class="section-desc">Fine to run a supervised internal pilot without these, but close them before real customers rely on the platform day to day.</p>
+
+    <div class="item" data-id="s1">
+      <input type="checkbox" onchange="toggle(this)">
+      <div class="body">
+        <div class="title">Run and log a real backup restore drill</div>
+        <div class="desc">Backups are now encrypted and shippable off-site, but the drill log has zero real entries — which is functionally the same as having no backup at all until it's actually tested.</div>
+        <span class="owner">Infrastructure</span><span class="badge badge-nocode">No coding — needs real infra</span>
+      </div>
+    </div>
+
+    <div class="item" data-id="s2">
+      <input type="checkbox" onchange="toggle(this)">
+      <div class="body">
+        <div class="title">Uptime / synthetic monitoring configured</div>
+        <div class="desc">Nothing external is pointed at /actuator/health yet. About 15 minutes of setup once a real domain is live (UptimeRobot or Better Stack both have usable free tiers).</div>
+        <span class="owner">Infrastructure</span><span class="badge badge-nocode">No coding</span>
+      </div>
+    </div>
+
+    <div class="item" data-id="s3">
+      <input type="checkbox" onchange="toggle(this)">
+      <div class="body">
+        <div class="title">Move off a single Postgres instance / single host</div>
+        <div class="desc">No replica, no load balancer, no high availability today. Fine at low volume; plan the upgrade path before it isn't.</div>
+        <span class="owner">Infrastructure</span><span class="badge badge-nocode">No coding — infra decision</span>
+      </div>
+    </div>
+
+    <div class="item" data-id="s4">
+      <input type="checkbox" onchange="toggle(this)">
+      <div class="body">
+        <div class="title">Review first results from dependency/container scanning</div>
+        <div class="desc">Dependabot and the security-scan CI workflow were just added — they haven't had a real run yet. The first run may need tuning; review what it actually finds.</div>
+        <span class="owner">Engineering</span><span class="badge badge-nocode">No coding — needs CI to run</span>
+      </div>
+    </div>
+
+    <div class="item" data-id="s5">
+      <input type="checkbox" onchange="toggle(this)">
+      <div class="body">
+        <div class="title">Rotate BOOTSTRAP_ADMIN credentials for the real deployment</div>
+        <div class="desc">Set BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD to real, strong, unique values for production — don't let the seeded demo account pattern carry over. <code>generate-secrets.sh</code> now suggests a strong password value; you still choose the real admin email and actually set both in your deployment.</div>
+        <span class="owner">Engineering</span><span class="badge badge-nocode">No coding — script added ✓ for the value</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-head">
+      <h2>Already solid</h2>
+      <span class="tag tag-done">Found, not just claimed</span>
+    </div>
+    <div class="already-done">
+      <ul>
+        <li>PII field-level encryption at rest (national ID, phone, address, spouse info, bank account)</li>
+        <li>Append-only, tamper-evident audit hash chain — not just an audit table</li>
+        <li>Double-entry general ledger</li>
+        <li>BCrypt password hashing at cost factor 12</li>
+        <li>Stateless JWT auth with MFA support and per-account lockout after failed logins</li>
+        <li>Security headers (HSTS, X-Content-Type-Options, Referrer-Policy), TLS 1.2/1.3 only</li>
+        <li>Flyway-managed schema — every database change is a reviewable, ordered migration</li>
+        <li>Webhook signature verification for the payments provider</li>
+        <li>Postgres no longer exposed on a public interface; Swagger/actuator restricted to private IPs</li>
+        <li>Demo admin credentials no longer created by default — gated behind real environment variables</li>
+        <li>Secret generation script (<code>deploy/scripts/generate-secrets.sh</code>) — produces strong, unique values for every key that can be randomly generated</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-head">
+      <h2>Suggested order of operations</h2>
+    </div>
+    <div class="order-list">
+      <ol>
+        <li>Run <code>./deploy/scripts/generate-secrets.sh</code> and load the output into your real environment (JWT_SECRET, APP_ENCRYPTION_KEY, APP_INDEX_KEY, BACKUP_ENCRYPTION_KEY, BOOTSTRAP_ADMIN_PASSWORD).</li>
+        <li>Get real Flutterwave (or alternative) credentials and test the webhook path end to end.</li>
+        <li>Start the credit bureau / KYC provider relationship — longest lead time, start now even though it isn't code.</li>
+        <li>Commission the penetration test.</li>
+        <li>Run an actual backup + restore drill and log it.</li>
+        <li>Get terms, privacy, and the loan agreement in front of a lawyer.</li>
+        <li>Only then: point DNS at production and go live.</li>
+      </ol>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  Generated from BANK_READINESS.md, KYC_AML_STATUS.md, and SECURITY_SELF_REVIEW.md. Treat this as a living document — update it as the platform grows, not a one-time gate.
+</footer>
+
+<script>
+  function allItems() { return Array.from(document.querySelectorAll('.item')); }
+
+  function updateProgress() {
+    const items = allItems();
+    const total = items.length;
+    const checked = items.filter(i => i.classList.contains('checked')).length;
+    const pct = total ? Math.round((checked / total) * 100) : 0;
+    document.getElementById('progressNum').textContent = pct + '%';
+    document.getElementById('progressBar').style.width = pct + '%';
+    document.getElementById('progressLabel').textContent = checked + ' of ' + total + ' items closed';
+  }
+
+  function toggle(checkbox) {
+    const item = checkbox.closest('.item');
+    item.classList.toggle('checked', checkbox.checked);
+    try {
+      localStorage.setItem('nls-readiness-' + item.dataset.id, checkbox.checked ? '1' : '0');
+    } catch (e) {}
+    updateProgress();
+  }
+
+  function resetAll() {
+    if (!confirm('Reset all checked items?')) return;
+    allItems().forEach(item => {
+      const cb = item.querySelector('input[type="checkbox"]');
+      cb.checked = false;
+      item.classList.remove('checked');
+      try { localStorage.removeItem('nls-readiness-' + item.dataset.id); } catch (e) {}
+    });
+    updateProgress();
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    allItems().forEach(item => {
+      let saved = null;
+      try { saved = localStorage.getItem('nls-readiness-' + item.dataset.id); } catch (e) {}
+      if (saved === '1') {
+        const cb = item.querySelector('input[type="checkbox"]');
+        cb.checked = true;
+        item.classList.add('checked');
+      }
+    });
+    updateProgress();
+  });
+</script>
+
+</body>
+</html>
