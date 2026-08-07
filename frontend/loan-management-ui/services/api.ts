@@ -1383,19 +1383,16 @@ export const publicApi = {
     ),
 
   downloadDocument: (
-    reference: string,
-    phone: string,
-    doc:
-      | 'agreement'
-      | 'schedule'
-      | 'receipt'
-  ) =>
-    API.get(
-      `/public/applications/${encodeURIComponent(reference.trim())}/documents/${doc}.pdf?phone=${encodeURIComponent(phone.trim())}`,
-      {
-        responseType: 'blob',
-      }
-    ),
+  reference: string,
+  phone: string,
+  doc: 'agreement' | 'schedule' | 'receipt'
+) =>
+  API.get(
+    `/public/applications/${encodeURIComponent(reference.trim())}/documents/${doc}.pdf?phone=${encodeURIComponent(phone.trim())}`,
+    {
+      responseType: 'blob', // 👈 Keeps the file as a raw PDF stream
+    }
+  ).then((response) => response.data), // 👈 Crucial: Unwraps and returns the pure file blob to your frontend page
 
   deleteDocument: (
     reference: string,
