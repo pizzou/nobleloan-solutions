@@ -197,7 +197,9 @@ public class PaymentController {
                     );
 
 
-           
+            // ========================================================
+            // RECORD IDEMPOTENCY SUCCESS
+            // ========================================================
 
             idempotencyService.recordSuccess(
                     idempotencyKey,

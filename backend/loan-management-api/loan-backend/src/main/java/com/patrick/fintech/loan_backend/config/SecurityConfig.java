@@ -39,12 +39,10 @@ public class SecurityConfig {
     private final RegulatoryApiKeyAuthFilter regulatoryApiKeyAuthFilter;
     private final RateLimitFilter rateLimitFilter;
 
-    @Value("${app.cors.allowed-origins:http://localhost:3000}")
+    @Value("${app.cors.allowed-origins:https://nobleloan-solutions.vercel.app}")
     private String allowedOrigins;
 
-    // ============================================================
-    // SECURITY FILTER CHAIN
-    // ============================================================
+    
 
     @Bean
     public SecurityFilterChain filterChain(
