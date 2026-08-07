@@ -25,8 +25,8 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     // ============================================================
 
     /**
-     * Find loan by ID and eagerly load the relationships that are
-     * commonly required after the repository call.
+     * Find loan by ID and eagerly load commonly required
+     * relationships.
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -46,8 +46,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
 
     /**
      * Find a loan using reference number + hashed borrower phone.
-     *
-     * This is useful for public borrower verification.
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -61,12 +59,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
 
     /**
      * Public dashboard lookup.
-     *
-     * Borrower, organization and loan officer are loaded together
-     * so PublicPortalService can safely access them after the
-     * repository query without triggering:
-     *
-     * could not initialize proxy - no Session
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -119,10 +111,68 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
 
 
     /**
-     * Find all loans by the borrower's hashed phone number.
+     * Find all loans by borrower's hashed phone number.
      */
     List<Loan> findByBorrower_PhoneHash(
             String phoneHash
+    );
+
+
+    /**
+     * ============================================================
+     * COLLECTIONS
+     * ============================================================
+     *
+     * IMPORTANT:
+     *
+     * A loan can become overdue because daysOverdue > 0 even when
+     * its LoanStatus has not yet been changed to OVERDUE.
+     *
+     * Therefore CollectionsService must be able to find:
+     *
+     *     status IN (OVERDUE, DEFAULTED)
+     *
+     * OR
+     *
+     *     daysOverdue >= 1
+     *
+     * This prevents overdue borrowers from being invisible to the
+     * collections module simply because another process has not
+     * changed the loan status yet.
+     */
+    @EntityGraph(attributePaths = {
+            "borrower",
+            "organization"
+    })
+    List<Loan> findByStatusInOrDaysOverdueGreaterThanEqual(
+            List<LoanStatus> statuses,
+            Integer daysOverdue
+    );
+
+
+    /**
+     * Organization-safe collection query.
+     *
+     * This is useful when collection synchronization is executed
+     * for one organization at a time.
+     *
+     * It finds loans that are either:
+     *
+     * 1. OVERDUE / DEFAULTED
+     *
+     * OR
+     *
+     * 2. Have daysOverdue >= supplied value.
+     */
+    @EntityGraph(attributePaths = {
+            "borrower",
+            "organization"
+    })
+    List<Loan> findByOrganization_IdAndStatusInOrOrganization_IdAndDaysOverdueGreaterThanEqual(
+            Long organizationId1,
+            List<LoanStatus> statuses,
+            Long organizationId2,
+            Integer daysOverdue
     );
 
 
@@ -382,5 +432,4 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to
     );
-
 }
