@@ -1,30 +1,48 @@
 
 'use client';
 
-import { useState, useEffect, createContext, useContext } from 'react';
+import {
+  useState,
+  useEffect,
+  createContext,
+  useContext,
+} from 'react';
+
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+
 import { OfflineProvider } from '../../components/OfflineProvider';
 import { ToastContainer } from '../../components/ui/ToastContainer';
 import { TENANT_SLUG } from '../../lib/tenant';
+
+/* ============================================================
+   TENANT CONFIGURATION
+   ============================================================ */
 
 interface TenantConfig {
   name: string;
   slug: string;
   country: string;
   currency: string;
+
   primaryColor: string;
   accentColor: string;
+
   logoUrl?: string;
+
   contactEmail?: string;
   contactPhone?: string;
+
   website?: string;
   address?: string;
+
   tagline?: string;
   mission?: string;
   vision?: string;
+
   founded?: string;
   registrationNumber?: string;
+
   socialMedia?: {
     facebook?: string;
     instagram?: string;
@@ -32,7 +50,9 @@ interface TenantConfig {
     twitter?: string;
     whatsapp?: string;
   };
+
   mapUrl?: string;
+
   services?: {
     title: string;
     description: string;
@@ -42,21 +62,25 @@ interface TenantConfig {
     maxAmount: string;
     term: string;
   }[];
+
   hero?: {
     headline: string;
     subtext: string;
   };
+
   stats?: {
     icon: string;
     value: string;
     label: string;
   }[];
+
   testimonials?: {
     name: string;
     role: string;
     text: string;
     rating: number;
   }[];
+
   team?: {
     name: string;
     role: string;
@@ -64,35 +88,66 @@ interface TenantConfig {
   }[];
 }
 
-const TenantCtx = createContext<TenantConfig | null>(null);
+/* ============================================================
+   TENANT CONTEXT
+   ============================================================ */
 
-export const useTenant = () => useContext(TenantCtx);
+const TenantCtx =
+  createContext<TenantConfig | null>(null);
+
+export const useTenant = () =>
+  useContext(TenantCtx);
+
+/* ============================================================
+   API
+   ============================================================ */
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   'http://localhost:8080/api';
 
-/*
-|--------------------------------------------------------------------------
-| NOBLE LOAN SOLUTIONS LOGO
-|--------------------------------------------------------------------------
-| Place the final logo here:
-|
-| public/images/noble-loan-solutions-logo.svg
-|
-*/
-const LOGO_SRC = '/images/noble-loan-solutions-logo.svg';
+/* ============================================================
+   NOBLE LOAN SOLUTIONS LOGO
+   ============================================================
 
-/** Shown only while the configured institution profile is loading. */
+   IMPORTANT:
+
+   Save the SVG file here:
+
+   public/images/noble-loan-solutions-logo.svg
+
+   It will then be available at:
+
+   /images/noble-loan-solutions-logo.svg
+
+============================================================ */
+
+const LOGO_SRC =
+  '/images/noble-loan-solutions-logo.svg';
+
+/* ============================================================
+   FALLBACK TENANT
+   ============================================================ */
+
 const FALLBACK_TENANT: TenantConfig = {
-  name: 'Loading...',
+  name: 'Noble Loan Solutions',
+
   slug: TENANT_SLUG,
+
   country: 'Rwanda',
+
   currency: 'RWF',
-  primaryColor: '#0F1B3D',
-  accentColor: '#C9A227',
+
+  primaryColor: '#0D2C54',
+
+  accentColor: '#D4AF37',
+
   services: [],
 };
+
+/* ============================================================
+   ICONS
+   ============================================================ */
 
 function IconPhone() {
   return (
@@ -105,8 +160,26 @@ function IconPhone() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
+      aria-hidden="true"
     >
-      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" />
+      <path
+        d="
+          M22 16.92v3
+          a2 2 0 0 1-2.18 2
+          19.79 19.79 0 0 1-8.63-3.07
+          19.5 19.5 0 0 1-6-6
+          19.79 19.79 0 0 1-3.07-8.67
+          A2 2 0 0 1 4.11 2h3
+          a2 2 0 0 1 2 1.72
+          c.127.96.361 1.903.7 2.81
+          a2 2 0 0 1-.45 2.11L8.09 9.91
+          a16 16 0 0 0 6 6
+          l1.27-1.27
+          a2 2 0 0 1 2.11-.45
+          c.907.339 1.85.573 2.81.7
+          A2 2 0 0 1 22 16.92z
+        "
+      />
     </svg>
   );
 }
@@ -122,9 +195,18 @@ function IconMail() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
+      aria-hidden="true"
     >
-      <path d="M4 4h16v16H4z" opacity="0" />
-      <path d="M22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6z" />
+      <path
+        d="
+          M22 6
+          c0-1.1-.9-2-2-2H4
+          c-1.1 0-2 .9-2 2v12
+          c0 1.1.9 2 2 2h16
+          c1.1 0 2-.9 2-2V6z
+        "
+      />
+
       <path d="m22 6-10 7L2 6" />
     </svg>
   );
@@ -141,12 +223,18 @@ function IconShield() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
+      aria-hidden="true"
     >
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+
       <path d="m9 12 2 2 4-4" />
     </svg>
   );
 }
+
+/* ============================================================
+   MAIN LAYOUT
+   ============================================================ */
 
 export default function SiteLayout({
   children,
@@ -156,6 +244,10 @@ export default function SiteLayout({
   const pathname = usePathname();
 
   const slug = TENANT_SLUG;
+
+  /* ==========================================================
+     STATE
+     ========================================================== */
 
   const [tenant, setTenant] =
     useState<TenantConfig | null>(null);
@@ -169,20 +261,35 @@ export default function SiteLayout({
   const [menuOpen, setMenuOpen] =
     useState(false);
 
+  /* ==========================================================
+     LOAD TENANT
+     ========================================================== */
+
   useEffect(() => {
     let cancelled = false;
 
     setLoading(true);
     setNotFound(false);
 
-    fetch(`${API_BASE}/public/tenant/${slug}`)
-      .then((response) => response.json())
+    fetch(
+      `${API_BASE}/public/tenant/${slug}`
+    )
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(
+            `Tenant request failed: ${response.status}`
+          );
+        }
+
+        return response.json();
+      })
       .then((configRes) => {
         if (cancelled) {
           return;
         }
 
-        const data = configRes?.data;
+        const data =
+          configRes?.data;
 
         if (
           !data ||
@@ -214,30 +321,83 @@ export default function SiteLayout({
     };
   }, [slug]);
 
+  /* ==========================================================
+     LOADING
+     ========================================================== */
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="w-8 h-8 border-2 border-[#0F1B3D] border-t-transparent rounded-full animate-spin" />
+        <div
+          className="
+            h-9
+            w-9
+            rounded-full
+            border-2
+            border-[#0D2C54]
+            border-t-transparent
+            animate-spin
+          "
+        />
       </div>
     );
   }
 
+  /* ==========================================================
+     NOT FOUND
+     ========================================================== */
+
   if (notFound || !tenant) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
-        <div className="bg-white rounded-lg border border-gray-200 p-8 max-w-md text-center">
-          <h1 className="font-bold text-gray-900 mb-2">
+        <div
+          className="
+            w-full
+            max-w-md
+            rounded-2xl
+            border
+            border-gray-200
+            bg-white
+            p-8
+            text-center
+            shadow-sm
+          "
+        >
+          <div
+            className="
+              mx-auto
+              mb-5
+              flex
+              h-14
+              w-14
+              items-center
+              justify-center
+              rounded-full
+              bg-[#0D2C54]/5
+            "
+          >
+            <span className="text-xl">
+              !
+            </span>
+          </div>
+
+          <h1 className="mb-2 text-xl font-bold text-gray-900">
             Site temporarily unavailable
           </h1>
 
-          <p className="text-sm text-gray-500">
-            We couldn't reach our services. Please try again
-            shortly, or contact us directly if this persists.
+          <p className="text-sm leading-6 text-gray-500">
+            We couldn't reach our services.
+            Please try again shortly, or
+            contact us directly if this persists.
           </p>
         </div>
       </div>
     );
   }
+
+  /* ==========================================================
+     NAVIGATION
+     ========================================================== */
 
   const navLinks = [
     {
@@ -262,34 +422,73 @@ export default function SiteLayout({
     },
   ];
 
-  const isActive = (href: string) =>
-    pathname === href;
+  /* ==========================================================
+     BRAND COLORS
+     ========================================================== */
 
   const primary =
-    tenant.primaryColor;
+    tenant.primaryColor ||
+    '#0D2C54';
 
   const accent =
-    tenant.accentColor;
+    tenant.accentColor ||
+    '#D4AF37';
+
+  /* ==========================================================
+     ACTIVE ROUTE
+     ========================================================== */
+
+  const isActive = (
+    href: string
+  ) => pathname === href;
+
+  /* ==========================================================
+     CLOSE MOBILE MENU AFTER NAVIGATION
+     ========================================================== */
+
+  const closeMenu = () => {
+    setMenuOpen(false);
+  };
+
+  /* ==========================================================
+     RENDER
+     ========================================================== */
 
   return (
     <TenantCtx.Provider value={tenant}>
-      <OfflineProvider authHeader={() => ({})} />
+
+      <OfflineProvider
+        authHeader={() => ({})}
+      />
 
       <ToastContainer />
 
       <div className="min-h-screen bg-white font-sans">
 
-        {/* =====================================================
+        {/* ====================================================
             TOP UTILITY BAR
-        ===================================================== */}
+        ==================================================== */}
 
         <div
-          style={{
-            backgroundColor: '#0B1220',
-          }}
-          className="text-white/80 text-xs py-2 px-4"
+          className="
+            bg-[#07152A]
+            text-white/80
+          "
         >
-          <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div
+            className="
+              mx-auto
+              flex
+              max-w-7xl
+              items-center
+              justify-between
+              px-4
+              py-2
+              text-xs
+            "
+          >
+
+            {/* CONTACT */}
 
             <div className="flex items-center gap-6">
 
@@ -301,13 +500,15 @@ export default function SiteLayout({
               )}
 
               {tenant.contactEmail && (
-                <span className="hidden sm:flex items-center gap-1.5">
+                <span className="hidden items-center gap-1.5 sm:flex">
                   <IconMail />
                   {tenant.contactEmail}
                 </span>
               )}
 
             </div>
+
+            {/* REGULATORY */}
 
             <div className="flex items-center gap-1.5 text-white/60">
 
@@ -326,45 +527,70 @@ export default function SiteLayout({
           </div>
         </div>
 
-        {/* =====================================================
+        {/* ====================================================
             MAIN NAVIGATION
-        ===================================================== */}
+        ==================================================== */}
 
-        <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
+        <nav
+          className="
+            sticky
+            top-0
+            z-50
+            border-b
+            border-gray-200
+            bg-white/95
+            backdrop-blur-md
+          "
+        >
 
-          <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div
+            className="
+              mx-auto
+              flex
+              max-w-7xl
+              items-center
+              justify-between
+              px-4
+              py-3
+            "
+          >
 
-            {/* =================================================
-                BRAND
-            ================================================= */}
+            {/* ==================================================
+                BRAND LOGO
+            ================================================== */}
 
             <Link
               href="/"
-              className="flex items-center gap-3 min-w-0"
+              className="
+                flex
+                min-w-0
+                items-center
+              "
             >
 
-              <div className="flex items-center justify-center shrink-0">
-
-                <img
-                  src={LOGO_SRC}
-                  alt="Noble Loan Solutions"
-                  className="
-                    h-12
-                    w-auto
-                    max-w-[260px]
-                    object-contain
-                  "
-                />
-
-              </div>
+              <img
+                src={LOGO_SRC}
+                alt="Noble Loan Solutions"
+                width={500}
+                height={100}
+                className="
+                  block
+                  h-auto
+                  w-auto
+                  max-h-12
+                  max-w-[270px]
+                  object-contain
+                "
+                draggable={false}
+              />
 
             </Link>
 
-            {/* =================================================
+            {/* ==================================================
                 DESKTOP NAVIGATION
-            ================================================= */}
+            ================================================== */}
 
-            <div className="hidden md:flex items-center gap-1">
+            <div className="hidden items-center gap-1 md:flex">
 
               {navLinks.map((link) => {
 
@@ -376,18 +602,24 @@ export default function SiteLayout({
                     key={link.href}
                     href={link.href}
                     className={`
-                      px-4
-                      py-2
                       rounded-md
+                      border-b-2
+                      px-4
+                      py-2.5
                       text-sm
                       font-semibold
                       transition-all
-                      border-b-2
+                      duration-200
 
                       ${
                         active
                           ? 'bg-gray-50'
-                          : 'text-gray-600 border-transparent hover:text-gray-900 hover:bg-gray-50'
+                          : `
+                            border-transparent
+                            text-gray-600
+                            hover:bg-gray-50
+                            hover:text-gray-900
+                          `
                       }
                     `}
                     style={
@@ -410,19 +642,18 @@ export default function SiteLayout({
                 href="/login"
                 className="
                   ml-2
-                  px-4
-                  py-2
                   rounded-md
+                  border
+                  border-gray-300
+                  px-4
+                  py-2.5
                   text-sm
                   font-semibold
-                  border
-                  transition-colors
+                  text-gray-700
+                  transition-all
+                  hover:border-gray-400
                   hover:bg-gray-50
                 "
-                style={{
-                  borderColor: '#D1D5DB',
-                  color: '#374151',
-                }}
               >
                 Staff Login
               </Link>
@@ -433,15 +664,16 @@ export default function SiteLayout({
                 href="/apply"
                 className="
                   ml-1
+                  rounded-md
                   px-5
                   py-2.5
-                  rounded-md
                   text-sm
                   font-bold
                   text-white
                   shadow-sm
-                  hover:opacity-90
-                  transition-opacity
+                  transition-all
+                  hover:-translate-y-0.5
+                  hover:shadow-md
                 "
                 style={{
                   backgroundColor: primary,
@@ -452,68 +684,113 @@ export default function SiteLayout({
 
             </div>
 
-            {/* =================================================
+            {/* ==================================================
                 MOBILE MENU BUTTON
-            ================================================= */}
+            ================================================== */}
 
             <button
-              className="md:hidden"
+              type="button"
+              className="
+                flex
+                h-10
+                w-10
+                flex-col
+                items-center
+                justify-center
+                rounded-lg
+                md:hidden
+              "
               onClick={() =>
-                setMenuOpen(!menuOpen)
+                setMenuOpen(
+                  (previous) =>
+                    !previous
+                )
               }
-              aria-label="Toggle menu"
+              aria-label="Toggle navigation"
+              aria-expanded={menuOpen}
             >
-              <div className="w-6 h-0.5 bg-gray-700 my-1.5" />
-              <div className="w-6 h-0.5 bg-gray-700 my-1.5" />
-              <div className="w-6 h-0.5 bg-gray-700 my-1.5" />
+              <span className="block h-0.5 w-6 bg-gray-700" />
+              <span className="my-1.5 block h-0.5 w-6 bg-gray-700" />
+              <span className="block h-0.5 w-6 bg-gray-700" />
             </button>
 
           </div>
 
-          {/* ===================================================
+          {/* ==================================================
               MOBILE NAVIGATION
-          =================================================== */}
+          ================================================== */}
 
           {menuOpen && (
-            <div className="md:hidden border-t border-gray-100 px-4 py-3 space-y-1">
+            <div
+              className="
+                border-t
+                border-gray-100
+                bg-white
+                px-4
+                py-4
+                shadow-lg
+                md:hidden
+              "
+            >
 
-              {navLinks.map((link) => (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  onClick={() =>
-                    setMenuOpen(false)
-                  }
-                  className="
-                    block
-                    px-4
-                    py-2.5
-                    rounded-md
-                    text-sm
-                    font-semibold
-                    text-gray-700
-                    hover:bg-gray-50
-                  "
-                >
-                  {link.label}
-                </Link>
-              ))}
+              <div className="space-y-1">
+
+                {navLinks.map((link) => {
+
+                  const active =
+                    isActive(link.href);
+
+                  return (
+                    <Link
+                      key={link.href}
+                      href={link.href}
+                      onClick={closeMenu}
+                      className={`
+                        block
+                        rounded-lg
+                        px-4
+                        py-3
+                        text-sm
+                        font-semibold
+                        transition-colors
+
+                        ${
+                          active
+                            ? 'bg-gray-50'
+                            : 'text-gray-700 hover:bg-gray-50'
+                        }
+                      `}
+                      style={
+                        active
+                          ? {
+                              color: primary,
+                            }
+                          : undefined
+                      }
+                    >
+                      {link.label}
+                    </Link>
+                  );
+                })}
+
+              </div>
+
+              {/* MOBILE APPLY */}
 
               <Link
                 href="/apply"
-                onClick={() =>
-                  setMenuOpen(false)
-                }
+                onClick={closeMenu}
                 className="
+                  mt-3
                   block
+                  rounded-lg
                   px-4
-                  py-2.5
-                  rounded-md
+                  py-3
+                  text-center
                   text-sm
                   font-bold
                   text-white
-                  text-center
-                  mt-2
+                  shadow-sm
                 "
                 style={{
                   backgroundColor: primary,
@@ -522,15 +799,18 @@ export default function SiteLayout({
                 Apply Now
               </Link>
 
+              {/* MOBILE LOGIN */}
+
               <Link
                 href="/login"
-                onClick={() =>
-                  setMenuOpen(false)
-                }
+                onClick={closeMenu}
                 className="
+                  mt-2
                   block
+                  rounded-lg
                   px-4
-                  py-2.5
+                  py-3
+                  text-center
                   text-sm
                   font-semibold
                 "
@@ -546,84 +826,123 @@ export default function SiteLayout({
 
         </nav>
 
-        {/* =====================================================
+        {/* ====================================================
             PAGE CONTENT
-        ===================================================== */}
+        ==================================================== */}
 
         <main>
           {children}
         </main>
 
-        {/* =====================================================
+        {/* ====================================================
             FOOTER
-        ===================================================== */}
+        ==================================================== */}
 
         <footer
-          style={{
-            backgroundColor: '#0B1220',
-          }}
-          className="text-white mt-16"
+          className="
+            mt-16
+            bg-[#07152A]
+            text-white
+          "
         >
 
-          <div className="max-w-7xl mx-auto px-4 py-12 grid grid-cols-1 md:grid-cols-4 gap-8">
+          <div
+            className="
+              mx-auto
+              grid
+              max-w-7xl
+              grid-cols-1
+              gap-10
+              px-4
+              py-14
+              md:grid-cols-4
+            "
+          >
 
-            {/* BRAND / COMPANY */}
+            {/* ==================================================
+                COMPANY
+            ================================================== */}
 
             <div className="md:col-span-2">
 
               <img
                 src={LOGO_SRC}
                 alt="Noble Loan Solutions"
+                width={500}
+                height={100}
                 className="
-                  h-12
+                  mb-5
+                  block
+                  h-auto
                   w-auto
+                  max-h-12
                   max-w-[280px]
                   object-contain
-                  mb-5
                 "
+                draggable={false}
               />
 
-              <div className="text-white/60 text-sm leading-relaxed mb-4 max-w-md">
-                {tenant.mission}
-              </div>
-
-              <div className="text-sm text-white/50 space-y-1">
-
-                <div>
-                  {tenant.address}
+              {tenant.mission && (
+                <div className="
+                  mb-5
+                  max-w-md
+                  text-sm
+                  leading-7
+                  text-white/60
+                ">
+                  {tenant.mission}
                 </div>
+              )}
 
-                <div className="flex items-center gap-2">
-                  <IconPhone />
-                  {tenant.contactPhone}
-                </div>
+              <div className="
+                space-y-2
+                text-sm
+                text-white/50
+              ">
 
-                <div className="flex items-center gap-2">
-                  <IconMail />
-                  {tenant.contactEmail}
-                </div>
+                {tenant.address && (
+                  <div>
+                    {tenant.address}
+                  </div>
+                )}
+
+                {tenant.contactPhone && (
+                  <div className="flex items-center gap-2">
+                    <IconPhone />
+                    {tenant.contactPhone}
+                  </div>
+                )}
+
+                {tenant.contactEmail && (
+                  <div className="flex items-center gap-2">
+                    <IconMail />
+                    {tenant.contactEmail}
+                  </div>
+                )}
 
               </div>
 
             </div>
 
-            {/* QUICK LINKS */}
+            {/* ==================================================
+                QUICK LINKS
+            ================================================== */}
 
             <div>
 
               <div className="
-                font-semibold
-                mb-4
-                text-white/90
-                text-sm
+                mb-5
+                text-xs
+                font-bold
                 uppercase
-                tracking-wider
+                tracking-[0.18em]
+                text-white/90
               ">
                 Quick Links
               </div>
 
               <div className="
-                space-y-2
+                space-y-3
                 text-sm
                 text-white/60
               ">
@@ -634,8 +953,8 @@ export default function SiteLayout({
                     href={link.href}
                     className="
                       block
+                      transition-colors
                       hover:text-white
-                      transition
                     "
                   >
                     {link.label}
@@ -646,23 +965,25 @@ export default function SiteLayout({
 
             </div>
 
-            {/* SERVICES */}
+            {/* ==================================================
+                SERVICES
+            ================================================== */}
 
             <div>
 
               <div className="
-                font-semibold
-                mb-4
-                text-white/90
-                text-sm
+                mb-5
+                text-xs
+                font-bold
                 uppercase
-                tracking-wider
+                tracking-[0.18em]
+                text-white/90
               ">
                 Our Services
               </div>
 
               <div className="
-                space-y-2
+                space-y-3
                 text-sm
                 text-white/60
               ">
@@ -681,25 +1002,39 @@ export default function SiteLayout({
 
           </div>
 
-          {/* FOOTER BOTTOM */}
+          {/* ==================================================
+              FOOTER BOTTOM
+          ================================================== */}
 
-          <div className="border-t border-white/10 px-4 py-4">
+          <div
+            className="
+              border-t
+              border-white/10
+              px-4
+              py-5
+            "
+          >
 
-            <div className="
-              max-w-7xl
-              mx-auto
-              flex
-              flex-col
-              md:flex-row
-              items-center
-              justify-between
-              text-xs
-              text-white/40
-              gap-2
-            ">
+            <div
+              className="
+                mx-auto
+                flex
+                max-w-7xl
+                flex-col
+                items-center
+                justify-between
+                gap-3
+                text-center
+                text-xs
+                text-white/40
+                md:flex-row
+                md:text-left
+              "
+            >
 
               <span>
-                © {new Date().getFullYear()} {tenant.name}.
+                © {new Date().getFullYear()}{' '}
+                {tenant.name}.
                 {' '}
                 All rights reserved.
                 {' '}
@@ -712,14 +1047,20 @@ export default function SiteLayout({
 
                 <Link
                   href="/terms"
-                  className="hover:text-white/70 transition"
+                  className="
+                    transition-colors
+                    hover:text-white/70
+                  "
                 >
                   Terms &amp; Conditions
                 </Link>
 
                 <Link
                   href="/privacy"
-                  className="hover:text-white/70 transition"
+                  className="
+                    transition-colors
+                    hover:text-white/70
+                  "
                 >
                   Privacy Policy
                 </Link>
@@ -727,8 +1068,9 @@ export default function SiteLayout({
               </span>
 
               <span>
-                Your deposits and data are protected in line with
-                applicable financial regulations.
+                Your deposits and data are protected
+                in line with applicable financial
+                regulations.
               </span>
 
             </div>
@@ -738,6 +1080,7 @@ export default function SiteLayout({
         </footer>
 
       </div>
+
     </TenantCtx.Provider>
   );
 }
