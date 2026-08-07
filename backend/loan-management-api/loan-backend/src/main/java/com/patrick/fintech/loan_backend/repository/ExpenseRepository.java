@@ -1,6 +1,7 @@
 package com.patrick.fintech.loan_backend.repository;
 
 import com.patrick.fintech.loan_backend.model.Expense;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -12,36 +13,58 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
-public interface ExpenseRepository
-        extends JpaRepository<Expense, Long> {
+public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 
+    // ============================================================
+    // FIND ONE EXPENSE
+    // ============================================================
 
-    
-    @EntityGraph(
-            attributePaths = {
-                    "organization",
-                    "branch",
-                    "paymentAccount",
-                    "paymentAccount.glAccount",
-                    "paymentAccount.branch"
-            }
-    )
+    /**
+     * Loads one expense belonging to the organization.
+     *
+     * EntityGraph prevents lazy-loading problems when the service
+     * needs the related organization, branch, payment account and
+     * GL account.
+     *
+     * Because this query returns only one row, the EntityGraph
+     * overhead is limited.
+     */
+    @EntityGraph(attributePaths = {
+            "organization",
+            "branch",
+            "paymentAccount",
+            "paymentAccount.glAccount",
+            "paymentAccount.branch"
+    })
     Optional<Expense> findByIdAndOrganization_Id(
             Long id,
             Long orgId
     );
 
 
-    
-    @EntityGraph(
-            attributePaths = {
-                    "organization",
-                    "branch",
-                    "paymentAccount",
-                    "paymentAccount.glAccount",
-                    "paymentAccount.branch"
-            }
-    )
+    // ============================================================
+    // PAGINATED EXPENSE LIST
+    // ============================================================
+
+    /**
+     * Returns expenses for one organization with optional filters.
+     *
+     * IMPORTANT:
+     *
+     * Pageable prevents loading the entire expense table into memory.
+     *
+     * The query remains organization-scoped for tenant isolation.
+     *
+     * The EntityGraph is retained for compatibility with the existing
+     * service/controller code.
+     */
+    @EntityGraph(attributePaths = {
+            "organization",
+            "branch",
+            "paymentAccount",
+            "paymentAccount.glAccount",
+            "paymentAccount.branch"
+    })
     @Query("""
         SELECT e
         FROM Expense e
@@ -62,7 +85,16 @@ public interface ExpenseRepository
     );
 
 
-    
+    // ============================================================
+    // TOTAL BY CATEGORY
+    // ============================================================
+
+    /**
+     * Calculates posted expenses grouped by category.
+     *
+     * Database performs the aggregation instead of loading all
+     * expense records into Java.
+     */
     @Query("""
         SELECT e.category, COALESCE(SUM(e.amount), 0)
         FROM Expense e
@@ -80,7 +112,13 @@ public interface ExpenseRepository
     );
 
 
-    
+    // ============================================================
+    // TOTAL EXPENSES
+    // ============================================================
+
+    /**
+     * Total posted expenses for an organization and period.
+     */
     @Query("""
         SELECT COALESCE(SUM(e.amount), 0)
         FROM Expense e
@@ -96,7 +134,16 @@ public interface ExpenseRepository
     );
 
 
-   
+    // ============================================================
+    // TOTAL BY PAYMENT ACCOUNT
+    // ============================================================
+
+    /**
+     * Total posted expenses paid from one payment account.
+     *
+     * This returns only the aggregate value, so no Expense entities
+     * are loaded.
+     */
     @Query("""
         SELECT COALESCE(SUM(e.amount), 0)
         FROM Expense e
@@ -114,16 +161,23 @@ public interface ExpenseRepository
     );
 
 
-    
-    @EntityGraph(
-            attributePaths = {
-                    "organization",
-                    "branch",
-                    "paymentAccount",
-                    "paymentAccount.glAccount",
-                    "paymentAccount.branch"
-            }
-    )
+    // ============================================================
+    // POSTED EXPENSES BY PAYMENT ACCOUNT
+    // ============================================================
+
+    /**
+     * Returns actual posted expense records for a payment account.
+     *
+     * EntityGraph is retained because callers may need the related
+     * accounting objects.
+     */
+    @EntityGraph(attributePaths = {
+            "organization",
+            "branch",
+            "paymentAccount",
+            "paymentAccount.glAccount",
+            "paymentAccount.branch"
+    })
     @Query("""
         SELECT e
         FROM Expense e
@@ -142,7 +196,10 @@ public interface ExpenseRepository
     );
 
 
-    
+    // ============================================================
+    // COUNTS
+    // ============================================================
+
     long countByOrganization_Id(
             Long orgId
     );
