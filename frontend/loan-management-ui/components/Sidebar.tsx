@@ -1,3 +1,4 @@
+
 'use client';
 
 import Link from 'next/link';
@@ -8,10 +9,20 @@ import { useAuth } from '@/hooks/useAuth';
 import { getUnreadCount } from '@/services/notificationsService';
 import { contactMessageApi } from '@/services/api';
 
+/* ============================================================
+   NOBLE LOAN SOLUTIONS BRAND
+   ============================================================ */
 
-// ============================================================
-// NAVIGATION TYPES
-// ============================================================
+const NAVY = '#0B1F3A';
+const NAVY_LIGHT = '#16365F';
+const NAVY_DARK = '#07152A';
+
+const YELLOW = '#F4C430';
+const YELLOW_DARK = '#C99A00';
+
+/* ============================================================
+   NAVIGATION TYPES
+   ============================================================ */
 
 type NavItem = {
   href: string;
@@ -26,22 +37,15 @@ type NavSection = {
   items: NavItem[];
 };
 
-
-// ============================================================
-// MAIN NAVIGATION
-// ============================================================
+/* ============================================================
+   MAIN NAVIGATION
+   ============================================================ */
 
 const NAV_STAFF: NavSection[] = [
-
-  // ==========================================================
-  // OVERVIEW
-  // ==========================================================
-
   {
     section: 'Overview',
 
     items: [
-
       {
         href: '/dashboard',
         icon: '📊',
@@ -83,20 +87,13 @@ const NAV_STAFF: NavSection[] = [
         icon: '📬',
         label: 'Messages',
       },
-
     ],
   },
-
-
-  // ==========================================================
-  // TOOLS
-  // ==========================================================
 
   {
     section: 'Tools',
 
     items: [
-
       {
         href: '/dashboard/reports',
         icon: '📈',
@@ -120,20 +117,13 @@ const NAV_STAFF: NavSection[] = [
         icon: '🔗',
         label: 'Webhooks',
       },
-
     ],
   },
-
-
-  // ==========================================================
-  // ADMIN
-  // ==========================================================
 
   {
     section: 'Admin',
 
     items: [
-
       {
         href: '/dashboard/products',
         icon: '💰',
@@ -180,19 +170,15 @@ const NAV_STAFF: NavSection[] = [
         icon: '⚙️',
         label: 'Settings',
       },
-
     ],
   },
-
 ];
 
-
-// ============================================================
-// REGULATORY NAVIGATION
-// ============================================================
+/* ============================================================
+   REGULATORY NAVIGATION
+   ============================================================ */
 
 const REGULATORY_ITEMS: NavItem[] = [
-
   {
     href: '/dashboard/reports/regulatory/bnr',
     icon: '🏦',
@@ -210,18 +196,14 @@ const REGULATORY_ITEMS: NavItem[] = [
     icon: '🔑',
     label: 'API Keys',
   },
-
 ];
 
-
-// ============================================================
-// SIDEBAR
-// ============================================================
+/* ============================================================
+   SIDEBAR
+   ============================================================ */
 
 export default function Sidebar() {
-
-  const pathname =
-    usePathname();
+  const pathname = usePathname();
 
   const {
     user,
@@ -229,123 +211,92 @@ export default function Sidebar() {
     currency,
   } = useAuth();
 
+  /* ==========================================================
+     ORGANIZATION
+     ========================================================== */
 
-  // ==========================================================
-  // ORGANIZATION
-  // ==========================================================
+  const org = user
+    ? {
+        name: user.organizationName,
+        currency,
+      }
+    : null;
 
-  const org =
-    user
-      ? {
-          name:
-            user.organizationName,
-          currency,
-        }
-      : null;
-
-
-  // ==========================================================
-  // PERMISSIONS
-  // ==========================================================
+  /* ==========================================================
+     PERMISSIONS
+     ========================================================== */
 
   const isAdmin =
     user?.role === 'ADMIN';
 
+  const canSeeAccounting = [
+    'ADMIN',
+    'MANAGER',
+    'ACCOUNTANT',
+  ].includes(user?.role || '');
 
-  const canSeeAccounting =
-    [
-      'ADMIN',
-      'MANAGER',
-      'ACCOUNTANT',
-    ].includes(
-      user?.role || ''
-    );
-
-
-  // ==========================================================
-  // NOTIFICATIONS
-  // ==========================================================
+  /* ==========================================================
+     NOTIFICATIONS
+     ========================================================== */
 
   const [
     unread,
     setUnread,
   ] = useState(0);
 
-
-  // ==========================================================
-  // MESSAGES
-  // ==========================================================
+  /* ==========================================================
+     MESSAGES
+     ========================================================== */
 
   const [
     unreadMessages,
     setUnreadMessages,
   ] = useState(0);
 
-
-  // ==========================================================
-  // REGULATORY OPEN STATE
-  // ==========================================================
+  /* ==========================================================
+     REGULATORY OPEN STATE
+     ========================================================== */
 
   const isRegulatoryRoute =
     pathname.startsWith(
       '/dashboard/reports/regulatory'
     );
 
-
   const [
     regulatoryOpen,
     setRegulatoryOpen,
-  ] = useState(
-    isRegulatoryRoute
-  );
+  ] = useState(isRegulatoryRoute);
 
-
-  // ==========================================================
-  // KEEP REGULATORY OPEN WHEN NAVIGATING INSIDE IT
-  // ==========================================================
+  /* ==========================================================
+     KEEP REGULATORY OPEN
+     ========================================================== */
 
   useEffect(() => {
-
     if (isRegulatoryRoute) {
-
       setRegulatoryOpen(true);
-
     }
+  }, [isRegulatoryRoute]);
 
-  }, [
-    isRegulatoryRoute,
-  ]);
-
-
-  // ==========================================================
-  // LOAD NOTIFICATIONS
-  // ==========================================================
+  /* ==========================================================
+     LOAD NOTIFICATIONS
+     ========================================================== */
 
   useEffect(() => {
-
     if (!user) {
       return;
     }
 
-
     const load = () => {
-
       getUnreadCount()
-        .then(
-          response =>
-            setUnread(
-              response.count
-            )
-        )
-        .catch(
-          () => {}
-        );
-
+        .then((response) => {
+          setUnread(
+            response.count
+          );
+        })
+        .catch(() => {});
     };
 
-
     load();
-
 
     const interval =
       setInterval(
@@ -353,47 +304,33 @@ export default function Sidebar() {
         30000
       );
 
-
     return () =>
       clearInterval(
         interval
       );
+  }, [user]);
 
-  }, [
-    user,
-  ]);
-
-
-  // ==========================================================
-  // LOAD MESSAGES
-  // ==========================================================
+  /* ==========================================================
+     LOAD MESSAGES
+     ========================================================== */
 
   useEffect(() => {
-
     if (!user) {
       return;
     }
 
-
     const load = () => {
-
       contactMessageApi
         .unreadCount()
-        .then(
-          (response: any) =>
-            setUnreadMessages(
-              response.count
-            )
-        )
-        .catch(
-          () => {}
-        );
-
+        .then((response: any) => {
+          setUnreadMessages(
+            response.count
+          );
+        })
+        .catch(() => {});
     };
 
-
     load();
-
 
     const interval =
       setInterval(
@@ -401,58 +338,44 @@ export default function Sidebar() {
         30000
       );
 
-
     return () =>
       clearInterval(
         interval
       );
+  }, [user]);
 
-  }, [
-    user,
-  ]);
-
-
-  // ==========================================================
-  // ACTIVE ROUTE
-  // ==========================================================
+  /* ==========================================================
+     ACTIVE ROUTE
+     ========================================================== */
 
   const isActive = (
     href: string
   ): boolean => {
-
     return (
       pathname === href ||
       (
         href !== '/dashboard' &&
-        pathname.startsWith(
-          href
-        )
+        pathname.startsWith(href)
       )
     );
-
   };
 
-
-  // ==========================================================
-  // LOGOUT
-  // ==========================================================
+  /* ==========================================================
+     LOGOUT
+     ========================================================== */
 
   const handleLogout = () => {
-
     logout();
 
     window.location.href =
       '/login';
-
   };
 
-
-  // ==========================================================
-  // RENDER
-  // ==========================================================
+  /* ==========================================================
+     RENDER
+     ========================================================== */
 
   return (
-
     <aside
       className="
         fixed
@@ -464,14 +387,15 @@ export default function Sidebar() {
         min-h-screen
         w-64
         flex-col
-        bg-[#0D1B2A]
+        bg-[#07152A]
+        border-r
+        border-white/5
       "
     >
 
-
-      {/* ================================================== */}
-      {/* BRAND */}
-      {/* ================================================== */}
+      {/* ======================================================
+          BRAND
+          ====================================================== */}
 
       <div
         className="
@@ -485,6 +409,8 @@ export default function Sidebar() {
         "
       >
 
+        {/* Noble Logo */}
+
         <div
           className="
             flex
@@ -493,18 +419,17 @@ export default function Sidebar() {
             items-center
             justify-center
             rounded-lg
+            bg-[#0B1F3A]
             text-base
-            font-bold
-            text-white
+            font-extrabold
+            text-[#F4C430]
+            shadow-sm
+            ring-1
+            ring-[#F4C430]/20
           "
-          style={{
-            backgroundColor:
-              '#0D6B3E',
-          }}
         >
-          G
+          N
         </div>
-
 
         <div
           className="
@@ -522,17 +447,16 @@ export default function Sidebar() {
               text-white
             "
           >
-            Noble loan solutions
+            Noble Loan Solutions
           </div>
-
 
           <div
             className="
               text-[10px]
-              font-bold
+              font-extrabold
               uppercase
               tracking-widest
-              text-[#4ade80]
+              text-[#F4C430]
             "
           >
             Staff Portal
@@ -542,18 +466,18 @@ export default function Sidebar() {
 
       </div>
 
-
-      {/* ================================================== */}
-      {/* ORGANIZATION */}
-      {/* ================================================== */}
+      {/* ======================================================
+          ORGANIZATION
+          ====================================================== */}
 
       {org && (
-
         <div
           className="
             mx-3
             mt-3
-            rounded-lg
+            rounded-xl
+            border
+            border-white/5
             bg-white/5
             px-3
             py-2.5
@@ -571,7 +495,6 @@ export default function Sidebar() {
             {org.name}
           </div>
 
-
           <div
             className="
               mt-0.5
@@ -585,13 +508,11 @@ export default function Sidebar() {
           </div>
 
         </div>
-
       )}
 
-
-      {/* ================================================== */}
-      {/* NAVIGATION */}
-      {/* ================================================== */}
+      {/* ======================================================
+          NAVIGATION
+          ====================================================== */}
 
       <nav
         className="
@@ -605,8 +526,7 @@ export default function Sidebar() {
       >
 
         {NAV_STAFF.map(
-          section => (
-
+          (section) => (
             <div
               key={section.section}
             >
@@ -627,12 +547,11 @@ export default function Sidebar() {
                 {section.section}
               </div>
 
-
               {/* SECTION ITEMS */}
 
               {section.items
                 .filter(
-                  item =>
+                  (item) =>
                     (
                       !item.adminOnly ||
                       isAdmin
@@ -643,23 +562,17 @@ export default function Sidebar() {
                     )
                 )
                 .map(
-                  item => {
+                  (item) => {
 
                     const active =
                       isActive(
                         item.href
                       );
 
-
                     return (
-
                       <Link
-                        key={
-                          item.href
-                        }
-                        href={
-                          item.href
-                        }
+                        key={item.href}
+                        href={item.href}
                         className={`
                           mb-0.5
                           flex
@@ -675,8 +588,9 @@ export default function Sidebar() {
                           ${
                             active
                               ? `
-                                bg-teal-500/15
-                                text-teal-400
+                                bg-[#F4C430]/15
+                                text-[#F4C430]
+                                shadow-sm
                               `
                               : `
                                 text-gray-400
@@ -699,24 +613,17 @@ export default function Sidebar() {
                           {item.icon}
                         </span>
 
-
                         {/* LABEL */}
 
-                        <span
-                          className="
-                            flex-1
-                          "
-                        >
+                        <span className="flex-1">
                           {item.label}
                         </span>
-
 
                         {/* NOTIFICATION BADGE */}
 
                         {item.href ===
                           '/dashboard/notifications' &&
                           unread > 0 && (
-
                             <span
                               className="
                                 flex
@@ -738,16 +645,13 @@ export default function Sidebar() {
                                   : unread
                               }
                             </span>
-
                           )}
-
 
                         {/* MESSAGE BADGE */}
 
                         {item.href ===
                           '/dashboard/messages' &&
                           unreadMessages > 0 && (
-
                             <span
                               className="
                                 flex
@@ -756,11 +660,11 @@ export default function Sidebar() {
                                 items-center
                                 justify-center
                                 rounded-full
-                                bg-teal-500
+                                bg-[#F4C430]
                                 px-1
                                 text-[10px]
                                 font-bold
-                                text-white
+                                text-[#07152A]
                               "
                             >
                               {
@@ -769,37 +673,30 @@ export default function Sidebar() {
                                   : unreadMessages
                               }
                             </span>
-
                           )}
 
                       </Link>
-
                     );
-
                   }
                 )}
 
             </div>
-
           )
         )}
 
-
-        {/* ================================================== */}
-        {/* REGULATORY REPORTS */}
-        {/* ================================================== */}
+        {/* ====================================================
+            REGULATORY REPORTS
+            ==================================================== */}
 
         <div>
 
-          {/* ================================================== */}
           {/* REGULATORY PARENT */}
-          {/* ================================================== */}
 
           <button
             type="button"
             onClick={() =>
               setRegulatoryOpen(
-                previous =>
+                (previous) =>
                   !previous
               )
             }
@@ -819,8 +716,8 @@ export default function Sidebar() {
               ${
                 isRegulatoryRoute
                   ? `
-                    bg-teal-500/15
-                    text-teal-400
+                    bg-[#F4C430]/15
+                    text-[#F4C430]
                   `
                   : `
                     text-gray-400
@@ -843,7 +740,6 @@ export default function Sidebar() {
               📊
             </span>
 
-
             {/* LABEL */}
 
             <span
@@ -855,7 +751,6 @@ export default function Sidebar() {
               Regulatory Reports
             </span>
 
-
             {/* ARROW */}
 
             <span
@@ -863,6 +758,7 @@ export default function Sidebar() {
                 text-[10px]
                 transition-transform
                 duration-200
+
                 ${
                   regulatoryOpen
                     ? 'rotate-180'
@@ -875,13 +771,9 @@ export default function Sidebar() {
 
           </button>
 
-
-          {/* ================================================== */}
           {/* REGULATORY CHILDREN */}
-          {/* ================================================== */}
 
           {regulatoryOpen && (
-
             <div
               className="
                 ml-4
@@ -893,23 +785,17 @@ export default function Sidebar() {
             >
 
               {REGULATORY_ITEMS.map(
-                item => {
+                (item) => {
 
                   const active =
                     isActive(
                       item.href
                     );
 
-
                   return (
-
                     <Link
-                      key={
-                        item.href
-                      }
-                      href={
-                        item.href
-                      }
+                      key={item.href}
+                      href={item.href}
                       className={`
                         group
                         flex
@@ -924,9 +810,9 @@ export default function Sidebar() {
                         ${
                           active
                             ? `
-                              bg-teal-500/15
+                              bg-[#F4C430]/15
                               font-semibold
-                              text-teal-400
+                              text-[#F4C430]
                             `
                             : `
                               text-gray-500
@@ -949,52 +835,40 @@ export default function Sidebar() {
                         {item.icon}
                       </span>
 
-
                       {/* CHILD LABEL */}
 
-                      <span
-                        className="
-                          flex-1
-                        "
-                      >
+                      <span className="flex-1">
                         {item.label}
                       </span>
-
 
                       {/* ACTIVE INDICATOR */}
 
                       {active && (
-
                         <span
                           className="
                             h-1.5
                             w-1.5
                             rounded-full
-                            bg-teal-400
+                            bg-[#F4C430]
                           "
                         />
-
                       )}
 
                     </Link>
-
                   );
-
                 }
               )}
 
             </div>
-
           )}
 
         </div>
 
       </nav>
 
-
-      {/* ================================================== */}
-      {/* USER FOOTER */}
-      {/* ================================================== */}
+      {/* ======================================================
+          USER FOOTER
+          ====================================================== */}
 
       <div
         className="
@@ -1017,9 +891,7 @@ export default function Sidebar() {
             transition-colors
             hover:bg-white/5
           "
-          onClick={
-            handleLogout
-          }
+          onClick={handleLogout}
         >
 
           {/* AVATAR */}
@@ -1033,15 +905,14 @@ export default function Sidebar() {
               items-center
               justify-center
               rounded-full
-              bg-teal-500
+              bg-[#F4C430]
               text-sm
               font-bold
-              text-[#0D1B2A]
+              text-[#07152A]
             "
           >
             {user?.name?.[0] ?? 'U'}
           </div>
-
 
           {/* USER */}
 
@@ -1063,7 +934,6 @@ export default function Sidebar() {
               {user?.name}
             </div>
 
-
             <div
               className="
                 text-[10px]
@@ -1074,7 +944,6 @@ export default function Sidebar() {
             </div>
 
           </div>
-
 
           {/* LOGOUT ICON */}
 
@@ -1092,6 +961,5 @@ export default function Sidebar() {
       </div>
 
     </aside>
-
   );
 }
