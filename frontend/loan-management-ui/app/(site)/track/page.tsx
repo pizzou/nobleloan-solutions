@@ -364,41 +364,53 @@ try {
 };
 
 const handleDownloadDoc = async (
-  doc: 'agreement' | 'schedule' | 'receipt',
-  label: string
+doc: 'agreement' | 'schedule' | 'receipt',
+label: string
 ) => {
-  if (!result) return;
+if (!result) return;
 
-  setDownloadingDoc(doc);
 
-  const activeRef = result.referenceNumber || result.reference;
-  const activePhone = phone.trim();
+setDownloadingDoc(doc);
 
-  try {
-    
-    const blobData = await publicApi.downloadDocument(
-      activeRef,
-      activePhone,
+try {
+  const res =
+    await publicApi.downloadDocument(
+      result.referenceNumber || result.reference,
+      phone.trim(),
       doc
     );
 
-    // Build standard browser anchor stream file download pipeline
-    const url = URL.createObjectURL(blobData);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${label}-${activeRef}.pdf`;
+  const url =
+    URL.createObjectURL(res.data as Blob);
 
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+  const a = document.createElement('a');
 
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-  } catch (err: any) {
-    console.error("Document download initialization crashed:", err);
-    toast('error', 'Could not open or decode the downloaded file.');
-  } finally {
-    setDownloadingDoc(null);
-  }
+  a.href = url;
+
+  a.download =
+    `${label}-${result.referenceNumber || result.reference}.pdf`;
+
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  setTimeout(
+    () => URL.revokeObjectURL(url),
+    60000
+  );
+
+} catch (err: any) {
+  toast(
+    'error',
+    err.response?.data?.error ||
+    err.message ||
+    `Could not download ${label}.`
+  );
+} finally {
+  setDownloadingDoc(null);
+}
+
+
 };
 
 const handleUpload = async (

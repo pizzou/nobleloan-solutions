@@ -1382,22 +1382,20 @@ export const publicApi = {
       `/public/applications/${encodeURIComponent(reference.trim())}/documents?phone=${encodeURIComponent(phone.trim())}`
     ),
 
- // ❌ DO NOT USE: /public/applications/${reference}/documents/${doc}.pdf
-// 
-//  USE THIS CORRECT URL STRUCTURE instead:
-downloadDocument: (
-  reference: string,
-  phone: string,
-  doc: 'agreement' | 'schedule' | 'receipt'
-) =>
-  API.get(
-    `/public/applications/${encodeURIComponent(reference.trim())}/documents/${doc}/download`,
-    {
-      params: { phone: phone.trim() }, 
-      responseType: 'blob',
-    }
-  ).then((response) => response.data),
-
+  downloadDocument: (
+    reference: string,
+    phone: string,
+    doc:
+      | 'agreement'
+      | 'schedule'
+      | 'receipt'
+  ) =>
+    API.get(
+      `/public/applications/${encodeURIComponent(reference.trim())}/documents/${doc}.pdf?phone=${encodeURIComponent(phone.trim())}`,
+      {
+        responseType: 'blob',
+      }
+    ),
 
   deleteDocument: (
     reference: string,
