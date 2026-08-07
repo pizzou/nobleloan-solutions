@@ -1,4 +1,3 @@
-
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.model.*;
@@ -512,11 +511,13 @@ public class AccountingService {
 
 
             /*
-             * Store the exact double value supplied.
+             * Do not call setDebit(double)/setCredit(double) here.
+             * JournalLine stores these fields as BigDecimal and its
+             * builder already converts the supplied double with
+             * BigDecimal.valueOf(double). This keeps the value as
+             * supplied without applying an artificial .01 rounding
+             * rule in AccountingService.
              */
-            line.setDebit(debit);
-
-            line.setCredit(credit);
 
 
             totalDebit += debit;
