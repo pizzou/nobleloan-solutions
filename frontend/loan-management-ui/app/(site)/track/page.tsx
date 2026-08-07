@@ -375,7 +375,7 @@ const handleDownloadDoc = async (
   const activePhone = phone.trim();
 
   try {
-    // Correctly matches the 3-argument signature without causing TS compiler errors
+    
     const blobData = await publicApi.downloadDocument(
       activeRef,
       activePhone,
