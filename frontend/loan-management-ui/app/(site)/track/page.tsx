@@ -371,7 +371,7 @@ const handleDownloadDoc = async (
 
   setDownloadingDoc(doc);
 
-  // 1. Clean the phone prefix formatting to prevent database parameter mismatches
+  // 1. Clean the phone prefix formatting to match standard database storage rules
   let rawPhone = phone.trim();
   if (rawPhone.startsWith('+250')) {
     rawPhone = rawPhone.substring(4); 
@@ -382,10 +382,13 @@ const handleDownloadDoc = async (
   const activeRef = result.referenceNumber || result.reference;
 
   try {
-    // 2. Build the correct server URL string using template literals
-    const targetUrl = `https://onrender.com{activeRef}/documents/${doc}.pdf?phone=${rawPhone}`;
+    // 2. Base API url fallback resolution mapping
+    const baseApiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://onrender.com';
 
-    // 3. Use standard browser fetch to bypass global Axios JSON content locks
+    // 3. CRUCIAL: Must use BACKTICKS (``) here so JavaScript correctly evaluates the activeRef string variable!
+    const targetUrl = `${baseApiUrl}/public/applications/${activeRef}/documents/${doc}.pdf?phone=${rawPhone}`;
+
+    // 4. Native fetch call to stream pure binary data bytes bypassing Axios rules
     const response = await fetch(targetUrl, {
       method: 'GET',
       headers: {
@@ -397,11 +400,10 @@ const handleDownloadDoc = async (
       throw new Error(`Server responded with code ${response.status}`);
     }
 
-    // 4. Read the streaming raw binary data bytes directly as a Blob asset
+    // 5. Read stream data array segments cleanly as a file blob
     const fileBlob = await response.blob();
-    
-    // 5. Trigger an instant local device storage file download action pipeline
     const url = URL.createObjectURL(fileBlob);
+    
     const a = document.createElement('a');
     a.href = url;
     a.download = `${label}-${activeRef}.pdf`;
@@ -410,11 +412,10 @@ const handleDownloadDoc = async (
     a.click();
     a.remove();
 
-    // Clean up memory buffer allocation safely
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (err: any) {
-    console.error("Native file download extraction failed:", err);
-    toast('error', 'Failed to complete direct file download.');
+    console.error("Direct document stream retrieval failed:", err);
+    toast('error', 'Direct file download failed to initialize.');
   } finally {
     setDownloadingDoc(null);
   }
