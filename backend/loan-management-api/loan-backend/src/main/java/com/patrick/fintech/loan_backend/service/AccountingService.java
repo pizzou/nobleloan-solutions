@@ -52,7 +52,8 @@ public class AccountingService {
             /*
              * Contra-asset account.
              *
-             * Therefore it has a CREDIT normal balance.
+             * It has a CREDIT normal balance and therefore
+             * reduces total assets on the balance sheet.
              */
             {"1200", "Loan Loss Reserve", "ASSET", "CREDIT"},
 
@@ -123,18 +124,19 @@ public class AccountingService {
 
 
     // ============================================================
-    // SAFE MONEY CONVERSION
+    // MONEY HELPER
     // ============================================================
 
-    /**
-     * Converts any numeric monetary value to double safely.
+    /*
+     * IMPORTANT:
      *
-     * This allows the service to work with BigDecimal, Double,
-     * Integer, Long, etc.
+     * Monetary values intentionally remain double.
      *
-     * The entities in this project increasingly use BigDecimal
-     * for monetary values, so this helper prevents repeated
-     * BigDecimal -> double compilation errors.
+     * No rounding is performed.
+     * No scale is imposed.
+     * No conversion to .01 is performed.
+     *
+     * The exact double value supplied to the service is retained.
      */
     private double money(Number value) {
 
@@ -143,17 +145,6 @@ public class AccountingService {
         }
 
         return value.doubleValue();
-    }
-
-
-    /**
-     * Normalizes very small floating-point values.
-     */
-    private double normalize(double value) {
-
-        return Math.abs(value) < 0.0000001
-                ? 0.0
-                : value;
     }
 
 
@@ -495,12 +486,14 @@ public class AccountingService {
             double credit =
                     money(line.getCredit());
 
+
             if (debit < 0.0 || credit < 0.0) {
 
                 throw new IllegalArgumentException(
                         "Debit and credit amounts cannot be negative"
                 );
             }
+
 
             if (debit > 0.0 && credit > 0.0) {
 
@@ -509,6 +502,7 @@ public class AccountingService {
                 );
             }
 
+
             if (debit == 0.0 && credit == 0.0) {
 
                 throw new IllegalArgumentException(
@@ -516,12 +510,14 @@ public class AccountingService {
                 );
             }
 
+
             /*
-             * Ensure amounts are never stored as null.
+             * Store the exact double value supplied.
              */
             line.setDebit(debit);
 
             line.setCredit(credit);
+
 
             totalDebit += debit;
 
@@ -529,17 +525,18 @@ public class AccountingService {
         }
 
 
-        if (
-                Math.abs(
-                        totalDebit -
-                        totalCredit
-                ) > 0.01
-        ) {
+        /*
+         * NO .01 TOLERANCE.
+         *
+         * The journal must balance exactly using the actual
+         * double values being recorded.
+         */
+        if (Double.compare(totalDebit, totalCredit) != 0) {
 
             throw new IllegalStateException(
                     String.format(
                             "Journal entry does not balance: " +
-                            "debits %.2f != credits %.2f (%s)",
+                            "debits %.17g != credits %.17g (%s)",
                             totalDebit,
                             totalCredit,
                             description
@@ -896,13 +893,19 @@ public class AccountingService {
                 allocated;
 
 
-        if (Math.abs(difference) > 0.01) {
+        /*
+         * NO .01 tolerance.
+         *
+         * If there is any positive unallocated amount,
+         * it is assigned to principal.
+         *
+         * If the components exceed the payment amount,
+         * the transaction is rejected.
+         */
+        if (Double.compare(difference, 0.0) != 0) {
 
             if (difference > 0.0) {
 
-                /*
-                 * Any unallocated amount reduces principal.
-                 */
                 principal += difference;
 
             } else {
@@ -910,7 +913,7 @@ public class AccountingService {
                 throw new IllegalStateException(
                         String.format(
                                 "Payment allocation exceeds payment amount: " +
-                                "payment %.2f, interest %.2f, principal %.2f, penalty %.2f",
+                                "payment %.17g, interest %.17g, principal %.17g, penalty %.17g",
                                 total,
                                 interest,
                                 principal,
@@ -948,7 +951,7 @@ public class AccountingService {
         // CR PRINCIPAL
         // --------------------------------------------------------
 
-        if (principal > 0.009) {
+        if (principal > 0.0) {
 
             lines.add(
                     JournalLine.builder()
@@ -970,7 +973,7 @@ public class AccountingService {
         // INTEREST
         // --------------------------------------------------------
 
-        if (interest > 0.009) {
+        if (interest > 0.0) {
 
             double accrued =
                     accruedInterestReceivable(
@@ -995,7 +998,7 @@ public class AccountingService {
 
 
             // CR Interest Receivable
-            if (clearReceivable > 0.009) {
+            if (clearReceivable > 0.0) {
 
                 lines.add(
                         JournalLine.builder()
@@ -1016,7 +1019,7 @@ public class AccountingService {
 
 
             // CR Interest Income
-            if (directIncome > 0.009) {
+            if (directIncome > 0.0) {
 
                 lines.add(
                         JournalLine.builder()
@@ -1041,7 +1044,7 @@ public class AccountingService {
         // PENALTY / FEE
         // --------------------------------------------------------
 
-        if (penalty > 0.009) {
+        if (penalty > 0.0) {
 
             lines.add(
                     JournalLine.builder()
@@ -1182,8 +1185,9 @@ public class AccountingService {
             JournalEntry entry =
                     line.getJournalEntry();
 
+
             /*
-             * Reversed entries must not remain part of the
+             * Reversed entries do not remain part of
              * accrued-interest calculation.
              */
             if (
@@ -1350,9 +1354,8 @@ public class AccountingService {
 
 
         /*
-         * Important:
-         *
-         * expense.getAmount() may be BigDecimal.
+         * Amount remains double.
+         * No rounding is applied.
          */
         double amount =
                 money(expense.getAmount());
@@ -1593,9 +1596,9 @@ public class AccountingService {
                         )
                         .createdBy(
                                 reversedBy != null
-                                        && !reversedBy.isBlank()
-                                                ? reversedBy
-                                                : "SYSTEM"
+                                && !reversedBy.isBlank()
+                                        ? reversedBy
+                                        : "SYSTEM"
                         )
                         .reversed(false)
                         .build();
@@ -1619,8 +1622,7 @@ public class AccountingService {
         /*
          * Mark the original entry reversed.
          *
-         * The reversal entry itself remains active and therefore
-         * represents the accounting correction.
+         * The reversal entry itself remains active.
          */
         original.setReversed(true);
 
@@ -1856,10 +1858,6 @@ public class AccountingService {
                                 line.getJournalEntry();
 
 
-                        /*
-                         * Reversed original entries are excluded.
-                         * Their reversal entries remain included.
-                         */
                         if (
                                 entry != null
                                 && Boolean.TRUE.equals(
@@ -1958,12 +1956,15 @@ public class AccountingService {
                 totalCredit
         );
 
+        /*
+         * No .01 tolerance.
+         */
         result.put(
                 "balanced",
-                Math.abs(
-                        totalDebit -
+                Double.compare(
+                        totalDebit,
                         totalCredit
-                ) < 0.01
+                ) == 0
         );
 
 
@@ -2073,24 +2074,38 @@ public class AccountingService {
                     case ASSET -> {
 
                         /*
-                         * 1200 Loan Loss Reserve is a
-                         * credit-normal contra-asset.
+                         * Normal debit asset:
+                         *   positive balance increases assets.
                          *
-                         * netBalance() already returns the
-                         * correct signed balance.
+                         * Credit-normal asset such as
+                         * Loan Loss Reserve:
+                         *   positive balance reduces assets.
                          */
-                        totalAssets +=
-                                balance;
+                        if (
+                                acc.getNormalBalance()
+                                        == ChartOfAccount.NormalBalance.CREDIT
+                        ) {
+
+                            totalAssets -= balance;
+
+                        } else {
+
+                            totalAssets += balance;
+                        }
                     }
+
 
                     case LIABILITY ->
                             totalLiabilities += balance;
 
+
                     case EQUITY ->
                             totalEquity += balance;
 
+
                     case INCOME ->
                             totalIncome += balance;
+
 
                     case EXPENSE ->
                             totalExpense += balance;
@@ -2179,11 +2194,15 @@ public class AccountingService {
                 balanceDifference
         );
 
+        /*
+         * No .01 tolerance.
+         */
         result.put(
                 "balanced",
-                Math.abs(
-                        balanceDifference
-                ) < 0.01
+                Double.compare(
+                        balanceDifference,
+                        0.0
+                ) == 0
         );
 
 
@@ -2337,16 +2356,17 @@ public class AccountingService {
                 perAccount.entrySet()
         ) {
 
+            /*
+             * No normalization and no rounding.
+             */
             double amount =
-                    normalize(
-                            entry.getValue()
-                    );
+                    entry.getValue();
 
 
             /*
-             * Ignore zero-value accounts in the report.
+             * Only an actual mathematical zero is skipped.
              */
-            if (Math.abs(amount) < 0.005) {
+            if (amount == 0.0) {
                 continue;
             }
 
@@ -2505,7 +2525,7 @@ public class AccountingService {
 
 
                     /*
-                     * Cash and Bank account.
+                     * Only Cash and Bank account.
                      */
                     if (
                             !"1000".equals(
@@ -2525,7 +2545,7 @@ public class AccountingService {
 
 
                     /*
-                     * For cash:
+                     * Cash:
                      *
                      * Debit  = cash inflow
                      * Credit = cash outflow
@@ -2637,6 +2657,11 @@ public class AccountingService {
                         );
 
 
+        /*
+         * [0] = disbursed
+         * [1] = collected
+         * [2] = fee income
+         */
         Map<String, double[]> byBranch =
                 new LinkedHashMap<>();
 
@@ -2674,49 +2699,97 @@ public class AccountingService {
                         );
 
 
-                double debitTotal =
-                        entry.getLines() == null
-                                ? 0.0
-                                : entry.getLines()
-                                        .stream()
-                                        .filter(
-                                                l ->
-                                                        l != null
-                                        )
-                                        .mapToDouble(
-                                                l ->
-                                                        money(
-                                                                l.getDebit()
-                                                        )
-                                        )
-                                        .sum();
-
-
                 String source =
                         entry.getSourceType() != null
                                 ? entry.getSourceType()
                                 : "";
 
 
-                switch (source) {
+                /*
+                 * Branch summary is based on the actual
+                 * Cash account rather than all debit lines.
+                 */
+                double cashInflow = 0.0;
 
-                    case "LOAN_DISBURSEMENT" ->
+                double cashOutflow = 0.0;
 
-                            totals[0] +=
-                                    debitTotal;
 
-                    case "PAYMENT_RECEIVED" ->
+                if (entry.getLines() != null) {
 
-                            totals[1] +=
-                                    debitTotal;
+                    for (JournalLine line :
+                            entry.getLines()) {
 
-                    case "PROCESSING_FEE" ->
+                        if (
+                                line == null
+                                || line.getAccount() == null
+                        ) {
+                            continue;
+                        }
 
-                            totals[2] +=
-                                    debitTotal;
 
-                    default -> {
+                        if (
+                                !"1000".equals(
+                                        line.getAccount().getCode()
+                                )
+                        ) {
+                            continue;
+                        }
+
+
+                        cashInflow +=
+                                money(
+                                        line.getDebit()
+                                );
+
+                        cashOutflow +=
+                                money(
+                                        line.getCredit()
+                                );
                     }
+                }
+
+
+                /*
+                 * Loan disbursement:
+                 *
+                 * Cash leaves the institution.
+                 * Therefore use the cash credit.
+                 */
+                if (
+                        "LOAN_DISBURSEMENT".equals(source)
+                ) {
+
+                    totals[0] +=
+                            cashOutflow;
+                }
+
+
+                /*
+                 * Payment received:
+                 *
+                 * Cash enters the institution.
+                 * Therefore use the cash debit.
+                 */
+                else if (
+                        "PAYMENT_RECEIVED".equals(source)
+                ) {
+
+                    totals[1] +=
+                            cashInflow;
+                }
+
+
+                /*
+                 * Processing fee:
+                 *
+                 * Cash enters the institution.
+                 */
+                else if (
+                        "PROCESSING_FEE".equals(source)
+                ) {
+
+                    totals[2] +=
+                            cashInflow;
                 }
             }
         }
@@ -2830,22 +2903,25 @@ public class AccountingService {
         }
 
 
+        /*
+         * Return balance according to the account's
+         * normal balance.
+         *
+         * No rounding.
+         * No normalization.
+         */
         if (
                 acc.getNormalBalance()
                         == ChartOfAccount.NormalBalance.DEBIT
         ) {
 
-            return normalize(
-                    debit -
-                    credit
-            );
+            return debit -
+                    credit;
         }
 
 
-        return normalize(
-                credit -
-                debit
-        );
+        return credit -
+                debit;
     }
 
 
@@ -2880,4 +2956,3 @@ public class AccountingService {
         }
     }
 }
-

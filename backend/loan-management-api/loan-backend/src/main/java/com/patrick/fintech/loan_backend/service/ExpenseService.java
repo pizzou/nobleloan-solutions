@@ -9,7 +9,9 @@ import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.repository.BankAccountRepository;
 import com.patrick.fintech.loan_backend.repository.BranchRepository;
 import com.patrick.fintech.loan_backend.repository.ExpenseRepository;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -87,35 +89,53 @@ public class ExpenseService {
         // BASIC VALIDATION
         // ========================================================
 
-        if (org == null) {
+        if (org == null || org.getId() == null) {
+
             throw new IllegalArgumentException(
                     "Organization is required"
             );
         }
 
-        if (amount == null || amount <= 0) {
+        if (amount == null) {
+
+            throw new IllegalArgumentException(
+                    "Expense amount is required"
+            );
+        }
+
+        /*
+         * Keep DOUBLE.
+         *
+         * IMPORTANT:
+         * No rounding is performed here.
+         *
+         * The exact double value supplied by the application
+         * is passed through to the Expense entity and then to
+         * AccountingService.
+         */
+        if (!Double.isFinite(amount)) {
+
+            throw new IllegalArgumentException(
+                    "Expense amount must be a finite number"
+            );
+        }
+
+        if (amount <= 0.0) {
+
             throw new IllegalArgumentException(
                     "Expense amount must be greater than zero"
             );
         }
 
-        /*
-         * Keep Double.
-         *
-         * Round to two decimal places before saving.
-         *
-         * IMPORTANT:
-         * This does not change the database type.
-         */
-        amount = Math.round(amount * 100.0) / 100.0;
-
         if (category == null) {
+
             throw new IllegalArgumentException(
                     "Expense category is required"
             );
         }
 
         if (paymentAccountId == null) {
+
             throw new IllegalArgumentException(
                     "Payment account is required"
             );
@@ -132,8 +152,8 @@ public class ExpenseService {
                                 paymentAccountId,
                                 org.getId()
                         )
-                        .orElseThrow(() ->
-                                new IllegalArgumentException(
+                        .orElseThrow(
+                                () -> new IllegalArgumentException(
                                         "Payment account not found: "
                                                 + paymentAccountId
                                 )
@@ -163,8 +183,8 @@ public class ExpenseService {
                                     branchId,
                                     org.getId()
                             )
-                            .orElseThrow(() ->
-                                    new IllegalArgumentException(
+                            .orElseThrow(
+                                    () -> new IllegalArgumentException(
                                             "Branch not found: "
                                                     + branchId
                                     )
@@ -177,6 +197,7 @@ public class ExpenseService {
         // ========================================================
 
         if (paymentMethod == null) {
+
             paymentMethod =
                     Expense.PaymentMethod.CASH;
         }
@@ -253,6 +274,13 @@ public class ExpenseService {
 
                         .category(category)
 
+                        /*
+                         * Store the original DOUBLE value.
+                         *
+                         * No Math.round().
+                         * No /100.
+                         * No forced 2-decimal conversion.
+                         */
                         .amount(amount)
 
                         .currency("RWF")
@@ -303,7 +331,7 @@ public class ExpenseService {
 
 
         // ========================================================
-        // SAVE
+        // SAVE EXPENSE
         // ========================================================
 
         expense =
@@ -324,7 +352,8 @@ public class ExpenseService {
         // STORE JOURNAL ENTRY
         // ========================================================
 
-        if (entry != null) {
+        if (entry != null
+                && entry.getId() != null) {
 
             expense.setJournalEntryId(
                     entry.getId()
@@ -355,12 +384,14 @@ public class ExpenseService {
     ) {
 
         if (orgId == null) {
+
             throw new IllegalArgumentException(
                     "Organization ID is required"
             );
         }
 
         if (pageable == null) {
+
             throw new IllegalArgumentException(
                     "Pageable is required"
             );
@@ -388,12 +419,14 @@ public class ExpenseService {
     ) {
 
         if (id == null) {
+
             throw new IllegalArgumentException(
                     "Expense ID is required"
             );
         }
 
         if (orgId == null) {
+
             throw new IllegalArgumentException(
                     "Organization ID is required"
             );
@@ -404,8 +437,8 @@ public class ExpenseService {
                         id,
                         orgId
                 )
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
+                .orElseThrow(
+                        () -> new IllegalArgumentException(
                                 "Expense not found: " + id
                         )
                 );
@@ -442,6 +475,10 @@ public class ExpenseService {
         }
 
 
+        /*
+         * Reverse the corresponding GL entry before marking
+         * the expense as void.
+         */
         if (expense.getJournalEntryId() != null) {
 
             accountingService.reverseExpense(
@@ -484,10 +521,12 @@ public class ExpenseService {
     ) {
 
         if (orgId == null) {
+
             throw new IllegalArgumentException(
                     "Organization ID is required"
             );
         }
+
 
         if (from == null) {
 
@@ -496,9 +535,12 @@ public class ExpenseService {
                             .withDayOfMonth(1);
         }
 
+
         if (to == null) {
+
             to = LocalDate.now();
         }
+
 
         if (from.isAfter(to)) {
 
@@ -520,23 +562,37 @@ public class ExpenseService {
                 new LinkedHashMap<>();
 
 
-        for (Object[] row : rows) {
+        if (rows != null) {
 
-            Expense.ExpenseCategory category =
-                    (Expense.ExpenseCategory) row[0];
+            for (Object[] row : rows) {
 
-            Object total =
-                    row[1];
+                if (row == null
+                        || row.length < 2
+                        || row[0] == null) {
 
-            byCategory.put(
-                    category.getLabel(),
-                    total
-            );
+                    continue;
+                }
+
+
+                Expense.ExpenseCategory category =
+                        (Expense.ExpenseCategory) row[0];
+
+
+                Object total =
+                        row[1];
+
+
+                byCategory.put(
+                        category.getLabel(),
+                        total
+                );
+            }
         }
 
 
         Map<String, Object> result =
                 new LinkedHashMap<>();
+
 
         result.put(
                 "from",
@@ -576,8 +632,8 @@ public class ExpenseService {
             MultipartFile receipt
     ) throws IOException {
 
-        if (receipt == null ||
-                receipt.isEmpty()) {
+        if (receipt == null
+                || receipt.isEmpty()) {
 
             return;
         }
@@ -595,8 +651,8 @@ public class ExpenseService {
                 receipt.getContentType();
 
 
-        if (contentType == null ||
-                !ALLOWED_RECEIPT_TYPES.contains(
+        if (contentType == null
+                || !ALLOWED_RECEIPT_TYPES.contains(
                         contentType.toLowerCase()
                 )) {
 
@@ -807,7 +863,7 @@ public class ExpenseService {
 
     private boolean isBlank(String value) {
 
-        return value == null ||
-                value.trim().isEmpty();
+        return value == null
+                || value.trim().isEmpty();
     }
 }
