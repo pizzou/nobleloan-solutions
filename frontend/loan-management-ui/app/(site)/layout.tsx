@@ -24,22 +24,16 @@ interface TenantConfig {
   slug: string;
   country: string;
   currency: string;
-
   primaryColor: string;
   accentColor: string;
-
   logoUrl?: string;
-
   contactEmail?: string;
   contactPhone?: string;
-
   website?: string;
   address?: string;
-
   tagline?: string;
   mission?: string;
   vision?: string;
-
   founded?: string;
   registrationNumber?: string;
 
@@ -107,23 +101,13 @@ const API_BASE =
   'http://localhost:8080/api';
 
 /* ============================================================
-   NOBLE LOAN SOLUTIONS LOGO
-   ============================================================
+   BRAND COLORS
+   ============================================================ */
 
-   IMPORTANT:
-
-   Save the SVG file here:
-
-   public/images/noble-loan-solutions-logo.svg
-
-   It will then be available at:
-
-   /images/noble-loan-solutions-logo.svg
-
-============================================================ */
-
-const LOGO_SRC =
-  '/images/noble-loan-solutions-logo.svg';
+const BRAND_NAVY = '#0D2C54';
+const BRAND_NAVY_DARK = '#071B35';
+const BRAND_GOLD = '#D4AF37';
+const BRAND_GOLD_DARK = '#B8941F';
 
 /* ============================================================
    FALLBACK TENANT
@@ -131,19 +115,122 @@ const LOGO_SRC =
 
 const FALLBACK_TENANT: TenantConfig = {
   name: 'Noble Loan Solutions',
-
   slug: TENANT_SLUG,
-
   country: 'Rwanda',
-
   currency: 'RWF',
-
-  primaryColor: '#0D2C54',
-
-  accentColor: '#D4AF37',
-
+  primaryColor: BRAND_NAVY,
+  accentColor: BRAND_GOLD,
   services: [],
 };
+
+/* ============================================================
+   NOBLE LOGO
+   ============================================================ */
+
+function NobleLogo({
+  className = '',
+  showText = true,
+}: {
+  className?: string;
+  showText?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center ${className}`}
+      aria-label="Noble Loan Solutions"
+    >
+      {/* Shield */}
+      <svg
+        viewBox="0 0 90 100"
+        width="52"
+        height="58"
+        role="img"
+        aria-label="Noble Loan Solutions logo"
+        className="flex-shrink-0"
+      >
+        {/* Outer shield */}
+        <path
+          d="
+            M45 5
+            Q73 5 80 12
+            Q83 52 45 93
+            Q7 52 10 12
+            Q17 5 45 5
+            Z
+          "
+          fill="none"
+          stroke={BRAND_GOLD}
+          strokeWidth="5"
+          strokeLinejoin="round"
+        />
+
+        {/* Inner shield */}
+        <path
+          d="
+            M45 12
+            Q68 12 73 17
+            Q75 49 45 83
+            Q15 49 17 17
+            Q22 12 45 12
+            Z
+          "
+          fill="none"
+          stroke={BRAND_GOLD}
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+
+        {/* Noble N */}
+        <text
+          x="45"
+          y="64"
+          textAnchor="middle"
+          fontFamily="Georgia, 'Times New Roman', serif"
+          fontSize="48"
+          fontWeight="700"
+          fill={BRAND_GOLD}
+        >
+          N
+        </text>
+      </svg>
+
+      {/* Company name */}
+      {showText && (
+        <div className="ml-3 leading-none">
+          <div
+            className="font-bold tracking-[0.08em]"
+            style={{
+              color: BRAND_NAVY,
+              fontSize: '20px',
+            }}
+          >
+            NOBLE
+          </div>
+
+          <div
+            className="font-light tracking-[0.04em]"
+            style={{
+              color: BRAND_NAVY,
+              fontSize: '14px',
+            }}
+          >
+            LOAN SOLUTIONS
+          </div>
+
+          <div
+            className="mt-1 font-semibold uppercase tracking-[0.18em]"
+            style={{
+              color: BRAND_GOLD_DARK,
+              fontSize: '7px',
+            }}
+          >
+            Financial Support Partner
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ============================================================
    ICONS
@@ -162,24 +249,7 @@ function IconPhone() {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path
-        d="
-          M22 16.92v3
-          a2 2 0 0 1-2.18 2
-          19.79 19.79 0 0 1-8.63-3.07
-          19.5 19.5 0 0 1-6-6
-          19.79 19.79 0 0 1-3.07-8.67
-          A2 2 0 0 1 4.11 2h3
-          a2 2 0 0 1 2 1.72
-          c.127.96.361 1.903.7 2.81
-          a2 2 0 0 1-.45 2.11L8.09 9.91
-          a16 16 0 0 0 6 6
-          l1.27-1.27
-          a2 2 0 0 1 2.11-.45
-          c.907.339 1.85.573 2.81.7
-          A2 2 0 0 1 22 16.92z
-        "
-      />
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 11.19 19a19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.11 4.33 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" />
     </svg>
   );
 }
@@ -197,16 +267,8 @@ function IconMail() {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path
-        d="
-          M22 6
-          c0-1.1-.9-2-2-2H4
-          c-1.1 0-2 .9-2 2v12
-          c0 1.1.9 2 2 2h16
-          c1.1 0 2-.9 2-2V6z
-        "
-      />
-
+      <path d="M4 4h16v16H4z" opacity="0" />
+      <path d="M22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6z" />
       <path d="m22 6-10 7L2 6" />
     </svg>
   );
@@ -226,14 +288,13 @@ function IconShield() {
       aria-hidden="true"
     >
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-
       <path d="m9 12 2 2 4-4" />
     </svg>
   );
 }
 
 /* ============================================================
-   MAIN LAYOUT
+   SITE LAYOUT
    ============================================================ */
 
 export default function SiteLayout({
@@ -244,10 +305,6 @@ export default function SiteLayout({
   const pathname = usePathname();
 
   const slug = TENANT_SLUG;
-
-  /* ==========================================================
-     STATE
-     ========================================================== */
 
   const [tenant, setTenant] =
     useState<TenantConfig | null>(null);
@@ -274,7 +331,7 @@ export default function SiteLayout({
     fetch(
       `${API_BASE}/public/tenant/${slug}`
     )
-      .then((response) => {
+      .then(async (response) => {
         if (!response.ok) {
           throw new Error(
             `Tenant request failed: ${response.status}`
@@ -284,9 +341,7 @@ export default function SiteLayout({
         return response.json();
       })
       .then((configRes) => {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
 
         const data =
           configRes?.data;
@@ -327,18 +382,18 @@ export default function SiteLayout({
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <div
-          className="
-            h-9
-            w-9
-            rounded-full
-            border-2
-            border-[#0D2C54]
-            border-t-transparent
-            animate-spin
-          "
-        />
+      <div className="flex min-h-screen items-center justify-center bg-white">
+        <div className="flex flex-col items-center gap-4">
+          <NobleLogo showText={false} />
+
+          <div
+            className="h-7 w-7 animate-spin rounded-full border-2 border-gray-200 border-t-[#D4AF37]"
+          />
+
+          <p className="text-xs font-medium tracking-wide text-gray-400">
+            Loading Noble Loan Solutions
+          </p>
+        </div>
       </div>
     );
   }
@@ -349,36 +404,10 @@ export default function SiteLayout({
 
   if (notFound || !tenant) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
-        <div
-          className="
-            w-full
-            max-w-md
-            rounded-2xl
-            border
-            border-gray-200
-            bg-white
-            p-8
-            text-center
-            shadow-sm
-          "
-        >
-          <div
-            className="
-              mx-auto
-              mb-5
-              flex
-              h-14
-              w-14
-              items-center
-              justify-center
-              rounded-full
-              bg-[#0D2C54]/5
-            "
-          >
-            <span className="text-xl">
-              !
-            </span>
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
+        <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+          <div className="mb-6 flex justify-center">
+            <NobleLogo showText={false} />
           </div>
 
           <h1 className="mb-2 text-xl font-bold text-gray-900">
@@ -387,8 +416,8 @@ export default function SiteLayout({
 
           <p className="text-sm leading-6 text-gray-500">
             We couldn't reach our services.
-            Please try again shortly, or
-            contact us directly if this persists.
+            Please try again shortly, or contact
+            us directly if this persists.
           </p>
         </div>
       </div>
@@ -422,44 +451,16 @@ export default function SiteLayout({
     },
   ];
 
-  /* ==========================================================
-     BRAND COLORS
-     ========================================================== */
+  const isActive = (href: string) =>
+    pathname === href;
 
   const primary =
     tenant.primaryColor ||
-    '#0D2C54';
-
-  const accent =
-    tenant.accentColor ||
-    '#D4AF37';
-
-  /* ==========================================================
-     ACTIVE ROUTE
-     ========================================================== */
-
-  const isActive = (
-    href: string
-  ) => pathname === href;
-
-  /* ==========================================================
-     CLOSE MOBILE MENU AFTER NAVIGATION
-     ========================================================== */
-
-  const closeMenu = () => {
-    setMenuOpen(false);
-  };
-
-  /* ==========================================================
-     RENDER
-     ========================================================== */
+    BRAND_NAVY;
 
   return (
     <TenantCtx.Provider value={tenant}>
-
-      <OfflineProvider
-        authHeader={() => ({})}
-      />
+      <OfflineProvider authHeader={() => ({})} />
 
       <ToastContainer />
 
@@ -467,28 +468,15 @@ export default function SiteLayout({
 
         {/* ====================================================
             TOP UTILITY BAR
-        ==================================================== */}
+            ==================================================== */}
 
         <div
-          className="
-            bg-[#07152A]
-            text-white/80
-          "
+          className="border-b border-white/10 px-4 py-2 text-xs text-white/80"
+          style={{
+            backgroundColor: BRAND_NAVY_DARK,
+          }}
         >
-          <div
-            className="
-              mx-auto
-              flex
-              max-w-7xl
-              items-center
-              justify-between
-              px-4
-              py-2
-              text-xs
-            "
-          >
-
-            {/* CONTACT */}
+          <div className="mx-auto flex max-w-7xl items-center justify-between">
 
             <div className="flex items-center gap-6">
 
@@ -507,8 +495,6 @@ export default function SiteLayout({
               )}
 
             </div>
-
-            {/* REGULATORY */}
 
             <div className="flex items-center gap-1.5 text-white/60">
 
@@ -529,71 +515,27 @@ export default function SiteLayout({
 
         {/* ====================================================
             MAIN NAVIGATION
-        ==================================================== */}
+            ==================================================== */}
 
-        <nav
-          className="
-            sticky
-            top-0
-            z-50
-            border-b
-            border-gray-200
-            bg-white/95
-            backdrop-blur-md
-          "
-        >
+        <nav className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 shadow-sm backdrop-blur">
 
-          <div
-            className="
-              mx-auto
-              flex
-              max-w-7xl
-              items-center
-              justify-between
-              px-4
-              py-3
-            "
-          >
+          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
 
-            {/* ==================================================
-                BRAND LOGO
-            ================================================== */}
+            {/* BRAND */}
 
             <Link
               href="/"
-              className="
-                flex
-                min-w-0
-                items-center
-              "
+              className="flex items-center"
+              aria-label="Noble Loan Solutions home"
             >
-
-              <img
-                src={LOGO_SRC}
-                alt="Noble Loan Solutions"
-                width={500}
-                height={100}
-                className="
-                  block
-                  h-auto
-                  w-auto
-                  max-h-12
-                  max-w-[270px]
-                  object-contain
-                "
-                draggable={false}
-              />
-
+              <NobleLogo />
             </Link>
 
-            {/* ==================================================
-                DESKTOP NAVIGATION
-            ================================================== */}
+            {/* DESKTOP NAV */}
 
             <div className="hidden items-center gap-1 md:flex">
 
               {navLinks.map((link) => {
-
                 const active =
                   isActive(link.href);
 
@@ -602,36 +544,30 @@ export default function SiteLayout({
                     key={link.href}
                     href={link.href}
                     className={`
-                      rounded-md
-                      border-b-2
+                      relative
                       px-4
                       py-2.5
                       text-sm
                       font-semibold
-                      transition-all
-                      duration-200
-
+                      transition-colors
                       ${
                         active
-                          ? 'bg-gray-50'
-                          : `
-                            border-transparent
-                            text-gray-600
-                            hover:bg-gray-50
-                            hover:text-gray-900
-                          `
+                          ? 'text-[#0D2C54]'
+                          : 'text-gray-600 hover:text-[#0D2C54]'
                       }
                     `}
-                    style={
-                      active
-                        ? {
-                            color: primary,
-                            borderColor: primary,
-                          }
-                        : undefined
-                    }
                   >
                     {link.label}
+
+                    {active && (
+                      <span
+                        className="absolute bottom-0 left-4 right-4 h-0.5 rounded-full"
+                        style={{
+                          backgroundColor:
+                            BRAND_GOLD,
+                        }}
+                      />
+                    )}
                   </Link>
                 );
               })}
@@ -641,8 +577,8 @@ export default function SiteLayout({
               <Link
                 href="/login"
                 className="
-                  ml-2
-                  rounded-md
+                  ml-3
+                  rounded-lg
                   border
                   border-gray-300
                   px-4
@@ -650,33 +586,35 @@ export default function SiteLayout({
                   text-sm
                   font-semibold
                   text-gray-700
-                  transition-all
-                  hover:border-gray-400
+                  transition
+                  hover:border-[#0D2C54]
                   hover:bg-gray-50
+                  hover:text-[#0D2C54]
                 "
               >
                 Staff Login
               </Link>
 
-              {/* APPLY NOW */}
+              {/* APPLY */}
 
               <Link
                 href="/apply"
                 className="
                   ml-1
-                  rounded-md
+                  rounded-lg
                   px-5
                   py-2.5
                   text-sm
                   font-bold
                   text-white
                   shadow-sm
-                  transition-all
+                  transition
                   hover:-translate-y-0.5
                   hover:shadow-md
                 "
                 style={{
-                  backgroundColor: primary,
+                  backgroundColor:
+                    primary,
                 }}
               >
                 Apply Now
@@ -684,20 +622,15 @@ export default function SiteLayout({
 
             </div>
 
-            {/* ==================================================
-                MOBILE MENU BUTTON
-            ================================================== */}
+            {/* MOBILE MENU BUTTON */}
 
             <button
               type="button"
               className="
-                flex
-                h-10
-                w-10
-                flex-col
-                items-center
-                justify-center
                 rounded-lg
+                p-2
+                transition
+                hover:bg-gray-100
                 md:hidden
               "
               onClick={() =>
@@ -706,37 +639,26 @@ export default function SiteLayout({
                     !previous
                 )
               }
-              aria-label="Toggle navigation"
+              aria-label="Toggle menu"
               aria-expanded={menuOpen}
             >
-              <span className="block h-0.5 w-6 bg-gray-700" />
-              <span className="my-1.5 block h-0.5 w-6 bg-gray-700" />
-              <span className="block h-0.5 w-6 bg-gray-700" />
+              <div className="my-1 h-0.5 w-6 bg-gray-700" />
+              <div className="my-1 h-0.5 w-6 bg-gray-700" />
+              <div className="my-1 h-0.5 w-6 bg-gray-700" />
             </button>
 
           </div>
 
           {/* ==================================================
-              MOBILE NAVIGATION
-          ================================================== */}
+              MOBILE MENU
+              ================================================== */}
 
           {menuOpen && (
-            <div
-              className="
-                border-t
-                border-gray-100
-                bg-white
-                px-4
-                py-4
-                shadow-lg
-                md:hidden
-              "
-            >
+            <div className="border-t border-gray-100 bg-white px-4 py-4 shadow-lg md:hidden">
 
               <div className="space-y-1">
 
                 {navLinks.map((link) => {
-
                   const active =
                     isActive(link.href);
 
@@ -744,7 +666,9 @@ export default function SiteLayout({
                     <Link
                       key={link.href}
                       href={link.href}
-                      onClick={closeMenu}
+                      onClick={() =>
+                        setMenuOpen(false)
+                      }
                       className={`
                         block
                         rounded-lg
@@ -752,21 +676,13 @@ export default function SiteLayout({
                         py-3
                         text-sm
                         font-semibold
-                        transition-colors
-
+                        transition
                         ${
                           active
-                            ? 'bg-gray-50'
+                            ? 'bg-gray-50 text-[#0D2C54]'
                             : 'text-gray-700 hover:bg-gray-50'
                         }
                       `}
-                      style={
-                        active
-                          ? {
-                              color: primary,
-                            }
-                          : undefined
-                      }
                     >
                       {link.label}
                     </Link>
@@ -775,51 +691,51 @@ export default function SiteLayout({
 
               </div>
 
-              {/* MOBILE APPLY */}
+              <div className="mt-3 grid grid-cols-2 gap-2">
 
-              <Link
-                href="/apply"
-                onClick={closeMenu}
-                className="
-                  mt-3
-                  block
-                  rounded-lg
-                  px-4
-                  py-3
-                  text-center
-                  text-sm
-                  font-bold
-                  text-white
-                  shadow-sm
-                "
-                style={{
-                  backgroundColor: primary,
-                }}
-              >
-                Apply Now
-              </Link>
+                <Link
+                  href="/login"
+                  onClick={() =>
+                    setMenuOpen(false)
+                  }
+                  className="
+                    rounded-lg
+                    border
+                    border-gray-300
+                    px-4
+                    py-3
+                    text-center
+                    text-sm
+                    font-semibold
+                    text-gray-700
+                  "
+                >
+                  Staff Login
+                </Link>
 
-              {/* MOBILE LOGIN */}
+                <Link
+                  href="/apply"
+                  onClick={() =>
+                    setMenuOpen(false)
+                  }
+                  className="
+                    rounded-lg
+                    px-4
+                    py-3
+                    text-center
+                    text-sm
+                    font-bold
+                    text-white
+                  "
+                  style={{
+                    backgroundColor:
+                      primary,
+                  }}
+                >
+                  Apply Now
+                </Link>
 
-              <Link
-                href="/login"
-                onClick={closeMenu}
-                className="
-                  mt-2
-                  block
-                  rounded-lg
-                  px-4
-                  py-3
-                  text-center
-                  text-sm
-                  font-semibold
-                "
-                style={{
-                  color: primary,
-                }}
-              >
-                Staff Login →
-              </Link>
+              </div>
 
             </div>
           )}
@@ -828,7 +744,7 @@ export default function SiteLayout({
 
         {/* ====================================================
             PAGE CONTENT
-        ==================================================== */}
+            ==================================================== */}
 
         <main>
           {children}
@@ -836,69 +752,32 @@ export default function SiteLayout({
 
         {/* ====================================================
             FOOTER
-        ==================================================== */}
+            ==================================================== */}
 
         <footer
-          className="
-            mt-16
-            bg-[#07152A]
-            text-white
-          "
+          className="mt-16 text-white"
+          style={{
+            backgroundColor:
+              BRAND_NAVY_DARK,
+          }}
         >
 
-          <div
-            className="
-              mx-auto
-              grid
-              max-w-7xl
-              grid-cols-1
-              gap-10
-              px-4
-              py-14
-              md:grid-cols-4
-            "
-          >
+          <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-4 py-14 md:grid-cols-4">
 
-            {/* ==================================================
-                COMPANY
-            ================================================== */}
+            {/* BRAND */}
 
             <div className="md:col-span-2">
 
-              <img
-                src={LOGO_SRC}
-                alt="Noble Loan Solutions"
-                width={500}
-                height={100}
-                className="
-                  mb-5
-                  block
-                  h-auto
-                  w-auto
-                  max-h-12
-                  max-w-[280px]
-                  object-contain
-                "
-                draggable={false}
-              />
+              <div className="mb-5">
+                <NobleLogo />
+              </div>
 
-              {tenant.mission && (
-                <div className="
-                  mb-5
-                  max-w-md
-                  text-sm
-                  leading-7
-                  text-white/60
-                ">
-                  {tenant.mission}
-                </div>
-              )}
+              <div className="mb-5 max-w-md text-sm leading-7 text-white/60">
+                {tenant.mission ||
+                  'Reliable financial support designed to help individuals and businesses move forward with confidence.'}
+              </div>
 
-              <div className="
-                space-y-2
-                text-sm
-                text-white/50
-              ">
+              <div className="space-y-2 text-sm text-white/50">
 
                 {tenant.address && (
                   <div>
@@ -924,28 +803,24 @@ export default function SiteLayout({
 
             </div>
 
-            {/* ==================================================
-                QUICK LINKS
-            ================================================== */}
+            {/* QUICK LINKS */}
 
             <div>
 
-              <div className="
-                mb-5
-                text-xs
-                font-bold
-                uppercase
-                tracking-[0.18em]
-                text-white/90
-              ">
+              <div
+                className="
+                  mb-4
+                  text-xs
+                  font-bold
+                  uppercase
+                  tracking-[0.16em]
+                  text-white/90
+                "
+              >
                 Quick Links
               </div>
 
-              <div className="
-                space-y-3
-                text-sm
-                text-white/60
-              ">
+              <div className="space-y-3 text-sm text-white/60">
 
                 {navLinks.map((link) => (
                   <Link
@@ -953,7 +828,7 @@ export default function SiteLayout({
                     href={link.href}
                     className="
                       block
-                      transition-colors
+                      transition
                       hover:text-white
                     "
                   >
@@ -965,28 +840,24 @@ export default function SiteLayout({
 
             </div>
 
-            {/* ==================================================
-                SERVICES
-            ================================================== */}
+            {/* SERVICES */}
 
             <div>
 
-              <div className="
-                mb-5
-                text-xs
-                font-bold
-                uppercase
-                tracking-[0.18em]
-                text-white/90
-              ">
+              <div
+                className="
+                  mb-4
+                  text-xs
+                  font-bold
+                  uppercase
+                  tracking-[0.16em]
+                  text-white/90
+                "
+              >
                 Our Services
               </div>
 
-              <div className="
-                space-y-3
-                text-sm
-                text-white/60
-              ">
+              <div className="space-y-3 text-sm text-white/60">
 
                 {tenant.services
                   ?.slice(0, 5)
@@ -1002,72 +873,40 @@ export default function SiteLayout({
 
           </div>
 
-          {/* ==================================================
-              FOOTER BOTTOM
-          ================================================== */}
+          {/* FOOTER BOTTOM */}
 
-          <div
-            className="
-              border-t
-              border-white/10
-              px-4
-              py-5
-            "
-          >
+          <div className="border-t border-white/10 px-4 py-5">
 
-            <div
-              className="
-                mx-auto
-                flex
-                max-w-7xl
-                flex-col
-                items-center
-                justify-between
-                gap-3
-                text-center
-                text-xs
-                text-white/40
-                md:flex-row
-                md:text-left
-              "
-            >
+            <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 text-xs text-white/40 md:flex-row">
 
               <span>
                 © {new Date().getFullYear()}{' '}
-                {tenant.name}.
-                {' '}
-                All rights reserved.
-                {' '}
+                {tenant.name}. All rights reserved.
+
                 {tenant.registrationNumber
-                  ? `Reg. No. ${tenant.registrationNumber}`
+                  ? ` Reg. No. ${tenant.registrationNumber}`
                   : ''}
               </span>
 
-              <span className="flex items-center gap-4">
+              <span className="flex items-center gap-5">
 
                 <Link
                   href="/terms"
-                  className="
-                    transition-colors
-                    hover:text-white/70
-                  "
+                  className="transition hover:text-white/70"
                 >
                   Terms &amp; Conditions
                 </Link>
 
                 <Link
                   href="/privacy"
-                  className="
-                    transition-colors
-                    hover:text-white/70
-                  "
+                  className="transition hover:text-white/70"
                 >
                   Privacy Policy
                 </Link>
 
               </span>
 
-              <span>
+              <span className="text-center md:text-right">
                 Your deposits and data are protected
                 in line with applicable financial
                 regulations.
@@ -1080,7 +919,6 @@ export default function SiteLayout({
         </footer>
 
       </div>
-
     </TenantCtx.Provider>
   );
 }
