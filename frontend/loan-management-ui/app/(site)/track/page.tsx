@@ -1833,12 +1833,14 @@ return ( <div className="min-h-screen bg-[#F6F8F7] text-gray-900">
   ===================================================== */}
 
   {showPaySheet && result && (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm overflow-y-auto">
+      {/* 👆 Crucial: "overflow-y-auto" allows scrolling if the device screen viewport is very short */}
 
-      <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl overflow-hidden">
+      <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col">
+        {/* 👆 Crucial: "max-h-[calc(100vh-2rem)] flex flex-col" keeps the inner structural layer inside screen bounds */}
 
         <div
-          className="px-6 py-5 text-white"
+          className="px-6 py-5 text-white shrink-0"
           style={{
             background:
               'linear-gradient(135deg, #063B25, #0F1B3D)',
@@ -1890,7 +1892,9 @@ return ( <div className="min-h-screen bg-[#F6F8F7] text-gray-900">
 
         </div>
 
-        <div className="p-6 space-y-5">
+        {/* Modal Scrollable Body */}
+        <div className="p-6 space-y-5 overflow-y-auto flex-1">
+          {/* 👆 Crucial: "overflow-y-auto flex-1" allows your input elements, card layout boxes, and form fields to scroll up and down inside the panel */}
 
           <div>
 
