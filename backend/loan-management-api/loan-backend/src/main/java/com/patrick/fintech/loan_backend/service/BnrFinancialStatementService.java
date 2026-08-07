@@ -1,3 +1,4 @@
+
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.model.ChartOfAccount;
@@ -34,29 +35,18 @@ public class BnrFinancialStatementService {
     /**
      * Builds the accounting-based BNR financial statement.
      *
-     * Sources:
+     * Amounts remain DOUBLE values exactly as recorded.
      *
-     * ChartOfAccount
-     * JournalEntry
-     * JournalLine
-     *
-     * The report contains:
-     *
-     * 1. Statement of Financial Position
-     * 2. Income Statement
-     * 3. Trial Balance control
-     * 4. Accounting balance validation
-     *
-     * IMPORTANT:
+     * No rounding to 2 decimal places is performed.
      *
      * Balance Sheet:
-     *     Uses all accounting transactions up to the report end date.
+     *     Uses cumulative accounting movements through the report end date.
      *
      * Income Statement:
-     *     Uses transactions only between from and to.
+     *     Uses accounting movements between from and to.
      *
-     * This prevents the balance sheet from incorrectly showing only
-     * the current reporting-period movements.
+     * Trial Balance:
+     *     Uses transactions within the requested reporting period.
      */
     public Map<String, Object> buildFinancialStatement(
             Long organizationId,
@@ -81,21 +71,19 @@ public class BnrFinancialStatementService {
                                 organizationId
                         );
 
-
         if (accounts == null) {
             accounts = new ArrayList<>();
         }
 
 
         // ========================================================
-        // BALANCE SHEET ENTRIES
+        // LOAD CUMULATIVE ENTRIES
         // ========================================================
 
         /*
-         * We need the cumulative accounting position through the
-         * report end date.
-         *
-         * PostgreSQL dates support this safely.
+         * We use a very early date rather than the reporting
+         * period start because the Statement of Financial Position
+         * represents the cumulative accounting position.
          */
         LocalDate accountingStart =
                 LocalDate.of(
@@ -113,15 +101,13 @@ public class BnrFinancialStatementService {
                                 to
                         );
 
-
         if (balanceSheetEntries == null) {
-            balanceSheetEntries =
-                    new ArrayList<>();
+            balanceSheetEntries = new ArrayList<>();
         }
 
 
         // ========================================================
-        // PERIOD ENTRIES
+        // LOAD PERIOD ENTRIES
         // ========================================================
 
         List<JournalEntry> periodEntries =
@@ -132,31 +118,33 @@ public class BnrFinancialStatementService {
                                 to
                         );
 
-
         if (periodEntries == null) {
-            periodEntries =
-                    new ArrayList<>();
+            periodEntries = new ArrayList<>();
         }
 
 
         // ========================================================
-        // ACCOUNT BALANCES
+        // CREATE BALANCE MAPS
         // ========================================================
 
         Map<Long, Double> endingBalances =
                 createBalanceMap(accounts);
 
+        Map<Long, Double> cumulativeDebits =
+                createBalanceMap(accounts);
+
+        Map<Long, Double> cumulativeCredits =
+                createBalanceMap(accounts);
 
         Map<Long, Double> periodDebits =
                 createBalanceMap(accounts);
-
 
         Map<Long, Double> periodCredits =
                 createBalanceMap(accounts);
 
 
         // ========================================================
-        // PROCESS BALANCE SHEET TRANSACTIONS
+        // PROCESS CUMULATIVE TRANSACTIONS
         // ========================================================
 
         for (JournalEntry entry : balanceSheetEntries) {
@@ -165,11 +153,17 @@ public class BnrFinancialStatementService {
                     entry,
                     endingBalances
             );
+
+            processPeriodEntry(
+                    entry,
+                    cumulativeDebits,
+                    cumulativeCredits
+            );
         }
 
 
         // ========================================================
-        // PROCESS PERIOD TRANSACTIONS
+        // PROCESS REPORTING PERIOD
         // ========================================================
 
         for (JournalEntry entry : periodEntries) {
@@ -202,20 +196,11 @@ public class BnrFinancialStatementService {
                 new ArrayList<>();
 
 
-        double totalAssets =
-                0.0;
-
-        double totalLiabilities =
-                0.0;
-
-        double totalEquity =
-                0.0;
-
-        double totalIncome =
-                0.0;
-
-        double totalExpenses =
-                0.0;
+        double totalAssets = 0.0;
+        double totalLiabilities = 0.0;
+        double totalEquity = 0.0;
+        double totalIncome = 0.0;
+        double totalExpenses = 0.0;
 
 
         // ========================================================
@@ -257,237 +242,248 @@ public class BnrFinancialStatementService {
                     );
 
 
+            if (account.getType() == null) {
+                continue;
+            }
+
+
             // ====================================================
-            // ASSET / LIABILITY / EQUITY BALANCE
+            // ACCOUNT CLASSIFICATION
             // ====================================================
 
-            if (account.getType() != null) {
+            switch (account.getType()) {
 
-                switch (account.getType()) {
+                // =================================================
+                // ASSETS
+                // =================================================
 
-                    // ============================================
-                    // ASSETS
-                    // ============================================
+                case ASSET -> {
 
-                    case ASSET -> {
-
-                        if (
-                                Math.abs(
-                                        endingBalance
-                                ) >= 0.005
-                        ) {
-
-                            Map<String, Object> row =
-                                    accountRow(
-                                            account,
-                                            endingBalance
-                                    );
-
-
-                            /*
-                             * Account 1200 is treated as a
-                             * contra-asset because your existing
-                             * accounting configuration defines it
-                             * as an asset with credit normal balance.
-                             */
-                            if (
-                                    "1200".equals(
-                                            account.getCode()
-                                    )
-                                    ||
-                                    account.getNormalBalance()
-                                            == ChartOfAccount.NormalBalance.CREDIT
-                            ) {
-
-                                row.put(
-                                        "presentation",
-                                        "CONTRA_ASSET"
-                                );
-
-                                row.put(
-                                        "deduction",
-                                        -Math.abs(
-                                                endingBalance
-                                        )
-                                );
-
-                                totalAssets -=
-                                        Math.abs(
-                                                endingBalance
-                                        );
-
-                            } else {
-
-                                row.put(
-                                        "presentation",
-                                        "ASSET"
-                                );
-
-                                totalAssets +=
-                                        endingBalance;
-                            }
-
-
-                            assets.add(row);
-                        }
+                    if (endingBalance == 0.0) {
+                        continue;
                     }
 
 
-                    // ============================================
-                    // LIABILITIES
-                    // ============================================
-
-                    case LIABILITY -> {
-
-                        if (
-                                Math.abs(
-                                        endingBalance
-                                ) >= 0.005
-                        ) {
-
-                            Map<String, Object> row =
-                                    accountRow(
-                                            account,
-                                            endingBalance
-                                    );
-
-                            row.put(
-                                    "presentation",
-                                    "LIABILITY"
+                    Map<String, Object> row =
+                            accountRow(
+                                    account,
+                                    endingBalance
                             );
 
-                            totalLiabilities +=
-                                    endingBalance;
 
-                            liabilities.add(row);
-                        }
+                    /*
+                     * A credit-normal asset behaves as a
+                     * contra-asset.
+                     *
+                     * This preserves the existing accounting
+                     * configuration in your system.
+                     */
+                    boolean contraAsset =
+                            account.getNormalBalance()
+                                    == ChartOfAccount.NormalBalance.CREDIT;
+
+
+                    if (contraAsset) {
+
+                        row.put(
+                                "presentation",
+                                "CONTRA_ASSET"
+                        );
+
+                        row.put(
+                                "deduction",
+                                -Math.abs(endingBalance)
+                        );
+
+                        totalAssets -=
+                                Math.abs(endingBalance);
+
+                    } else {
+
+                        row.put(
+                                "presentation",
+                                "ASSET"
+                        );
+
+                        totalAssets +=
+                                endingBalance;
                     }
 
 
-                    // ============================================
-                    // EQUITY
-                    // ============================================
+                    assets.add(row);
+                }
 
-                    case EQUITY -> {
 
-                        if (
-                                Math.abs(
-                                        endingBalance
-                                ) >= 0.005
-                        ) {
+                // =================================================
+                // LIABILITIES
+                // =================================================
 
-                            Map<String, Object> row =
-                                    accountRow(
-                                            account,
-                                            endingBalance
-                                    );
+                case LIABILITY -> {
 
-                            row.put(
-                                    "presentation",
-                                    "EQUITY"
-                            );
-
-                            totalEquity +=
-                                    endingBalance;
-
-                            equity.add(row);
-                        }
+                    if (endingBalance == 0.0) {
+                        continue;
                     }
 
 
-                    // ============================================
-                    // INCOME
-                    // ============================================
-
-                    case INCOME -> {
-
-                        double incomeAmount =
-                                credit - debit;
-
-                        if (
-                                Math.abs(
-                                        incomeAmount
-                                ) >= 0.005
-                        ) {
-
-                            Map<String, Object> row =
-                                    accountRow(
-                                            account,
-                                            incomeAmount
-                                    );
-
-                            row.put(
-                                    "presentation",
-                                    "INCOME"
+                    Map<String, Object> row =
+                            accountRow(
+                                    account,
+                                    endingBalance
                             );
 
-                            row.put(
-                                    "periodDebit",
-                                    debit
-                            );
 
-                            row.put(
-                                    "periodCredit",
-                                    credit
-                            );
+                    row.put(
+                            "presentation",
+                            "LIABILITY"
+                    );
 
-                            totalIncome +=
-                                    incomeAmount;
 
-                            income.add(row);
-                        }
+                    totalLiabilities +=
+                            endingBalance;
+
+
+                    liabilities.add(row);
+                }
+
+
+                // =================================================
+                // EQUITY
+                // =================================================
+
+                case EQUITY -> {
+
+                    if (endingBalance == 0.0) {
+                        continue;
                     }
 
 
-                    // ============================================
-                    // EXPENSE
-                    // ============================================
-
-                    case EXPENSE -> {
-
-                        double expenseAmount =
-                                debit - credit;
-
-                        if (
-                                Math.abs(
-                                        expenseAmount
-                                ) >= 0.005
-                        ) {
-
-                            Map<String, Object> row =
-                                    accountRow(
-                                            account,
-                                            expenseAmount
-                                    );
-
-                            row.put(
-                                    "presentation",
-                                    "EXPENSE"
+                    Map<String, Object> row =
+                            accountRow(
+                                    account,
+                                    endingBalance
                             );
 
-                            row.put(
-                                    "periodDebit",
-                                    debit
-                            );
 
-                            row.put(
-                                    "periodCredit",
-                                    credit
-                            );
+                    row.put(
+                            "presentation",
+                            "EQUITY"
+                    );
 
-                            totalExpenses +=
-                                    expenseAmount;
 
-                            expenses.add(row);
-                        }
+                    totalEquity +=
+                            endingBalance;
+
+
+                    equity.add(row);
+                }
+
+
+                // =================================================
+                // INCOME
+                // =================================================
+
+                case INCOME -> {
+
+                    double incomeAmount =
+                            credit - debit;
+
+
+                    if (incomeAmount == 0.0) {
+                        continue;
                     }
+
+
+                    Map<String, Object> row =
+                            accountRow(
+                                    account,
+                                    incomeAmount
+                            );
+
+
+                    row.put(
+                            "presentation",
+                            "INCOME"
+                    );
+
+                    row.put(
+                            "periodDebit",
+                            debit
+                    );
+
+                    row.put(
+                            "periodCredit",
+                            credit
+                    );
+
+                    row.put(
+                            "cumulativeBalance",
+                            endingBalance
+                    );
+
+
+                    totalIncome +=
+                            incomeAmount;
+
+
+                    income.add(row);
+                }
+
+
+                // =================================================
+                // EXPENSE
+                // =================================================
+
+                case EXPENSE -> {
+
+                    double expenseAmount =
+                            debit - credit;
+
+
+                    if (expenseAmount == 0.0) {
+                        continue;
+                    }
+
+
+                    Map<String, Object> row =
+                            accountRow(
+                                    account,
+                                    expenseAmount
+                            );
+
+
+                    row.put(
+                            "presentation",
+                            "EXPENSE"
+                    );
+
+                    row.put(
+                            "periodDebit",
+                            debit
+                    );
+
+                    row.put(
+                            "periodCredit",
+                            credit
+                    );
+
+                    row.put(
+                            "cumulativeBalance",
+                            endingBalance
+                    );
+
+
+                    totalExpenses +=
+                            expenseAmount;
+
+
+                    expenses.add(row);
                 }
             }
         }
 
 
         // ========================================================
-        // NET INCOME
+        // CURRENT PERIOD NET INCOME
         // ========================================================
 
         double netIncome =
@@ -522,51 +518,46 @@ public class BnrFinancialStatementService {
                         liabilitiesPlusEquity;
 
 
+        /*
+         * We do not alter or round the accounting values.
+         *
+         * A very small floating-point calculation difference can
+         * occur because Java double is binary floating point.
+         */
         boolean balanceSheetBalanced =
-                Math.abs(
-                        balanceDifference
-                ) < 0.01;
+                Math.abs(balanceDifference) < 0.000000000001;
 
 
         // ========================================================
         // TRIAL BALANCE
         // ========================================================
 
-        double trialBalanceDebit =
-                0.0;
-
-        double trialBalanceCredit =
-                0.0;
+        double trialBalanceDebit = 0.0;
+        double trialBalanceCredit = 0.0;
 
 
-        /*
-         * Trial balance is based on the period transactions.
-         *
-         * Every journal line contributes to either debit or credit.
-         */
         for (JournalEntry entry : periodEntries) {
 
             if (entry == null) {
                 continue;
             }
 
-            if (
-                    Boolean.TRUE.equals(
-                            entry.getReversed()
-                    )
-            ) {
+
+            /*
+             * Reversed entries are excluded because their reversal
+             * journal entry remains in the ledger.
+             */
+            if (Boolean.TRUE.equals(entry.getReversed())) {
                 continue;
             }
+
 
             if (entry.getLines() == null) {
                 continue;
             }
 
 
-            for (
-                    JournalLine line :
-                    entry.getLines()
-            ) {
+            for (JournalLine line : entry.getLines()) {
 
                 if (line == null) {
                     continue;
@@ -574,15 +565,11 @@ public class BnrFinancialStatementService {
 
 
                 trialBalanceDebit +=
-                        value(
-                                line.getDebit()
-                        );
+                        value(line.getDebit());
 
 
                 trialBalanceCredit +=
-                        value(
-                                line.getCredit()
-                        );
+                        value(line.getCredit());
             }
         }
 
@@ -595,7 +582,7 @@ public class BnrFinancialStatementService {
         boolean trialBalanceBalanced =
                 Math.abs(
                         trialBalanceDifference
-                ) < 0.01;
+                ) < 0.000000000001;
 
 
         // ========================================================
@@ -756,6 +743,7 @@ public class BnrFinancialStatementService {
                 LocalDateTime.now()
         );
 
+
         result.put(
                 "statementOfFinancialPosition",
                 statementOfFinancialPosition
@@ -770,6 +758,7 @@ public class BnrFinancialStatementService {
                 "trialBalance",
                 trialBalance
         );
+
 
         result.put(
                 "accountingBalanced",
@@ -819,14 +808,16 @@ public class BnrFinancialStatementService {
                 new LinkedHashMap<>();
 
 
-        for (
-                ChartOfAccount account :
-                accounts
-        ) {
+        if (accounts == null) {
+            return balances;
+        }
+
+
+        for (ChartOfAccount account : accounts) {
 
             if (
                     account != null
-                    &&
+                            &&
                     account.getId() != null
             ) {
 
@@ -857,10 +848,10 @@ public class BnrFinancialStatementService {
 
 
         /*
-         * Reversed journal entries are excluded.
+         * A reversed journal entry is excluded.
          *
-         * Their reversal journal entry remains and offsets
-         * the original transaction.
+         * The reversal entry itself remains in the ledger and
+         * therefore offsets the original transaction.
          */
         if (
                 Boolean.TRUE.equals(
@@ -876,14 +867,12 @@ public class BnrFinancialStatementService {
         }
 
 
-        for (
-                JournalLine line :
-                entry.getLines()
-        ) {
+        for (JournalLine line : entry.getLines()) {
 
             if (line == null) {
                 continue;
             }
+
 
             if (line.getAccount() == null) {
                 continue;
@@ -900,15 +889,11 @@ public class BnrFinancialStatementService {
 
 
             double debit =
-                    value(
-                            line.getDebit()
-                    );
+                    value(line.getDebit());
 
 
             double credit =
-                    value(
-                            line.getCredit()
-                    );
+                    value(line.getCredit());
 
 
             double movement;
@@ -917,16 +902,18 @@ public class BnrFinancialStatementService {
             if (
                     account.getNormalBalance()
                             ==
-                            ChartOfAccount.NormalBalance.DEBIT
+                    ChartOfAccount.NormalBalance.DEBIT
             ) {
 
                 movement =
-                        debit - credit;
+                        debit -
+                                credit;
 
             } else {
 
                 movement =
-                        credit - debit;
+                        credit -
+                                debit;
             }
 
 
@@ -968,10 +955,7 @@ public class BnrFinancialStatementService {
         }
 
 
-        for (
-                JournalLine line :
-                entry.getLines()
-        ) {
+        for (JournalLine line : entry.getLines()) {
 
             if (line == null) {
                 continue;
@@ -993,15 +977,11 @@ public class BnrFinancialStatementService {
 
 
             double debit =
-                    value(
-                            line.getDebit()
-                    );
+                    value(line.getDebit());
 
 
             double credit =
-                    value(
-                            line.getCredit()
-                    );
+                    value(line.getCredit());
 
 
             debits.merge(
@@ -1034,6 +1014,11 @@ public class BnrFinancialStatementService {
 
 
         row.put(
+                "id",
+                account.getId()
+        );
+
+        row.put(
                 "code",
                 account.getCode()
         );
@@ -1053,6 +1038,12 @@ public class BnrFinancialStatementService {
                 account.getNormalBalance()
         );
 
+        /*
+         * Preserve the original double value.
+         *
+         * No Math.round().
+         * No setScale().
+         */
         row.put(
                 "balance",
                 balance
