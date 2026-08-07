@@ -1,4 +1,3 @@
-
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.model.BankAccount;
@@ -31,7 +30,7 @@ public class BankAccountService {
 
 
     // ============================================================
-    // CREATE
+    // CREATE BANK / CASH ACCOUNT
     // ============================================================
 
     @Transactional
@@ -64,33 +63,27 @@ public class BankAccountService {
             );
         }
 
-        if (!"CASH".equalsIgnoreCase(accountType)
-                && !"BANK".equalsIgnoreCase(accountType)) {
+        String normalizedType =
+                accountType.trim().toUpperCase();
+
+        if (!"CASH".equals(normalizedType)
+                && !"BANK".equals(normalizedType)) {
 
             throw new IllegalArgumentException(
                     "accountType must be CASH or BANK"
             );
         }
 
-        if (!Double.isFinite(openingBalance)) {
-            throw new IllegalArgumentException(
-                    "Opening balance must be a finite number"
-            );
-        }
-
-        if (openingBalance < 0.0) {
+        if (openingBalance < 0) {
             throw new IllegalArgumentException(
                     "Opening balance cannot be negative"
             );
         }
 
-        String normalizedType =
-                accountType.trim().toUpperCase();
 
-
-        // ------------------------------------------------------------
-        // Generate organization-safe GL code
-        // ------------------------------------------------------------
+        // ========================================================
+        // ORGANIZATION-SPECIFIC GL SEQUENCE
+        // ========================================================
 
         long sequence =
                 bankAccountRepo.countByOrganization_Id(
@@ -116,15 +109,15 @@ public class BankAccountService {
         }
 
 
-        // ------------------------------------------------------------
-        // Create dedicated GL account
-        // ------------------------------------------------------------
+        // ========================================================
+        // CREATE GL ACCOUNT
+        // ========================================================
 
         ChartOfAccount glAccount =
                 accountingService.createAccount(
                         org,
                         code,
-                        name.trim(),
+                        name,
                         ChartOfAccount.AccountType.ASSET,
                         ChartOfAccount.NormalBalance.DEBIT
                 );
@@ -137,9 +130,9 @@ public class BankAccountService {
         }
 
 
-        // ------------------------------------------------------------
-        // Create bank/cash account
-        // ------------------------------------------------------------
+        // ========================================================
+        // CREATE BANK ACCOUNT
+        // ========================================================
 
         BankAccount account =
                 BankAccount.builder()
@@ -148,8 +141,16 @@ public class BankAccountService {
                         .glAccount(glAccount)
                         .name(name.trim())
                         .accountType(normalizedType)
-                        .bankName(bankName)
-                        .accountNumber(accountNumber)
+                        .bankName(
+                                bankName != null
+                                        ? bankName.trim()
+                                        : null
+                        )
+                        .accountNumber(
+                                accountNumber != null
+                                        ? accountNumber.trim()
+                                        : null
+                        )
                         .active(true)
                         .build();
 
@@ -165,14 +166,11 @@ public class BankAccountService {
         }
 
 
-        // ------------------------------------------------------------
-        // Opening balance
-        //
-        // DR Bank/Cash
-        // CR Owner's Equity
-        // ------------------------------------------------------------
+        // ========================================================
+        // OPENING BALANCE
+        // ========================================================
 
-        if (openingBalance > 0.0) {
+        if (openingBalance > 0) {
 
             ChartOfAccount equityAccount =
                     accountingService.getEquityAccount(org);
@@ -190,28 +188,29 @@ public class BankAccountService {
                     branch,
                     "BANK_ACCOUNT_OPENING",
                     String.valueOf(account.getId()),
-                    name.trim(),
-                    "Opening balance for " + name.trim(),
+                    name,
+                    "Opening balance for " + name,
 
                     List.of(
 
+                            // DR Cash / Bank
                             JournalLine.builder()
                                     .account(glAccount)
                                     .debit(openingBalance)
                                     .credit(0.0)
                                     .description(
-                                            "Opening balance — "
-                                                    + name.trim()
+                                            "Opening balance — " + name
                                     )
                                     .build(),
 
+                            // CR Equity / Opening balance funding
                             JournalLine.builder()
                                     .account(equityAccount)
                                     .debit(0.0)
                                     .credit(openingBalance)
                                     .description(
                                             "Opening balance funding — "
-                                                    + name.trim()
+                                                    + name
                                     )
                                     .build()
                     )
@@ -227,7 +226,9 @@ public class BankAccountService {
     // GL CODE
     // ============================================================
 
-    private String buildGlCode(long sequence) {
+    private String buildGlCode(
+            long sequence
+    ) {
 
         return "10"
                 + String.format(
@@ -260,8 +261,7 @@ public class BankAccountService {
                         );
 
 
-        return accounts
-                .stream()
+        return accounts.stream()
                 .map(account -> {
 
                     Map<String, Object> row =
@@ -293,7 +293,6 @@ public class BankAccountService {
                             account.getAccountNumber()
                     );
 
-
                     row.put(
                             "active",
                             account.getActive() != null
@@ -302,9 +301,9 @@ public class BankAccountService {
                     );
 
 
-                    // ------------------------------------------------
-                    // Branch
-                    // ------------------------------------------------
+                    // ====================================================
+                    // BRANCH
+                    // ====================================================
 
                     if (account.getBranch() != null) {
 
@@ -332,9 +331,9 @@ public class BankAccountService {
                     }
 
 
-                    // ------------------------------------------------
-                    // Chart of Account
-                    // ------------------------------------------------
+                    // ====================================================
+                    // GL ACCOUNT
+                    // ====================================================
 
                     if (account.getGlAccount() != null) {
 
@@ -372,9 +371,9 @@ public class BankAccountService {
                     }
 
 
-                    // ------------------------------------------------
-                    // Current balance
-                    // ------------------------------------------------
+                    // ====================================================
+                    // CURRENT BALANCE
+                    // ====================================================
 
                     row.put(
                             "balance",
@@ -438,10 +437,9 @@ public class BankAccountService {
                         id,
                         orgId
                 )
-                .orElseThrow(
-                        () -> new IllegalArgumentException(
-                                "Bank account not found: "
-                                        + id
+                .orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "Bank account not found: " + id
                         )
                 );
     }
@@ -451,6 +449,24 @@ public class BankAccountService {
     // BALANCE
     // ============================================================
 
+    /**
+     * Cash and bank are debit-normal assets.
+     *
+     * Balance =
+     *
+     *     Total Debits - Total Credits
+     *
+     * Example:
+     *
+     * Deposit 100,000:
+     *     DR Bank 100,000
+     *
+     * Withdrawal 20,000:
+     *     CR Bank 20,000
+     *
+     * Balance:
+     *     100,000 - 20,000 = 80,000
+     */
     @Transactional(readOnly = true)
     public double getBalance(
             BankAccount account
@@ -466,7 +482,6 @@ public class BankAccountService {
 
         Long glId =
                 account.getGlAccount().getId();
-
 
         if (glId == null) {
             return 0.0;
@@ -488,21 +503,6 @@ public class BankAccountService {
         for (JournalLine line : lines) {
 
             if (line == null) {
-                continue;
-            }
-
-
-            JournalEntry entry =
-                    line.getJournalEntry();
-
-
-            // Do not include reversed original entries.
-            if (
-                    entry != null
-                    && Boolean.TRUE.equals(
-                            entry.getReversed()
-                    )
-            ) {
                 continue;
             }
 
@@ -561,13 +561,7 @@ public class BankAccountService {
             );
         }
 
-        if (!Double.isFinite(amount)) {
-            throw new IllegalArgumentException(
-                    "Amount must be a finite number"
-            );
-        }
-
-        if (amount <= 0.0) {
+        if (amount <= 0) {
             throw new IllegalArgumentException(
                     "Amount must be positive"
             );
@@ -581,13 +575,11 @@ public class BankAccountService {
                 );
 
 
-        if (
-                account.getActive() != null
-                && !account.getActive()
-        ) {
-            throw new IllegalStateException(
-                    "Bank account is inactive: "
-                            + bankAccountId
+        if (account.getActive() != null
+                && !account.getActive()) {
+
+            throw new IllegalArgumentException(
+                    "Bank account is inactive"
             );
         }
 
@@ -606,24 +598,28 @@ public class BankAccountService {
                                 counterAccountId,
                                 org.getId()
                         )
-                        .orElseThrow(
-                                () -> new IllegalArgumentException(
+                        .orElseThrow(() ->
+                                new IllegalArgumentException(
                                         "Counter account not found: "
                                                 + counterAccountId
                                 )
                         );
 
 
-        boolean isDeposit =
-                "DEPOSIT".equalsIgnoreCase(type);
+        String normalizedType =
+                type != null
+                        ? type.trim().toUpperCase()
+                        : "";
 
+
+        boolean isDeposit =
+                "DEPOSIT".equals(normalizedType);
 
         boolean isWithdrawal =
-                "WITHDRAWAL".equalsIgnoreCase(type);
+                "WITHDRAWAL".equals(normalizedType);
 
 
         if (!isDeposit && !isWithdrawal) {
-
             throw new IllegalArgumentException(
                     "type must be DEPOSIT or WITHDRAWAL"
             );
@@ -640,18 +636,16 @@ public class BankAccountService {
         List<JournalLine> lines;
 
 
-        // ------------------------------------------------------------
+        // ========================================================
         // DEPOSIT
-        //
-        // DR Bank/Cash
-        // CR Counter account
-        // ------------------------------------------------------------
+        // ========================================================
 
         if (isDeposit) {
 
             lines =
                     List.of(
 
+                            // DR Cash / Bank
                             JournalLine.builder()
                                     .account(
                                             account.getGlAccount()
@@ -663,6 +657,7 @@ public class BankAccountService {
                                     )
                                     .build(),
 
+                            // CR Counter account
                             JournalLine.builder()
                                     .account(counter)
                                     .debit(0.0)
@@ -675,16 +670,14 @@ public class BankAccountService {
 
         } else {
 
-            // --------------------------------------------------------
+            // ====================================================
             // WITHDRAWAL
-            //
-            // DR Counter account
-            // CR Bank/Cash
-            // --------------------------------------------------------
+            // ====================================================
 
             lines =
                     List.of(
 
+                            // DR Counter account
                             JournalLine.builder()
                                     .account(counter)
                                     .debit(amount)
@@ -694,6 +687,7 @@ public class BankAccountService {
                                     )
                                     .build(),
 
+                            // CR Cash / Bank
                             JournalLine.builder()
                                     .account(
                                             account.getGlAccount()
@@ -711,8 +705,7 @@ public class BankAccountService {
         return accountingService.post(
                 org,
                 account.getBranch(),
-                "CASHBOOK_"
-                        + type.trim().toUpperCase(),
+                "CASHBOOK_" + normalizedType,
                 String.valueOf(bankAccountId),
                 account.getName(),
                 (recordedBy != null
@@ -754,19 +747,12 @@ public class BankAccountService {
         }
 
         if (fromAccountId.equals(toAccountId)) {
-
             throw new IllegalArgumentException(
                     "Cannot transfer an account to itself"
             );
         }
 
-        if (!Double.isFinite(amount)) {
-            throw new IllegalArgumentException(
-                    "Amount must be a finite number"
-            );
-        }
-
-        if (amount <= 0.0) {
+        if (amount <= 0) {
             throw new IllegalArgumentException(
                     "Amount must be positive"
             );
@@ -787,30 +773,25 @@ public class BankAccountService {
                 );
 
 
-        if (
-                from.getActive() != null
-                && !from.getActive()
-        ) {
-            throw new IllegalStateException(
-                    "Source bank account is inactive: "
-                            + fromAccountId
+        if (from.getActive() != null
+                && !from.getActive()) {
+
+            throw new IllegalArgumentException(
+                    "Source bank account is inactive"
             );
         }
 
 
-        if (
-                to.getActive() != null
-                && !to.getActive()
-        ) {
-            throw new IllegalStateException(
-                    "Destination bank account is inactive: "
-                            + toAccountId
+        if (to.getActive() != null
+                && !to.getActive()) {
+
+            throw new IllegalArgumentException(
+                    "Destination bank account is inactive"
             );
         }
 
 
         if (from.getGlAccount() == null) {
-
             throw new IllegalStateException(
                     "Source bank account has no GL account: "
                             + fromAccountId
@@ -819,7 +800,6 @@ public class BankAccountService {
 
 
         if (to.getGlAccount() == null) {
-
             throw new IllegalStateException(
                     "Destination bank account has no GL account: "
                             + toAccountId
@@ -834,16 +814,10 @@ public class BankAccountService {
                         : "Internal transfer";
 
 
-        // ------------------------------------------------------------
-        // TRANSFER
-        //
-        // DR Destination Bank
-        // CR Source Bank
-        // ------------------------------------------------------------
-
         List<JournalLine> lines =
                 List.of(
 
+                        // DR Destination Bank
                         JournalLine.builder()
                                 .account(
                                         to.getGlAccount()
@@ -856,6 +830,7 @@ public class BankAccountService {
                                 )
                                 .build(),
 
+                        // CR Source Bank
                         JournalLine.builder()
                                 .account(
                                         from.getGlAccount()
