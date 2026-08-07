@@ -1832,218 +1832,48 @@ return ( <div className="min-h-screen bg-[#F6F8F7] text-gray-900">
       PAYMENT MODAL
   ===================================================== */}
 
-  {showPaySheet && result && (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+  {showPaySheet && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto">
+    {/* 👆 Crucial: "overflow-y-auto" on the absolute outer wrapper ensures the modal can scroll if the screen is small */}
+    
+    <div className="bg-white rounded-xl w-full max-w-md mx-auto my-8 flex flex-col max-h-[calc(100vh-4rem)]">
+      {/* 👆 Crucial: "max-h-[calc(100vh-4rem)]" restricts height so it doesn't run off-screen */}
+      
+      {/* Modal Header */}
+      <div className="p-6 border-b sticky top-0 bg-white z-10">
+        <h3 className="text-xl font-bold">Select Payment Method</h3>
+      </div>
 
-      <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl overflow-hidden">
+      {/* Modal Body (Make this part scrollable!) */}
+      <div className="p-6 overflow-y-auto flex-1">
+        {/* 👆 Crucial: "overflow-y-auto flex-1" allows this section to scroll independently */}
+        
+        {/* Your payment methods loop, inputs for card details, mobile money etc. go here */}
+        
+      </div>
 
-        <div
-          className="px-6 py-5 text-white"
-          style={{
-            background:
-              'linear-gradient(135deg, #063B25, #0F1B3D)',
-          }}
+      {/* Modal Footer (Keep buttons visible at the bottom) */}
+      <div className="p-6 border-t sticky bottom-0 bg-white z-10 flex gap-3">
+        <button 
+          onClick={() => setShowPaySheet(false)} 
+          className="flex-1 py-3 border rounded-lg"
         >
-
-          <div className="flex items-start justify-between">
-
-            <div>
-
-              <div className="text-[9px] uppercase tracking-[0.18em] font-black text-white/50">
-                Secure Payment
-              </div>
-
-              <h3 className="text-lg font-black mt-1">
-                Make a payment
-              </h3>
-
-            </div>
-
-            <button
-              type="button"
-              onClick={() =>
-                setShowPaySheet(false)
-              }
-              className="w-8 h-8 rounded-full bg-white/10 text-white/70 hover:text-white text-lg"
-            >
-              ×
-            </button>
-
-          </div>
-
-          <div className="mt-5 bg-white/10 border border-white/10 rounded-2xl p-4">
-
-            <div className="text-[9px] uppercase tracking-wider font-black text-white/50">
-              Amount Due
-            </div>
-
-            <div className="text-2xl font-black mt-1">
-              {result.currency}{' '}
-              {fmt(dueNow)}
-            </div>
-
-            <div className="text-[10px] text-white/50 mt-1">
-              Reference {result.referenceNumber || result.reference}
-            </div>
-
-          </div>
-
-        </div>
-
-        <div className="p-6 space-y-5">
-
-          <div>
-
-            <div className="text-[10px] uppercase tracking-wider font-black text-gray-400 mb-2">
-              Payment Method
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-
-              {PAY_METHODS.map(
-                (method, i) => (
-                  <button
-                    key={`${method.label}-${i}`}
-                    type="button"
-                    onClick={() =>
-                      setPayChoice(i)
-                    }
-                    className={`p-3 rounded-2xl border text-left transition-all ${
-                      payChoice === i
-                        ? 'border-emerald-500 bg-emerald-50'
-                        : 'border-gray-100 bg-gray-50 hover:bg-white'
-                    }`}
-                  >
-
-                    <div className="text-lg">
-                      {method.icon}
-                    </div>
-
-                    <div className="text-[10px] font-black text-gray-800 mt-2">
-                      {method.label}
-                    </div>
-
-                  </button>
-                )
-              )}
-
-            </div>
-
-          </div>
-
-          {PAY_METHODS[payChoice].key ===
-            'MOBILE_MONEY' && (
-            <div>
-
-              <label className="text-[10px] uppercase tracking-wider font-black text-gray-400">
-                Mobile Money Number
-              </label>
-
-              <input
-                type="tel"
-                value={momoPhone}
-                onChange={e =>
-                  setMomoPhone(
-                    e.target.value
-                  )
-                }
-                placeholder="07XXXXXXXX"
-                className="w-full h-12 mt-2 px-4 rounded-xl border border-gray-200 bg-gray-50 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-emerald-600/20 focus:border-emerald-600"
-              />
-
-            </div>
-          )}
-
-          {PAY_METHODS[payChoice].key ===
-            'BANK_TRANSFER' && (
-            <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 text-xs text-blue-800 leading-5">
-              After confirming, you will receive the bank transfer instructions required to settle this payment.
-            </div>
-          )}
-
-          {PAY_METHODS[payChoice].key ===
-            'CARD' && (
-            <div className="space-y-3">
-
-              <input
-                type="text"
-                value={cardNumber}
-                onChange={e =>
-                  setCardNumber(
-                    e.target.value
-                  )
-                }
-                placeholder="Card number"
-                className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-gray-50 text-sm font-bold font-mono focus:outline-none focus:ring-2 focus:ring-emerald-600/20 focus:border-emerald-600"
-              />
-
-              <div className="grid grid-cols-2 gap-3">
-
-                <input
-                  type="text"
-                  value={cardExpiry}
-                  onChange={e =>
-                    setCardExpiry(
-                      e.target.value
-                    )
-                  }
-                  placeholder="MM/YY"
-                  className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-gray-50 text-sm font-bold font-mono focus:outline-none focus:ring-2 focus:ring-emerald-600/20 focus:border-emerald-600"
-                />
-
-                <input
-                  type="password"
-                  value={cardCvv}
-                  onChange={e =>
-                    setCardCvv(
-                      e.target.value
-                    )
-                  }
-                  placeholder="CVV"
-                  className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-gray-50 text-sm font-bold font-mono focus:outline-none focus:ring-2 focus:ring-emerald-600/20 focus:border-emerald-600"
-                />
-
-              </div>
-
-            </div>
-          )}
-
-          {paySuccess && (
-            <div className="bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-xl p-4 text-xs font-bold">
-              ✓ {payMessage}
-            </div>
-          )}
-
-          {error && (
-            <div className="bg-red-50 border border-red-100 text-red-700 rounded-xl p-4 text-xs font-semibold">
-              {error}
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={handlePayment}
-            disabled={paying}
-            className="w-full h-12 rounded-xl text-[#183D28] font-black text-xs shadow-lg disabled:opacity-50"
-            style={{
-              backgroundColor: accent,
-            }}
-          >
-            {paying
-              ? 'Processing payment…'
-              : `Confirm Payment · ${result.currency} ${fmt(dueNow)}`}
-          </button>
-
-          <div className="text-center text-[9px] text-gray-400">
-            Payments are processed securely. Never share your PIN or OTP with anyone.
-          </div>
-
-        </div>
-
+          Cancel
+        </button>
+        <button 
+          onClick={handlePayment} 
+          disabled={paying}
+          className="flex-1 py-3 text-white rounded-lg font-semibold"
+          style={{ backgroundColor: primary }}
+        >
+          {paying ? 'Processing...' : 'Confirm Payment'}
+        </button>
       </div>
 
     </div>
-  )}
+  </div>
+)}
+
 
 </div>
 
