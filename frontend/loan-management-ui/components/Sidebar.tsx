@@ -1,4 +1,3 @@
-
 'use client';
 
 import Link from 'next/link';
@@ -19,6 +18,14 @@ const NAVY_DARK = '#07152A';
 
 const YELLOW = '#F4C430';
 const YELLOW_DARK = '#C99A00';
+
+/*
+ * Sidebar navigation should primarily use white/navy.
+ * Yellow is reserved for branding and small accents.
+ */
+const ACTIVE_BG = 'bg-white/10';
+const ACTIVE_TEXT = 'text-white';
+const ACTIVE_BORDER = 'border-l-2 border-white';
 
 /* ============================================================
    NAVIGATION TYPES
@@ -290,7 +297,7 @@ export default function Sidebar() {
       getUnreadCount()
         .then((response) => {
           setUnread(
-            response.count
+            Number(response?.count || 0)
           );
         })
         .catch(() => {});
@@ -298,16 +305,13 @@ export default function Sidebar() {
 
     load();
 
-    const interval =
-      setInterval(
-        load,
-        30000
-      );
+    const interval = setInterval(
+      load,
+      30000
+    );
 
     return () =>
-      clearInterval(
-        interval
-      );
+      clearInterval(interval);
   }, [user]);
 
   /* ==========================================================
@@ -324,7 +328,7 @@ export default function Sidebar() {
         .unreadCount()
         .then((response: any) => {
           setUnreadMessages(
-            response.count
+            Number(response?.count || 0)
           );
         })
         .catch(() => {});
@@ -332,16 +336,13 @@ export default function Sidebar() {
 
     load();
 
-    const interval =
-      setInterval(
-        load,
-        30000
-      );
+    const interval = setInterval(
+      load,
+      30000
+    );
 
     return () =>
-      clearInterval(
-        interval
-      );
+      clearInterval(interval);
   }, [user]);
 
   /* ==========================================================
@@ -449,6 +450,8 @@ export default function Sidebar() {
           >
             Noble Loan Solutions
           </div>
+
+          {/* Small gold brand accent only */}
 
           <div
             className="
@@ -584,15 +587,18 @@ export default function Sidebar() {
                           text-sm
                           font-medium
                           transition-all
+                          border-l-2
 
                           ${
                             active
                               ? `
-                                bg-[#F4C430]/15
-                                text-[#F4C430]
+                                bg-white/10
+                                text-white
+                                border-white
                                 shadow-sm
                               `
                               : `
+                                border-transparent
                                 text-gray-400
                                 hover:bg-white/8
                                 hover:text-white
@@ -660,11 +666,11 @@ export default function Sidebar() {
                                 items-center
                                 justify-center
                                 rounded-full
-                                bg-[#F4C430]
+                                bg-teal-500
                                 px-1
                                 text-[10px]
                                 font-bold
-                                text-[#07152A]
+                                text-white
                               "
                             >
                               {
@@ -712,14 +718,17 @@ export default function Sidebar() {
               text-sm
               font-medium
               transition-all
+              border-l-2
 
               ${
                 isRegulatoryRoute
                   ? `
-                    bg-[#F4C430]/15
-                    text-[#F4C430]
+                    bg-white/10
+                    text-white
+                    border-white
                   `
                   : `
+                    border-transparent
                     text-gray-400
                     hover:bg-white/8
                     hover:text-white
@@ -756,6 +765,7 @@ export default function Sidebar() {
             <span
               className={`
                 text-[10px]
+                text-gray-400
                 transition-transform
                 duration-200
 
@@ -806,15 +816,18 @@ export default function Sidebar() {
                         py-2
                         text-sm
                         transition-all
+                        border-l-2
 
                         ${
                           active
                             ? `
-                              bg-[#F4C430]/15
+                              bg-white/10
                               font-semibold
-                              text-[#F4C430]
+                              text-white
+                              border-white
                             `
                             : `
+                              border-transparent
                               text-gray-500
                               hover:bg-white/8
                               hover:text-gray-200
@@ -849,7 +862,7 @@ export default function Sidebar() {
                             h-1.5
                             w-1.5
                             rounded-full
-                            bg-[#F4C430]
+                            bg-white
                           "
                         />
                       )}
@@ -905,10 +918,12 @@ export default function Sidebar() {
               items-center
               justify-center
               rounded-full
-              bg-[#F4C430]
+              bg-[#0B1F3A]
+              ring-1
+              ring-white/10
               text-sm
               font-bold
-              text-[#07152A]
+              text-white
             "
           >
             {user?.name?.[0] ?? 'U'}
