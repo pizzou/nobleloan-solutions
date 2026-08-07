@@ -371,24 +371,17 @@ const handleDownloadDoc = async (
 
   setDownloadingDoc(doc);
 
-  // 1. Clean the phone prefix formatting to match standard database storage rules
-  let rawPhone = phone.trim();
-  if (rawPhone.startsWith('+250')) {
-    rawPhone = rawPhone.substring(4); 
-  } else if (rawPhone.startsWith('250')) {
-    rawPhone = rawPhone.substring(3);
-  }
-
+  // Use the exact phone string from your search input that successfully loaded the dashboard
+  const activePhone = phone.trim();
   const activeRef = result.referenceNumber || result.reference;
 
   try {
-    // 2. Base API url fallback resolution mapping
-    const baseApiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://onrender.com';
+    const baseApiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://nobleloan-solutions.onrender.com/api';
 
-    // 3. CRUCIAL: Must use BACKTICKS (``) here so JavaScript correctly evaluates the activeRef string variable!
-    const targetUrl = `${baseApiUrl}/public/applications/${activeRef}/documents/${doc}.pdf?phone=${rawPhone}`;
+    // 1. Correct route mapping (No '.pdf', ends with '/download')
+    const targetUrl = `${baseApiUrl}/public/applications/${activeRef}/documents/${doc}/download?phone=${encodeURIComponent(activePhone)}`;
 
-    // 4. Native fetch call to stream pure binary data bytes bypassing Axios rules
+    // 2. Native fetch to stream binary data safely
     const response = await fetch(targetUrl, {
       method: 'GET',
       headers: {
@@ -400,7 +393,6 @@ const handleDownloadDoc = async (
       throw new Error(`Server responded with code ${response.status}`);
     }
 
-    // 5. Read stream data array segments cleanly as a file blob
     const fileBlob = await response.blob();
     const url = URL.createObjectURL(fileBlob);
     
@@ -414,8 +406,8 @@ const handleDownloadDoc = async (
 
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (err: any) {
-    console.error("Direct document stream retrieval failed:", err);
-    toast('error', 'Direct file download failed to initialize.');
+    console.error("Download failed:", err);
+    toast('error', 'Failed to download document. Please check server logs.');
   } finally {
     setDownloadingDoc(null);
   }
