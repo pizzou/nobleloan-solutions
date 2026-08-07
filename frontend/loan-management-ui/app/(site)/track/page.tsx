@@ -370,21 +370,23 @@ const handleDownloadDoc = async (
   if (!result) return;
 
   setDownloadingDoc(doc);
-  const activeRef = result.referenceNumber || result.reference;
 
   try {
-    // Calls the updated 3-argument function perfectly
-    const fileBlob = await publicApi.downloadDocument(
-      activeRef,
+    // 1. Fetch the full response object
+    const res = await publicApi.downloadDocument(
+      result.referenceNumber || result.reference,
       phone.trim(),
       doc
     );
 
-    // Creates the browser download action pipeline cleanly
+    // 2. Extract the actual file stream data safely from the response
+    const fileBlob = res.data as Blob; // 👈 This fixes the TypeScript assignment error!
+
+    // 3. Create the browser download action pipeline cleanly
     const url = URL.createObjectURL(fileBlob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${label}-${activeRef}.pdf`;
+    a.download = `${label}-${result.referenceNumber || result.reference}.pdf`;
 
     document.body.appendChild(a);
     a.click();
@@ -392,11 +394,13 @@ const handleDownloadDoc = async (
 
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (err: any) {
-    toast('error', 'Failed to read file from server.');
+    console.error("Download failed:", err);
+    toast('error', 'Failed to process document download.');
   } finally {
     setDownloadingDoc(null);
   }
 };
+
 
 
 const handleUpload = async (
