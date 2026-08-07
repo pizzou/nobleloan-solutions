@@ -1382,20 +1382,21 @@ export const publicApi = {
       `/public/applications/${encodeURIComponent(reference.trim())}/documents?phone=${encodeURIComponent(phone.trim())}`
     ),
 
-  downloadDocument: (
-    reference: string,
-    phone: string,
-    doc:
-      | 'agreement'
-      | 'schedule'
-      | 'receipt'
-  ) =>
-    API.get(
-      `/public/applications/${encodeURIComponent(reference.trim())}/documents/${doc}.pdf?phone=${encodeURIComponent(phone.trim())}`,
-      {
-        responseType: 'blob',
-      }
-    ),
+ downloadDocument: (
+  reference: string,
+  phone: string,
+  doc: 'agreement' | 'schedule' | 'receipt'
+) =>
+  API.get(
+    // 1. Keeps your original backend URL path exactly as it was
+    `/public/applications/${encodeURIComponent(reference.trim())}/documents/${doc}.pdf?phone=${encodeURIComponent(phone.trim())}`,
+    {
+      // 2. Tells Axios to read this as a file stream, not text/JSON
+      responseType: 'blob', 
+    }
+    // 3. Unwraps the Axios object to pass the pure file data back to your page
+  ).then((response) => response.data),
+
 
   deleteDocument: (
     reference: string,
