@@ -371,31 +371,32 @@ const handleDownloadDoc = async (
 
   setDownloadingDoc(doc);
 
+  // 1. Clean the phone number string format to match standard database storage layout rules
+  let rawPhone = phone.trim();
+  if (rawPhone.startsWith('+250')) {
+    rawPhone = rawPhone.substring(4); // Strips "+250" prefix characters
+  } else if (rawPhone.startsWith('250')) {
+    rawPhone = rawPhone.substring(3); // Strips "250" prefix characters
+  }
+
+  const activeRef = result.referenceNumber || result.reference;
+
   try {
-    // 1. Fetch the full response object
-    const res = await publicApi.downloadDocument(
-      result.referenceNumber || result.reference,
-      phone.trim(),
-      doc
-    );
+    // 2. Build the exact download path with the cleaned phone layout parameters
+    const targetPath = `https://onrender.com{activeRef}/documents/${doc}.pdf?phone=${rawPhone}`;
 
-    // 2. Extract the actual file stream data safely from the response
-    const fileBlob = res.data as Blob; // 👈 This fixes the TypeScript assignment error!
-
-    // 3. Create the browser download action pipeline cleanly
-    const url = URL.createObjectURL(fileBlob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${label}-${result.referenceNumber || result.reference}.pdf`;
-
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    // 3. Instead of hitting Axios interceptors, trigger a clean native window download stream
+    const link = document.createElement('a');
+    link.href = targetPath;
+    link.target = '_blank'; // Opens in a new tab if it's a viewable stream, or downloads natively
+    link.download = `${label}-${activeRef}.pdf`;
+    
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   } catch (err: any) {
-    console.error("Download failed:", err);
-    toast('error', 'Failed to process document download.');
+    console.error("Download pipeline error:", err);
+    toast('error', 'Download execution failed.');
   } finally {
     setDownloadingDoc(null);
   }
