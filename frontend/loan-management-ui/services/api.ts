@@ -1388,14 +1388,14 @@ export const publicApi = {
   doc: 'agreement' | 'schedule' | 'receipt'
 ) =>
   API.get(
-    // 1. Keeps your original backend URL path exactly as it was
     `/public/applications/${encodeURIComponent(reference.trim())}/documents/${doc}.pdf?phone=${encodeURIComponent(phone.trim())}`,
     {
-      // 2. Tells Axios to read this as a file stream, not text/JSON
-      responseType: 'blob', 
+      responseType: 'blob', // 👈 Keeps the file format intact as a raw binary array buffer
+      headers: {
+        'Accept': 'application/pdf, */*' // 👈 Crucial: Overrides global JSON headers to allow PDF streaming
+      }
     }
-    // 3. Unwraps the Axios object to pass the pure file data back to your page
-  ).then((response) => response.data),
+  ),
 
 
   deleteDocument: (
