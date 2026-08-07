@@ -371,32 +371,50 @@ const handleDownloadDoc = async (
 
   setDownloadingDoc(doc);
 
-  // 1. Clean the phone number string format to match standard database storage layout rules
+  // 1. Clean the phone prefix formatting to prevent database parameter mismatches
   let rawPhone = phone.trim();
   if (rawPhone.startsWith('+250')) {
-    rawPhone = rawPhone.substring(4); // Strips "+250" prefix characters
+    rawPhone = rawPhone.substring(4); 
   } else if (rawPhone.startsWith('250')) {
-    rawPhone = rawPhone.substring(3); // Strips "250" prefix characters
+    rawPhone = rawPhone.substring(3);
   }
 
   const activeRef = result.referenceNumber || result.reference;
 
   try {
-    // 2. Build the exact download path with the cleaned phone layout parameters
-    const targetPath = `https://onrender.com{activeRef}/documents/${doc}.pdf?phone=${rawPhone}`;
+    // 2. Build the correct server URL string using template literals
+    const targetUrl = `https://onrender.com{activeRef}/documents/${doc}.pdf?phone=${rawPhone}`;
 
-    // 3. Instead of hitting Axios interceptors, trigger a clean native window download stream
-    const link = document.createElement('a');
-    link.href = targetPath;
-    link.target = '_blank'; // Opens in a new tab if it's a viewable stream, or downloads natively
-    link.download = `${label}-${activeRef}.pdf`;
+    // 3. Use standard browser fetch to bypass global Axios JSON content locks
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/pdf, */*'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server responded with code ${response.status}`);
+    }
+
+    // 4. Read the streaming raw binary data bytes directly as a Blob asset
+    const fileBlob = await response.blob();
     
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    // 5. Trigger an instant local device storage file download action pipeline
+    const url = URL.createObjectURL(fileBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${label}-${activeRef}.pdf`;
+
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    // Clean up memory buffer allocation safely
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (err: any) {
-    console.error("Download pipeline error:", err);
-    toast('error', 'Download execution failed.');
+    console.error("Native file download extraction failed:", err);
+    toast('error', 'Failed to complete direct file download.');
   } finally {
     setDownloadingDoc(null);
   }
