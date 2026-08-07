@@ -364,183 +364,54 @@ try {
 };
 
 const handleDownloadDoc = async (
-  doc: 'agreement' | 'schedule' | 'receipt',
-  label: string
+doc: 'agreement' | 'schedule' | 'receipt',
+label: string
 ) => {
-  if (!result) return;
+if (!result) return;
 
-  setDownloadingDoc(doc);
 
-  const activePhone = phone.trim();
-  const activeRef = result.referenceNumber || result.reference;
+setDownloadingDoc(doc);
 
-  try {
-    const baseApiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://nobleloan-solutions.onrender.com/api';
-    const targetUrl = `${baseApiUrl}/public/applications/${activeRef}/documents/${doc}/download?phone=${encodeURIComponent(activePhone)}`;
+try {
+  const res =
+    await publicApi.downloadDocument(
+      result.referenceNumber || result.reference,
+      phone.trim(),
+      doc
+    );
 
-    const response = await fetch(targetUrl, {
-      method: 'GET',
-      headers: { 'Accept': 'application/pdf, */*' }
-    });
+  const url =
+    URL.createObjectURL(res.data as Blob);
 
-    // 1. If backend functions correctly, download server-side PDF instantly
-    if (response.ok) {
-      const fileBlob = await response.blob();
-      const url = URL.createObjectURL(fileBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${label}-${activeRef}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-      return;
-    }
+  const a = document.createElement('a');
 
-    // 2. BACKUP LOCAL PDF GENERATION: Runs if server returns 500
-    console.warn("Backend engine threw a 500 exception. Building high-fidelity local PDF...");
+  a.href = url;
 
-    // Create a temporary hidden iframe container window
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    document.body.appendChild(iframe);
+  a.download =
+    `${label}-${result.referenceNumber || result.reference}.pdf`;
 
-    const docStream = iframe.contentWindow?.document || iframe.contentDocument;
-    if (!docStream) throw new Error("Could not initialize local printing container layout");
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 
-    // Construct high-fidelity document payload styling parameters
-    let htmlContent = `
-      <html>
-        <head>
-          <title>${label} - ${activeRef}</title>
-          <script src="https://tailwindcss.com"></script>
-          <style>
-            @media print {
-              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-              @page { size: A4 portrait; margin: 20mm; }
-            }
-          </style>
-        </head>
-        <body class="bg-white p-8 text-slate-800 font-sans text-sm">
-          <div class="border-b pb-6 mb-6 flex justify-between items-center">
-            <div>
-              <h1 class="text-2xl font-black tracking-tight text-slate-900">${label.toUpperCase()} STATEMENT</h1>
-              <p class="text-xs text-slate-500 mt-1">Reference ID: ${activeRef}</p>
-            </div>
-            <div class="text-right">
-              <span class="text-xs px-3 py-1 font-bold rounded-full bg-emerald-100 text-emerald-800">SECURE RECORD</span>
-            </div>
-          </div>
+  setTimeout(
+    () => URL.revokeObjectURL(url),
+    60000
+  );
 
-          <div class="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border mb-8">
-            <div>
-              <p class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Loan Product</p>
-              <p class="font-bold text-slate-700">${result.loanType || 'Microfinance Loan'}</p>
-            </div>
-            <div>
-              <p class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Outstanding Balance</p>
-              <p class="font-bold text-slate-900">${result.currency} ${result.outstandingBalance?.toLocaleString() || '0'}</p>
-            </div>
-            <div>
-              <p class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Repaid</p>
-              <p class="font-bold text-emerald-600">${result.currency} ${result.totalPaid?.toLocaleString() || '0'}</p>
-            </div>
-            <div>
-              <p class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Interest Rate</p>
-              <p class="font-bold text-slate-700">${result.interestRate || '0'}%</p>
-            </div>
-          </div>
-    `;
+} catch (err: any) {
+  toast(
+    'error',
+    err.response?.data?.error ||
+    err.message ||
+    `Could not download ${label}.`
+  );
+} finally {
+  setDownloadingDoc(null);
+}
 
-    if (doc === 'schedule' && result.upcomingInstallments) {
-      htmlContent += `
-        <h3 class="text-xs uppercase font-black tracking-wider text-slate-400 mb-3">Amortization Repayment Breakdown</h3>
-        <table class="w-full text-left border-collapse">
-          <thead>
-            <tr class="border-b border-slate-300 text-slate-500 text-xs">
-              <th class="py-2">Inst #</th>
-              <th class="py-2">Due Date</th>
-              <th class="py-2">Principal</th>
-              <th class="py-2">Interest</th>
-              <th class="py-2 text-right">Amount Due</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100 text-xs text-slate-700">
-            ${result.upcomingInstallments.map(item => `
-              <tr>
-                <td class="py-3 font-semibold">#${item.installmentNumber}</td>
-                <td class="py-3">${item.dueDate}</td>
-                <td class="py-3">${result.currency} ${item.principal?.toLocaleString()}</td>
-                <td class="py-3">${result.currency} ${item.interest?.toLocaleString()}</td>
-                <td class="py-3 text-right font-bold text-slate-900">${result.currency} ${item.amount?.toLocaleString()}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      `;
-    } else if (doc === 'receipt' && result.recentPayments) {
-      htmlContent += `
-        <h3 class="text-xs uppercase font-black tracking-wider text-slate-400 mb-3">Payment Ledger Transactions</h3>
-        <table class="w-full text-left border-collapse">
-          <thead>
-            <tr class="border-b border-slate-300 text-slate-500 text-xs">
-              <th class="py-2">Transaction ID</th>
-              <th class="py-2">Payment Date</th>
-              <th class="py-2">Method Channel</th>
-              <th class="py-2 text-right">Settled Amount</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100 text-xs text-slate-700">
-            ${result.recentPayments.map(pay => `
-              <tr>
-                <td class="py-3 font-mono font-semibold">#${pay.paymentId}</td>
-                <td class="py-3">${pay.paymentDate}</td>
-                <td class="py-3">${pay.method.replace('_', ' ')}</td>
-                <td class="py-3 text-right font-bold text-emerald-600">${result.currency} ${pay.amount?.toLocaleString()}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      `;
-    } else {
-      htmlContent += `<p class="text-xs text-slate-500 italic">This transaction statement is verified and active.</p>`;
-    }
 
-    htmlContent += `
-          <div class="mt-12 pt-6 border-t text-center text-[10px] text-slate-400">
-            Payments are processed securely. Never share your authentication PIN code with anyone.
-          </div>
-        </body>
-      </html>
-    `;
-
-    docStream.open();
-    docStream.write(htmlContent);
-    docStream.close();
-
-    // Trigger local machine system printing prompt to generate clean PDF outputs natively
-    iframe.contentWindow?.focus();
-    setTimeout(() => {
-      iframe.contentWindow?.print();
-      document.body.removeChild(iframe);
-    }, 500);
-
-    toast('success', 'PDF document rendered via localized dashboard fallback pipeline.');
-
-  } catch (err: any) {
-    console.error("All export frameworks failed:", err);
-    toast('error', 'Unable to render printable document streams at this time.');
-  } finally {
-    setDownloadingDoc(null);
-  }
 };
-
-
 
 const handleUpload = async (
 documentType: string,
