@@ -364,54 +364,40 @@ try {
 };
 
 const handleDownloadDoc = async (
-doc: 'agreement' | 'schedule' | 'receipt',
-label: string
+  doc: 'agreement' | 'schedule' | 'receipt',
+  label: string
 ) => {
-if (!result) return;
+  if (!result) return;
 
+  setDownloadingDoc(doc);
+  const activeRef = result.referenceNumber || result.reference;
 
-setDownloadingDoc(doc);
-
-try {
-  const res =
-    await publicApi.downloadDocument(
-      result.referenceNumber || result.reference,
+  try {
+    // Calls the updated 3-argument function perfectly
+    const fileBlob = await publicApi.downloadDocument(
+      activeRef,
       phone.trim(),
       doc
     );
 
-  const url =
-    URL.createObjectURL(res.data as Blob);
+    // Creates the browser download action pipeline cleanly
+    const url = URL.createObjectURL(fileBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${label}-${activeRef}.pdf`;
 
-  const a = document.createElement('a');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
 
-  a.href = url;
-
-  a.download =
-    `${label}-${result.referenceNumber || result.reference}.pdf`;
-
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-
-  setTimeout(
-    () => URL.revokeObjectURL(url),
-    60000
-  );
-
-} catch (err: any) {
-  toast(
-    'error',
-    err.response?.data?.error ||
-    err.message ||
-    `Could not download ${label}.`
-  );
-} finally {
-  setDownloadingDoc(null);
-}
-
-
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (err: any) {
+    toast('error', 'Failed to read file from server.');
+  } finally {
+    setDownloadingDoc(null);
+  }
 };
+
 
 const handleUpload = async (
 documentType: string,
