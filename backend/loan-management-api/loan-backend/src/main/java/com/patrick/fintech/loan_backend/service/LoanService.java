@@ -1,6 +1,7 @@
 package com.patrick.fintech.loan_backend.service;
 
-import com.patrick.fintech.loan_backend.dto.*;
+import com.patrick.fintech.loan_backend.dto.LoanRequest;
+import com.patrick.fintech.loan_backend.dto.DashboardStats;
 import com.patrick.fintech.loan_backend.dto.publicportal.BorrowerDashboardResponse;
 import com.patrick.fintech.loan_backend.dto.publicportal.DashboardSummaryResponse;
 import com.patrick.fintech.loan_backend.model.*;
@@ -10,13 +11,22 @@ import com.patrick.fintech.loan_backend.security.HmacIndexer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import org.springframework.data.domain.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.util.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -42,7 +52,6 @@ public class LoanService {
     private final CreditBureauService creditBureauService;
     private final PaymentScheduleService paymentScheduleService;
 
-
     private static final List<DocumentType> DEFAULT_REQUIRED_DOCS =
             List.of(
                     DocumentType.NATIONAL_ID,
@@ -50,55 +59,74 @@ public class LoanService {
                     DocumentType.PROOF_OF_ADDRESS
             );
 
+    // ================================================================
+    // BASE RATES
+    // ================================================================
+
+    private static final Map<Loan.LoanType, BigDecimal> BASE_RATES =
+            Map.ofEntries(
+                    Map.entry(Loan.LoanType.PERSONAL, bd("10.0")),
+                    Map.entry(Loan.LoanType.MORTGAGE, bd("8.5")),
+                    Map.entry(Loan.LoanType.AUTO, bd("10.0")),
+                    Map.entry(Loan.LoanType.BUSINESS, bd("12.0")),
+                    Map.entry(Loan.LoanType.STUDENT, bd("10.0")),
+                    Map.entry(Loan.LoanType.EMERGENCY, bd("10.0")),
+                    Map.entry(Loan.LoanType.ASSET_FINANCE, bd("11.0")),
+                    Map.entry(Loan.LoanType.SALARY_ADVANCE, bd("10.0")),
+                    Map.entry(Loan.LoanType.MICROFINANCE, bd("20.0")),
+                    Map.entry(Loan.LoanType.AGRICULTURAL, bd("9.0")),
+                    Map.entry(Loan.LoanType.TRADE_FINANCE, bd("13.0")),
+                    Map.entry(Loan.LoanType.GROUP, bd("14.0"))
+            );
 
     // ================================================================
     // REQUIRED DOCUMENTS
     // ================================================================
 
-    private List<DocumentType> requiredDocsFor(
-            Loan loan
-    ) {
+    private List<DocumentType> requiredDocsFor(Loan loan) {
+
+        if (loan == null || loan.getOrganization() == null) {
+            return DEFAULT_REQUIRED_DOCS;
+        }
+
+        Long organizationId = loan.getOrganization().getId();
+
+        if (organizationId == null || loan.getLoanType() == null) {
+            return DEFAULT_REQUIRED_DOCS;
+        }
 
         LoanProduct product =
                 loanProductRepo
                         .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
-                                loan.getOrganization().getId(),
+                                organizationId,
                                 loan.getLoanType()
                         )
                         .orElse(null);
-
 
         if (product == null) {
             return DEFAULT_REQUIRED_DOCS;
         }
 
-
         List<String> configured =
                 product.getRequiredDocumentTypesList();
 
-
-        if (
-                configured == null
-                        || configured.isEmpty()
-        ) {
-
+        if (configured == null || configured.isEmpty()) {
             return DEFAULT_REQUIRED_DOCS;
         }
 
+        List<DocumentType> documentTypes = new ArrayList<>();
 
-        List<DocumentType> documentTypes =
-                new ArrayList<>();
+        for (String type : configured) {
 
-
-        for (String type :
-                configured) {
+            if (type == null || type.isBlank()) {
+                continue;
+            }
 
             try {
 
                 documentTypes.add(
                         DocumentType.valueOf(
-                                type.trim()
-                                        .toUpperCase()
+                                type.trim().toUpperCase()
                         )
                 );
 
@@ -106,72 +134,16 @@ public class LoanService {
 
                 throw new RuntimeException(
                         "Invalid document type configured for Loan Product: "
-                                + type
+                                + type,
+                        ex
                 );
             }
         }
 
-
-        return documentTypes;
+        return documentTypes.isEmpty()
+                ? DEFAULT_REQUIRED_DOCS
+                : documentTypes;
     }
-
-
-    // ================================================================
-    // BASE RATES
-    // ================================================================
-
-    private static final Map<Loan.LoanType, Double> BASE_RATES =
-            Map.ofEntries(
-                    Map.entry(
-                            Loan.LoanType.PERSONAL,
-                            10.0
-                    ),
-                    Map.entry(
-                            Loan.LoanType.MORTGAGE,
-                            8.5
-                    ),
-                    Map.entry(
-                            Loan.LoanType.AUTO,
-                            10.0
-                    ),
-                    Map.entry(
-                            Loan.LoanType.BUSINESS,
-                            12.0
-                    ),
-                    Map.entry(
-                            Loan.LoanType.STUDENT,
-                            10.0
-                    ),
-                    Map.entry(
-                            Loan.LoanType.EMERGENCY,
-                            10.0
-                    ),
-                    Map.entry(
-                            Loan.LoanType.ASSET_FINANCE,
-                            11.0
-                    ),
-                    Map.entry(
-                            Loan.LoanType.SALARY_ADVANCE,
-                            10.0
-                    ),
-                    Map.entry(
-                            Loan.LoanType.MICROFINANCE,
-                            20.0
-                    ),
-                    Map.entry(
-                            Loan.LoanType.AGRICULTURAL,
-                            9.0
-                    ),
-                    Map.entry(
-                            Loan.LoanType.TRADE_FINANCE,
-                            13.0
-                    ),
-                    Map.entry(
-                            Loan.LoanType.GROUP,
-                            14.0
-                    )
-            );
-
 
     // ================================================================
     // BORROWER DASHBOARD
@@ -182,9 +154,19 @@ public class LoanService {
             String phone
     ) {
 
-        String phoneHash =
-                HmacIndexer.index(phone);
+        if (reference == null || reference.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Loan reference is required"
+            );
+        }
 
+        if (phone == null || phone.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Phone number is required"
+            );
+        }
+
+        String phoneHash = HmacIndexer.index(phone);
 
         Loan loan =
                 loanRepo
@@ -193,50 +175,48 @@ public class LoanService {
                                 phoneHash
                         )
                         .orElseThrow(
-                                () ->
-                                        new RuntimeException(
-                                                "Loan not found"
-                                        )
+                                () -> new RuntimeException(
+                                        "Loan not found"
+                                )
                         );
 
-
         return BorrowerDashboardResponse.builder()
-                .loanId(
-                        loan.getId()
-                )
-                .referenceNumber(
-                        loan.getReferenceNumber()
-                )
+                .loanId(loan.getId())
+                .referenceNumber(loan.getReferenceNumber())
                 .borrowerName(
-                        loan.getBorrower()
-                                .getFullName()
+                        loan.getBorrower() != null
+                                ? loan.getBorrower().getFullName()
+                                : null
                 )
                 .loanOfficer(
                         loan.getLoanOfficer() != null
-                                ? loan.getLoanOfficer()
-                                .getFullName()
+                                ? loan.getLoanOfficer().getFullName()
                                 : null
                 )
                 .status(
-                        loan.getStatus().name()
+                        loan.getStatus() != null
+                                ? loan.getStatus().name()
+                                : null
                 )
                 .loanType(
-                        loan.getLoanType().name()
+                        loan.getLoanType() != null
+                                ? loan.getLoanType().name()
+                                : null
                 )
                 .principal(
-                        loan.getAmount()
+                        loan.getAmountDecimal()
                 )
                 .outstandingBalance(
-                        loan.getOutstandingBalance()
+                        loan.getOutstandingBalanceDecimal()
                 )
                 .totalPaid(
-                        loan.getTotalPaid()
+                        loan.getTotalPaidDecimal()
                 )
                 .totalRepayable(
-                        loan.getTotalRepayable()
+                        loan.getTotalRepayableDecimal()
                 )
                 .nextInstallmentAmount(
-                        loan.getNextInstallmentAmount()
+                        loan.getNextInstallmentAmountDecimal()
                 )
                 .nextPaymentDate(
                         loan.getNextPaymentDate()
@@ -256,7 +236,6 @@ public class LoanService {
                 .build();
     }
 
-
     // ================================================================
     // BORROWER SUMMARY
     // ================================================================
@@ -265,88 +244,74 @@ public class LoanService {
             String phone
     ) {
 
-        String phoneHash =
-                HmacIndexer.index(phone);
+        if (phone == null || phone.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Phone number is required"
+            );
+        }
 
+        String phoneHash = HmacIndexer.index(phone);
 
         List<Loan> loans =
-                loanRepo.findByBorrower_PhoneHash(
-                        phoneHash
-                );
+                loanRepo.findByBorrower_PhoneHash(phoneHash);
 
-
-        if (loans.isEmpty()) {
-
+        if (loans == null || loans.isEmpty()) {
             throw new RuntimeException(
                     "Borrower not found"
             );
         }
 
-
         int activeLoans = 0;
         int overdueLoans = 0;
 
-
-        double totalBorrowed = 0.0;
-        double outstanding = 0.0;
-        double totalPaid = 0.0;
-
+        BigDecimal totalBorrowed = BigDecimal.ZERO;
+        BigDecimal outstanding = BigDecimal.ZERO;
+        BigDecimal totalPaid = BigDecimal.ZERO;
 
         Loan nextLoan = null;
 
+        for (Loan loan : loans) {
 
-        for (Loan loan :
-                loans) {
+            if (loan == null) {
+                continue;
+            }
 
             totalBorrowed =
-                    roundMoney(
-                            totalBorrowed
-                                    + safe(
-                                    loan.getAmount()
+                    money(
+                            totalBorrowed.add(
+                                    moneyValue(
+                                            loan.getAmountDecimal()
+                                    )
                             )
                     );
-
 
             outstanding =
-                    roundMoney(
-                            outstanding
-                                    + safe(
-                                    loan.getOutstandingBalance()
+                    money(
+                            outstanding.add(
+                                    moneyValue(
+                                            loan.getOutstandingBalanceDecimal()
+                                    )
                             )
                     );
-
 
             totalPaid =
-                    roundMoney(
-                            totalPaid
-                                    + safe(
-                                    loan.getTotalPaid()
+                    money(
+                            totalPaid.add(
+                                    moneyValue(
+                                            loan.getTotalPaidDecimal()
+                                    )
                             )
                     );
 
-
-            if (
-                    loan.getStatus()
-                            == LoanStatus.ACTIVE
-            ) {
-
+            if (loan.getStatus() == LoanStatus.ACTIVE) {
                 activeLoans++;
             }
 
-
-            if (
-                    loan.getStatus()
-                            == LoanStatus.OVERDUE
-            ) {
-
+            if (loan.getStatus() == LoanStatus.OVERDUE) {
                 overdueLoans++;
             }
 
-
-            if (
-                    loan.getNextPaymentDate()
-                            != null
-            ) {
+            if (loan.getNextPaymentDate() != null) {
 
                 if (
                         nextLoan == null
@@ -355,47 +320,30 @@ public class LoanService {
                                         nextLoan.getNextPaymentDate()
                                 )
                 ) {
-
                     nextLoan = loan;
                 }
             }
         }
 
-
         return DashboardSummaryResponse.builder()
-                .totalLoans(
-                        loans.size()
-                )
-                .activeLoans(
-                        activeLoans
-                )
-                .totalBorrowed(
-                        totalBorrowed
-                )
-                .outstandingBalance(
-                        outstanding
-                )
-                .totalPaid(
-                        totalPaid
-                )
-                .overdueLoans(
-                        overdueLoans
-                )
+                .totalLoans(loans.size())
+                .activeLoans(activeLoans)
+                .totalBorrowed(totalBorrowed)
+                .outstandingBalance(outstanding)
+                .totalPaid(totalPaid)
+                .overdueLoans(overdueLoans)
                 .nextPaymentAmount(
                         nextLoan == null
                                 ? null
-                                : nextLoan
-                                .getNextInstallmentAmount()
+                                : nextLoan.getNextInstallmentAmountDecimal()
                 )
                 .nextPaymentDate(
                         nextLoan == null
                                 ? null
-                                : nextLoan
-                                .getNextPaymentDate()
+                                : nextLoan.getNextPaymentDate()
                 )
                 .build();
     }
-
 
     // ================================================================
     // CREATE LOAN
@@ -408,48 +356,73 @@ public class LoanService {
             User createdBy
     ) {
 
+        if (req == null) {
+            throw new IllegalArgumentException(
+                    "Loan request cannot be null"
+            );
+        }
+
+        if (organizationId == null) {
+            throw new IllegalArgumentException(
+                    "Organization ID cannot be null"
+            );
+        }
+
         Organization org =
-                orgRepo.findById(
-                                organizationId
-                        )
+                orgRepo.findById(organizationId)
                         .orElseThrow(
-                                () ->
-                                        new RuntimeException(
-                                                "Organization not found: "
-                                                        + organizationId
-                                        )
+                                () -> new RuntimeException(
+                                        "Organization not found: "
+                                                + organizationId
+                                )
                         );
 
+
+        if (createdBy != null) {
+
+            if (
+                    createdBy.getOrganization() == null
+                            || createdBy.getOrganization().getId() == null
+                            || !createdBy.getOrganization()
+                            .getId()
+                            .equals(organizationId)
+            ) {
+
+                throw new RuntimeException(
+                        "Creating user does not belong to this organization"
+                );
+            }
+        }
+
+        if (req.getBorrowerId() == null) {
+            throw new IllegalArgumentException(
+                    "Borrower ID is required"
+            );
+        }
 
         Borrower borrower =
                 borrowerRepo.findById(
                                 req.getBorrowerId()
                         )
                         .orElseThrow(
-                                () ->
-                                        new RuntimeException(
-                                                "Borrower not found: "
-                                                        + req.getBorrowerId()
-                                        )
+                                () -> new RuntimeException(
+                                        "Borrower not found: "
+                                                + req.getBorrowerId()
+                                )
                         );
 
-
         if (
-                borrower.getOrganization()
-                        == null
-                        || !borrower
-                        .getOrganization()
+                borrower.getOrganization() == null
+                        || borrower.getOrganization().getId() == null
+                        || !borrower.getOrganization()
                         .getId()
-                        .equals(
-                                organizationId
-                        )
+                        .equals(organizationId)
         ) {
 
             throw new RuntimeException(
                     "Borrower does not belong to this organization"
             );
         }
-
 
         if (
                 borrower.getStatus()
@@ -459,15 +432,12 @@ public class LoanService {
             throw new RuntimeException(
                     "This borrower is blacklisted and cannot be issued a new loan. Reason on file: "
                             + (
-                            borrower.getBlacklistReason()
-                                    != null
-                                    ? borrower
-                                    .getBlacklistReason()
+                            borrower.getBlacklistReason() != null
+                                    ? borrower.getBlacklistReason()
                                     : "not specified"
                     )
             );
         }
-
 
         // ============================================================
         // LOAN TYPE
@@ -478,7 +448,6 @@ public class LoanService {
                         ? req.getLoanType()
                         : Loan.LoanType.PERSONAL;
 
-
         LoanProduct product =
                 loanProductRepo
                         .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
@@ -487,14 +456,18 @@ public class LoanService {
                         )
                         .orElse(null);
 
+        // ============================================================
+        // PRINCIPAL
+        // ============================================================
 
-        // ============================================================
-        // NORMALIZE PRINCIPAL ONCE
-        // ============================================================
+        BigDecimal requestedAmount =
+                toBigDecimal(req.getAmount());
 
         if (
-                req.getAmount() == null
-                        || req.getAmount() <= 0
+                requestedAmount == null
+                        || requestedAmount.compareTo(
+                        BigDecimal.ZERO
+                ) <= 0
         ) {
 
             throw new RuntimeException(
@@ -502,24 +475,10 @@ public class LoanService {
             );
         }
 
-
-        /*
-         * IMPORTANT:
-         *
-         * We continue using Double.
-         *
-         * RWF has no fractional currency unit, so normalize the
-         * principal to the nearest whole currency unit.
-         *
-         * 5,000,000 -> 5,000,000
-         * 4,999,999.4 -> 4,999,999
-         * 4,999,999.6 -> 5,000,000
-         */
-        double principal =
+        BigDecimal principal =
                 normalizePrincipal(
-                        req.getAmount()
+                        requestedAmount
                 );
-
 
         // ============================================================
         // PRODUCT LIMITS
@@ -527,34 +486,62 @@ public class LoanService {
 
         if (product != null) {
 
-            boolean tooLow =
-                    principal
-                            < product.getMinAmount();
+            BigDecimal minimumAmount =
+                    toBigDecimal(
+                            product.getMinAmount()
+                    );
 
+            BigDecimal maximumAmount =
+                    toBigDecimal(
+                            product.getMaxAmount()
+                    );
+
+            boolean tooLow =
+                    minimumAmount != null
+                            && principal.compareTo(
+                            minimumAmount
+                    ) < 0;
 
             boolean tooHigh =
-                    product.getMaxAmount() != null
-                            && principal
-                            > product.getMaxAmount();
+                    maximumAmount != null
+                            && principal.compareTo(
+                            maximumAmount
+                    ) > 0;
 
+            if (tooLow || tooHigh) {
 
-            if (
-                    tooLow
-                            || tooHigh
-            ) {
+                String range;
 
-                String range =
-                        product.getMaxAmount() != null
-                                ? String.format(
-                                "between %,.0f and %,.0f",
-                                product.getMinAmount(),
-                                product.getMaxAmount()
-                        )
-                                : String.format(
-                                "at least %,.0f",
-                                product.getMinAmount()
-                        );
+                if (
+                        minimumAmount != null
+                                && maximumAmount != null
+                ) {
 
+                    range =
+                            String.format(
+                                    "between %,.0f and %,.0f",
+                                    minimumAmount.doubleValue(),
+                                    maximumAmount.doubleValue()
+                            );
+
+                } else if (minimumAmount != null) {
+
+                    range =
+                            String.format(
+                                    "at least %,.0f",
+                                    minimumAmount.doubleValue()
+                            );
+
+                } else {
+
+                    range =
+                            String.format(
+                                    "up to %,.0f",
+                                    maximumAmount != null
+                                            ? maximumAmount.doubleValue()
+                                            : 0.0
+                            );
+                }
 
                 throw new RuntimeException(
                         String.format(
@@ -566,12 +553,19 @@ public class LoanService {
                 );
             }
 
+            Integer requestedMonths =
+                    req.getDurationMonths();
+
+            if (requestedMonths == null) {
+
+                throw new RuntimeException(
+                        "Loan duration is required"
+                );
+            }
 
             if (
-                    req.getDurationMonths()
-                            < product.getMinTermMonths()
-                            || req.getDurationMonths()
-                            > product.getMaxTermMonths()
+                    requestedMonths < product.getMinTermMonths()
+                            || requestedMonths > product.getMaxTermMonths()
             ) {
 
                 throw new RuntimeException(
@@ -585,35 +579,97 @@ public class LoanService {
             }
         }
 
-
         // ============================================================
         // RATE
         // ============================================================
 
-        double rate =
-                req.getInterestRate() != null
-                        ? req.getInterestRate()
-                        : product != null
-                        ? product.getInterestRate()
-                        : BASE_RATES.getOrDefault(
-                        requestedType,
-                        15.0
+        BigDecimal rate;
+
+        if (req.getInterestRate() != null) {
+
+            rate =
+                    toBigDecimal(
+                            req.getInterestRate()
+                    );
+
+        } else if (product != null) {
+
+            rate =
+                    toBigDecimal(
+                            product.getInterestRate()
+                    );
+
+            if (rate == null) {
+
+                rate =
+                        BASE_RATES.getOrDefault(
+                                requestedType,
+                                bd("15.0")
+                        );
+            }
+
+        } else {
+
+            rate =
+                    BASE_RATES.getOrDefault(
+                            requestedType,
+                            bd("15.0")
+                    );
+        }
+
+        if (rate == null) {
+            rate = bd("15.0");
+        }
+
+        rate =
+                rate.setScale(
+                        8,
+                        RoundingMode.HALF_UP
                 );
 
+        if (
+                rate.compareTo(
+                        BigDecimal.ZERO
+                ) < 0
+        ) {
 
-        String rateType =
-                req.getInterestRate() != null
-                        && req.getInterestRateType() != null
-                        ? req.getInterestRateType()
-                        : product != null
-                        ? product.getInterestRateType()
-                        : "ANNUAL";
+            throw new RuntimeException(
+                    "Interest rate cannot be negative"
+            );
+        }
 
+        String rateType;
 
         if (
-                borrower.getCreditScore()
-                        != null
+                req.getInterestRate() != null
+                        && req.getInterestRateType() != null
+                        && !req.getInterestRateType().isBlank()
         ) {
+
+            rateType =
+                    req.getInterestRateType()
+                            .trim()
+                            .toUpperCase();
+
+        } else if (
+                product != null
+                        && product.getInterestRateType() != null
+                        && !product.getInterestRateType().isBlank()
+        ) {
+
+            rateType =
+                    product.getInterestRateType()
+                            .trim()
+                            .toUpperCase();
+
+        } else {
+
+            rateType = "ANNUAL";
+        }
+
+        validateRateType(rateType);
+
+        if (borrower.getCreditScore() != null) {
 
             rate =
                     adjustRate(
@@ -623,16 +679,31 @@ public class LoanService {
                     );
         }
 
-
         // ============================================================
         // LOAN CALCULATION
         // ============================================================
 
-        int months =
+        Integer requestedDuration =
                 req.getDurationMonths();
 
+        if (requestedDuration == null) {
 
-        double[] calc =
+            throw new RuntimeException(
+                    "Loan duration is required"
+            );
+        }
+
+        int months =
+                requestedDuration;
+
+        if (months <= 0) {
+
+            throw new RuntimeException(
+                    "Loan duration must be greater than zero"
+            );
+        }
+
+        BigDecimal[] calc =
                 calcLoan(
                         principal,
                         rate,
@@ -640,219 +711,208 @@ public class LoanService {
                         rateType
                 );
 
+        BigDecimal monthlyInstallment =
+                calc[0];
 
-        double monthlyInstallment =
-                roundMoney(
-                        calc[0]
-                );
-
-
-        double totalRepayable =
-                roundMoney(
-                        calc[1]
-                );
-
+        BigDecimal totalRepayable =
+                calc[1];
 
         // ============================================================
         // PROCESSING FEE
         // ============================================================
 
-        double feePct =
+        BigDecimal feePct =
                 product != null
-                        && product
-                        .getProcessingFeePercent()
-                        != null
-                        ? product
-                        .getProcessingFeePercent()
-                        : 2.0;
+                        ? toBigDecimal(
+                        product.getProcessingFeePercent()
+                )
+                        : null;
 
+        if (feePct == null) {
+            feePct = bd("2.0");
+        }
 
-        double processingFee =
-                roundMoney(
+        BigDecimal processingFee =
+                money(
                         principal
-                                * (
-                                feePct
-                                        / 100.0
-                        )
+                                .multiply(feePct)
+                                .divide(
+                                        bd("100"),
+                                        8,
+                                        RoundingMode.HALF_UP
+                                )
                 );
-
 
         // ============================================================
         // DTI
         // ============================================================
 
-        double monthlyIncome =
-                safe(
+        BigDecimal monthlyIncome =
+                moneyValue(
                         borrower.getMonthlyIncome()
                 );
 
-
-        double dti =
-                monthlyIncome > 0
-                        ? roundMoney(
-                        (
-                                monthlyInstallment
-                                        / monthlyIncome
-                        )
-                                * 100.0
+        BigDecimal dti =
+                monthlyIncome.compareTo(
+                        BigDecimal.ZERO
+                ) > 0
+                        ? money(
+                        monthlyInstallment
+                                .divide(
+                                        monthlyIncome,
+                                        8,
+                                        RoundingMode.HALF_UP
+                                )
+                                .multiply(
+                                        bd("100")
+                                )
                 )
-                        : 0.0;
+                        : BigDecimal.ZERO;
 
+        // ============================================================
+        // COLLATERAL
+        // ============================================================
+
+        BigDecimal collateralValue =
+                req.getCollateralValue() != null
+                        ? money(
+                        toBigDecimal(
+                                req.getCollateralValue()
+                        )
+                )
+                        : null;
 
         // ============================================================
         // BUILD LOAN
         // ============================================================
+
+        LocalDate startDate =
+                req.getStartDate() != null
+                        && !req.getStartDate().isBlank()
+                        ? LocalDate.parse(
+                        req.getStartDate()
+                )
+                        : LocalDate.now();
 
         Loan loan =
                 Loan.builder()
                         .referenceNumber(
                                 generateRef(org)
                         )
-                        .organization(
-                                org
-                        )
-                        .borrower(
-                                borrower
-                        )
-                        .loanOfficer(
-                                createdBy
-                        )
-                        .loanType(
-                                requestedType
-                        )
+                        .organization(org)
+                        .borrower(borrower)
+                        .createdBy(createdBy)
+
+                       
+                        .loanOfficer(createdBy)
+
+                        .loanType(requestedType)
                         .repaymentFrequency(
-                                req.getRepaymentFrequency()
-                                        != null
+                                req.getRepaymentFrequency() != null
                                         ? req.getRepaymentFrequency()
                                         : Loan.RepaymentFrequency.MONTHLY
                         )
-                        .status(
-                                LoanStatus.PENDING
-                        )
-
-                        /*
-                         * EXACT SAME NORMALIZED PRINCIPAL
-                         */
-                        .amount(
-                                principal
-                        )
-
-                        .interestRate(
-                                rate
-                        )
-                        .interestRateType(
-                                rateType
-                        )
-                        .durationMonths(
-                                months
-                        )
+                        .status(LoanStatus.PENDING)
+                        .amount(principal)
+                        .interestRate(rate)
+                        .interestRateType(rateType)
+                        .durationMonths(months)
                         .currency(
                                 req.getCurrency() != null
+                                        && !req.getCurrency().isBlank()
                                         ? req.getCurrency()
                                         : org.getDefaultCurrency()
                         )
-                        .processingFee(
-                                processingFee
-                        )
-                        .totalRepayable(
-                                totalRepayable
-                        )
-
-                        /*
-                         * IMPORTANT:
-                         *
-                         * Do NOT use req.getAmount() here.
-                         *
-                         * Use the exact same principal stored in amount.
-                         */
-                        .outstandingBalance(
-                                principal
-                        )
-
-                        .totalPaid(
-                                0.0
-                        )
-                        .purpose(
-                                req.getPurpose()
-                        )
-                        .notes(
-                                req.getNotes()
-                        )
+                        .processingFee(processingFee)
+                        .totalRepayable(totalRepayable)
+                        .outstandingBalance(principal)
+                        .totalPaid(BigDecimal.ZERO)
+                        .purpose(req.getPurpose())
+                        .notes(req.getNotes())
                         .collateralDescription(
                                 req.getCollateralDescription()
                         )
-                        .collateralValue(
-                                req.getCollateralValue()
-                        )
-                        .startDate(
-                                req.getStartDate() != null
-                                        ? LocalDate.parse(
-                                        req.getStartDate()
-                                )
-                                        : LocalDate.now()
-                        )
-                        .debtToIncomeRatio(
-                                dti
-                        )
+                        .collateralValue(collateralValue)
+                        .startDate(startDate)
+                        .debtToIncomeRatio(dti)
                         .creditScoreSnapshot(
                                 borrower.getCreditScore()
                         )
+                        .nextDueDate(
+                                holidayService.adjustToBusinessDay(
+                                        organizationId,
+                                        startDate.plusMonths(1)
+                                )
+                        )
                         .build();
 
-
         Loan saved =
-                loanRepo.save(
-                        loan
+                loanRepo.save(loan);
+
+        // ============================================================
+        // PRINCIPAL SAFETY CHECK
+        // ============================================================
+
+        BigDecimal savedPrincipal =
+                moneyValue(
+                        saved.getAmountDecimal()
                 );
 
-
-        // ============================================================
-        // SAFETY CHECK
-        // ============================================================
-
-        /*
-         * This catches a database/entity/converter problem immediately.
-         *
-         * If the requested amount was 5,000,000 but Hibernate/database
-         * returns 4,999,999, we know the corruption happened outside
-         * the calculation below.
-         */
         if (
-                Math.abs(
-                        safe(saved.getAmount())
-                                - principal
-                ) > 0.001
+                savedPrincipal.compareTo(
+                        principal
+                ) != 0
         ) {
 
             log.error(
-                    "PRINCIPAL MISMATCH AFTER SAVE. Requested={}, saved={}, loanId={}",
+                    "PRINCIPAL MISMATCH AFTER SAVE. Expected={}, saved={}, loanId={}",
                     principal,
-                    saved.getAmount(),
+                    savedPrincipal,
                     saved.getId()
             );
-
 
             throw new IllegalStateException(
                     "Loan principal changed during save. Expected "
                             + principal
                             + " but saved "
-                            + saved.getAmount()
+                            + savedPrincipal
             );
         }
-
 
         // ============================================================
         // RISK SCORING
         // ============================================================
 
-        scoreAsync(
-                saved
-        );
-
+        scoreAsync(saved);
 
         // ============================================================
         // AUDIT
         // ============================================================
+
+        String creatorDescription;
+
+        if (createdBy != null) {
+
+            creatorDescription =
+                    "Loan "
+                            + saved.getReferenceNumber()
+                            + " created by "
+                            + createdBy.getName()
+                            + " for "
+                            + borrower.getFullName()
+                            + " — principal "
+                            + principal;
+
+        } else {
+
+            creatorDescription =
+                    "Public borrower loan application "
+                            + saved.getReferenceNumber()
+                            + " created for "
+                            + borrower.getFullName()
+                            + " — principal "
+                            + principal;
+        }
 
         audit(
                 org,
@@ -860,18 +920,11 @@ public class LoanService {
                 "LOAN_CREATED",
                 "LOAN",
                 saved.getId().toString(),
-                "Loan "
-                        + saved.getReferenceNumber()
-                        + " created for "
-                        + borrower.getFullName()
-                        + " — principal "
-                        + principal
+                creatorDescription
         );
-
 
         return saved;
     }
-
 
     // ================================================================
     // APPROVE LOAN
@@ -891,7 +944,6 @@ public class LoanService {
         );
     }
 
-
     @Transactional
     public Loan approveLoan(
             Long loanId,
@@ -900,20 +952,26 @@ public class LoanService {
             Double newInterestRate
     ) {
 
+        if (
+                approvedBy == null
+                        || approvedBy.getOrganization() == null
+                        || approvedBy.getOrganization().getId() == null
+        ) {
+
+            throw new RuntimeException(
+                    "Approving user must belong to an organization"
+            );
+        }
+
         Loan loan =
                 getLoanForOrg(
                         loanId,
-                        approvedBy
-                                .getOrganization()
-                                .getId()
+                        approvedBy.getOrganization().getId()
                 );
 
-
         if (
-                loan.getStatus()
-                        != LoanStatus.PENDING
-                        && loan.getStatus()
-                        != LoanStatus.UNDER_REVIEW
+                loan.getStatus() != LoanStatus.PENDING
+                        && loan.getStatus() != LoanStatus.UNDER_REVIEW
         ) {
 
             throw new RuntimeException(
@@ -923,11 +981,7 @@ public class LoanService {
             );
         }
 
-
-        if (
-                loan.getBorrower()
-                        == null
-        ) {
+        if (loan.getBorrower() == null) {
 
             throw new RuntimeException(
                     "Cannot approve loan "
@@ -936,13 +990,11 @@ public class LoanService {
             );
         }
 
-
         List<DocumentType> missingDocs =
                 fileService.getMissingDocumentTypes(
                         loan.getBorrower().getId(),
                         requiredDocsFor(loan)
                 );
-
 
         if (!missingDocs.isEmpty()) {
 
@@ -950,128 +1002,108 @@ public class LoanService {
                     "Cannot approve this loan — the borrower hasn't uploaded: "
                             + missingDocs.stream()
                             .map(DocumentType::name)
-                            .collect(
-                                    Collectors.joining(", ")
-                            )
+                            .collect(Collectors.joining(", "))
             );
         }
 
+        BigDecimal previousRate =
+                moneyValue(
+                        loan.getInterestRateDecimal()
+                );
 
-        String previousRate =
-                loan.getInterestRate() != null
-                        ? loan.getInterestRate()
-                        + "%"
-                        : "unset";
+        if (newInterestRate != null) {
 
+            BigDecimal requestedRate =
+                    bd(newInterestRate);
 
-        if (
-                newInterestRate != null
-                        && !newInterestRate.equals(
-                        loan.getInterestRate()
-                )
-        ) {
+            if (
+                    requestedRate.compareTo(
+                            BigDecimal.ZERO
+                    ) < 0
+            ) {
 
-            double principal =
-                    normalizePrincipal(
-                            safe(
-                                    loan.getAmount()
-                            )
-                    );
+                throw new IllegalArgumentException(
+                        "Interest rate cannot be negative"
+                );
+            }
 
+            if (
+                    previousRate.compareTo(
+                            requestedRate
+                    ) != 0
+            ) {
 
-            int months =
-                    loan.getDurationMonths() != null
-                            ? loan.getDurationMonths()
-                            : 1;
+                BigDecimal principal =
+                        normalizePrincipal(
+                                moneyValue(
+                                        loan.getAmountDecimal()
+                                )
+                        );
 
+                int durationMonths =
+                        loan.getDurationMonths() != null
+                                ? loan.getDurationMonths()
+                                : 1;
 
-            String rateType =
-                    loan.getInterestRateType()
-                            != null
-                            ? loan.getInterestRateType()
-                            : "ANNUAL";
+                String rateType =
+                        loan.getInterestRateType() != null
+                                ? loan.getInterestRateType()
+                                : "ANNUAL";
 
+                validateRateType(rateType);
 
-            double[] calc =
-                    calcLoan(
-                            principal,
-                            newInterestRate,
-                            months,
-                            rateType
-                    );
+                BigDecimal[] calc =
+                        calcLoan(
+                                principal,
+                                requestedRate,
+                                durationMonths,
+                                rateType
+                        );
 
+                loan.setInterestRate(
+                        requestedRate
+                );
 
-            loan.setInterestRate(
-                    newInterestRate
-            );
-
-
-            loan.setTotalRepayable(
-                    roundMoney(
-                            calc[1]
-                    )
-            );
+                loan.setTotalRepayable(
+                        calc[1]
+                );
+            }
         }
 
-
-        /*
-         * Ensure the existing loan principal remains normalized.
-         */
-        double exactPrincipal =
+        BigDecimal exactPrincipal =
                 normalizePrincipal(
-                        safe(
-                                loan.getAmount()
+                        moneyValue(
+                                loan.getAmountDecimal()
                         )
                 );
 
+        loan.setAmount(exactPrincipal);
 
-        loan.setAmount(
-                exactPrincipal
-        );
-
-
-        loan.setOutstandingBalance(
-                Math.max(
-                        0.0,
-                        safe(
-                                loan.getOutstandingBalance()
-                        )
-                )
-        );
-
+        if (loan.getOutstandingBalanceDecimal() == null) {
+            loan.setOutstandingBalance(
+                    exactPrincipal
+            );
+        }
 
         loan.setStatus(
                 LoanStatus.APPROVED
         );
 
-
         loan.setApprovedBy(
                 approvedBy
         );
-
 
         loan.setApprovedAt(
                 LocalDate.now()
         );
 
-
-        if (notes != null) {
-
-            loan.setInternalNotes(
-                    notes
-            );
+        if (notes != null && !notes.isBlank()) {
+            loan.setInternalNotes(notes);
         }
 
-
         Loan saved =
-                loanRepo.save(
-                        loan
-                );
+                loanRepo.save(loan);
 
-
-        /*
-         * Do not generate duplicate schedules.
-         */
         if (
                 paymentRepo
                         .findByLoanId(
@@ -1092,15 +1124,14 @@ public class LoanService {
             );
         }
 
-
         audit(
-                loan.getOrganization(),
+                saved.getOrganization(),
                 approvedBy,
                 "LOAN_APPROVED",
                 "LOAN",
                 loanId.toString(),
                 "Loan "
-                        + loan.getReferenceNumber()
+                        + saved.getReferenceNumber()
                         + " approved"
                         + (
                         newInterestRate != null
@@ -1113,7 +1144,6 @@ public class LoanService {
                 )
         );
 
-
         try {
 
             mailService.sendLoanApproved(
@@ -1123,11 +1153,10 @@ public class LoanService {
         } catch (Exception e) {
 
             log.warn(
-                    "Notif failed",
+                    "Loan approval email failed",
                     e
             );
         }
-
 
         try {
 
@@ -1138,11 +1167,10 @@ public class LoanService {
         } catch (Exception e) {
 
             log.warn(
-                    "SMS failed",
+                    "Loan approval SMS failed",
                     e
             );
         }
-
 
         notifyOfficer(
                 saved,
@@ -1156,17 +1184,14 @@ public class LoanService {
                 "success"
         );
 
-
         webhookService.dispatch(
-                loan.getOrganization(),
+                saved.getOrganization(),
                 "LOAN_APPROVED",
                 saved
         );
 
-
         return saved;
     }
-
 
     // ================================================================
     // AMORTIZE
@@ -1179,14 +1204,19 @@ public class LoanService {
             String rateType
     ) {
 
-        return calcLoan(
-                principal,
-                rate,
-                months,
-                rateType
-        );
-    }
+        BigDecimal[] result =
+                calcLoan(
+                        bd(principal),
+                        bd(rate),
+                        months,
+                        rateType
+                );
 
+        return new double[]{
+                result[0].doubleValue(),
+                result[1].doubleValue()
+        };
+    }
 
     // ================================================================
     // NEW REFERENCE
@@ -1196,11 +1226,8 @@ public class LoanService {
             Organization org
     ) {
 
-        return generateRef(
-                org
-        );
+        return generateRef(org);
     }
-
 
     // ================================================================
     // REJECT LOAN
@@ -1213,6 +1240,17 @@ public class LoanService {
             String reason
     ) {
 
+        if (
+                rejectedBy == null
+                        || rejectedBy.getOrganization() == null
+                        || rejectedBy.getOrganization().getId() == null
+        ) {
+
+            throw new RuntimeException(
+                    "Rejecting user must belong to an organization"
+            );
+        }
+
         Loan loan =
                 getLoanForOrg(
                         loanId,
@@ -1221,12 +1259,9 @@ public class LoanService {
                                 .getId()
                 );
 
-
         if (
-                loan.getStatus()
-                        != LoanStatus.PENDING
-                        && loan.getStatus()
-                        != LoanStatus.UNDER_REVIEW
+                loan.getStatus() != LoanStatus.PENDING
+                        && loan.getStatus() != LoanStatus.UNDER_REVIEW
         ) {
 
             throw new RuntimeException(
@@ -1235,22 +1270,23 @@ public class LoanService {
             );
         }
 
+        if (reason == null || reason.isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "Rejection reason is required"
+            );
+        }
 
         loan.setStatus(
                 LoanStatus.REJECTED
         );
 
-
         loan.setRejectionReason(
                 reason
         );
 
-
         Loan saved =
-                loanRepo.save(
-                        loan
-                );
-
+                loanRepo.save(loan);
 
         audit(
                 loan.getOrganization(),
@@ -1261,7 +1297,6 @@ public class LoanService {
                 "Reason: " + reason
         );
 
-
         try {
 
             mailService.sendLoanRejected(
@@ -1271,11 +1306,10 @@ public class LoanService {
         } catch (Exception e) {
 
             log.warn(
-                    "Notif failed",
+                    "Loan rejection email failed",
                     e
             );
         }
-
 
         try {
 
@@ -1286,11 +1320,10 @@ public class LoanService {
         } catch (Exception e) {
 
             log.warn(
-                    "SMS failed",
+                    "Loan rejection SMS failed",
                     e
             );
         }
-
 
         notifyOfficer(
                 saved,
@@ -1303,24 +1336,20 @@ public class LoanService {
                         + (
                         reason != null
                                 && !reason.isBlank()
-                                ? ". Reason: "
-                                + reason
+                                ? ". Reason: " + reason
                                 : "."
                 ),
                 "warning"
         );
 
-
         webhookService.dispatch(
-                loan.getOrganization(),
+                saved.getOrganization(),
                 "LOAN_REJECTED",
                 saved
         );
 
-
         return saved;
     }
-
 
     // ================================================================
     // DISBURSE LOAN
@@ -1333,6 +1362,17 @@ public class LoanService {
             String disbursementMethod
     ) {
 
+        if (
+                officer == null
+                        || officer.getOrganization() == null
+                        || officer.getOrganization().getId() == null
+        ) {
+
+            throw new RuntimeException(
+                    "Disbursing officer must belong to an organization"
+            );
+        }
+
         Loan loan =
                 getLoanForOrg(
                         loanId,
@@ -1341,22 +1381,14 @@ public class LoanService {
                                 .getId()
                 );
 
-
-        if (
-                loan.getStatus()
-                        != LoanStatus.APPROVED
-        ) {
+        if (loan.getStatus() != LoanStatus.APPROVED) {
 
             throw new RuntimeException(
                     "Loan must be APPROVED before disbursement"
             );
         }
 
-
-        if (
-                loan.getBorrower()
-                        == null
-        ) {
+        if (loan.getBorrower() == null) {
 
             throw new RuntimeException(
                     "Cannot disburse loan "
@@ -1365,13 +1397,11 @@ public class LoanService {
             );
         }
 
-
         List<DocumentType> unverifiedDocs =
                 fileService.getUnverifiedDocumentTypes(
                         loan.getBorrower().getId(),
                         requiredDocsFor(loan)
                 );
-
 
         if (!unverifiedDocs.isEmpty()) {
 
@@ -1379,85 +1409,78 @@ public class LoanService {
                     "Cannot disburse this loan — staff still needs to verify: "
                             + unverifiedDocs.stream()
                             .map(DocumentType::name)
-                            .collect(
-                                    Collectors.joining(", ")
-                            )
+                            .collect(Collectors.joining(", "))
             );
         }
 
-
-        // ============================================================
-        // NORMALIZE PRINCIPAL BEFORE DISBURSEMENT
-        // ============================================================
-
-        double exactPrincipal =
+        BigDecimal exactPrincipal =
                 normalizePrincipal(
-                        safe(
-                                loan.getAmount()
+                        moneyValue(
+                                loan.getAmountDecimal()
                         )
                 );
-
 
         loan.setAmount(
                 exactPrincipal
         );
 
-
         loan.setOutstandingBalance(
                 exactPrincipal
         );
-
 
         loan.setStatus(
                 LoanStatus.ACTIVE
         );
 
+        LocalDateTime exactDisbursementTimestamp =
+                LocalDateTime.now();
 
         loan.setDisbursedAt(
-                LocalDate.now()
+                exactDisbursementTimestamp
         );
-
 
         loan.setDisbursedAmount(
                 exactPrincipal
         );
 
+        LocalDate disbursementDate =
+                exactDisbursementTimestamp.toLocalDate();
+
+        Integer duration =
+                loan.getDurationMonths() != null
+                        ? loan.getDurationMonths()
+                        : 1;
 
         loan.setMaturityDate(
-                LocalDate.now()
-                        .plusMonths(
-                                loan.getDurationMonths()
-                        )
+                disbursementDate.plusMonths(
+                        duration
+                )
         );
-
 
         loan.setNextDueDate(
-                LocalDate.now()
-                        .plusMonths(1)
+                holidayService.adjustToBusinessDay(
+                        loan.getOrganization().getId(),
+                        disbursementDate.plusMonths(1)
+                )
         );
 
-
         Loan saved =
-                loanRepo.save(
-                        loan
-                );
+                loanRepo.save(loan);
 
-
-        // ============================================================
-        // GENERATE REPAYMENT SCHEDULE
-        // ============================================================
+        log.info(
+                "Loan {} disbursed at exact timestamp {}",
+                saved.getReferenceNumber(),
+                saved.getDisbursedAt()
+        );
 
         paymentScheduleService.generateSchedule(
                 saved
         );
 
-
         PaymentSchedule first =
-                paymentScheduleService
-                        .getNextInstallment(
-                                saved.getId()
-                        );
-
+                paymentScheduleService.getNextInstallment(
+                        saved.getId()
+                );
 
         if (first != null) {
 
@@ -1465,54 +1488,45 @@ public class LoanService {
                     first.getDueDate()
             );
 
-
             saved.setNextInstallmentAmount(
                     first.getInstallmentAmount()
             );
-
 
             saved.setNextDueDate(
                     first.getDueDate()
             );
         }
 
-
         saved =
-                loanRepo.save(
-                        saved
-                );
+                loanRepo.save(saved);
 
+        if (creditBureauService.isReportingRequiredForDisbursement()) {
 
-        // ============================================================
-        // CREDIT BUREAU
-        // ============================================================
-
-        try {
-
+            /*
+             * Production safety: when Credit Bureau reporting is required,
+             * a failed or unconfigured real provider MUST abort disbursement.
+             * The surrounding @Transactional method then rolls the loan
+             * status back to APPROVED instead of creating an ACTIVE loan
+             * that was never reported.
+             */
             creditBureauService.reportDisbursedLoan(
                     saved,
                     officer.getName()
             );
-
 
             log.info(
                     "Loan {} successfully reported to Credit Bureau.",
                     saved.getReferenceNumber()
             );
 
-        } catch (Exception ex) {
+        } else {
 
-            log.error(
-                    "Unable to report loan {} to Credit Bureau.",
-                    saved.getReferenceNumber(),
-                    ex
+            log.warn(
+                    "Credit Bureau reporting is explicitly disabled for disbursement. "
+                            + "loan={}",
+                    saved.getReferenceNumber()
             );
         }
-
-
-        // ============================================================
-        // AUDIT
-        // ============================================================
 
         audit(
                 saved.getOrganization(),
@@ -1521,22 +1535,16 @@ public class LoanService {
                 "LOAN",
                 loanId.toString(),
                 "Disbursed via "
-                        + disbursementMethod
+                        + (
+                        disbursementMethod != null
+                                ? disbursementMethod
+                                : "unspecified"
+                )
         );
-
-
-        // ============================================================
-        // ACCOUNTING
-        // ============================================================
 
         accountingService.postDisbursement(
                 saved
         );
-
-
-        // ============================================================
-        // EMAIL
-        // ============================================================
 
         try {
 
@@ -1553,11 +1561,6 @@ public class LoanService {
             );
         }
 
-
-        // ============================================================
-        // SMS
-        // ============================================================
-
         try {
 
             smsService.sendLoanDisbursed(
@@ -1573,11 +1576,6 @@ public class LoanService {
             );
         }
 
-
-        // ============================================================
-        // NOTIFICATION
-        // ============================================================
-
         notifyOfficer(
                 saved,
                 officer,
@@ -1587,17 +1585,12 @@ public class LoanService {
                         + " ("
                         + saved.getCurrency()
                         + " "
-                        + saved.getDisbursedAmount()
+                        + saved.getDisbursedAmountDecimal()
                         + ") has been disbursed via "
                         + disbursementMethod
                         + ".",
                 "success"
         );
-
-
-        // ============================================================
-        // WEBHOOK
-        // ============================================================
 
         webhookService.dispatch(
                 saved.getOrganization(),
@@ -1605,10 +1598,8 @@ public class LoanService {
                 saved
         );
 
-
         return saved;
     }
-
 
     // ================================================================
     // NOTIFY OFFICER
@@ -1622,24 +1613,27 @@ public class LoanService {
             String type
     ) {
 
+        if (loan == null) {
+            return;
+        }
+
         User officer =
                 loan.getLoanOfficer();
 
+        if (officer == null) {
+            return;
+        }
 
         if (
-                officer == null
-                        || (
-                        actor != null
-                                && officer.getId()
-                                .equals(
-                                        actor.getId()
-                                )
+                actor != null
+                        && officer.getId() != null
+                        && officer.getId().equals(
+                        actor.getId()
                 )
         ) {
 
             return;
         }
-
 
         try {
 
@@ -1661,7 +1655,6 @@ public class LoanService {
         }
     }
 
-
     // ================================================================
     // UPDATE STATUS
     // ================================================================
@@ -1674,26 +1667,38 @@ public class LoanService {
             String notes
     ) {
 
+        if (
+                user == null
+                        || user.getOrganization() == null
+                        || user.getOrganization().getId() == null
+        ) {
+
+            throw new RuntimeException(
+                    "User must belong to an organization"
+            );
+        }
+
+        if (newStatus == null) {
+
+            throw new IllegalArgumentException(
+                    "New loan status cannot be null"
+            );
+        }
+
         Loan loan =
                 getLoanForOrg(
                         loanId,
-                        user.getOrganization()
-                                .getId()
+                        user.getOrganization().getId()
                 );
-
 
         LoanStatus current =
                 loan.getStatus();
-
 
         switch (newStatus) {
 
             case UNDER_REVIEW -> {
 
-                if (
-                        current
-                                != LoanStatus.PENDING
-                ) {
+                if (current != LoanStatus.PENDING) {
 
                     throw new RuntimeException(
                             "Only a Pending loan can be moved to Under Review (currently "
@@ -1703,14 +1708,11 @@ public class LoanService {
                 }
             }
 
-
             case DEFAULTED -> {
 
                 if (
-                        current
-                                != LoanStatus.ACTIVE
-                                && current
-                                != LoanStatus.OVERDUE
+                        current != LoanStatus.ACTIVE
+                                && current != LoanStatus.OVERDUE
                 ) {
 
                     throw new RuntimeException(
@@ -1721,14 +1723,11 @@ public class LoanService {
                 }
             }
 
-
             case CLOSED -> {
 
                 if (
-                        current
-                                != LoanStatus.PAID
-                                && current
-                                != LoanStatus.WRITTEN_OFF
+                        current != LoanStatus.PAID
+                                && current != LoanStatus.WRITTEN_OFF
                 ) {
 
                     throw new RuntimeException(
@@ -1739,13 +1738,11 @@ public class LoanService {
                 }
             }
 
-
             case RESTRUCTURED ->
 
                     throw new RuntimeException(
                             "Use the Restructure Loan action instead."
                     );
-
 
             default ->
 
@@ -1754,28 +1751,16 @@ public class LoanService {
                     );
         }
 
-
         loan.setStatus(
                 newStatus
         );
 
-
-        if (
-                notes != null
-                        && !notes.isBlank()
-        ) {
-
-            loan.setInternalNotes(
-                    notes
-            );
+        if (notes != null && !notes.isBlank()) {
+            loan.setInternalNotes(notes);
         }
 
-
         Loan saved =
-                loanRepo.save(
-                        loan
-                );
-
+                loanRepo.save(loan);
 
         audit(
                 loan.getOrganization(),
@@ -1789,12 +1774,10 @@ public class LoanService {
                         + (
                         notes != null
                                 && !notes.isBlank()
-                                ? ": "
-                                + notes
+                                ? ": " + notes
                                 : ""
                 )
         );
-
 
         webhookService.dispatch(
                 loan.getOrganization(),
@@ -1802,10 +1785,8 @@ public class LoanService {
                 saved
         );
 
-
         return saved;
     }
-
 
     // ================================================================
     // GET LOANS
@@ -1819,27 +1800,57 @@ public class LoanService {
             String type
     ) {
 
-        LoanStatus ls =
-                (
-                        status != null
-                                && !status.isBlank()
-                )
-                        ? LoanStatus.valueOf(
-                        status
-                )
-                        : null;
+        if (org == null || org.getId() == null) {
+            throw new IllegalArgumentException(
+                    "Organization is required"
+            );
+        }
 
+        if (page < 0) {
+            page = 0;
+        }
 
-        Loan.LoanType lt =
-                (
-                        type != null
-                                && !type.isBlank()
-                )
-                        ? Loan.LoanType.valueOf(
-                        type
-                )
-                        : null;
+        if (size <= 0) {
+            size = 20;
+        }
 
+        LoanStatus ls = null;
+
+        if (status != null && !status.isBlank()) {
+
+            try {
+
+                ls =
+                        LoanStatus.valueOf(
+                                status.trim().toUpperCase()
+                        );
+
+            } catch (IllegalArgumentException e) {
+
+                throw new IllegalArgumentException(
+                        "Invalid loan status: " + status
+                );
+            }
+        }
+
+        Loan.LoanType lt = null;
+
+        if (type != null && !type.isBlank()) {
+
+            try {
+
+                lt =
+                        Loan.LoanType.valueOf(
+                                type.trim().toUpperCase()
+                        );
+
+            } catch (IllegalArgumentException e) {
+
+                throw new IllegalArgumentException(
+                        "Invalid loan type: " + type
+                );
+            }
+        }
 
         return loanRepo.findByFilters(
                 org,
@@ -1852,7 +1863,6 @@ public class LoanService {
         );
     }
 
-
     // ================================================================
     // GET LOAN
     // ================================================================
@@ -1862,27 +1872,37 @@ public class LoanService {
             Long orgId
     ) {
 
+        if (loanId == null) {
+
+            throw new IllegalArgumentException(
+                    "Loan ID cannot be null"
+            );
+        }
+
+        if (orgId == null) {
+
+            throw new IllegalArgumentException(
+                    "Organization ID cannot be null"
+            );
+        }
+
         Loan loan =
                 loanRepo.findById(
                                 loanId
                         )
                         .orElseThrow(
-                                () ->
-                                        new RuntimeException(
-                                                "Loan not found: "
-                                                        + loanId
-                                        )
+                                () -> new RuntimeException(
+                                        "Loan not found: "
+                                                + loanId
+                                )
                         );
-
 
         if (
                 loan.getOrganization() == null
-                        || !loan
-                        .getOrganization()
+                        || loan.getOrganization().getId() == null
+                        || !loan.getOrganization()
                         .getId()
-                        .equals(
-                                orgId
-                        )
+                        .equals(orgId)
         ) {
 
             throw new RuntimeException(
@@ -1891,10 +1911,8 @@ public class LoanService {
             );
         }
 
-
         return loan;
     }
-
 
     // ================================================================
     // DOCUMENT REQUIREMENTS
@@ -1911,15 +1929,10 @@ public class LoanService {
                         orgId
                 );
 
-
         Map<String, Object> result =
                 new LinkedHashMap<>();
 
-
-        if (
-                loan.getBorrower()
-                        == null
-        ) {
+        if (loan.getBorrower() == null) {
 
             result.put(
                     "required",
@@ -1951,16 +1964,11 @@ public class LoanService {
                     true
             );
 
-
             return result;
         }
 
-
         List<DocumentType> required =
-                requiredDocsFor(
-                        loan
-                );
-
+                requiredDocsFor(loan);
 
         List<DocumentType> missing =
                 fileService.getMissingDocumentTypes(
@@ -1968,59 +1976,51 @@ public class LoanService {
                         required
                 );
 
-
         List<DocumentType> unverified =
                 fileService.getUnverifiedDocumentTypes(
                         loan.getBorrower().getId(),
                         required
                 );
 
-
         result.put(
                 "required",
                 required.stream()
-                        .map(
-                                DocumentType::name
-                        )
+                        .map(DocumentType::name)
                         .toList()
         );
-
 
         result.put(
                 "missing",
                 missing.stream()
-                        .map(
-                                DocumentType::name
-                        )
+                        .map(DocumentType::name)
                         .toList()
         );
-
 
         result.put(
                 "unverified",
                 unverified.stream()
-                        .map(
-                                DocumentType::name
-                        )
+                        .map(DocumentType::name)
                         .toList()
         );
-
 
         result.put(
                 "readyToApprove",
                 missing.isEmpty()
         );
 
-
         result.put(
                 "readyToDisburse",
-                unverified.isEmpty()
+                missing.isEmpty()
+                        && unverified.isEmpty()
         );
 
+        result.put(
+                "noBorrowerLinked",
+                false
+        );
 
         return result;
     }
-
 
     // ================================================================
     // DASHBOARD
@@ -2030,19 +2030,26 @@ public class LoanService {
             Organization org
     ) {
 
-        LocalDate firstOfMonth =
-                LocalDate.now()
-                        .withDayOfMonth(1);
+        if (org == null || org.getId() == null) {
 
+            throw new IllegalArgumentException(
+                    "Organization is required"
+            );
+        }
+
+        LocalDate today =
+                LocalDate.now();
+
+        LocalDate firstOfMonth =
+                today.withDayOfMonth(1);
 
         long overdueCount =
                 paymentRepo
                         .findByOrganization_IdAndPaidFalseAndDueDateBefore(
                                 org.getId(),
-                                LocalDate.now()
+                                today
                         )
                         .size();
-
 
         List<Map<String, Object>> typeBreakdown =
                 loanRepo
@@ -2072,10 +2079,7 @@ public class LoanService {
                                     return m;
                                 }
                         )
-                        .collect(
-                                Collectors.toList()
-                        );
-
+                        .collect(Collectors.toList());
 
         List<Loan> recent =
                 loanRepo.findRecentByOrg(
@@ -2085,7 +2089,6 @@ public class LoanService {
                                 8
                         )
                 );
-
 
         return DashboardStats.builder()
                 .totalLoans(
@@ -2122,19 +2125,34 @@ public class LoanService {
                 )
                 .totalDisbursed(
                         Optional.ofNullable(
-                                        loanRepo.sumActivePrincipal(org)
+                                        loanRepo.sumActivePrincipal(
+                                                org
+                                        )
+                                )
+                                .map(
+                                        this::toDouble
                                 )
                                 .orElse(0.0)
                 )
                 .totalCollected(
                         Optional.ofNullable(
-                                        loanRepo.sumTotalCollected(org)
+                                        loanRepo.sumTotalCollected(
+                                                org
+                                        )
+                                )
+                                .map(
+                                        this::toDouble
                                 )
                                 .orElse(0.0)
                 )
                 .outstandingBalance(
                         Optional.ofNullable(
-                                        loanRepo.sumOutstandingBalance(org)
+                                        loanRepo.sumOutstandingBalance(
+                                                org
+                                        )
+                                )
+                                .map(
+                                        this::toDouble
                                 )
                                 .orElse(0.0)
                 )
@@ -2145,6 +2163,9 @@ public class LoanService {
                                                 firstOfMonth
                                         )
                                 )
+                                .map(
+                                        this::toDouble
+                                )
                                 .orElse(0.0)
                 )
                 .totalBorrowers(
@@ -2154,7 +2175,9 @@ public class LoanService {
                 )
                 .latePaymentsCount(
                         Optional.ofNullable(
-                                        paymentRepo.countLatePayments(org)
+                                        paymentRepo.countLatePayments(
+                                                org
+                                        )
                                 )
                                 .orElse(0L)
                 )
@@ -2167,7 +2190,6 @@ public class LoanService {
                 .build();
     }
 
-
     // ================================================================
     // GENERATE REPAYMENT SCHEDULE
     // ================================================================
@@ -2176,89 +2198,104 @@ public class LoanService {
             Loan loan
     ) {
 
-        /*
-         * IMPORTANT:
-         *
-         * Schedule always starts from PRINCIPAL,
-         * never totalRepayable.
-         */
-        double principal =
+        if (loan == null) {
+            throw new IllegalArgumentException(
+                    "Loan cannot be null"
+            );
+        }
+
+        if (
+                loan.getOrganization() == null
+                        || loan.getOrganization().getId() == null
+        ) {
+
+            throw new IllegalArgumentException(
+                    "Loan organization is required"
+            );
+        }
+
+        BigDecimal principal =
                 normalizePrincipal(
-                        safe(
-                                loan.getAmount()
+                        moneyValue(
+                                loan.getAmountDecimal()
                         )
                 );
 
-
-        double rate =
-                safe(
-                        loan.getInterestRate()
+        BigDecimal rate =
+                moneyValue(
+                        loan.getInterestRateDecimal()
                 );
-
 
         String rateType =
                 loan.getInterestRateType() != null
                         ? loan.getInterestRateType()
                         : "ANNUAL";
 
+        validateRateType(rateType);
 
         int months =
                 loan.getDurationMonths() != null
                         ? loan.getDurationMonths()
                         : 1;
 
+        if (months <= 0) {
+            months = 1;
+        }
 
-        double monthlyPayment =
-                roundMoney(
-                        calcLoan(
-                                principal,
-                                rate,
-                                months,
-                                rateType
-                        )[0]
-                );
+        BigDecimal monthlyPayment =
+                calcLoan(
+                        principal,
+                        rate,
+                        months,
+                        rateType
+                )[0];
 
-
-        double balance =
+        BigDecimal balance =
                 principal;
 
-
-        double monthlyRate;
-
+        BigDecimal monthlyRate;
 
         if (
                 "MONTHLY"
-                        .equalsIgnoreCase(
-                                rateType
-                        )
+                        .equalsIgnoreCase(rateType)
         ) {
 
             monthlyRate =
-                    rate / 100.0;
+                    rate.divide(
+                            bd("100"),
+                            16,
+                            RoundingMode.HALF_UP
+                    );
 
         } else {
 
             monthlyRate =
-                    rate / 100.0 / 12.0;
+                    rate.divide(
+                            bd("100"),
+                            16,
+                            RoundingMode.HALF_UP
+                    )
+                    .divide(
+                            bd("12"),
+                            16,
+                            RoundingMode.HALF_UP
+                    );
         }
-
 
         Long orgId =
                 loan.getOrganization()
                         .getId();
 
+        LocalDate startDate =
+                loan.getStartDate() != null
+                        ? loan.getStartDate()
+                        : LocalDate.now();
 
         LocalDate due =
                 holidayService.adjustToBusinessDay(
                         orgId,
-                        (
-                                loan.getStartDate()
-                                        != null
-                                        ? loan.getStartDate()
-                                        : LocalDate.now()
-                        ).plusMonths(1)
+                        startDate.plusMonths(1)
                 );
-
 
         for (
                 int i = 1;
@@ -2267,95 +2304,82 @@ public class LoanService {
         ) {
 
             balance =
-                    roundMoney(
-                            balance
+                    money(balance);
+
+            BigDecimal interest =
+                    money(
+                            balance.multiply(
+                                    monthlyRate
+                            )
                     );
 
+            BigDecimal principalComponent;
+            BigDecimal installmentAmount;
 
-            double interest =
-                    roundMoney(
-                            balance
-                                    * monthlyRate
-                    );
+            if (i == months) {
 
-
-            double principalComponent;
-
-
-            double installmentAmount;
-
-
-            if (
-                    i == months
-            ) {
-
-                /*
-                 * Final installment clears the exact remaining
-                 * principal after rounding.
-                 */
                 principalComponent =
                         balance;
 
-
                 installmentAmount =
-                        roundMoney(
-                                principalComponent
-                                        + interest
+                        money(
+                                principalComponent.add(
+                                        interest
+                                )
                         );
 
-
                 balance =
-                        0.0;
+                        BigDecimal.ZERO;
 
             } else {
 
                 installmentAmount =
                         monthlyPayment;
 
-
                 principalComponent =
-                        roundMoney(
-                                installmentAmount
-                                        - interest
+                        money(
+                                installmentAmount.subtract(
+                                        interest
+                                )
                         );
 
-
                 if (
-                        principalComponent
-                                < 0
+                        principalComponent.compareTo(
+                                BigDecimal.ZERO
+                        ) < 0
                 ) {
 
                     principalComponent =
-                            0.0;
+                            BigDecimal.ZERO;
                 }
 
-
                 if (
-                        principalComponent
-                                > balance
+                        principalComponent.compareTo(
+                                balance
+                        ) > 0
                 ) {
 
                     principalComponent =
                             balance;
                 }
 
-
                 balance =
-                        roundMoney(
-                                balance
-                                        - principalComponent
+                        money(
+                                balance.subtract(
+                                        principalComponent
+                                )
                         );
 
-
                 if (
-                        balance < 0.01
+                        balance.compareTo(
+                                bd("0.01")
+                        ) < 0
                 ) {
 
                     balance =
-                            0.0;
+                            BigDecimal.ZERO;
                 }
             }
-
 
             Payment payment =
                     Payment.builder()
@@ -2365,39 +2389,31 @@ public class LoanService {
                                             i
                                     )
                             )
-                            .loan(
-                                    loan
-                            )
+                            .loan(loan)
                             .organization(
                                     loan.getOrganization()
                             )
-                            .installmentNumber(
-                                    i
-                            )
+                            .installmentNumber(i)
                             .amount(
                                     installmentAmount
                             )
                             .principalComponent(
-                                    roundMoney(
+                                    money(
                                             principalComponent
                                     )
                             )
                             .interestComponent(
-                                    roundMoney(
+                                    money(
                                             interest
                                     )
                             )
-                            .dueDate(
-                                    due
-                            )
-                            .paid(
-                                    false
-                            )
+                            .dueDate(due)
+                            .paid(false)
                             .amountPaid(
-                                    0.0
+                                    BigDecimal.ZERO
                             )
                             .penalty(
-                                    0.0
+                                    BigDecimal.ZERO
                             )
                             .outstandingAfter(
                                     balance
@@ -2407,11 +2423,7 @@ public class LoanService {
                             )
                             .build();
 
-
-            paymentRepo.save(
-                    payment
-            );
-
+            paymentRepo.save(payment);
 
             due =
                     holidayService.adjustToBusinessDay(
@@ -2420,39 +2432,23 @@ public class LoanService {
                     );
         }
 
-
         loan.setAmount(
                 principal
         );
 
-
-        /*
-         * At schedule generation, outstanding principal must remain
-         * principal, not total repayment.
-         */
         loan.setOutstandingBalance(
                 principal
         );
 
-
         loan.setNextDueDate(
                 holidayService.adjustToBusinessDay(
                         orgId,
-                        (
-                                loan.getStartDate()
-                                        != null
-                                        ? loan.getStartDate()
-                                        : LocalDate.now()
-                        ).plusMonths(1)
+                        startDate.plusMonths(1)
                 )
         );
 
-
-        loanRepo.save(
-                loan
-        );
+        loanRepo.save(loan);
     }
-
 
     // ================================================================
     // RISK SCORING
@@ -2465,25 +2461,26 @@ public class LoanService {
 
         try {
 
-            var risk =
-                    riskService.score(
-                            loan
-                    );
+            if (loan == null) {
+                return;
+            }
 
+            RiskScoringService.RiskResult risk =
+                    riskService.score(loan);
+
+            if (risk == null) {
+                return;
+            }
 
             loan.setRiskScore(
                     risk.getScore()
             );
 
-
             loan.setRiskCategory(
                     risk.getCategory()
             );
 
-
-            loanRepo.save(
-                    loan
-            );
+            loanRepo.save(loan);
 
         } catch (Exception e) {
 
@@ -2494,93 +2491,86 @@ public class LoanService {
         }
     }
 
-
     // ================================================================
     // RATE ADJUSTMENT
     // ================================================================
 
-    private double adjustRate(
-            double base,
+    private BigDecimal adjustRate(
+            BigDecimal base,
             int creditScore,
             String rateType
     ) {
 
+        if (base == null) {
+            base = bd("15.0");
+        }
+
         if (
                 "MONTHLY"
-                        .equalsIgnoreCase(
-                                rateType
-                        )
+                        .equalsIgnoreCase(rateType)
         ) {
 
-            if (
-                    creditScore >= 750
-            ) {
+            if (creditScore >= 750) {
 
-                return Math.max(
-                        6.0,
-                        base - 2.0
-                );
+                return base
+                        .subtract(
+                                bd("2.0")
+                        )
+                        .max(
+                                bd("6.0")
+                        );
             }
 
-
-            if (
-                    creditScore >= 650
-            ) {
-
+            if (creditScore >= 650) {
                 return base;
             }
 
+            return base
+                    .add(
+                            bd("2.0")
+                    )
+                    .min(
+                            bd("10.0")
+                    );
+        }
 
-            return Math.min(
-                    10.0,
-                    base + 2.0
+        if (creditScore >= 800) {
+
+            return base.subtract(
+                    bd("2.0")
             );
         }
 
+        if (creditScore >= 750) {
 
-        if (
-                creditScore >= 800
-        ) {
-
-            return base - 2.0;
+            return base.subtract(
+                    bd("1.0")
+            );
         }
 
-
-        if (
-                creditScore >= 750
-        ) {
-
-            return base - 1.0;
-        }
-
-
-        if (
-                creditScore >= 700
-        ) {
-
+        if (creditScore >= 700) {
             return base;
         }
 
+        if (creditScore >= 650) {
 
-        if (
-                creditScore >= 650
-        ) {
-
-            return base + 1.0;
+            return base.add(
+                    bd("1.0")
+            );
         }
 
-
-        return base + 3.0;
+        return base.add(
+                bd("3.0")
+        );
     }
-
 
     // ================================================================
     // LOAN CALCULATION
     // ================================================================
 
-    private double[] calcLoan(
-            double principal,
-            double rate,
+    private BigDecimal[] calcLoan(
+            BigDecimal principal,
+            BigDecimal rate,
             int months,
             String rateType
     ) {
@@ -2590,160 +2580,318 @@ public class LoanService {
                         principal
                 );
 
-
-        if (
-                months <= 0
-        ) {
+        if (months <= 0) {
 
             throw new IllegalArgumentException(
                     "Loan duration must be greater than zero"
             );
         }
 
-
-        double monthlyRate =
-                "MONTHLY"
-                        .equalsIgnoreCase(
-                                rateType
-                        )
-                        ? rate / 100.0
-                        : rate / 100.0 / 12.0;
-
+        if (rate == null) {
+            rate = BigDecimal.ZERO;
+        }
 
         if (
-                monthlyRate == 0.0
+                rate.compareTo(
+                        BigDecimal.ZERO
+                ) < 0
         ) {
 
-            double monthly =
-                    roundMoney(
-                            principal
-                                    / months
+            throw new IllegalArgumentException(
+                    "Interest rate cannot be negative"
+            );
+        }
+
+        BigDecimal monthlyRate;
+
+        if (
+                "MONTHLY"
+                        .equalsIgnoreCase(rateType)
+        ) {
+
+            monthlyRate =
+                    rate.divide(
+                            bd("100"),
+                            16,
+                            RoundingMode.HALF_UP
                     );
 
+        } else {
 
-            return new double[]{
+            monthlyRate =
+                    rate.divide(
+                            bd("100"),
+                            16,
+                            RoundingMode.HALF_UP
+                    )
+                    .divide(
+                            bd("12"),
+                            16,
+                            RoundingMode.HALF_UP
+                    );
+        }
+
+        if (
+                monthlyRate.compareTo(
+                        BigDecimal.ZERO
+                ) == 0
+        ) {
+
+            BigDecimal monthly =
+                    money(
+                            principal.divide(
+                                    BigDecimal.valueOf(
+                                            months
+                                    ),
+                                    16,
+                                    RoundingMode.HALF_UP
+                            )
+                    );
+
+            return new BigDecimal[]{
                     monthly,
-                    roundMoney(
-                            monthly * months
+                    money(
+                            monthly.multiply(
+                                    BigDecimal.valueOf(
+                                            months
+                                    )
+                            )
                     )
             };
         }
 
+        double monthlyRateDouble =
+                monthlyRate.doubleValue();
 
-        double factor =
+        double factorDouble =
                 Math.pow(
-                        1.0 + monthlyRate,
+                        1.0 + monthlyRateDouble,
                         months
                 );
 
-
-        double monthly =
-                principal
-                        * (
-                        monthlyRate
-                                * factor
+        if (
+                Double.isInfinite(
+                        factorDouble
                 )
-                        / (
-                        factor
-                                - 1.0
+                        || Double.isNaN(
+                        factorDouble
+                )
+        ) {
+
+            throw new IllegalArgumentException(
+                    "Unable to calculate loan repayment schedule"
+            );
+        }
+
+        BigDecimal factor =
+                BigDecimal.valueOf(
+                        factorDouble
                 );
 
+        BigDecimal numerator =
+                principal
+                        .multiply(
+                                monthlyRate
+                        )
+                        .multiply(
+                                factor
+                        );
 
-        monthly =
-                roundMoney(
-                        monthly
+        BigDecimal denominator =
+                factor.subtract(
+                        BigDecimal.ONE
                 );
 
+        if (
+                denominator.compareTo(
+                        BigDecimal.ZERO
+                ) == 0
+        ) {
 
-        double total =
-                roundMoney(
-                        monthly
-                                * months
+            throw new IllegalArgumentException(
+                    "Invalid interest calculation"
+            );
+        }
+
+        BigDecimal monthly =
+                money(
+                        numerator.divide(
+                                denominator,
+                                16,
+                                RoundingMode.HALF_UP
+                        )
                 );
 
+        BigDecimal total =
+                money(
+                        monthly.multiply(
+                                BigDecimal.valueOf(
+                                        months
+                                )
+                        )
+                );
 
-        return new double[]{
+        return new BigDecimal[]{
                 monthly,
                 total
         };
     }
 
-
     // ================================================================
     // MONEY HELPERS
     // ================================================================
 
-    private double safe(
-            Double value
+    private static BigDecimal bd(
+            String value
     ) {
 
-        if (
-                value == null
-                        || Double.isNaN(value)
-                        || Double.isInfinite(value)
-        ) {
-
-            return 0.0;
-        }
-
-
-        return value;
-    }
-
-
-    /**
-     * Standard two-decimal rounding while keeping Double.
-     */
-    private double roundMoney(
-            double value
-    ) {
-
-        if (
-                Double.isNaN(value)
-                        || Double.isInfinite(value)
-        ) {
-
-            return 0.0;
-        }
-
-
-        return Math.round(
-                value * 100.0
-        ) / 100.0;
-    }
-
-
-    /**
-     * Principal normalization.
-     *
-     * For whole-unit currencies such as RWF, the principal should not
-     * contain fractional currency units.
-     *
-     * This keeps Double while ensuring:
-     *
-     * 5,000,000 -> 5,000,000
-     */
-    private double normalizePrincipal(
-            double value
-    ) {
-
-        if (
-                Double.isNaN(value)
-                        || Double.isInfinite(value)
-                        || value < 0
-        ) {
-
-            throw new IllegalArgumentException(
-                    "Invalid loan principal: " + value
-            );
-        }
-
-
-        return Math.round(
+        return new BigDecimal(
                 value
         );
     }
 
+    private static BigDecimal bd(
+            double value
+    ) {
+
+        if (
+                Double.isNaN(value)
+                        || Double.isInfinite(value)
+        ) {
+
+            throw new IllegalArgumentException(
+                    "Invalid numeric value: "
+                            + value
+            );
+        }
+
+        return BigDecimal.valueOf(
+                value
+        );
+    }
+
+    private BigDecimal toBigDecimal(
+            Object value
+    ) {
+
+        if (value == null) {
+            return null;
+        }
+
+        if (value instanceof BigDecimal decimal) {
+            return decimal;
+        }
+
+        if (value instanceof Number number) {
+
+            return BigDecimal.valueOf(
+                    number.doubleValue()
+            );
+        }
+
+        if (value instanceof String string) {
+
+            if (string.isBlank()) {
+                return null;
+            }
+
+            return new BigDecimal(
+                    string.trim()
+            );
+        }
+
+        throw new IllegalArgumentException(
+                "Unsupported numeric type: "
+                        + value.getClass().getName()
+        );
+    }
+
+    private BigDecimal moneyValue(
+            Object value
+    ) {
+
+        BigDecimal result =
+                toBigDecimal(value);
+
+        return result != null
+                ? result
+                : BigDecimal.ZERO;
+    }
+
+    private BigDecimal money(
+            BigDecimal value
+    ) {
+
+        if (value == null) {
+
+            return BigDecimal.ZERO.setScale(
+                    2,
+                    RoundingMode.HALF_UP
+            );
+        }
+
+        return value.setScale(
+                2,
+                RoundingMode.HALF_UP
+        );
+    }
+
+    private BigDecimal normalizePrincipal(
+            BigDecimal value
+    ) {
+
+        if (value == null) {
+
+            throw new IllegalArgumentException(
+                    "Invalid loan principal: null"
+            );
+        }
+
+        if (
+                value.compareTo(
+                        BigDecimal.ZERO
+                ) < 0
+        ) {
+
+            throw new IllegalArgumentException(
+                    "Invalid loan principal: "
+                            + value
+            );
+        }
+
+        return value.setScale(
+                0,
+                RoundingMode.HALF_UP
+        );
+    }
+
+    private double toDouble(
+            Object value
+    ) {
+
+        return moneyValue(
+                value
+        ).doubleValue();
+    }
+
+    private void validateRateType(
+            String rateType
+    ) {
+
+        if (
+                !"ANNUAL".equalsIgnoreCase(
+                        rateType
+                )
+                        && !"MONTHLY".equalsIgnoreCase(
+                        rateType
+                )
+        ) {
+
+            throw new IllegalArgumentException(
+                    "Interest rate type must be MONTHLY or ANNUAL"
+            );
+        }
+    }
 
     // ================================================================
     // REFERENCES
@@ -2753,9 +2901,7 @@ public class LoanService {
             Organization org
     ) {
 
-        String prefix =
-                "RW";
-
+        String prefix = "RW";
 
         if (
                 org != null
@@ -2771,21 +2917,17 @@ public class LoanService {
                             .toUpperCase();
         }
 
-
         String timestamp =
-                java.time.LocalDateTime.now()
+                LocalDateTime.now()
                         .format(
-                                java.time.format.DateTimeFormatter
-                                        .ofPattern(
-                                                "yyyyMMddHHmmssSSS"
-                                        )
+                                DateTimeFormatter.ofPattern(
+                                        "yyyyMMddHHmmssSSS"
+                                )
                         );
-
 
         return prefix
                 + timestamp;
     }
-
 
     private String generatePayRef(
             Loan loan,
@@ -2801,7 +2943,6 @@ public class LoanService {
         );
     }
 
-
     // ================================================================
     // AUDIT
     // ================================================================
@@ -2815,6 +2956,18 @@ public class LoanService {
             String desc
     ) {
 
+        /*
+         * user is intentionally allowed to be null.
+         *
+         * Public website:
+         *     user == null
+         *
+         * Organization dashboard:
+         *     user != null
+         *
+         * AuditService is responsible for safely recording
+         * the public/unauthenticated action.
+         */
         auditService.log(
                 org,
                 user,
@@ -2824,7 +2977,6 @@ public class LoanService {
                 desc
         );
     }
-
 
     // ================================================================
     // CONTROLLER ACCESS

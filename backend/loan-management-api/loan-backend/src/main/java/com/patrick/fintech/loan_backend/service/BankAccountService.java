@@ -1,3 +1,4 @@
+
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.model.BankAccount;
@@ -11,84 +12,238 @@ import com.patrick.fintech.loan_backend.repository.ChartOfAccountRepository;
 import com.patrick.fintech.loan_backend.repository.JournalLineRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class BankAccountService {
 
+    /*
+     * ============================================================
+     * MONEY CONFIGURATION
+     * ============================================================
+     */
+
+    private static final int MONEY_SCALE = 6;
+
+    private static final RoundingMode MONEY_ROUNDING =
+            RoundingMode.HALF_UP;
+
+    private static final BigDecimal ZERO =
+            BigDecimal.ZERO.setScale(
+                    MONEY_SCALE,
+                    MONEY_ROUNDING
+            );
+
+    /*
+     * GL account codes for bank/cash accounts.
+     *
+     * 10xxxx = cash/bank assets.
+     */
+    private static final String GL_CODE_PREFIX = "10";
+
+
     private final BankAccountRepository bankAccountRepo;
+
     private final ChartOfAccountRepository coaRepo;
+
     private final JournalLineRepository lineRepo;
+
     private final AccountingService accountingService;
 
 
-    // ============================================================
-    // CREATE BANK / CASH ACCOUNT
-    // ============================================================
+    /*
+     * ============================================================
+     * MONEY HELPERS
+     * ============================================================
+     */
 
-    @Transactional
-    public BankAccount create(
-            Organization org,
-            Branch branch,
-            String name,
-            String accountType,
-            String bankName,
-            String accountNumber,
-            double openingBalance,
-            String openedBy
+    private BigDecimal money(
+            BigDecimal value
     ) {
 
-        if (org == null || org.getId() == null) {
+        if (value == null) {
+            return ZERO;
+        }
+
+        return value.setScale(
+                MONEY_SCALE,
+                MONEY_ROUNDING
+        );
+    }
+
+
+    /**
+     * Compatibility bridge for legacy callers.
+     *
+     * New financial code must use BigDecimal.
+     */
+    private BigDecimal money(
+            double value
+    ) {
+
+        if (!Double.isFinite(value)) {
+
+            throw new IllegalArgumentException(
+                    "Monetary amount must be finite"
+            );
+        }
+
+        return money(
+                BigDecimal.valueOf(value)
+        );
+    }
+
+
+    private BigDecimal requirePositive(
+            BigDecimal amount,
+            String field
+    ) {
+
+        BigDecimal normalized =
+                money(amount);
+
+        if (normalized.compareTo(
+                BigDecimal.ZERO
+        ) <= 0) {
+
+            throw new IllegalArgumentException(
+                    field +
+                            " must be greater than zero"
+            );
+        }
+
+        return normalized;
+    }
+
+
+    private BigDecimal requireNonNegative(
+            BigDecimal amount,
+            String field
+    ) {
+
+        BigDecimal normalized =
+                money(amount);
+
+        if (normalized.compareTo(
+                BigDecimal.ZERO
+        ) < 0) {
+
+            throw new IllegalArgumentException(
+                    field +
+                            " cannot be negative"
+            );
+        }
+
+        return normalized;
+    }
+
+
+    private void requireOrganization(
+            Organization organization
+    ) {
+
+        if (organization == null) {
+
             throw new IllegalArgumentException(
                     "Organization is required"
             );
         }
 
-        if (name == null || name.isBlank()) {
+        if (organization.getId() == null) {
+
             throw new IllegalArgumentException(
-                    "Account name is required"
+                    "Organization ID is required"
+            );
+        }
+    }
+
+
+    private String requireText(
+            String value,
+            String field
+    ) {
+
+        if (value == null
+                || value.isBlank()) {
+
+            throw new IllegalArgumentException(
+                    field +
+                            " is required"
             );
         }
 
-        if (accountType == null || accountType.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Account type is required"
-            );
+        return value.trim();
+    }
+
+
+    private String optionalText(
+            String value
+    ) {
+
+        if (value == null
+                || value.isBlank()) {
+
+            return null;
         }
 
-        String normalizedType =
-                accountType.trim().toUpperCase();
-
-        if (!"CASH".equals(normalizedType)
-                && !"BANK".equals(normalizedType)) {
-
-            throw new IllegalArgumentException(
-                    "accountType must be CASH or BANK"
-            );
-        }
-
-        if (openingBalance < 0) {
-            throw new IllegalArgumentException(
-                    "Opening balance cannot be negative"
-            );
-        }
+        return value.trim();
+    }
 
 
-        // ========================================================
-        // ORGANIZATION-SPECIFIC GL SEQUENCE
-        // ========================================================
+    /*
+     * ============================================================
+     * GL CODE GENERATION
+     * ============================================================
+     *
+     * This implementation deliberately checks the organization
+     * before accepting a generated code.
+     *
+     * For very high concurrency, the database should additionally
+     * enforce a UNIQUE constraint on:
+     *
+     *     (organization_id, code)
+     *
+     * and the application should retry on a duplicate-key race.
+     */
 
+    private String buildGlCode(
+            long sequence
+    ) {
+
+        return GL_CODE_PREFIX +
+                String.format(
+                        "%04d",
+                        sequence
+                );
+    }
+
+
+    private String generateUniqueGlCode(
+            Long organizationId
+    ) {
+
+        /*
+         * Start with the number of bank accounts.
+         *
+         * This is only a starting point. The uniqueness check
+         * below is authoritative for normal application flow.
+         */
         long sequence =
-                bankAccountRepo.countByOrganization_Id(
-                        org.getId()
-                ) + 1;
+                Math.max(
+                        1L,
+                        bankAccountRepo.count() + 1L
+                );
 
 
         String code =
@@ -97,7 +252,7 @@ public class BankAccountService {
 
         while (
                 coaRepo.existsByOrganization_IdAndCode(
-                        org.getId(),
+                        organizationId,
                         code
                 )
         ) {
@@ -109,323 +264,528 @@ public class BankAccountService {
         }
 
 
-        // ========================================================
-        // CREATE GL ACCOUNT
-        // ========================================================
+        return code;
+    }
 
+
+    /*
+     * ============================================================
+     * CREATE BANK/CASH ACCOUNT
+     * ============================================================
+     *
+     * IMPORTANT:
+     *
+     * openingBalance = 0 is completely valid.
+     *
+     * The account is created with a zero GL balance.
+     *
+     * Later funds MUST be added through addFunds()
+     * or recordTransaction().
+     *
+     * Never update the balance field directly.
+     */
+
+    @Transactional
+    public BankAccount create(
+            Organization organization,
+            Branch branch,
+            String name,
+            String accountType,
+            String bankName,
+            String accountNumber,
+            BigDecimal openingBalance,
+            String openedBy
+    ) {
+
+        requireOrganization(
+                organization
+        );
+
+
+        String normalizedName =
+                requireText(
+                        name,
+                        "Account name"
+                );
+
+
+        String normalizedType =
+                requireText(
+                        accountType,
+                        "Account type"
+                ).toUpperCase();
+
+
+        if (!"CASH".equals(normalizedType)
+                && !"BANK".equals(normalizedType)) {
+
+            throw new IllegalArgumentException(
+                    "Account type must be CASH or BANK"
+            );
+        }
+
+
+        BigDecimal opening =
+                requireNonNegative(
+                        openingBalance,
+                        "Opening balance"
+                );
+
+
+        String normalizedBankName =
+                optionalText(
+                        bankName
+                );
+
+
+        String normalizedAccountNumber =
+                optionalText(
+                        accountNumber
+                );
+
+
+        /*
+         * Generate an organization-specific GL code.
+         */
+        String glCode =
+                generateUniqueGlCode(
+                        organization.getId()
+                );
+
+
+        /*
+         * Create the GL account first.
+         */
         ChartOfAccount glAccount =
                 accountingService.createAccount(
-                        org,
-                        code,
-                        name,
+                        organization,
+                        glCode,
+                        normalizedName,
                         ChartOfAccount.AccountType.ASSET,
                         ChartOfAccount.NormalBalance.DEBIT
                 );
 
 
-        if (glAccount == null) {
+        if (glAccount == null
+                || glAccount.getId() == null) {
+
             throw new IllegalStateException(
                     "Unable to create GL account for bank account"
             );
         }
 
 
-        // ========================================================
-        // CREATE BANK ACCOUNT
-        // ========================================================
-
+        /*
+         * Create operational bank/cash account.
+         */
         BankAccount account =
                 BankAccount.builder()
-                        .organization(org)
-                        .branch(branch)
-                        .glAccount(glAccount)
-                        .name(name.trim())
-                        .accountType(normalizedType)
+                        .organization(
+                                organization
+                        )
+                        .branch(
+                                branch
+                        )
+                        .glAccount(
+                                glAccount
+                        )
+                        .name(
+                                normalizedName
+                        )
+                        .accountType(
+                                normalizedType
+                        )
                         .bankName(
-                                bankName != null
-                                        ? bankName.trim()
-                                        : null
+                                normalizedBankName
                         )
                         .accountNumber(
-                                accountNumber != null
-                                        ? accountNumber.trim()
-                                        : null
+                                normalizedAccountNumber
                         )
-                        .active(true)
+                        .active(
+                                true
+                        )
                         .build();
 
 
         account =
-                bankAccountRepo.save(account);
+                bankAccountRepo.save(
+                        account
+                );
 
 
         if (account.getId() == null) {
+
             throw new IllegalStateException(
                     "Bank account was not assigned an ID"
             );
         }
 
 
-        // ========================================================
-        // OPENING BALANCE
-        // ========================================================
+        /*
+         * ZERO OPENING BALANCE
+         *
+         * No journal entry is required.
+         *
+         * The account exists and has a zero balance.
+         */
+        if (opening.compareTo(
+                BigDecimal.ZERO
+        ) == 0) {
 
-        if (openingBalance > 0) {
+            log.info(
+                    "Created zero-balance {} account {} " +
+                            "for organization {}",
+                    normalizedType,
+                    account.getId(),
+                    organization.getId()
+            );
 
-            ChartOfAccount equityAccount =
-                    accountingService.getEquityAccount(org);
+            return account;
+        }
 
 
-            if (equityAccount == null) {
-                throw new IllegalStateException(
-                        "Equity account not found for organization"
+        /*
+         * POSITIVE OPENING BALANCE
+         *
+         * DR Bank/Cash Asset
+         * CR Equity
+         */
+        ChartOfAccount equityAccount =
+                accountingService.getEquityAccount(
+                        organization
                 );
-            }
 
 
-            accountingService.post(
-                    org,
-                    branch,
-                    "BANK_ACCOUNT_OPENING",
-                    String.valueOf(account.getId()),
-                    name,
-                    "Opening balance for " + name,
+        if (equityAccount == null
+                || equityAccount.getId() == null) {
 
-                    List.of(
-
-                            // DR Cash / Bank
-                            JournalLine.builder()
-                                    .account(glAccount)
-                                    .debit(openingBalance)
-                                    .credit(0.0)
-                                    .description(
-                                            "Opening balance — " + name
-                                    )
-                                    .build(),
-
-                            // CR Equity / Opening balance funding
-                            JournalLine.builder()
-                                    .account(equityAccount)
-                                    .debit(0.0)
-                                    .credit(openingBalance)
-                                    .description(
-                                            "Opening balance funding — "
-                                                    + name
-                                    )
-                                    .build()
-                    )
+            throw new IllegalStateException(
+                    "Equity account not found for organization " +
+                            organization.getId()
             );
         }
+
+
+        accountingService.post(
+                organization,
+                branch,
+                "BANK_ACCOUNT_OPENING",
+                String.valueOf(
+                        account.getId()
+                ),
+                normalizedName,
+                "Opening balance for " +
+                        normalizedName,
+
+                List.of(
+
+                        JournalLine.builder()
+                                .account(
+                                        glAccount
+                                )
+                                .debit(
+                                        opening
+                                )
+                                .credit(
+                                        ZERO
+                                )
+                                .description(
+                                        "Opening balance - " +
+                                                normalizedName
+                                )
+                                .build(),
+
+                        JournalLine.builder()
+                                .account(
+                                        equityAccount
+                                )
+                                .debit(
+                                        ZERO
+                                )
+                                .credit(
+                                        opening
+                                )
+                                .description(
+                                        "Opening balance funding - " +
+                                                normalizedName
+                                )
+                                .build()
+                )
+        );
+
+
+        log.info(
+                "Created {} account {} with opening balance {} " +
+                        "for organization {}",
+                normalizedType,
+                account.getId(),
+                opening,
+                organization.getId()
+        );
 
 
         return account;
     }
 
 
-    // ============================================================
-    // GL CODE
-    // ============================================================
-
-    private String buildGlCode(
-            long sequence
+    /**
+     * Legacy double-compatible create method.
+     *
+     * @deprecated use the BigDecimal version.
+     */
+    @Deprecated
+    @Transactional
+    public BankAccount create(
+            Organization organization,
+            Branch branch,
+            String name,
+            String accountType,
+            String bankName,
+            String accountNumber,
+            double openingBalance,
+            String openedBy
     ) {
 
-        return "10"
-                + String.format(
-                        "%04d",
-                        sequence
-                );
+        return create(
+                organization,
+                branch,
+                name,
+                accountType,
+                bankName,
+                accountNumber,
+                money(openingBalance),
+                openedBy
+        );
     }
 
 
-    // ============================================================
-    // LIST FOR API
-    // ============================================================
+    /*
+     * ============================================================
+     * LIST
+     * ============================================================
+     */
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listForApi(
-            Long orgId
+    public List<BankAccount> list(
+            Long organizationId
     ) {
 
-        if (orgId == null) {
+        if (organizationId == null) {
+
             throw new IllegalArgumentException(
                     "Organization ID is required"
             );
         }
 
 
+        return bankAccountRepo
+                .findByOrganization_IdOrderByNameAsc(
+                        organizationId
+                );
+    }
+
+
+    /*
+     * ============================================================
+     * API LIST
+     * ============================================================
+     */
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> listForApi(
+            Long organizationId
+    ) {
+
         List<BankAccount> accounts =
-                bankAccountRepo
-                        .findByOrganization_IdOrderByNameAsc(
-                                orgId
-                        );
+                list(
+                        organizationId
+                );
+
+
+        if (accounts.isEmpty()) {
+
+            return List.of();
+        }
 
 
         return accounts.stream()
-                .map(account -> {
-
-                    Map<String, Object> row =
-                            new LinkedHashMap<>();
-
-
-                    row.put(
-                            "id",
-                            account.getId()
-                    );
-
-                    row.put(
-                            "name",
-                            account.getName()
-                    );
-
-                    row.put(
-                            "accountType",
-                            account.getAccountType()
-                    );
-
-                    row.put(
-                            "bankName",
-                            account.getBankName()
-                    );
-
-                    row.put(
-                            "accountNumber",
-                            account.getAccountNumber()
-                    );
-
-                    row.put(
-                            "active",
-                            account.getActive() != null
-                                    ? account.getActive()
-                                    : Boolean.FALSE
-                    );
-
-
-                    // ====================================================
-                    // BRANCH
-                    // ====================================================
-
-                    if (account.getBranch() != null) {
-
-                        row.put(
-                                "branchId",
-                                account.getBranch().getId()
-                        );
-
-                        row.put(
-                                "branchName",
-                                account.getBranch().getName()
-                        );
-
-                    } else {
-
-                        row.put(
-                                "branchId",
-                                null
-                        );
-
-                        row.put(
-                                "branchName",
-                                "Unassigned"
-                        );
-                    }
-
-
-                    // ====================================================
-                    // GL ACCOUNT
-                    // ====================================================
-
-                    if (account.getGlAccount() != null) {
-
-                        row.put(
-                                "glAccountId",
-                                account.getGlAccount().getId()
-                        );
-
-                        row.put(
-                                "glAccountCode",
-                                account.getGlAccount().getCode()
-                        );
-
-                        row.put(
-                                "glAccountName",
-                                account.getGlAccount().getName()
-                        );
-
-                    } else {
-
-                        row.put(
-                                "glAccountId",
-                                null
-                        );
-
-                        row.put(
-                                "glAccountCode",
-                                null
-                        );
-
-                        row.put(
-                                "glAccountName",
-                                null
-                        );
-                    }
-
-
-                    // ====================================================
-                    // CURRENT BALANCE
-                    // ====================================================
-
-                    row.put(
-                            "balance",
-                            getBalance(account)
-                    );
-
-
-                    return row;
-                })
+                .map(
+                        account ->
+                                toApiRow(
+                                        account
+                                )
+                )
                 .toList();
     }
 
 
-    // ============================================================
-    // LIST
-    // ============================================================
-
-    @Transactional(readOnly = true)
-    public List<BankAccount> list(
-            Long orgId
+    private Map<String, Object> toApiRow(
+            BankAccount account
     ) {
 
-        if (orgId == null) {
-            throw new IllegalArgumentException(
-                    "Organization ID is required"
+        Map<String, Object> row =
+                new LinkedHashMap<>();
+
+
+        row.put(
+                "id",
+                account.getId()
+        );
+
+
+        row.put(
+                "name",
+                account.getName()
+        );
+
+
+        row.put(
+                "accountType",
+                account.getAccountType()
+        );
+
+
+        row.put(
+                "bankName",
+                account.getBankName()
+        );
+
+
+        row.put(
+                "accountNumber",
+                account.getAccountNumber()
+        );
+
+
+        row.put(
+                "active",
+                !Boolean.FALSE.equals(
+                        account.getActive()
+                )
+        );
+
+
+        /*
+         * Current ledger balance.
+         */
+        row.put(
+                "balance",
+                getBalanceDecimal(
+                        account
+                )
+        );
+
+
+        /*
+         * Branch.
+         */
+        if (account.getBranch() != null) {
+
+            row.put(
+                    "branchId",
+                    account
+                            .getBranch()
+                            .getId()
+            );
+
+
+            row.put(
+                    "branchName",
+                    account
+                            .getBranch()
+                            .getName()
+            );
+
+        } else {
+
+            row.put(
+                    "branchId",
+                    null
+            );
+
+
+            row.put(
+                    "branchName",
+                    "Unassigned"
             );
         }
 
-        return bankAccountRepo
-                .findByOrganization_IdOrderByNameAsc(
-                        orgId
-                );
+
+        /*
+         * GL account.
+         */
+        if (account.getGlAccount() != null) {
+
+            row.put(
+                    "glAccountId",
+                    account
+                            .getGlAccount()
+                            .getId()
+            );
+
+
+            row.put(
+                    "glAccountCode",
+                    account
+                            .getGlAccount()
+                            .getCode()
+            );
+
+
+            row.put(
+                    "glAccountName",
+                    account
+                            .getGlAccount()
+                            .getName()
+            );
+
+        } else {
+
+            row.put(
+                    "glAccountId",
+                    null
+            );
+
+
+            row.put(
+                    "glAccountCode",
+                    null
+            );
+
+
+            row.put(
+                    "glAccountName",
+                    null
+            );
+        }
+
+
+        return row;
     }
 
 
-    // ============================================================
-    // GET FOR ORGANIZATION
-    // ============================================================
+    /*
+     * ============================================================
+     * GET ACCOUNT FOR ORGANIZATION
+     * ============================================================
+     */
 
     @Transactional(readOnly = true)
     public BankAccount getForOrg(
-            Long id,
-            Long orgId
+            Long accountId,
+            Long organizationId
     ) {
 
-        if (id == null) {
+        if (accountId == null) {
+
             throw new IllegalArgumentException(
                     "Bank account ID is required"
             );
         }
 
-        if (orgId == null) {
+
+        if (organizationId == null) {
+
             throw new IllegalArgumentException(
                     "Organization ID is required"
             );
@@ -434,136 +794,453 @@ public class BankAccountService {
 
         return bankAccountRepo
                 .findByIdAndOrganization_Id(
-                        id,
-                        orgId
+                        accountId,
+                        organizationId
                 )
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "Bank account not found: " + id
-                        )
+                .orElseThrow(
+                        () ->
+                                new IllegalArgumentException(
+                                        "Bank account not found: " +
+                                                accountId
+                                )
                 );
     }
 
 
-    // ============================================================
-    // BALANCE
-    // ============================================================
+    /*
+     * ============================================================
+     * UPDATE ACCOUNT DETAILS
+     * ============================================================
+     *
+     * IMPORTANT:
+     *
+     * This method does NOT modify the accounting balance.
+     *
+     * It only changes operational account information.
+     */
 
-    /**
-     * Cash and bank are debit-normal assets.
+    @Transactional
+    public BankAccount updateDetails(
+            Organization organization,
+            Long accountId,
+            Branch branch,
+            String name,
+            String bankName,
+            String accountNumber
+    ) {
+
+        requireOrganization(
+                organization
+        );
+
+
+        BankAccount account =
+                getForOrg(
+                        accountId,
+                        organization.getId()
+                );
+
+
+        String normalizedName =
+                requireText(
+                        name,
+                        "Account name"
+                );
+
+
+        account.setName(
+                normalizedName
+        );
+
+
+        account.setBranch(
+                branch
+        );
+
+
+        account.setBankName(
+                optionalText(
+                        bankName
+                )
+        );
+
+
+        account.setAccountNumber(
+                optionalText(
+                        accountNumber
+                )
+        );
+
+
+        BankAccount saved =
+                bankAccountRepo.save(
+                        account
+                );
+
+
+        log.info(
+                "Updated bank account {} for organization {}",
+                accountId,
+                organization.getId()
+        );
+
+
+        return saved;
+    }
+
+
+    /*
+     * ============================================================
+     * ACTIVATE
+     * ============================================================
+     */
+
+    @Transactional
+    public BankAccount activate(
+            Organization organization,
+            Long accountId
+    ) {
+
+        requireOrganization(
+                organization
+        );
+
+
+        BankAccount account =
+                getForOrg(
+                        accountId,
+                        organization.getId()
+                );
+
+
+        account.setActive(
+                true
+        );
+
+
+        return bankAccountRepo.save(
+                account
+        );
+    }
+
+
+    /*
+     * ============================================================
+     * DEACTIVATE
+     * ============================================================
+     *
+     * Deactivation does NOT delete history.
+     *
+     * Existing journal entries remain untouched.
+     */
+
+    @Transactional
+    public BankAccount deactivate(
+            Organization organization,
+            Long accountId
+    ) {
+
+        requireOrganization(
+                organization
+        );
+
+
+        BankAccount account =
+                getForOrg(
+                        accountId,
+                        organization.getId()
+                );
+
+
+        account.setActive(
+                false
+        );
+
+
+        return bankAccountRepo.save(
+                account
+        );
+    }
+
+
+    /*
+     * ============================================================
+     * BALANCE
+     * ============================================================
+     *
+     * Bank/cash is a debit-normal asset.
      *
      * Balance =
      *
-     *     Total Debits - Total Credits
+     *      total debits
+     *      -
+     *      total credits
      *
-     * Example:
-     *
-     * Deposit 100,000:
-     *     DR Bank 100,000
-     *
-     * Withdrawal 20,000:
-     *     CR Bank 20,000
-     *
-     * Balance:
-     *     100,000 - 20,000 = 80,000
+     * Reversed original journal entries are excluded.
+     * Reversal entries remain part of the ledger.
      */
+
     @Transactional(readOnly = true)
-    public double getBalance(
+    public BigDecimal getBalanceDecimal(
             BankAccount account
     ) {
 
-        if (account == null) {
-            return 0.0;
+        if (account == null
+                || account.getGlAccount() == null
+                || account.getGlAccount().getId() == null) {
+
+            return ZERO;
         }
 
-        if (account.getGlAccount() == null) {
-            return 0.0;
-        }
 
-        Long glId =
-                account.getGlAccount().getId();
-
-        if (glId == null) {
-            return 0.0;
-        }
+        Long glAccountId =
+                account
+                        .getGlAccount()
+                        .getId();
 
 
         List<JournalLine> lines =
-                lineRepo.findByAccount_Id(glId);
+                lineRepo.findByAccount_Id(
+                        glAccountId
+                );
 
 
-        if (lines == null || lines.isEmpty()) {
-            return 0.0;
+        if (lines == null
+                || lines.isEmpty()) {
+
+            return ZERO;
         }
 
 
-        double balance = 0.0;
+        BigDecimal balance =
+                ZERO;
 
 
-        for (JournalLine line : lines) {
+        for (JournalLine line :
+                lines) {
 
             if (line == null) {
                 continue;
             }
 
 
-            double debit =
-                    line.getDebit() != null
-                            ? line.getDebit()
-                            : 0.0;
+            JournalEntry entry =
+                    line.getJournalEntry();
 
 
-            double credit =
-                    line.getCredit() != null
-                            ? line.getCredit()
-                            : 0.0;
+            if (entry != null
+                    && Boolean.TRUE.equals(
+                    entry.getReversed()
+            )) {
+
+                continue;
+            }
 
 
-            balance +=
-                    debit - credit;
+            BigDecimal debit =
+                    money(
+                            line.getDebitDecimal()
+                    );
+
+
+            BigDecimal credit =
+                    money(
+                            line.getCreditDecimal()
+                    );
+
+
+            balance =
+                    balance
+                            .add(debit)
+                            .subtract(credit);
         }
 
 
-        return balance;
+        return money(
+                balance
+        );
     }
 
 
-    // ============================================================
-    // DEPOSIT / WITHDRAWAL
-    // ============================================================
+    /**
+     * Get balance while enforcing organization ownership.
+     */
+    @Transactional(readOnly = true)
+    public BigDecimal getBalanceDecimal(
+            Long accountId,
+            Long organizationId
+    ) {
+
+        BankAccount account =
+                getForOrg(
+                        accountId,
+                        organizationId
+                );
+
+
+        return getBalanceDecimal(
+                account
+        );
+    }
+
+
+    /**
+     * Legacy double-compatible balance method.
+     *
+     * @deprecated use getBalanceDecimal().
+     */
+    @Deprecated
+    @Transactional(readOnly = true)
+    public double getBalance(
+            BankAccount account
+    ) {
+
+        return getBalanceDecimal(
+                account
+        ).doubleValue();
+    }
+
+
+    /*
+     * ============================================================
+     * ADD FUNDS
+     * ============================================================
+     *
+     * THIS IS THE IMPORTANT MISSING FEATURE.
+     *
+     * An account can be created with 0.
+     *
+     * Later:
+     *
+     *     addFunds(account, 500000, counterAccount)
+     *
+     * creates:
+     *
+     *     DR Bank/Cash       500,000
+     *     CR Counter Account 500,000
+     *
+     * The balance therefore becomes 500,000.
+     */
 
     @Transactional
-    public JournalEntry recordTransaction(
-            Organization org,
+    public JournalEntry addFunds(
+            Organization organization,
             Long bankAccountId,
-            String type,
-            double amount,
+            BigDecimal amount,
             Long counterAccountId,
             String description,
             String recordedBy
     ) {
 
-        if (org == null || org.getId() == null) {
-            throw new IllegalArgumentException(
-                    "Organization is required"
-            );
-        }
+        return recordTransaction(
+                organization,
+                bankAccountId,
+                "DEPOSIT",
+                amount,
+                counterAccountId,
+                description,
+                recordedBy
+        );
+    }
+
+
+    /*
+     * ============================================================
+     * WITHDRAW FUNDS
+     * ============================================================
+     */
+
+    @Transactional
+    public JournalEntry withdrawFunds(
+            Organization organization,
+            Long bankAccountId,
+            BigDecimal amount,
+            Long counterAccountId,
+            String description,
+            String recordedBy
+    ) {
+
+        return recordTransaction(
+                organization,
+                bankAccountId,
+                "WITHDRAWAL",
+                amount,
+                counterAccountId,
+                description,
+                recordedBy
+        );
+    }
+
+
+    /*
+     * ============================================================
+     * DEPOSIT / WITHDRAWAL
+     * ============================================================
+     */
+
+    @Transactional
+    public JournalEntry recordTransaction(
+            Organization organization,
+            Long bankAccountId,
+            String type,
+            BigDecimal amount,
+            Long counterAccountId,
+            String description,
+            String recordedBy
+    ) {
+
+        requireOrganization(
+                organization
+        );
+
 
         if (bankAccountId == null) {
+
             throw new IllegalArgumentException(
                     "Bank account ID is required"
             );
         }
 
+
         if (counterAccountId == null) {
+
             throw new IllegalArgumentException(
                     "Counter account ID is required"
             );
         }
 
-        if (amount <= 0) {
+
+        BigDecimal transactionAmount =
+                requirePositive(
+                        amount,
+                        "Amount"
+                );
+
+
+        String normalizedType =
+                requireText(
+                        type,
+                        "Transaction type"
+                ).toUpperCase();
+
+
+        boolean deposit =
+                "DEPOSIT".equals(
+                        normalizedType
+                );
+
+
+        boolean withdrawal =
+                "WITHDRAWAL".equals(
+                        normalizedType
+                );
+
+
+        if (!deposit
+                && !withdrawal) {
+
             throw new IllegalArgumentException(
-                    "Amount must be positive"
+                    "Transaction type must be DEPOSIT or WITHDRAWAL"
             );
         }
 
@@ -571,58 +1248,91 @@ public class BankAccountService {
         BankAccount account =
                 getForOrg(
                         bankAccountId,
-                        org.getId()
+                        organization.getId()
                 );
 
 
-        if (account.getActive() != null
-                && !account.getActive()) {
+        if (Boolean.FALSE.equals(
+                account.getActive()
+        )) {
 
-            throw new IllegalArgumentException(
-                    "Bank account is inactive"
-            );
-        }
-
-
-        if (account.getGlAccount() == null) {
             throw new IllegalStateException(
-                    "Bank account has no GL account: "
-                            + bankAccountId
+                    "Bank account is inactive: " +
+                            bankAccountId
             );
         }
 
 
-        ChartOfAccount counter =
+        if (account.getGlAccount() == null
+                || account.getGlAccount().getId() == null) {
+
+            throw new IllegalStateException(
+                    "Bank account has no GL account: " +
+                            bankAccountId
+            );
+        }
+
+
+        ChartOfAccount counterAccount =
                 coaRepo
                         .findByIdAndOrganization_Id(
                                 counterAccountId,
-                                org.getId()
+                                organization.getId()
                         )
-                        .orElseThrow(() ->
-                                new IllegalArgumentException(
-                                        "Counter account not found: "
-                                                + counterAccountId
-                                )
+                        .orElseThrow(
+                                () ->
+                                        new IllegalArgumentException(
+                                                "Counter account not found: " +
+                                                        counterAccountId
+                                        )
                         );
 
 
-        String normalizedType =
-                type != null
-                        ? type.trim().toUpperCase()
-                        : "";
+        /*
+         * Never allow a bank transaction to use another
+         * organization's GL account.
+         */
+        if (counterAccount.getOrganization() == null
+                || counterAccount
+                .getOrganization()
+                .getId() == null
+                || !organization
+                .getId()
+                .equals(
+                        counterAccount
+                                .getOrganization()
+                                .getId()
+                )) {
 
-
-        boolean isDeposit =
-                "DEPOSIT".equals(normalizedType);
-
-        boolean isWithdrawal =
-                "WITHDRAWAL".equals(normalizedType);
-
-
-        if (!isDeposit && !isWithdrawal) {
             throw new IllegalArgumentException(
-                    "type must be DEPOSIT or WITHDRAWAL"
+                    "Counter account does not belong to organization"
             );
+        }
+
+
+        /*
+         * Prevent overdrawing the bank/cash ledger.
+         */
+        if (withdrawal) {
+
+            BigDecimal currentBalance =
+                    getBalanceDecimal(
+                            account
+                    );
+
+
+            if (currentBalance.compareTo(
+                    transactionAmount
+            ) < 0) {
+
+                throw new IllegalStateException(
+                        "Insufficient balance. " +
+                                "Available: " +
+                                currentBalance +
+                                ", requested: " +
+                                transactionAmount
+                );
+            }
         }
 
 
@@ -630,38 +1340,61 @@ public class BankAccountService {
                 description != null
                         && !description.isBlank()
                         ? description.trim()
-                        : "Cashbook transaction";
+                        : deposit
+                        ? "Cashbook deposit"
+                        : "Cashbook withdrawal";
+
+
+        String auditDescription =
+                (recordedBy != null
+                        && !recordedBy.isBlank()
+                        ? recordedBy.trim() +
+                        ": "
+                        : "")
+                        +
+                        safeDescription;
 
 
         List<JournalLine> lines;
 
 
-        // ========================================================
-        // DEPOSIT
-        // ========================================================
+        if (deposit) {
 
-        if (isDeposit) {
-
+            /*
+             * DEPOSIT
+             *
+             * DR Bank/Cash
+             * CR Counter Account
+             */
             lines =
                     List.of(
 
-                            // DR Cash / Bank
                             JournalLine.builder()
                                     .account(
-                                            account.getGlAccount()
+                                            account
+                                                    .getGlAccount()
                                     )
-                                    .debit(amount)
-                                    .credit(0.0)
+                                    .debit(
+                                            transactionAmount
+                                    )
+                                    .credit(
+                                            ZERO
+                                    )
                                     .description(
                                             safeDescription
                                     )
                                     .build(),
 
-                            // CR Counter account
                             JournalLine.builder()
-                                    .account(counter)
-                                    .debit(0.0)
-                                    .credit(amount)
+                                    .account(
+                                            counterAccount
+                                    )
+                                    .debit(
+                                            ZERO
+                                    )
+                                    .credit(
+                                            transactionAmount
+                                    )
                                     .description(
                                             safeDescription
                                     )
@@ -670,30 +1403,41 @@ public class BankAccountService {
 
         } else {
 
-            // ====================================================
-            // WITHDRAWAL
-            // ====================================================
-
+            /*
+             * WITHDRAWAL
+             *
+             * DR Counter Account
+             * CR Bank/Cash
+             */
             lines =
                     List.of(
 
-                            // DR Counter account
                             JournalLine.builder()
-                                    .account(counter)
-                                    .debit(amount)
-                                    .credit(0.0)
+                                    .account(
+                                            counterAccount
+                                    )
+                                    .debit(
+                                            transactionAmount
+                                    )
+                                    .credit(
+                                            ZERO
+                                    )
                                     .description(
                                             safeDescription
                                     )
                                     .build(),
 
-                            // CR Cash / Bank
                             JournalLine.builder()
                                     .account(
-                                            account.getGlAccount()
+                                            account
+                                                    .getGlAccount()
                                     )
-                                    .debit(0.0)
-                                    .credit(amount)
+                                    .debit(
+                                            ZERO
+                                    )
+                                    .credit(
+                                            transactionAmount
+                                    )
                                     .description(
                                             safeDescription
                                     )
@@ -702,41 +1446,89 @@ public class BankAccountService {
         }
 
 
-        return accountingService.post(
-                org,
-                account.getBranch(),
-                "CASHBOOK_" + normalizedType,
-                String.valueOf(bankAccountId),
-                account.getName(),
-                (recordedBy != null
-                        && !recordedBy.isBlank()
-                        ? recordedBy.trim() + ": "
-                        : "")
-                        + safeDescription,
-                lines
+        JournalEntry journalEntry =
+                accountingService.post(
+                        organization,
+                        account.getBranch(),
+                        "CASHBOOK_" +
+                                normalizedType,
+                        String.valueOf(
+                                bankAccountId
+                        ),
+                        account.getName(),
+                        auditDescription,
+                        lines
+                );
+
+
+        log.info(
+                "Recorded {} of {} on bank account {} " +
+                        "for organization {}",
+                normalizedType,
+                transactionAmount,
+                bankAccountId,
+                organization.getId()
         );
+
+
+        return journalEntry;
     }
 
 
-    // ============================================================
-    // TRANSFER
-    // ============================================================
-
+    /**
+     * Legacy double-compatible transaction method.
+     *
+     * @deprecated use BigDecimal.
+     */
+    @Deprecated
     @Transactional
-    public JournalEntry transfer(
-            Organization org,
-            Long fromAccountId,
-            Long toAccountId,
+    public JournalEntry recordTransaction(
+            Organization organization,
+            Long bankAccountId,
+            String type,
             double amount,
+            Long counterAccountId,
             String description,
             String recordedBy
     ) {
 
-        if (org == null || org.getId() == null) {
-            throw new IllegalArgumentException(
-                    "Organization is required"
-            );
-        }
+        return recordTransaction(
+                organization,
+                bankAccountId,
+                type,
+                money(amount),
+                counterAccountId,
+                description,
+                recordedBy
+        );
+    }
+
+
+    /*
+     * ============================================================
+     * INTERNAL TRANSFER
+     * ============================================================
+     *
+     * DR Destination Bank/Cash
+     * CR Source Bank/Cash
+     *
+     * No equity/revenue/expense account is involved.
+     */
+
+    @Transactional
+    public JournalEntry transfer(
+            Organization organization,
+            Long fromAccountId,
+            Long toAccountId,
+            BigDecimal amount,
+            String description,
+            String recordedBy
+    ) {
+
+        requireOrganization(
+                organization
+        );
+
 
         if (fromAccountId == null
                 || toAccountId == null) {
@@ -746,63 +1538,99 @@ public class BankAccountService {
             );
         }
 
-        if (fromAccountId.equals(toAccountId)) {
+
+        if (fromAccountId.equals(
+                toAccountId
+        )) {
+
             throw new IllegalArgumentException(
-                    "Cannot transfer an account to itself"
+                    "Source and destination accounts must be different"
             );
         }
 
-        if (amount <= 0) {
-            throw new IllegalArgumentException(
-                    "Amount must be positive"
-            );
-        }
+
+        BigDecimal transferAmount =
+                requirePositive(
+                        amount,
+                        "Amount"
+                );
 
 
         BankAccount from =
                 getForOrg(
                         fromAccountId,
-                        org.getId()
+                        organization.getId()
                 );
 
 
         BankAccount to =
                 getForOrg(
                         toAccountId,
-                        org.getId()
+                        organization.getId()
                 );
 
 
-        if (from.getActive() != null
-                && !from.getActive()) {
+        if (Boolean.FALSE.equals(
+                from.getActive()
+        )) {
 
-            throw new IllegalArgumentException(
-                    "Source bank account is inactive"
-            );
-        }
-
-
-        if (to.getActive() != null
-                && !to.getActive()) {
-
-            throw new IllegalArgumentException(
-                    "Destination bank account is inactive"
-            );
-        }
-
-
-        if (from.getGlAccount() == null) {
             throw new IllegalStateException(
-                    "Source bank account has no GL account: "
-                            + fromAccountId
+                    "Source bank account is inactive: " +
+                            fromAccountId
             );
         }
 
 
-        if (to.getGlAccount() == null) {
+        if (Boolean.FALSE.equals(
+                to.getActive()
+        )) {
+
             throw new IllegalStateException(
-                    "Destination bank account has no GL account: "
-                            + toAccountId
+                    "Destination bank account is inactive: " +
+                            toAccountId
+            );
+        }
+
+
+        if (from.getGlAccount() == null
+                || from.getGlAccount().getId() == null) {
+
+            throw new IllegalStateException(
+                    "Source bank account has no GL account: " +
+                            fromAccountId
+            );
+        }
+
+
+        if (to.getGlAccount() == null
+                || to.getGlAccount().getId() == null) {
+
+            throw new IllegalStateException(
+                    "Destination bank account has no GL account: " +
+                            toAccountId
+            );
+        }
+
+
+        /*
+         * Prevent overdraft.
+         */
+        BigDecimal sourceBalance =
+                getBalanceDecimal(
+                        from
+                );
+
+
+        if (sourceBalance.compareTo(
+                transferAmount
+        ) < 0) {
+
+            throw new IllegalStateException(
+                    "Insufficient source account balance. " +
+                            "Available: " +
+                            sourceBalance +
+                            ", requested: " +
+                            transferAmount
             );
         }
 
@@ -814,53 +1642,112 @@ public class BankAccountService {
                         : "Internal transfer";
 
 
+        String auditDescription =
+                (recordedBy != null
+                        && !recordedBy.isBlank()
+                        ? recordedBy.trim() +
+                        ": "
+                        : "")
+                        +
+                        safeDescription;
+
+
         List<JournalLine> lines =
                 List.of(
 
-                        // DR Destination Bank
+                        /*
+                         * DR destination.
+                         */
                         JournalLine.builder()
                                 .account(
                                         to.getGlAccount()
                                 )
-                                .debit(amount)
-                                .credit(0.0)
+                                .debit(
+                                        transferAmount
+                                )
+                                .credit(
+                                        ZERO
+                                )
                                 .description(
-                                        "Transfer from "
-                                                + from.getName()
+                                        "Transfer from " +
+                                                from.getName()
                                 )
                                 .build(),
 
-                        // CR Source Bank
+                        /*
+                         * CR source.
+                         */
                         JournalLine.builder()
                                 .account(
                                         from.getGlAccount()
                                 )
-                                .debit(0.0)
-                                .credit(amount)
+                                .debit(
+                                        ZERO
+                                )
+                                .credit(
+                                        transferAmount
+                                )
                                 .description(
-                                        "Transfer to "
-                                                + to.getName()
+                                        "Transfer to " +
+                                                to.getName()
                                 )
                                 .build()
                 );
 
 
-        return accountingService.post(
-                org,
-                from.getBranch(),
-                "CASHBOOK_TRANSFER",
-                fromAccountId
-                        + "->"
-                        + toAccountId,
-                from.getName()
-                        + " -> "
-                        + to.getName(),
-                (recordedBy != null
-                        && !recordedBy.isBlank()
-                        ? recordedBy.trim() + ": "
-                        : "")
-                        + safeDescription,
-                lines
+        JournalEntry journalEntry =
+                accountingService.post(
+                        organization,
+                        from.getBranch(),
+                        "CASHBOOK_TRANSFER",
+                        fromAccountId +
+                                "->" +
+                                toAccountId,
+                        from.getName() +
+                                " -> " +
+                                to.getName(),
+                        auditDescription,
+                        lines
+                );
+
+
+        log.info(
+                "Transferred {} from bank account {} " +
+                        "to {} for organization {}",
+                transferAmount,
+                fromAccountId,
+                toAccountId,
+                organization.getId()
+        );
+
+
+        return journalEntry;
+    }
+
+
+    /**
+     * Legacy double-compatible transfer method.
+     *
+     * @deprecated use BigDecimal.
+     */
+    @Deprecated
+    @Transactional
+    public JournalEntry transfer(
+            Organization organization,
+            Long fromAccountId,
+            Long toAccountId,
+            double amount,
+            String description,
+            String recordedBy
+    ) {
+
+        return transfer(
+                organization,
+                fromAccountId,
+                toAccountId,
+                money(amount),
+                description,
+                recordedBy
         );
     }
 }

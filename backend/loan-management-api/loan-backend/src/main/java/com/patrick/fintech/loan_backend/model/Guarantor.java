@@ -1,6 +1,9 @@
 package com.patrick.fintech.loan_backend.model;
 
+import java.math.BigDecimal;
+
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
@@ -36,9 +39,13 @@ public class Guarantor {
 
     private String relationship;      // e.g. Spouse, Sibling, Colleague, Friend
     private String employerName;
-    private Double monthlyIncome;
+    @Column(precision = 19, scale = 6)
+    @JsonProperty("monthlyIncome")
+    private BigDecimal monthlyIncome;
+    @Column(precision = 19, scale = 6)
+    @JsonProperty("guaranteedAmount")
 
-    private Double guaranteedAmount;  // how much of the loan this guarantor is on the hook for
+    private BigDecimal guaranteedAmount;  // how much of the loan this guarantor is on the hook for
     private Boolean consentGiven;
     private String documentUrl;       // scanned signed guarantee form, if uploaded
 
@@ -49,4 +56,78 @@ public class Guarantor {
         createdAt = LocalDateTime.now();
         if (consentGiven == null) consentGiven = false;
     }
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getMonthlyIncomeDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getMonthlyIncome() {
+        return monthlyIncome == null ? null : monthlyIncome.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getMonthlyIncomeDecimal() {
+        return monthlyIncome;
+    }
+
+    @Deprecated
+    public void setMonthlyIncome(Double value) {
+        this.monthlyIncome = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setMonthlyIncome(BigDecimal value) {
+        this.monthlyIncome = value;
+    }
+
+
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getGuaranteedAmountDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getGuaranteedAmount() {
+        return guaranteedAmount == null ? null : guaranteedAmount.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getGuaranteedAmountDecimal() {
+        return guaranteedAmount;
+    }
+
+    @Deprecated
+    public void setGuaranteedAmount(Double value) {
+        this.guaranteedAmount = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setGuaranteedAmount(BigDecimal value) {
+        this.guaranteedAmount = value;
+    }
+
+    /** Backward-compatible builder overloads for legacy Double callers.
+     *  Financial state is stored as BigDecimal.
+     */
+    public static class GuarantorBuilder {
+        private BigDecimal guaranteedAmount;
+        private BigDecimal monthlyIncome;
+
+
+        public GuarantorBuilder monthlyIncome(Double value) {
+            this.monthlyIncome = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }
+        public GuarantorBuilder guaranteedAmount(Double value) {
+            this.guaranteedAmount = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }        public GuarantorBuilder monthlyIncome(BigDecimal value) {
+            this.monthlyIncome = value;
+            return this;
+        }
+        public GuarantorBuilder guaranteedAmount(BigDecimal value) {
+            this.guaranteedAmount = value;
+            return this;
+        }
+    }
+
 }

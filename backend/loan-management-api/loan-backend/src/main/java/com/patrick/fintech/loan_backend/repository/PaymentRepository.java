@@ -3,12 +3,11 @@ package com.patrick.fintech.loan_backend.repository;
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.Payment;
 
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -20,47 +19,63 @@ public interface PaymentRepository
     // BASIC QUERIES
     // ============================================================
 
-    List<Payment> findByLoanId(
-            Long loanId
-    );
+    List<Payment> findByLoanId(Long loanId);
 
-
-    /*
-     * Faster/safer paginated version for large payment histories.
-     */
-    Page<Payment> findByLoanId(
-            Long loanId,
-            Pageable pageable
-    );
-
-
-    List<Payment> findByLoan_Organization_Id(
-            Long orgId
-    );
-
-
-    /*
-     * Paginated organization payment history.
-     */
-    Page<Payment> findByLoan_Organization_Id(
-            Long orgId,
-            Pageable pageable
-    );
-
+    List<Payment> findByLoan_Organization_Id(Long orgId);
 
     List<Payment> findByPaidFalseAndDueDateBefore(
             LocalDate date
     );
-
 
     List<Payment> findByOrganization_IdAndPaidFalseAndDueDateBefore(
             Long orgId,
             LocalDate date
     );
 
-
     Optional<Payment> findByPaymentReference(
             String ref
+    );
+
+    /**
+     * Returns the most recent payment for a loan that has a
+     * payment date.
+     *
+     * Used as a fallback when determining the date from which
+     * daily interest should start accruing.
+     */
+    Optional<Payment> findTopByLoanIdAndPaidDateIsNotNullOrderByPaidDateDesc(
+            Long loanId
+    );
+
+
+    // ============================================================
+    // LOAN PAYMENT SCHEDULE
+    // ============================================================
+
+    /**
+     * Tenant-safe loan schedule.
+     *
+     * Returns only payments belonging to the specified loan
+     * AND organization.
+     */
+    @Query("""
+        SELECT p
+        FROM Payment p
+        WHERE p.loan.id = :loanId
+          AND p.organization.id = :organizationId
+        ORDER BY p.dueDate ASC
+        """)
+    List<Payment> findLoanSchedule(
+            @Param("loanId") Long loanId,
+            @Param("organizationId") Long organizationId
+    );
+
+
+    /**
+     * Alternative simple schedule query.
+     */
+    List<Payment> findByLoanIdOrderByDueDateAsc(
+            Long loanId
     );
 
 
@@ -68,13 +83,6 @@ public interface PaymentRepository
     // BORROWER PAYMENT HISTORY
     // ============================================================
 
-    /**
-     * All payments belonging to a borrower inside an organization.
-     *
-     * Payment -> Loan -> Borrower
-     *
-     * Organization restriction preserves tenant isolation.
-     */
     @Query("""
         SELECT p
         FROM Payment p
@@ -91,28 +99,6 @@ public interface PaymentRepository
 
 
     /**
-     * Paginated borrower payment history.
-     *
-     * Use this for borrower-facing/admin screens where the complete
-     * payment history does not need to be loaded into memory.
-     */
-    @Query("""
-        SELECT p
-        FROM Payment p
-        JOIN p.loan l
-        JOIN l.borrower b
-        WHERE b.id = :borrowerId
-          AND l.organization.id = :organizationId
-        ORDER BY p.paidDate DESC, p.id DESC
-        """)
-    Page<Payment> findByBorrowerIdAndOrganizationId(
-            @Param("borrowerId") Long borrowerId,
-            @Param("organizationId") Long organizationId,
-            Pageable pageable
-    );
-
-
-    /**
      * Only completed/paid payments for a borrower.
      */
     @Query("""
@@ -123,7 +109,7 @@ public interface PaymentRepository
         WHERE b.id = :borrowerId
           AND l.organization.id = :organizationId
           AND p.paid = true
-        ORDER BY p.paidDate DESC, p.id DESC
+        ORDER BY p.paidDate DESC
         """)
     List<Payment> findPaidPaymentsByBorrower(
             @Param("borrowerId") Long borrowerId,
@@ -132,29 +118,7 @@ public interface PaymentRepository
 
 
     /**
-     * Paginated paid payment history.
-     */
-    @Query("""
-        SELECT p
-        FROM Payment p
-        JOIN p.loan l
-        JOIN l.borrower b
-        WHERE b.id = :borrowerId
-          AND l.organization.id = :organizationId
-          AND p.paid = true
-        ORDER BY p.paidDate DESC, p.id DESC
-        """)
-    Page<Payment> findPaidPaymentsByBorrower(
-            @Param("borrowerId") Long borrowerId,
-            @Param("organizationId") Long organizationId,
-            Pageable pageable
-    );
-
-
-    /**
      * Full borrower payment history.
-     *
-     * JOIN FETCH avoids lazy-loading the loan and borrower one by one.
      */
     @Query("""
         SELECT p
@@ -163,7 +127,7 @@ public interface PaymentRepository
         JOIN FETCH l.borrower b
         WHERE b.id = :borrowerId
           AND l.organization.id = :organizationId
-        ORDER BY p.paidDate DESC, p.id DESC
+        ORDER BY p.paidDate DESC
         """)
     List<Payment> findBorrowerPaymentHistory(
             @Param("borrowerId") Long borrowerId,
@@ -175,14 +139,12 @@ public interface PaymentRepository
     // BORROWER PAYMENT STATISTICS
     // ============================================================
 
-    /**
-     * Number of payment records belonging to borrower.
-     */
     @Query("""
         SELECT COUNT(p)
         FROM Payment p
         JOIN p.loan l
-        WHERE l.borrower.id = :borrowerId
+        JOIN l.borrower b
+        WHERE b.id = :borrowerId
           AND l.organization.id = :organizationId
         """)
     long countByBorrowerIdAndOrganizationId(
@@ -191,14 +153,12 @@ public interface PaymentRepository
     );
 
 
-    /**
-     * Number of paid payment records.
-     */
     @Query("""
         SELECT COUNT(p)
         FROM Payment p
         JOIN p.loan l
-        WHERE l.borrower.id = :borrowerId
+        JOIN l.borrower b
+        WHERE b.id = :borrowerId
           AND l.organization.id = :organizationId
           AND p.paid = true
         """)
@@ -208,14 +168,12 @@ public interface PaymentRepository
     );
 
 
-    /**
-     * Number of late payment records.
-     */
     @Query("""
         SELECT COUNT(p)
         FROM Payment p
         JOIN p.loan l
-        WHERE l.borrower.id = :borrowerId
+        JOIN l.borrower b
+        WHERE b.id = :borrowerId
           AND l.organization.id = :organizationId
           AND p.isLate = true
         """)
@@ -225,14 +183,12 @@ public interface PaymentRepository
     );
 
 
-    /**
-     * Number of unpaid and overdue payment records.
-     */
     @Query("""
         SELECT COUNT(p)
         FROM Payment p
         JOIN p.loan l
-        WHERE l.borrower.id = :borrowerId
+        JOIN l.borrower b
+        WHERE b.id = :borrowerId
           AND l.organization.id = :organizationId
           AND p.paid = false
           AND p.dueDate < :today
@@ -248,72 +204,61 @@ public interface PaymentRepository
     // BORROWER PAYMENT TOTALS
     // ============================================================
 
-    /**
-     * Total amount actually paid by borrower.
-     *
-     * Payment field:
-     * amountPaid
-     */
     @Query("""
         SELECT COALESCE(SUM(p.amountPaid), 0.0)
         FROM Payment p
         JOIN p.loan l
-        WHERE l.borrower.id = :borrowerId
+        JOIN l.borrower b
+        WHERE b.id = :borrowerId
           AND l.organization.id = :organizationId
           AND p.paid = true
         """)
-    Double sumPaidByBorrower(
+    BigDecimal sumPaidByBorrower(
             @Param("borrowerId") Long borrowerId,
             @Param("organizationId") Long organizationId
     );
 
 
-    /**
-     * Total principal paid by borrower.
-     */
     @Query("""
         SELECT COALESCE(SUM(p.principalComponent), 0.0)
         FROM Payment p
         JOIN p.loan l
-        WHERE l.borrower.id = :borrowerId
+        JOIN l.borrower b
+        WHERE b.id = :borrowerId
           AND l.organization.id = :organizationId
           AND p.paid = true
         """)
-    Double sumPrincipalPaidByBorrower(
+    BigDecimal sumPrincipalPaidByBorrower(
             @Param("borrowerId") Long borrowerId,
             @Param("organizationId") Long organizationId
     );
 
 
-    /**
-     * Total interest paid by borrower.
-     */
     @Query("""
         SELECT COALESCE(SUM(p.interestComponent), 0.0)
         FROM Payment p
         JOIN p.loan l
-        WHERE l.borrower.id = :borrowerId
+        JOIN l.borrower b
+        WHERE b.id = :borrowerId
           AND l.organization.id = :organizationId
           AND p.paid = true
         """)
-    Double sumInterestPaidByBorrower(
+    BigDecimal sumInterestPaidByBorrower(
             @Param("borrowerId") Long borrowerId,
             @Param("organizationId") Long organizationId
     );
 
 
-    /**
-     * Total penalties paid by borrower.
-     */
     @Query("""
         SELECT COALESCE(SUM(p.penalty), 0.0)
         FROM Payment p
         JOIN p.loan l
-        WHERE l.borrower.id = :borrowerId
+        JOIN l.borrower b
+        WHERE b.id = :borrowerId
           AND l.organization.id = :organizationId
           AND p.paid = true
         """)
-    Double sumPenaltyPaidByBorrower(
+    BigDecimal sumPenaltyPaidByBorrower(
             @Param("borrowerId") Long borrowerId,
             @Param("organizationId") Long organizationId
     );
@@ -323,9 +268,6 @@ public interface PaymentRepository
     // COLLECTIONS
     // ============================================================
 
-    /**
-     * Total collections for an organization since a given date.
-     */
     @Query("""
         SELECT COALESCE(SUM(p.amountPaid), 0.0)
         FROM Payment p
@@ -333,30 +275,9 @@ public interface PaymentRepository
           AND p.paid = true
           AND p.paidDate >= :from
         """)
-    Double sumCollectedSince(
+    BigDecimal sumCollectedSince(
             @Param("org") Organization org,
             @Param("from") LocalDate from
-    );
-
-
-    /**
-     * Total collections for an organization during a period.
-     *
-     * This is useful for dashboards and financial reports because
-     * it avoids loading payment records into Java memory.
-     */
-    @Query("""
-        SELECT COALESCE(SUM(p.amountPaid), 0.0)
-        FROM Payment p
-        WHERE p.organization = :org
-          AND p.paid = true
-          AND p.paidDate >= :from
-          AND p.paidDate <= :to
-        """)
-    Double sumCollectedBetween(
-            @Param("org") Organization org,
-            @Param("from") LocalDate from,
-            @Param("to") LocalDate to
     );
 
 
@@ -385,7 +306,7 @@ public interface PaymentRepository
 
 
     // ============================================================
-    // RECENT PAYMENTS FOR A LOAN
+    // RECENT PAYMENTS
     // ============================================================
 
     List<Payment> findTop10ByLoanIdOrderByPaidDateDesc(
@@ -394,22 +315,9 @@ public interface PaymentRepository
 
 
     // ============================================================
-    // PAGINATED RECENT PAYMENTS FOR A LOAN
-    // ============================================================
-
-    Page<Payment> findByLoanIdOrderByPaidDateDesc(
-            Long loanId,
-            Pageable pageable
-    );
-
-
-    // ============================================================
     // REGULATORY REPORTING
     // ============================================================
 
-    /**
-     * Existing list-based version preserved for compatibility.
-     */
     @Query("""
         SELECT p
         FROM Payment p
@@ -419,38 +327,13 @@ public interface PaymentRepository
           AND p.paid = true
           AND p.paidDate >= :from
           AND p.paidDate <= :to
-        ORDER BY p.paidDate ASC, p.id ASC
+        ORDER BY p.paidDate ASC
         """)
     List<Payment> findPaymentsDuringPeriod(
             @Param("organizationId") Long organizationId,
             @Param("branchId") Long branchId,
             @Param("from") LocalDate from,
             @Param("to") LocalDate to
-    );
-
-
-    /**
-     * Paginated regulatory reporting version.
-     *
-     * Prefer this for large reporting periods.
-     */
-    @Query("""
-        SELECT p
-        FROM Payment p
-        JOIN p.loan l
-        WHERE p.organization.id = :organizationId
-          AND (:branchId IS NULL OR l.branch.id = :branchId)
-          AND p.paid = true
-          AND p.paidDate >= :from
-          AND p.paidDate <= :to
-        ORDER BY p.paidDate ASC, p.id ASC
-        """)
-    Page<Payment> findPaymentsDuringPeriod(
-            @Param("organizationId") Long organizationId,
-            @Param("branchId") Long branchId,
-            @Param("from") LocalDate from,
-            @Param("to") LocalDate to,
-            Pageable pageable
     );
 
 

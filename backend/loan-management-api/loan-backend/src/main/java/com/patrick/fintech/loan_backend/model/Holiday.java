@@ -18,6 +18,7 @@ public class Holiday {
 
     private LocalDate holidayDate;
     private String name;
+    @Builder.Default
     private Boolean recurringAnnually = false;
     private LocalDateTime createdAt;
 

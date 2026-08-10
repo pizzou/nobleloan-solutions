@@ -8,11 +8,15 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.LockModeType;
+
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDate;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -25,8 +29,8 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     // ============================================================
 
     /**
-     * Find loan by ID and eagerly load commonly required
-     * relationships.
+     * Find loan by ID and eagerly load the relationships that are
+     * commonly required after the repository call.
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -34,6 +38,28 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     })
     @Override
     Optional<Loan> findById(Long id);
+
+
+    /**
+     * Locks the loan row for the duration of the payment transaction.
+     *
+     * This is important for payment concurrency and does not
+     * modify or reinterpret Loan.disbursedAt.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {
+            "borrower",
+            "organization",
+            "loanOfficer"
+    })
+    @Query("""
+        SELECT l
+        FROM Loan l
+        WHERE l.id = :id
+        """)
+    Optional<Loan> findByIdForUpdate(
+            @Param("id") Long id
+    );
 
 
     /**
@@ -119,64 +145,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
 
 
     /**
-     * ============================================================
-     * COLLECTIONS
-     * ============================================================
-     *
-     * IMPORTANT:
-     *
-     * A loan can become overdue because daysOverdue > 0 even when
-     * its LoanStatus has not yet been changed to OVERDUE.
-     *
-     * Therefore CollectionsService must be able to find:
-     *
-     *     status IN (OVERDUE, DEFAULTED)
-     *
-     * OR
-     *
-     *     daysOverdue >= 1
-     *
-     * This prevents overdue borrowers from being invisible to the
-     * collections module simply because another process has not
-     * changed the loan status yet.
-     */
-    @EntityGraph(attributePaths = {
-            "borrower",
-            "organization"
-    })
-    List<Loan> findByStatusInOrDaysOverdueGreaterThanEqual(
-            List<LoanStatus> statuses,
-            Integer daysOverdue
-    );
-
-
-    /**
-     * Organization-safe collection query.
-     *
-     * This is useful when collection synchronization is executed
-     * for one organization at a time.
-     *
-     * It finds loans that are either:
-     *
-     * 1. OVERDUE / DEFAULTED
-     *
-     * OR
-     *
-     * 2. Have daysOverdue >= supplied value.
-     */
-    @EntityGraph(attributePaths = {
-            "borrower",
-            "organization"
-    })
-    List<Loan> findByOrganization_IdAndStatusInOrOrganization_IdAndDaysOverdueGreaterThanEqual(
-            Long organizationId1,
-            List<LoanStatus> statuses,
-            Long organizationId2,
-            Integer daysOverdue
-    );
-
-
-    /**
      * Count all loans belonging to an organization.
      */
     long countByOrganization(
@@ -214,9 +182,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     // FILTERING
     // ============================================================
 
-    /**
-     * Filter organization loans by status and loan type.
-     */
     @EntityGraph(attributePaths = {
             "borrower",
             "organization"
@@ -241,9 +206,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     // DASHBOARD
     // ============================================================
 
-    /**
-     * Sum active principal.
-     */
     @Query("""
         SELECT COALESCE(SUM(l.amount), 0)
         FROM Loan l
@@ -254,27 +216,21 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
               'OVERDUE'
           )
         """)
-    Double sumActivePrincipal(
+    BigDecimal sumActivePrincipal(
             @Param("org") Organization org
     );
 
 
-    /**
-     * Sum total collected.
-     */
     @Query("""
         SELECT COALESCE(SUM(l.totalPaid), 0)
         FROM Loan l
         WHERE l.organization = :org
         """)
-    Double sumTotalCollected(
+    BigDecimal sumTotalCollected(
             @Param("org") Organization org
     );
 
 
-    /**
-     * Sum outstanding balance.
-     */
     @Query("""
         SELECT COALESCE(SUM(l.outstandingBalance), 0)
         FROM Loan l
@@ -285,7 +241,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
               'OVERDUE'
           )
         """)
-    Double sumOutstandingBalance(
+    BigDecimal sumOutstandingBalance(
             @Param("org") Organization org
     );
 
@@ -294,9 +250,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     // LOAN TYPE BREAKDOWN
     // ============================================================
 
-    /**
-     * Get loan type breakdown.
-     */
     @Query("""
         SELECT l.loanType,
                COUNT(l),
@@ -314,9 +267,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     // RECENT
     // ============================================================
 
-    /**
-     * Find recent loans for an organization.
-     */
     @EntityGraph(attributePaths = {
             "borrower",
             "organization"
@@ -338,7 +288,25 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     // ============================================================
 
     /**
-     * Find loans disbursed during a period.
+     * IMPORTANT:
+     *
+     * Loan.disbursedAt is LocalDateTime.
+     *
+     * Therefore this repository method MUST also receive
+     * LocalDateTime values.
+     *
+     * The service should convert:
+     *
+     * from date -> from.atStartOfDay()
+     *
+     * to date -> next day atStartOfDay()
+     *
+     * and use:
+     *
+     * disbursedAt >= fromDateTime
+     * disbursedAt < toDateTime
+     *
+     * This preserves the exact time of disbursement.
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -352,19 +320,35 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
           AND (:branchId IS NULL OR l.branch.id = :branchId)
           AND l.disbursedAt IS NOT NULL
           AND l.disbursedAt >= :from
-          AND l.disbursedAt <= :to
+          AND l.disbursedAt < :to
         ORDER BY l.disbursedAt ASC
         """)
     List<Loan> findLoansDisbursedDuringPeriod(
             @Param("orgId") Long orgId,
             @Param("branchId") Long branchId,
-            @Param("from") LocalDate from,
-            @Param("to") LocalDate to
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
     );
 
 
     /**
-     * Find portfolio as of a particular date.
+     * Find portfolio as of a particular date/time.
+     *
+     * The service should pass the exclusive beginning of the
+     * following day when it wants a complete LocalDate.
+     *
+     * Example:
+     *
+     * asOfDate = 2026-08-31
+     *
+     * asOfDateTime = 2026-09-01T00:00:00
+     *
+     * Query:
+     *
+     * l.disbursedAt < asOf
+     *
+     * This includes every loan disbursed on 2026-08-31,
+     * regardless of its exact time.
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -378,18 +362,21 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
         WHERE l.organization.id = :orgId
           AND (:branchId IS NULL OR l.branch.id = :branchId)
           AND l.disbursedAt IS NOT NULL
-          AND l.disbursedAt <= :asOf
+          AND l.disbursedAt < :asOf
         ORDER BY l.disbursedAt ASC
         """)
     List<Loan> findPortfolioAsOf(
             @Param("orgId") Long orgId,
             @Param("branchId") Long branchId,
-            @Param("asOf") LocalDate asOf
+            @Param("asOf") LocalDateTime asOf
     );
 
 
     /**
      * Find loans for regulatory reporting.
+     *
+     * createdAt is also LocalDateTime, so the parameters correctly
+     * remain LocalDateTime.
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -431,5 +418,15 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("branchId") Long branchId,
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to
+    );
+
+
+    // ============================================================
+    // EXISTS
+    // ============================================================
+
+    boolean existsByOrganization_IdAndReferenceNumber(
+            Long organizationId,
+            String referenceNumber
     );
 }

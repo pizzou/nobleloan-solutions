@@ -1,5 +1,7 @@
 package com.patrick.fintech.loan_backend.model;
 
+import java.math.BigDecimal;
+
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -7,6 +9,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.*;
 import java.time.LocalDate;
@@ -106,9 +109,14 @@ public class Borrower {
     private String employerName;
     private String employmentType;       // PERMANENT, CONTRACT, SELF_EMPLOYED, UNEMPLOYED
     private String jobTitle;
-    private Double monthlyIncome;
-    private Double monthlyExpenses;
-    private Double netWorth;
+    @Column(precision = 19, scale = 6)
+    @JsonProperty("monthlyIncome")
+    private BigDecimal monthlyIncome;
+    @JsonProperty("monthlyExpenses")
+    private BigDecimal monthlyExpenses;
+    @JsonProperty("netWorth")
+    @Column(precision = 19, scale = 6)
+    private BigDecimal netWorth;
 
     // Credit
     private Integer creditScore;
@@ -156,4 +164,112 @@ private User blacklistedBy;
     }
 
     public enum BorrowerStatus { ACTIVE, INACTIVE, BLACKLISTED, DECEASED }
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getMonthlyIncomeDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getMonthlyIncome() {
+        return monthlyIncome == null ? null : monthlyIncome.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getMonthlyIncomeDecimal() {
+        return monthlyIncome;
+    }
+
+    @Deprecated
+    public void setMonthlyIncome(Double value) {
+        this.monthlyIncome = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setMonthlyIncome(BigDecimal value) {
+        this.monthlyIncome = value;
+    }
+
+
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getMonthlyExpensesDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getMonthlyExpenses() {
+        return monthlyExpenses == null ? null : monthlyExpenses.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getMonthlyExpensesDecimal() {
+        return monthlyExpenses;
+    }
+
+    @Deprecated
+    public void setMonthlyExpenses(Double value) {
+        this.monthlyExpenses = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setMonthlyExpenses(BigDecimal value) {
+        this.monthlyExpenses = value;
+    }
+
+
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getNetWorthDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getNetWorth() {
+        return netWorth == null ? null : netWorth.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getNetWorthDecimal() {
+        return netWorth;
+    }
+
+    @Deprecated
+    public void setNetWorth(Double value) {
+        this.netWorth = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setNetWorth(BigDecimal value) {
+        this.netWorth = value;
+    }
+
+    /** Backward-compatible builder overloads for legacy Double callers.
+     *  Financial state is stored as BigDecimal.
+     */
+    public static class BorrowerBuilder {
+        private BigDecimal monthlyExpenses;
+        private BigDecimal monthlyIncome;
+        private BigDecimal netWorth;
+
+
+        public BorrowerBuilder monthlyIncome(Double value) {
+            this.monthlyIncome = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }
+        public BorrowerBuilder monthlyExpenses(Double value) {
+            this.monthlyExpenses = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }
+        public BorrowerBuilder netWorth(Double value) {
+            this.netWorth = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }        public BorrowerBuilder monthlyIncome(BigDecimal value) {
+            this.monthlyIncome = value;
+            return this;
+        }
+        public BorrowerBuilder monthlyExpenses(BigDecimal value) {
+            this.monthlyExpenses = value;
+            return this;
+        }
+        public BorrowerBuilder netWorth(BigDecimal value) {
+            this.netWorth = value;
+            return this;
+        }
+    }
+
 }

@@ -1,22 +1,23 @@
 package com.patrick.fintech.loan_backend.repository;
 
 import com.patrick.fintech.loan_backend.model.CreditBureauCheck;
+
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
-@Repository
 public interface CreditBureauCheckRepository
         extends JpaRepository<CreditBureauCheck, Long> {
+
 
     // ============================================================
     // BORROWER HISTORY
     // ============================================================
 
-    List<CreditBureauCheck> findByBorrower_IdOrderByCreatedAtDesc(
+    List<CreditBureauCheck>
+    findByBorrower_IdOrderByCreatedAtDesc(
             Long borrowerId
     );
 
@@ -25,7 +26,8 @@ public interface CreditBureauCheckRepository
     // LATEST BORROWER CHECK
     // ============================================================
 
-    Optional<CreditBureauCheck> findFirstByBorrower_IdOrderByCreatedAtDesc(
+    Optional<CreditBureauCheck>
+    findFirstByBorrower_IdOrderByCreatedAtDesc(
             Long borrowerId
     );
 
@@ -34,7 +36,8 @@ public interface CreditBureauCheckRepository
     // ORGANIZATION HISTORY
     // ============================================================
 
-    List<CreditBureauCheck> findByOrganization_IdOrderByCreatedAtDesc(
+    List<CreditBureauCheck>
+    findByOrganization_IdOrderByCreatedAtDesc(
             Long organizationId
     );
 
@@ -84,9 +87,6 @@ public interface CreditBureauCheckRepository
     );
 
 
-    // ============================================================
-    // ORGANIZATION + TO DATE
-    // ============================================================
 
     List<CreditBureauCheck>
     findByOrganization_IdAndCreatedAtLessThanOrderByCreatedAtDesc(
@@ -94,10 +94,6 @@ public interface CreditBureauCheckRepository
             LocalDateTime to
     );
 
-
-    // ============================================================
-    // ORGANIZATION + DATE RANGE
-    // ============================================================
 
     List<CreditBureauCheck>
     findByOrganization_IdAndCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(
@@ -107,11 +103,8 @@ public interface CreditBureauCheckRepository
     );
 
 
-    // ============================================================
-    // ORGANIZATION
-    // ============================================================
-
-    List<CreditBureauCheck> findByOrganization_Id(
+    List<CreditBureauCheck>
+    findByOrganization_Id(
             Long organizationId
     );
 }

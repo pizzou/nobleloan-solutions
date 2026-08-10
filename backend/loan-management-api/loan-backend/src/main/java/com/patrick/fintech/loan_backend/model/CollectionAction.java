@@ -1,6 +1,9 @@
 package com.patrick.fintech.loan_backend.model;
 
+import java.math.BigDecimal;
+
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
@@ -28,12 +31,14 @@ public class CollectionAction {
 
     private String performedBy;
 
-    @Column(columnDefinition = "TEXT")
+    @Column(columnDefinition = "TEXT", precision = 19, scale = 6)
     private String notes;
 
     private String outcome;               // NO_ANSWER, PROMISED, REFUSED, PAID, DISPUTED, WRONG_NUMBER
     private LocalDate promiseDate;
-    private Double    promiseAmount;
+    @JsonProperty("promiseAmount")
+    @Column(precision = 19, scale = 6)
+    private BigDecimal promiseAmount;
 
     private LocalDateTime createdAt;
 
@@ -44,4 +49,44 @@ public class CollectionAction {
         CALL, SMS, EMAIL, FIELD_VISIT, LEGAL_NOTICE, PROMISE_TO_PAY,
         PAYMENT_RECEIVED, ESCALATED, CASE_OPENED, CASE_CLOSED, WRITE_OFF
     }
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getPromiseAmountDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getPromiseAmount() {
+        return promiseAmount == null ? null : promiseAmount.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getPromiseAmountDecimal() {
+        return promiseAmount;
+    }
+
+    @Deprecated
+    public void setPromiseAmount(Double value) {
+        this.promiseAmount = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setPromiseAmount(BigDecimal value) {
+        this.promiseAmount = value;
+    }
+
+    /** Backward-compatible builder overloads for legacy Double callers.
+     *  Financial state is stored as BigDecimal.
+     */
+    public static class CollectionActionBuilder {
+        private BigDecimal promiseAmount;
+
+
+        public CollectionActionBuilder promiseAmount(Double value) {
+            this.promiseAmount = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }        public CollectionActionBuilder promiseAmount(BigDecimal value) {
+            this.promiseAmount = value;
+            return this;
+        }
+    }
+
 }

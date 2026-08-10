@@ -1,6 +1,9 @@
 package com.patrick.fintech.loan_backend.model;
 
+import java.math.BigDecimal;
+
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
@@ -31,7 +34,9 @@ public class Collateral {
 
     private String description;
     private String ownerName;
-    private Double estimatedValue;
+    @Column(precision = 19, scale = 6)
+    @JsonProperty("estimatedValue")
+    private BigDecimal estimatedValue;
     private String currency;
 
     private Boolean insured;
@@ -58,4 +63,44 @@ public class Collateral {
 
     public enum CollateralType { PROPERTY, VEHICLE, LAND, EQUIPMENT, CASH_DEPOSIT, SHARES, OTHER }
     public enum CollateralStatus { PLEDGED, RELEASED, SEIZED, LIQUIDATED }
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getEstimatedValueDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getEstimatedValue() {
+        return estimatedValue == null ? null : estimatedValue.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getEstimatedValueDecimal() {
+        return estimatedValue;
+    }
+
+    @Deprecated
+    public void setEstimatedValue(Double value) {
+        this.estimatedValue = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setEstimatedValue(BigDecimal value) {
+        this.estimatedValue = value;
+    }
+
+    /** Backward-compatible builder overloads for legacy Double callers.
+     *  Financial state is stored as BigDecimal.
+     */
+    public static class CollateralBuilder {
+        private BigDecimal estimatedValue;
+
+
+        public CollateralBuilder estimatedValue(Double value) {
+            this.estimatedValue = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }        public CollateralBuilder estimatedValue(BigDecimal value) {
+            this.estimatedValue = value;
+            return this;
+        }
+    }
+
 }

@@ -1,5 +1,5 @@
 -- V7: public marketing/website content per organization, so each tenant's
--- public site (Noble Loan Solutions / Noble Loan / Infinity Loan / any future org)
+-- public site (Growth Finance / Noble Loan / Infinity Loan / any future org)
 -- shows genuinely distinct branding and copy instead of a shared demo fallback.
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS tagline        VARCHAR(255);
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS mission        TEXT;

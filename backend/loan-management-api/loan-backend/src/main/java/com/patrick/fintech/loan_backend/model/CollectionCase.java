@@ -1,6 +1,9 @@
 package com.patrick.fintech.loan_backend.model;
 
+import java.math.BigDecimal;
+
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
@@ -43,20 +46,26 @@ public class CollectionCase {
     private CollectionBucket bucket;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, precision = 19, scale = 6)
     private CollectionStatus status;
 
     @Enumerated(EnumType.STRING)
     private Priority priority;
 
     private Integer daysPastDue;
-    private Double  overdueAmount;
-    private Double  totalOutstanding;
+    @JsonProperty("overdueAmount")
+    @Column(precision = 19, scale = 6)
+    private BigDecimal overdueAmount;
+    @JsonProperty("totalOutstanding")
+    @Column(precision = 19, scale = 6)
+    private BigDecimal totalOutstanding;
 
     private LocalDate lastContactDate;
     private LocalDate nextActionDate;
     private LocalDate promiseToPayDate;
-    private Double    promiseToPayAmount;
+    @JsonProperty("promiseToPayAmount")
+    @Column(precision = 19, scale = 6)
+    private BigDecimal promiseToPayAmount;
 
     private String resolutionNotes;
 
@@ -81,4 +90,112 @@ public class CollectionCase {
     public enum CollectionBucket { CURRENT, DPD_1_30, DPD_31_60, DPD_61_90, DPD_90_PLUS, WRITE_OFF }
     public enum CollectionStatus { OPEN, IN_PROGRESS, PROMISE_TO_PAY, ESCALATED, LEGAL, RESOLVED, WRITTEN_OFF }
     public enum Priority { LOW, MEDIUM, HIGH, URGENT }
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getOverdueAmountDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getOverdueAmount() {
+        return overdueAmount == null ? null : overdueAmount.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getOverdueAmountDecimal() {
+        return overdueAmount;
+    }
+
+    @Deprecated
+    public void setOverdueAmount(Double value) {
+        this.overdueAmount = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setOverdueAmount(BigDecimal value) {
+        this.overdueAmount = value;
+    }
+
+
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getTotalOutstandingDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getTotalOutstanding() {
+        return totalOutstanding == null ? null : totalOutstanding.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getTotalOutstandingDecimal() {
+        return totalOutstanding;
+    }
+
+    @Deprecated
+    public void setTotalOutstanding(Double value) {
+        this.totalOutstanding = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setTotalOutstanding(BigDecimal value) {
+        this.totalOutstanding = value;
+    }
+
+
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getPromiseToPayAmountDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getPromiseToPayAmount() {
+        return promiseToPayAmount == null ? null : promiseToPayAmount.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getPromiseToPayAmountDecimal() {
+        return promiseToPayAmount;
+    }
+
+    @Deprecated
+    public void setPromiseToPayAmount(Double value) {
+        this.promiseToPayAmount = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setPromiseToPayAmount(BigDecimal value) {
+        this.promiseToPayAmount = value;
+    }
+
+    /** Backward-compatible builder overloads for legacy Double callers.
+     *  Financial state is stored as BigDecimal.
+     */
+    public static class CollectionCaseBuilder {
+        private BigDecimal overdueAmount;
+        private BigDecimal promiseToPayAmount;
+        private BigDecimal totalOutstanding;
+
+
+        public CollectionCaseBuilder overdueAmount(Double value) {
+            this.overdueAmount = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }
+        public CollectionCaseBuilder totalOutstanding(Double value) {
+            this.totalOutstanding = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }
+        public CollectionCaseBuilder promiseToPayAmount(Double value) {
+            this.promiseToPayAmount = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }        public CollectionCaseBuilder overdueAmount(BigDecimal value) {
+            this.overdueAmount = value;
+            return this;
+        }
+        public CollectionCaseBuilder totalOutstanding(BigDecimal value) {
+            this.totalOutstanding = value;
+            return this;
+        }
+        public CollectionCaseBuilder promiseToPayAmount(BigDecimal value) {
+            this.promiseToPayAmount = value;
+            return this;
+        }
+    }
+
 }

@@ -1,7 +1,10 @@
 
 package com.patrick.fintech.loan_backend.model;
 
+import java.math.BigDecimal;
+
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
@@ -199,8 +202,9 @@ public class CreditBureauCheck {
      * Do NOT change this to BigDecimal because the rest of the
      * existing financial system currently uses Double.
      */
-    @Column(name = "total_outstanding_debt")
-    private Double totalOutstandingDebt;
+    @Column(name = "total_outstanding_debt", precision = 19, scale = 6)
+    @JsonProperty("totalOutstandingDebt")
+    private BigDecimal totalOutstandingDebt;
 
 
     /**
@@ -208,8 +212,9 @@ public class CreditBureauCheck {
      *
      * Keep Double for compatibility with the existing system.
      */
-    @Column(name = "total_monthly_obligations")
-    private Double totalMonthlyObligations;
+    @Column(name = "total_monthly_obligations", precision = 19, scale = 6)
+    @JsonProperty("totalMonthlyObligations")
+    private BigDecimal totalMonthlyObligations;
 
 
     // ============================================================
@@ -380,4 +385,78 @@ public class CreditBureauCheck {
          */
         NO_RECORD_FOUND
     }
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getTotalOutstandingDebtDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getTotalOutstandingDebt() {
+        return totalOutstandingDebt == null ? null : totalOutstandingDebt.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getTotalOutstandingDebtDecimal() {
+        return totalOutstandingDebt;
+    }
+
+    @Deprecated
+    public void setTotalOutstandingDebt(Double value) {
+        this.totalOutstandingDebt = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setTotalOutstandingDebt(BigDecimal value) {
+        this.totalOutstandingDebt = value;
+    }
+
+
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getTotalMonthlyObligationsDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getTotalMonthlyObligations() {
+        return totalMonthlyObligations == null ? null : totalMonthlyObligations.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getTotalMonthlyObligationsDecimal() {
+        return totalMonthlyObligations;
+    }
+
+    @Deprecated
+    public void setTotalMonthlyObligations(Double value) {
+        this.totalMonthlyObligations = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setTotalMonthlyObligations(BigDecimal value) {
+        this.totalMonthlyObligations = value;
+    }
+
+    /** Backward-compatible builder overloads for legacy Double callers.
+     *  Financial state is stored as BigDecimal.
+     */
+    public static class CreditBureauCheckBuilder {
+        private BigDecimal totalMonthlyObligations;
+        private BigDecimal totalOutstandingDebt;
+
+
+        public CreditBureauCheckBuilder totalOutstandingDebt(Double value) {
+            this.totalOutstandingDebt = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }
+        public CreditBureauCheckBuilder totalMonthlyObligations(Double value) {
+            this.totalMonthlyObligations = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }        public CreditBureauCheckBuilder totalOutstandingDebt(BigDecimal value) {
+            this.totalOutstandingDebt = value;
+            return this;
+        }
+        public CreditBureauCheckBuilder totalMonthlyObligations(BigDecimal value) {
+            this.totalMonthlyObligations = value;
+            return this;
+        }
+    }
+
 }

@@ -8,22 +8,68 @@ import com.patrick.fintech.loan_backend.dto.PaymentGatewayRequest;
 import com.patrick.fintech.loan_backend.dto.PaymentGatewayResponse;
 import com.patrick.fintech.loan_backend.dto.publicportal.BorrowerDashboardResponse;
 import com.patrick.fintech.loan_backend.dto.publicportal.DashboardSummaryResponse;
-import com.patrick.fintech.loan_backend.model.*;
-import com.patrick.fintech.loan_backend.repository.*;
+import com.patrick.fintech.loan_backend.model.AuditLog;
+import com.patrick.fintech.loan_backend.model.Borrower;
+import com.patrick.fintech.loan_backend.model.BorrowerFile;
+import com.patrick.fintech.loan_backend.model.ContactMessage;
+import com.patrick.fintech.loan_backend.model.DocumentType;
+import com.patrick.fintech.loan_backend.model.Loan;
+import com.patrick.fintech.loan_backend.model.LoanComment;
+import com.patrick.fintech.loan_backend.model.LoanProduct;
+import com.patrick.fintech.loan_backend.model.LoanStatus;
+import com.patrick.fintech.loan_backend.model.Organization;
+import com.patrick.fintech.loan_backend.model.User;
+import com.patrick.fintech.loan_backend.model.VerificationStatus;
+import com.patrick.fintech.loan_backend.repository.BorrowerRepository;
+import com.patrick.fintech.loan_backend.repository.ContactMessageRepository;
+import com.patrick.fintech.loan_backend.repository.LoanCommentRepository;
+import com.patrick.fintech.loan_backend.repository.LoanProductRepository;
+import com.patrick.fintech.loan_backend.repository.LoanRepository;
+import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
+import com.patrick.fintech.loan_backend.repository.PaymentRepository;
+import com.patrick.fintech.loan_backend.repository.UserRepository;
 import com.patrick.fintech.loan_backend.security.HmacIndexer;
-import com.patrick.fintech.loan_backend.service.*;
+import com.patrick.fintech.loan_backend.service.AirtelMobileMoneyService;
+import com.patrick.fintech.loan_backend.service.AuditService;
+import com.patrick.fintech.loan_backend.service.BorrowerFileService;
+import com.patrick.fintech.loan_backend.service.BorrowerService;
+import com.patrick.fintech.loan_backend.service.FlutterwaveService;
+import com.patrick.fintech.loan_backend.service.IdempotencyService;
+import com.patrick.fintech.loan_backend.service.LoanService;
+import com.patrick.fintech.loan_backend.service.MailService;
+import com.patrick.fintech.loan_backend.service.MtnMobileMoneyService;
+import com.patrick.fintech.loan_backend.service.NotificationService;
+import com.patrick.fintech.loan_backend.service.PaymentService;
+import com.patrick.fintech.loan_backend.service.ReportExportService;
+import com.patrick.fintech.loan_backend.service.SmsService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/public")
@@ -57,7 +103,6 @@ public class PublicController {
     private final PaymentService paymentService;
     private final PaymentRepository paymentRepo;
     private final ReportExportService exportService;
-
 
     // ============================================================
     // CONTACT
@@ -135,7 +180,6 @@ public class PublicController {
         );
     }
 
-
     // ============================================================
     // BORROWER DASHBOARD
     // ============================================================
@@ -153,7 +197,6 @@ public class PublicController {
         );
     }
 
-
     @GetMapping("/borrower/summary")
     public ResponseEntity<DashboardSummaryResponse> borrowerSummary(
             @RequestParam String phone) {
@@ -162,7 +205,6 @@ public class PublicController {
                 loanService.getBorrowerSummary(phone)
         );
     }
-
 
     // ============================================================
     // APPLICATION STATUS
@@ -221,7 +263,6 @@ public class PublicController {
         );
     }
 
-
     // ============================================================
     // APPLICATION DOCUMENT UPLOAD
     // ============================================================
@@ -233,23 +274,32 @@ public class PublicController {
             @PathVariable String reference,
             @RequestParam String phone,
             @RequestParam String documentType,
-            @RequestParam("file") MultipartFile file
+            @RequestPart("file") MultipartFile file
     ) throws Exception {
 
         Loan loan = verifyOwnership(reference, phone);
 
+        if (loan.getBorrower() == null) {
+            throw new RuntimeException(
+                    "This application has no borrower associated with it."
+            );
+        }
+
+        if (file == null || file.isEmpty()) {
+            throw new RuntimeException(
+                    "Please select a document to upload."
+            );
+        }
+
         DocumentType docType;
 
         try {
-
             docType = DocumentType.valueOf(
                     documentType.trim().toUpperCase()
             );
-
         } catch (IllegalArgumentException e) {
-
             throw new RuntimeException(
-                    "Unknown document type."
+                    "Unknown document type: " + documentType
             );
         }
 
@@ -288,7 +338,6 @@ public class PublicController {
         );
     }
 
-
     // ============================================================
     // LIST DOCUMENTS
     // ============================================================
@@ -301,6 +350,12 @@ public class PublicController {
             @RequestParam String phone) {
 
         Loan loan = verifyOwnership(reference, phone);
+
+        if (loan.getBorrower() == null) {
+            throw new RuntimeException(
+                    "This application has no borrower associated with it."
+            );
+        }
 
         List<Map<String, Object>> docs =
                 fileService
@@ -332,7 +387,6 @@ public class PublicController {
         );
     }
 
-
     // ============================================================
     // DELETE APPLICATION DOCUMENT
     // ============================================================
@@ -347,8 +401,20 @@ public class PublicController {
 
         Loan loan = verifyOwnership(reference, phone);
 
+        if (loan.getBorrower() == null) {
+            throw new RuntimeException(
+                    "This application has no borrower associated with it."
+            );
+        }
+
         BorrowerFile file =
                 fileService.getById(fileId);
+
+        if (file == null) {
+            throw new RuntimeException(
+                    "Document not found."
+            );
+        }
 
         if (file.getBorrower() == null ||
                 !file.getBorrower()
@@ -403,7 +469,6 @@ public class PublicController {
         );
     }
 
-
     // ============================================================
     // APPLICATION COMMENTS
     // ============================================================
@@ -435,13 +500,13 @@ public class PublicController {
                                     c.getAuthor() != null &&
                                             c.getAuthor().getRole() != null
                                             ? humanizeRole(
-                                                    c.getAuthor()
-                                                            .getRole()
-                                                            .getName()
-                                            )
+                                            c.getAuthor()
+                                                    .getRole()
+                                                    .getName()
+                                    )
                                             : loan.getOrganization()
-                                                    .getName() +
-                                                    " Team";
+                                            .getName() +
+                                            " Team";
 
                             m.put("from", roleLabel);
 
@@ -453,7 +518,6 @@ public class PublicController {
                 ApiResponse.ok(comments)
         );
     }
-
 
     private String humanizeRole(String roleName) {
 
@@ -494,7 +558,6 @@ public class PublicController {
         return sb.toString().trim();
     }
 
-
     // ============================================================
     // PUBLIC PAYMENT INITIATION
     // ============================================================
@@ -519,10 +582,6 @@ public class PublicController {
             );
         }
 
-        // ========================================================
-        // NORMALIZE PAYMENT METHOD
-        // ========================================================
-
         String method =
                 normalizePaymentMethod(
                         str(body.get("paymentMethod"))
@@ -534,11 +593,6 @@ public class PublicController {
                     "Payment method is required."
             );
         }
-
-
-        // ========================================================
-        // MOBILE MONEY NETWORK
-        // ========================================================
 
         String network =
                 normalizeNetwork(
@@ -563,7 +617,6 @@ public class PublicController {
             }
         }
 
-
         if ("MTN_MOBILE_MONEY".equals(method)) {
 
             network = "MTN";
@@ -572,11 +625,6 @@ public class PublicController {
 
             network = "AIRTEL";
         }
-
-
-        // ========================================================
-        // PAYMENT AMOUNT
-        // ========================================================
 
         Double requestedAmount =
                 num(body.get("amount"));
@@ -600,9 +648,8 @@ public class PublicController {
             dueAmount =
                     loan.getOutstandingBalance() != null
                             ? loan.getOutstandingBalance()
-                            : 0;
+                            : 0.0;
         }
-
 
         if (dueAmount <= 0) {
 
@@ -611,11 +658,6 @@ public class PublicController {
             );
         }
 
-
-        // ========================================================
-        // OUTSTANDING BALANCE LIMIT
-        // ========================================================
-
         if (loan.getOutstandingBalance() != null &&
                 dueAmount > loan.getOutstandingBalance()) {
 
@@ -623,28 +665,20 @@ public class PublicController {
                     loan.getOutstandingBalance();
         }
 
-
-        // ========================================================
-        // BUILD PAYMENT REQUEST
-        // ========================================================
-
         PaymentGatewayRequest req =
                 new PaymentGatewayRequest();
 
         req.setAmount(dueAmount);
-
         req.setPaymentMethod(method);
 
         String paymentPhone =
                 str(body.get("phoneNumber"));
 
         if (paymentPhone == null) {
-
             paymentPhone = phone;
         }
 
         req.setPhoneNumber(paymentPhone);
-
         req.setNetwork(network);
 
         req.setCardNumber(
@@ -679,15 +713,9 @@ public class PublicController {
                 str(body.get("redirectUrl"))
         );
 
-
         String description =
                 "Loan repayment " +
                         loan.getReferenceNumber();
-
-
-        // ========================================================
-        // LOG PAYMENT REQUEST
-        // ========================================================
 
         log.info(
                 "[PUBLIC PAYMENT] Payment request. loan={}, method={}, network={}, amount={}, phone={}",
@@ -698,26 +726,9 @@ public class PublicController {
                 maskPhone(paymentPhone)
         );
 
-
-        // ========================================================
-        // GATEWAY RESPONSE
-        // ========================================================
-
         PaymentGatewayResponse gatewayResponse;
 
-
-        // ========================================================
-        // MTN DIRECT
-        // ========================================================
-
         if ("MTN_MOBILE_MONEY".equals(method)) {
-
-            log.info(
-                    "[PUBLIC PAYMENT] Starting direct MTN payment. loan={}, amount={}, phone={}",
-                    loan.getId(),
-                    dueAmount,
-                    maskPhone(paymentPhone)
-            );
 
             gatewayResponse =
                     mtnMobileMoneyService.initiate(
@@ -727,21 +738,8 @@ public class PublicController {
                             loan.getCurrency(),
                             description
                     );
-        }
 
-
-        // ========================================================
-        // AIRTEL DIRECT
-        // ========================================================
-
-        else if ("AIRTEL_MOBILE_MONEY".equals(method)) {
-
-            log.info(
-                    "[PUBLIC PAYMENT] Starting direct Airtel payment. loan={}, amount={}, phone={}",
-                    loan.getId(),
-                    dueAmount,
-                    maskPhone(paymentPhone)
-            );
+        } else if ("AIRTEL_MOBILE_MONEY".equals(method)) {
 
             gatewayResponse =
                     airtelMobileMoneyService.initiate(
@@ -751,20 +749,13 @@ public class PublicController {
                             loan.getCurrency(),
                             description
                     );
-        }
 
-
-        // ========================================================
-        // FLUTTERWAVE
-        // ========================================================
-
-        else if ("FLUTTERWAVE".equals(method) ||
+        } else if ("FLUTTERWAVE".equals(method) ||
                 "CARD".equals(method) ||
                 "BANK_TRANSFER".equals(method) ||
                 "FLUTTERWAVE_MOBILE_MONEY".equals(method)) {
 
             if ("FLUTTERWAVE_MOBILE_MONEY".equals(method)) {
-
                 req.setPaymentMethod("MOBILE_MONEY");
             }
 
@@ -776,24 +767,20 @@ public class PublicController {
                             loan.getCurrency(),
                             description
                     );
-        }
 
-
-        // ========================================================
-        // UNSUPPORTED
-        // ========================================================
-
-        else {
+        } else {
 
             throw new RuntimeException(
                     "Unsupported payment method: " + method
             );
         }
 
+        if (gatewayResponse == null) {
 
-        // ========================================================
-        // BUILD FRONTEND RESPONSE
-        // ========================================================
+            throw new RuntimeException(
+                    "Payment provider returned no response."
+            );
+        }
 
         Map<String, Object> result =
                 new LinkedHashMap<>();
@@ -852,23 +839,12 @@ public class PublicController {
                 network
         );
 
-
         // ========================================================
-        // SUCCESS
+        // PAYMENT CONFIRMED
         // ========================================================
 
         if ("success".equalsIgnoreCase(
                 gatewayResponse.getStatus())) {
-
-            /*
-             * A gateway SUCCESS response must have a transaction
-             * identifier.
-             *
-             * This identifier is critical because the same successful
-             * transaction may subsequently arrive through a webhook.
-             *
-             * We therefore do not record an anonymous gateway success.
-             */
 
             String transactionId =
                     gatewayResponse.getTransactionId();
@@ -876,44 +852,49 @@ public class PublicController {
             if (transactionId == null ||
                     transactionId.isBlank()) {
 
-                log.error(
-                        "[PUBLIC PAYMENT] Gateway returned SUCCESS without transaction ID. " +
-                                "loan={}, provider={}, amount={}",
-                        loan.getId(),
-                        gatewayResponse.getProvider(),
-                        dueAmount
-                );
-
                 throw new RuntimeException(
                         "Payment provider confirmed the payment but did not return a transaction ID."
                 );
             }
 
-
             /*
-             * The gateway's confirmed amount is preferred when supplied.
-             * Otherwise use the requested/due amount.
+             * PaymentService.recordPayment(...) expects BigDecimal.
+             *
+             * Gateway responses currently expose the amount as a
+             * numeric/double value, so convert it explicitly using
+             * BigDecimal.valueOf(...) rather than casting.
              */
-
-            double confirmedAmount =
+            BigDecimal confirmedAmount =
                     gatewayResponse.getAmount() != null
-                            ? gatewayResponse.getAmount()
-                            : dueAmount;
+                            ? BigDecimal.valueOf(
+                            gatewayResponse.getAmount()
+                    )
+                            : BigDecimal.valueOf(
+                            dueAmount
+                    );
 
+            if (confirmedAmount.compareTo(BigDecimal.ZERO) <= 0) {
+
+                throw new RuntimeException(
+                        "The confirmed payment amount must be greater than zero."
+                );
+            }
 
             /*
              * IMPORTANT:
              *
-             * recordPayment() receives the gateway transaction ID.
+             * PaymentService.recordPayment(
+             *      Long,
+             *      BigDecimal,
+             *      String,
+             *      String,
+             *      String,
+             *      String,
+             *      User
+             * )
              *
-             * PaymentService is the common point used by this immediate
-             * success path and the later webhook/callback path.
-             *
-             * The PaymentService must therefore treat this transaction
-             * ID as an idempotency key and return the existing payment
-             * when the same gateway event arrives again.
+             * Therefore confirmedAmount MUST be BigDecimal.
              */
-
             paymentService.recordPayment(
                     loan.getId(),
                     confirmedAmount,
@@ -925,17 +906,9 @@ public class PublicController {
                     null
             );
 
-
-            result.put(
-                    "recorded",
-                    true
-            );
-
-            result.put(
-                    "transactionId",
-                    transactionId
-            );
-
+            result.put("recorded", true);
+            result.put("transactionId", transactionId);
+            result.put("confirmedAmount", confirmedAmount);
 
             auditService.log(
                     loan.getOrganization(),
@@ -955,7 +928,6 @@ public class PublicController {
                             transactionId
             );
 
-
             return ResponseEntity.ok(
                     ApiResponse.ok(
                             "Payment completed",
@@ -964,18 +936,14 @@ public class PublicController {
             );
         }
 
-
         // ========================================================
-        // PENDING
+        // PAYMENT PENDING
         // ========================================================
 
         if ("pending".equalsIgnoreCase(
                 gatewayResponse.getStatus())) {
 
-            result.put(
-                    "recorded",
-                    false
-            );
+            result.put("recorded", false);
 
             auditService.log(
                     loan.getOrganization(),
@@ -1003,9 +971,8 @@ public class PublicController {
             );
         }
 
-
         // ========================================================
-        // FAILED
+        // PAYMENT FAILED
         // ========================================================
 
         String failureMessage =
@@ -1030,7 +997,6 @@ public class PublicController {
         );
     }
 
-
     // ============================================================
     // NORMALIZE PAYMENT METHOD
     // ============================================================
@@ -1053,48 +1019,47 @@ public class PublicController {
         return switch (value) {
 
             case "MOBILE_MONEY",
-                 "MOBILEMONEY"
-                    -> "MOBILE_MONEY";
+                 "MOBILEMONEY" ->
+                    "MOBILE_MONEY";
 
             case "MTN",
                  "MOMO",
                  "MTN_MOMO",
                  "MTN_MOBILE",
                  "MTN_MOBILE_MONEY",
-                 "MTN_MOBILEMONEY"
-                    -> "MTN_MOBILE_MONEY";
+                 "MTN_MOBILEMONEY" ->
+                    "MTN_MOBILE_MONEY";
 
             case "AIRTEL",
                  "AIRTEL_MONEY",
                  "AIRTEL_MOBILE",
                  "AIRTEL_MOBILE_MONEY",
-                 "AIRTEL_MOBILEMONEY"
-                    -> "AIRTEL_MOBILE_MONEY";
+                 "AIRTEL_MOBILEMONEY" ->
+                    "AIRTEL_MOBILE_MONEY";
 
             case "FLW",
-                 "FLUTTERWAVE"
-                    -> "FLUTTERWAVE";
+                 "FLUTTERWAVE" ->
+                    "FLUTTERWAVE";
 
             case "FLUTTERWAVE_MOMO",
                  "FLUTTERWAVE_MOBILE_MONEY",
-                 "FLUTTERWAVE_MOBILEMONEY"
-                    -> "FLUTTERWAVE_MOBILE_MONEY";
+                 "FLUTTERWAVE_MOBILEMONEY" ->
+                    "FLUTTERWAVE_MOBILE_MONEY";
 
             case "CARD",
                  "CREDIT_CARD",
-                 "DEBIT_CARD"
-                    -> "CARD";
+                 "DEBIT_CARD" ->
+                    "CARD";
 
             case "BANK",
                  "BANK_TRANSFER",
-                 "BANKTRANSFER"
-                    -> "BANK_TRANSFER";
+                 "BANKTRANSFER" ->
+                    "BANK_TRANSFER";
 
-            default
-                    -> value;
+            default ->
+                    value;
         };
     }
-
 
     // ============================================================
     // NORMALIZE NETWORK
@@ -1120,27 +1085,26 @@ public class PublicController {
             case "MTN",
                  "MTN_RW",
                  "MTN_RWA",
-                 "MTN_RWA_250"
-                    -> "MTN";
+                 "MTN_RWA_250" ->
+                    "MTN";
 
             case "AIRTEL",
                  "AIRTEL_RW",
                  "AIRTEL_RWA",
-                 "AIRTEL_RWA_250"
-                    -> "AIRTEL";
+                 "AIRTEL_RWA_250" ->
+                    "AIRTEL";
 
             case "VODAFONE",
-                 "VODA"
-                    -> "VODAFONE";
+                 "VODA" ->
+                    "VODAFONE";
 
-            default
-                    -> value;
+            default ->
+                    value;
         };
     }
 
-
     // ============================================================
-    // MASK PHONE NUMBER IN LOGS
+    // MASK PHONE NUMBER
     // ============================================================
 
     private String maskPhone(
@@ -1161,20 +1125,22 @@ public class PublicController {
                 );
     }
 
-
     // ============================================================
-    // LOAN AGREEMENT
+    // LOAN AGREEMENT PDF
     // ============================================================
 
     @GetMapping(
             "/applications/{reference}/documents/agreement.pdf"
     )
+    @Transactional
     public ResponseEntity<byte[]> downloadAgreement(
             @PathVariable String reference,
             @RequestParam String phone) {
 
         Loan loan =
                 verifyOwnership(reference, phone);
+
+        initializePdfAssociations(loan);
 
         byte[] pdf =
                 exportService.toPdf(
@@ -1191,20 +1157,22 @@ public class PublicController {
         );
     }
 
-
     // ============================================================
-    // REPAYMENT SCHEDULE
+    // REPAYMENT SCHEDULE PDF
     // ============================================================
 
     @GetMapping(
             "/applications/{reference}/documents/schedule.pdf"
     )
+    @Transactional
     public ResponseEntity<byte[]> downloadSchedule(
             @PathVariable String reference,
             @RequestParam String phone) {
 
         Loan loan =
                 verifyOwnership(reference, phone);
+
+        initializePdfAssociations(loan);
 
         List<String> columns =
                 List.of(
@@ -1222,7 +1190,9 @@ public class PublicController {
                         .stream()
                         .sorted(
                                 Comparator.comparing(
-                                        Payment::getInstallmentNumber
+                                        p -> p.getInstallmentNumber() == null
+                                                ? Integer.MAX_VALUE
+                                                : p.getInstallmentNumber()
                                 )
                         )
                         .map(p -> {
@@ -1230,25 +1200,10 @@ public class PublicController {
                             Map<String, Object> m =
                                     new LinkedHashMap<>();
 
-                            m.put(
-                                    "#",
-                                    p.getInstallmentNumber()
-                            );
-
-                            m.put(
-                                    "Due Date",
-                                    p.getDueDate()
-                            );
-
-                            m.put(
-                                    "Principal",
-                                    p.getPrincipalComponent()
-                            );
-
-                            m.put(
-                                    "Interest",
-                                    p.getInterestComponent()
-                            );
+                            m.put("#", p.getInstallmentNumber());
+                            m.put("Due Date", p.getDueDate());
+                            m.put("Principal", p.getPrincipalComponent());
+                            m.put("Interest", p.getInterestComponent());
 
                             m.put(
                                     "Total",
@@ -1286,20 +1241,22 @@ public class PublicController {
         );
     }
 
-
     // ============================================================
-    // DISBURSEMENT RECEIPT
+    // DISBURSEMENT RECEIPT PDF
     // ============================================================
 
     @GetMapping(
             "/applications/{reference}/documents/receipt.pdf"
     )
+    @Transactional
     public ResponseEntity<byte[]> downloadReceipt(
             @PathVariable String reference,
             @RequestParam String phone) {
 
         Loan loan =
                 verifyOwnership(reference, phone);
+
+        initializePdfAssociations(loan);
 
         if (loan.getDisbursedAt() == null) {
 
@@ -1323,10 +1280,48 @@ public class PublicController {
         );
     }
 
+    // ============================================================
+    // INITIALIZE PDF ASSOCIATIONS
+    // ============================================================
+
+    private void initializePdfAssociations(
+            Loan loan) {
+
+        if (loan.getBorrower() != null) {
+
+            loan.getBorrower().getId();
+            loan.getBorrower().getFullName();
+            loan.getBorrower().getOrganization();
+        }
+
+        if (loan.getOrganization() != null) {
+
+            loan.getOrganization().getId();
+            loan.getOrganization().getName();
+        }
+
+        if (loan.getLoanOfficer() != null) {
+
+            loan.getLoanOfficer().getId();
+            loan.getLoanOfficer().getFullName();
+        }
+    }
+
+    // ============================================================
+    // PDF RESPONSE
+    // ============================================================
 
     private ResponseEntity<byte[]> pdfResponse(
             byte[] bytes,
             String filenameBase) {
+
+        if (bytes == null ||
+                bytes.length == 0) {
+
+            throw new RuntimeException(
+                    "The PDF could not be generated."
+            );
+        }
 
         return ResponseEntity.ok()
                 .contentType(
@@ -1340,7 +1335,6 @@ public class PublicController {
                 )
                 .body(bytes);
     }
-
 
     // ============================================================
     // AGREEMENT ROWS
@@ -1449,7 +1443,6 @@ public class PublicController {
         return rows;
     }
 
-
     // ============================================================
     // RECEIPT ROWS
     // ============================================================
@@ -1511,7 +1504,6 @@ public class PublicController {
         return rows;
     }
 
-
     // ============================================================
     // TENANT CONFIGURATION
     // ============================================================
@@ -1540,6 +1532,7 @@ public class PublicController {
         config.put("name", org.getName());
         config.put("slug", slug);
         config.put("country", org.getCountry());
+
         config.put(
                 "currency",
                 org.getDefaultCurrency()
@@ -1564,6 +1557,7 @@ public class PublicController {
         config.put("contactPhone", org.getContactPhone());
         config.put("address", org.getAddress());
         config.put("website", org.getWebsite());
+
         config.put(
                 "registrationNumber",
                 org.getRegistrationNumber()
@@ -1621,39 +1615,21 @@ public class PublicController {
                 new LinkedHashMap<>();
 
         if (org.getFacebookUrl() != null)
-            social.put(
-                    "facebook",
-                    org.getFacebookUrl()
-            );
+            social.put("facebook", org.getFacebookUrl());
 
         if (org.getInstagramUrl() != null)
-            social.put(
-                    "instagram",
-                    org.getInstagramUrl()
-            );
+            social.put("instagram", org.getInstagramUrl());
 
         if (org.getLinkedinUrl() != null)
-            social.put(
-                    "linkedin",
-                    org.getLinkedinUrl()
-            );
+            social.put("linkedin", org.getLinkedinUrl());
 
         if (org.getTwitterUrl() != null)
-            social.put(
-                    "twitter",
-                    org.getTwitterUrl()
-            );
+            social.put("twitter", org.getTwitterUrl());
 
         if (org.getWhatsappUrl() != null)
-            social.put(
-                    "whatsapp",
-                    org.getWhatsappUrl()
-            );
+            social.put("whatsapp", org.getWhatsappUrl());
 
-        config.put(
-                "socialMedia",
-                social
-        );
+        config.put("socialMedia", social);
 
         config.put(
                 "services",
@@ -1711,9 +1687,8 @@ public class PublicController {
         );
     }
 
-
     // ============================================================
-    // PAYMENT METHODS FOR FRONTEND
+    // PAYMENT METHODS
     // ============================================================
 
     private List<Map<String, Object>> paymentMethods() {
@@ -1721,181 +1696,72 @@ public class PublicController {
         List<Map<String, Object>> methods =
                 new ArrayList<>();
 
-
-        // ========================================================
-        // GENERIC MOBILE MONEY
-        // ========================================================
-
         Map<String, Object> mobileMoney =
                 new LinkedHashMap<>();
 
-        mobileMoney.put(
-                "id",
-                "MOBILE_MONEY"
-        );
-
-        mobileMoney.put(
-                "name",
-                "Mobile Money"
-        );
-
-        mobileMoney.put(
-                "shortName",
-                "Mobile Money"
-        );
-
-        mobileMoney.put(
-                "type",
-                "MOBILE_MONEY"
-        );
-
-        mobileMoney.put(
-                "provider",
-                "MTN_AIRTEL"
-        );
+        mobileMoney.put("id", "MOBILE_MONEY");
+        mobileMoney.put("name", "Mobile Money");
+        mobileMoney.put("shortName", "Mobile Money");
+        mobileMoney.put("type", "MOBILE_MONEY");
+        mobileMoney.put("provider", "MTN_AIRTEL");
+        boolean mtnAvailable = mtnMobileMoneyService.isAvailable();
+        boolean airtelAvailable = airtelMobileMoneyService.isConfigured();
 
         mobileMoney.put(
                 "available",
-                true
+                mtnAvailable || airtelAvailable
         );
 
         mobileMoney.put(
                 "networks",
                 List.of(
                         Map.of(
-                                "id",
-                                "MTN",
-                                "name",
-                                "MTN Mobile Money",
-                                "available",
-                                true
+                                "id", "MTN",
+                                "name", "MTN Mobile Money",
+                                "available", mtnAvailable
                         ),
                         Map.of(
-                                "id",
-                                "AIRTEL",
-                                "name",
-                                "Airtel Money",
-                                "available",
-                                true
+                                "id", "AIRTEL",
+                                "name", "Airtel Money",
+                                "available", airtelAvailable
                         )
                 )
         );
 
         methods.add(mobileMoney);
 
-
-        // ========================================================
-        // MTN
-        // ========================================================
-
         Map<String, Object> mtn =
                 new LinkedHashMap<>();
 
-        mtn.put(
-                "id",
-                "MTN_MOBILE_MONEY"
-        );
-
-        mtn.put(
-                "name",
-                "MTN Mobile Money"
-        );
-
-        mtn.put(
-                "shortName",
-                "MTN MoMo"
-        );
-
-        mtn.put(
-                "type",
-                "MOBILE_MONEY"
-        );
-
-        mtn.put(
-                "provider",
-                "MTN"
-        );
-
-        mtn.put(
-                "available",
-                true
-        );
+        mtn.put("id", "MTN_MOBILE_MONEY");
+        mtn.put("name", "MTN Mobile Money");
+        mtn.put("shortName", "MTN MoMo");
+        mtn.put("type", "MOBILE_MONEY");
+        mtn.put("provider", "MTN");
+        mtn.put("available", mtnAvailable);
 
         methods.add(mtn);
-
-
-        // ========================================================
-        // AIRTEL
-        // ========================================================
 
         Map<String, Object> airtel =
                 new LinkedHashMap<>();
 
-        airtel.put(
-                "id",
-                "AIRTEL_MOBILE_MONEY"
-        );
-
-        airtel.put(
-                "name",
-                "Airtel Money"
-        );
-
-        airtel.put(
-                "shortName",
-                "Airtel Money"
-        );
-
-        airtel.put(
-                "type",
-                "MOBILE_MONEY"
-        );
-
-        airtel.put(
-                "provider",
-                "AIRTEL"
-        );
-
-        airtel.put(
-                "available",
-                true
-        );
+        airtel.put("id", "AIRTEL_MOBILE_MONEY");
+        airtel.put("name", "Airtel Money");
+        airtel.put("shortName", "Airtel Money");
+        airtel.put("type", "MOBILE_MONEY");
+        airtel.put("provider", "AIRTEL");
+        airtel.put("available", airtelAvailable);
 
         methods.add(airtel);
-
-
-        // ========================================================
-        // FLUTTERWAVE
-        // ========================================================
 
         Map<String, Object> flutterwave =
                 new LinkedHashMap<>();
 
-        flutterwave.put(
-                "id",
-                "FLUTTERWAVE"
-        );
-
-        flutterwave.put(
-                "name",
-                "Flutterwave"
-        );
-
-        flutterwave.put(
-                "shortName",
-                "Flutterwave"
-        );
-
-        flutterwave.put(
-                "type",
-                "GATEWAY"
-        );
-
-        flutterwave.put(
-                "provider",
-                "FLUTTERWAVE"
-        );
-
+        flutterwave.put("id", "FLUTTERWAVE");
+        flutterwave.put("name", "Flutterwave");
+        flutterwave.put("shortName", "Flutterwave");
+        flutterwave.put("type", "GATEWAY");
+        flutterwave.put("provider", "FLUTTERWAVE");
         flutterwave.put(
                 "available",
                 flutterwaveService.isConfigured()
@@ -1905,7 +1771,6 @@ public class PublicController {
 
         return methods;
     }
-
 
     // ============================================================
     // LOAN APPLICATION
@@ -1924,6 +1789,12 @@ public class PublicController {
 
         String slug =
                 str(body.get("tenantSlug"));
+
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Idempotency-Key header is required for public loan applications"
+            );
+        }
 
         Organization org =
                 resolveOrg(slug);
@@ -1980,11 +1851,11 @@ public class PublicController {
             );
         }
 
-        Double amount =
-                num(body.get("amount"));
+        BigDecimal amount =
+                decimal(body.get("amount"));
 
         if (amount == null ||
-                amount <= 0) {
+                amount.compareTo(BigDecimal.ZERO) <= 0) {
 
             throw new RuntimeException(
                     "Loan amount is required"
@@ -2064,9 +1935,7 @@ public class PublicController {
 
         if ("Single".equalsIgnoreCase(
                 maritalStatus) &&
-                str(body.get(
-                        "singleCertificateNumber"
-                )) == null) {
+                str(body.get("singleCertificateNumber")) == null) {
 
             throw new RuntimeException(
                     "Single Status Certificate number is required for single applicants"
@@ -2147,10 +2016,10 @@ public class PublicController {
         borrower.setSpouseConsent(
                 body.get("spouseConsent") != null
                         ? Boolean.parseBoolean(
-                                body.get(
-                                        "spouseConsent"
-                                ).toString()
-                        )
+                        body.get(
+                                "spouseConsent"
+                        ).toString()
+                )
                         : null
         );
 
@@ -2219,12 +2088,9 @@ public class PublicController {
                         borrower
                 );
 
-
         int months = 12;
 
-        if (body.get(
-                "durationMonths"
-        ) != null) {
+        if (body.get("durationMonths") != null) {
 
             try {
 
@@ -2235,20 +2101,49 @@ public class PublicController {
                                 ).toString()
                         );
 
-            } catch (NumberFormatException ignored) {
-                // Keep default
+            } catch (NumberFormatException e) {
+
+                throw new RuntimeException(
+                        "Duration must be a valid number of months."
+                );
             }
         }
 
-        months =
-                Math.max(
-                        1,
-                        Math.min(
-                                months,
-                                360
+        if (months < 1 || months > 12) {
+
+            throw new RuntimeException(
+                    "Loan duration must be between 1 and 12 months."
+            );
+        }
+
+        BigDecimal collateralValue =
+                decimal(
+                        body.get("collateralValue")
+                );
+
+        Loan.LoanType loanType =
+                mapLoanType(
+                        str(
+                                body.get("loanType")
                         )
                 );
 
+        Loan.RepaymentFrequency repaymentFrequency =
+                mapRepaymentFrequency(
+                        str(
+                                body.get("repaymentFrequency")
+                        )
+                );
+
+        String interestRateType =
+                str(
+                        body.get("interestRateType")
+                );
+
+        BigDecimal interestRate =
+                decimal(
+                        body.get("interestRate")
+                );
 
         LoanRequest req =
                 LoanRequest.builder()
@@ -2256,6 +2151,10 @@ public class PublicController {
                                 borrower.getId()
                         )
                         .amount(amount)
+                        .interestRate(interestRate)
+                        .interestRateType(
+                                interestRateType
+                        )
                         .durationMonths(months)
                         .currency(
                                 org.getDefaultCurrency()
@@ -2271,11 +2170,7 @@ public class PublicController {
                                 "Submitted via public website"
                         )
                         .collateralValue(
-                                num(
-                                        body.get(
-                                                "collateralValue"
-                                        )
-                                )
+                                collateralValue
                         )
                         .collateralDescription(
                                 str(
@@ -2285,11 +2180,22 @@ public class PublicController {
                                 )
                         )
                         .loanType(
-                                mapLoanType(
-                                        str(
-                                                body.get(
-                                                        "loanType"
-                                                )
+                                loanType
+                        )
+                        .repaymentFrequency(
+                                repaymentFrequency
+                        )
+                        .disbursementMethod(
+                                str(
+                                        body.get(
+                                                "disbursementMethod"
+                                        )
+                                )
+                        )
+                        .disbursementAccount(
+                                str(
+                                        body.get(
+                                                "disbursementAccount"
                                         )
                                 )
                         )
@@ -2298,7 +2204,6 @@ public class PublicController {
                                         .toString()
                         )
                         .build();
-
 
         Loan loan =
                 loanService.createLoan(
@@ -2316,13 +2221,11 @@ public class PublicController {
                         loan
                 );
 
-
         notifyStaff(
                 org,
                 borrower,
                 loan
         );
-
 
         try {
 
@@ -2338,7 +2241,6 @@ public class PublicController {
             );
         }
 
-
         try {
 
             smsService.sendCustom(
@@ -2349,7 +2251,7 @@ public class PublicController {
                             firstName,
                             loan.getReferenceNumber(),
                             loan.getCurrency(),
-                            amount
+                            amount.doubleValue()
                     )
             );
 
@@ -2360,7 +2262,6 @@ public class PublicController {
                     e.getMessage()
             );
         }
-
 
         auditService.log(
                 org,
@@ -2375,8 +2276,7 @@ public class PublicController {
                         " website"
         );
 
-
-        return ResponseEntity.ok(
+        ApiResponse<Map<String, Object>> response =
                 ApiResponse.ok(
                         "Application received",
                         Map.of(
@@ -2392,10 +2292,23 @@ public class PublicController {
                                 "status",
                                 "RECEIVED"
                         )
-                )
-        );
-    }
+                );
 
+        /*
+         * Persist the successful response against the idempotency key so
+         * browser retries return the original application result instead
+         * of creating another loan. The surrounding transaction commits
+         * this record together with the loan application.
+         */
+        idempotencyService.recordSuccess(
+                idempotencyKey,
+                org,
+                response,
+                200
+        );
+
+        return ResponseEntity.ok(response);
+    }
 
     // ============================================================
     // PRODUCTS
@@ -2418,8 +2331,8 @@ public class PublicController {
         );
     }
 
-
-    private List<Map<String, Object>> servicesFor(
+    private List<Map<String, Object>>
+    servicesFor(
             Organization org) {
 
         List<LoanProduct> products =
@@ -2463,9 +2376,9 @@ public class PublicController {
                                 "maxAmount",
                                 p.getMaxAmount() != null
                                         ? String.valueOf(
-                                                p.getMaxAmount()
-                                                        .longValue()
-                                        )
+                                        p.getMaxAmount()
+                                                .longValue()
+                                )
                                         : "Unlimited"
                         );
 
@@ -2494,7 +2407,6 @@ public class PublicController {
         );
     }
 
-
     private List<Map<String, Object>>
     parseListOrDefault(
             String json,
@@ -2513,7 +2425,8 @@ public class PublicController {
                             json,
                             new TypeReference<
                                     List<Map<String, Object>>
-                                    >() {}
+                                    >() {
+                            }
                     );
 
             return parsed == null ||
@@ -2532,7 +2445,6 @@ public class PublicController {
         }
     }
 
-
     // ============================================================
     // PRODUCTS DEFAULTS
     // ============================================================
@@ -2550,7 +2462,7 @@ public class PublicController {
                         "👤",
                         "10",
                         "5000000",
-                        "36",
+                        "12",
                         "Fast personal financing"
                 },
 
@@ -2559,7 +2471,7 @@ public class PublicController {
                         "🏢",
                         "12",
                         "50000000",
-                        "60",
+                        "12",
                         "Working capital and expansion"
                 },
 
@@ -2568,7 +2480,7 @@ public class PublicController {
                         "🌾",
                         "9",
                         "10000000",
-                        "24",
+                        "12",
                         "Agricultural finance"
                 },
 
@@ -2577,7 +2489,7 @@ public class PublicController {
                         "📦",
                         "11",
                         "30000000",
-                        "48",
+                        "12",
                         "Tailored SME finance"
                 },
 
@@ -2637,7 +2549,6 @@ public class PublicController {
         return products;
     }
 
-
     // ============================================================
     // STATUS
     // ============================================================
@@ -2681,7 +2592,6 @@ public class PublicController {
                     "Cancelled";
         };
     }
-
 
     private List<Map<String, Object>>
     statusSteps(
@@ -2745,7 +2655,6 @@ public class PublicController {
 
         return steps;
     }
-
 
     private List<Map<String, Object>>
     progressSteps(Loan loan) {
@@ -2868,7 +2777,6 @@ public class PublicController {
         return steps;
     }
 
-
     // ============================================================
     // TIMELINE
     // ============================================================
@@ -2968,8 +2876,7 @@ public class PublicController {
 
             raw.add(
                     Map.entry(
-                            loan.getDisbursedAt()
-                                    .atStartOfDay(),
+                            loan.getDisbursedAt(),
                             "Loan disbursed"
                     )
             );
@@ -2999,7 +2906,6 @@ public class PublicController {
                 .toList();
     }
 
-
     // ============================================================
     // TENANT RESOLUTION
     // ============================================================
@@ -3028,21 +2934,21 @@ public class PublicController {
                             o.getName() == null
                                     ? ""
                                     : o.getName()
-                                            .toLowerCase()
-                                            .replace(
-                                                    " ",
-                                                    ""
-                                            );
+                                    .toLowerCase()
+                                    .replace(
+                                            " ",
+                                            ""
+                                    );
 
                     String registration =
                             o.getRegistrationNumber() == null
                                     ? ""
                                     : o.getRegistrationNumber()
-                                            .toLowerCase()
-                                            .replace(
-                                                    " ",
-                                                    ""
-                                            );
+                                    .toLowerCase()
+                                    .replace(
+                                            " ",
+                                            ""
+                                    );
 
                     return name.contains(normalized) ||
                             registration.contains(normalized);
@@ -3051,7 +2957,6 @@ public class PublicController {
                 .orElse(null);
     }
 
-
     // ============================================================
     // VERIFY BORROWER OWNERSHIP
     // ============================================================
@@ -3059,6 +2964,22 @@ public class PublicController {
     private Loan verifyOwnership(
             String reference,
             String phone) {
+
+        if (reference == null ||
+                reference.isBlank()) {
+
+            throw new RuntimeException(
+                    "Application reference number is required."
+            );
+        }
+
+        if (phone == null ||
+                phone.isBlank()) {
+
+            throw new RuntimeException(
+                    "Phone number is required."
+            );
+        }
 
         Loan loan =
                 loanRepo
@@ -3077,24 +2998,33 @@ public class PublicController {
         Borrower borrower =
                 loan.getBorrower();
 
+        if (borrower == null) {
+
+            throw new RuntimeException(
+                    "This application has no borrower associated with it."
+            );
+        }
+
         String suppliedHash =
                 HmacIndexer.index(
                         phone.trim()
                 );
 
-        if (borrower == null ||
-                borrower.getPhoneHash() == null ||
-                !borrower.getPhoneHash()
-                        .equals(suppliedHash)) {
+        String storedHash =
+                borrower.getPhoneHash();
+
+        if (storedHash == null ||
+                !storedHash.equals(suppliedHash)) {
 
             throw new RuntimeException(
                     "We couldn't find an application with that reference number and phone number."
             );
         }
 
+        borrower.getId();
+
         return loan;
     }
-
 
     // ============================================================
     // NOTIFY STAFF
@@ -3130,7 +3060,11 @@ public class PublicController {
                         " applied for " +
                         loan.getCurrency() +
                         " " +
-                        fmt(loan.getAmount()) +
+                        fmt(
+                                decimal(
+                                        loan.getAmount()
+                                )
+                        ) +
                         " (" +
                         loan.getLoanType() +
                         ") — Ref " +
@@ -3140,7 +3074,6 @@ public class PublicController {
                         loan.getId()
         );
     }
-
 
     // ============================================================
     // LOAN TYPE
@@ -3193,6 +3126,41 @@ public class PublicController {
         return Loan.LoanType.PERSONAL;
     }
 
+    // ============================================================
+    // REPAYMENT FREQUENCY
+    // ============================================================
+
+    private Loan.RepaymentFrequency mapRepaymentFrequency(
+            String value) {
+
+        if (value == null ||
+                value.isBlank()) {
+
+            return Loan.RepaymentFrequency.MONTHLY;
+        }
+
+        String normalized =
+                value.trim()
+                        .toUpperCase()
+                        .replace("-", "_")
+                        .replace(" ", "_");
+
+        try {
+
+            return Loan.RepaymentFrequency.valueOf(
+                    normalized
+            );
+
+        } catch (IllegalArgumentException e) {
+
+            log.warn(
+                    "Unknown repayment frequency '{}'. Defaulting to MONTHLY.",
+                    value
+            );
+
+            return Loan.RepaymentFrequency.MONTHLY;
+        }
+    }
 
     // ============================================================
     // DEFAULT STATS
@@ -3247,7 +3215,6 @@ public class PublicController {
 
         return stats;
     }
-
 
     // ============================================================
     // TESTIMONIALS
@@ -3312,7 +3279,6 @@ public class PublicController {
         return t;
     }
 
-
     // ============================================================
     // TEAM
     // ============================================================
@@ -3370,7 +3336,6 @@ public class PublicController {
         return team;
     }
 
-
     // ============================================================
     // HELPERS
     // ============================================================
@@ -3388,11 +3353,14 @@ public class PublicController {
                 : value;
     }
 
-
     private Double num(Object o) {
 
         if (o == null)
             return null;
+
+        if (o instanceof Number number) {
+            return number.doubleValue();
+        }
 
         String value =
                 o.toString().trim();
@@ -3410,6 +3378,36 @@ public class PublicController {
         }
     }
 
+    private BigDecimal decimal(Object o) {
+
+        if (o == null)
+            return null;
+
+        if (o instanceof BigDecimal bd) {
+            return bd;
+        }
+
+        if (o instanceof Number number) {
+            return BigDecimal.valueOf(
+                    number.doubleValue()
+            );
+        }
+
+        String value =
+                o.toString().trim();
+
+        if (value.isBlank())
+            return null;
+
+        try {
+
+            return new BigDecimal(value);
+
+        } catch (NumberFormatException e) {
+
+            return null;
+        }
+    }
 
     private LocalDate date(Object o) {
 
@@ -3432,17 +3430,16 @@ public class PublicController {
         }
     }
 
+    private String fmt(BigDecimal value) {
 
-    private String fmt(Double d) {
+        if (value == null)
+            return "0";
 
-        return d == null
-                ? "0"
-                : String.format(
-                        "%,.0f",
-                        d
-                );
+        return String.format(
+                "%,.0f",
+                value.doubleValue()
+        );
     }
-
 
     // ============================================================
     // DEMO TENANT CONFIG

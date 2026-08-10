@@ -78,11 +78,11 @@ public class CreditBureauCheckMapper {
                 // ====================================================
 
                 .totalOutstandingDebt(
-                        check.getTotalOutstandingDebt()
+                        check.getTotalOutstandingDebtDecimal()
                 )
 
                 .totalMonthlyObligations(
-                        check.getTotalMonthlyObligations()
+                        check.getTotalMonthlyObligationsDecimal()
                 )
 
                 // ====================================================

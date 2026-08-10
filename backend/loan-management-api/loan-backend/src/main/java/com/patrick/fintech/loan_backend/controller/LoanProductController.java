@@ -14,6 +14,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import com.patrick.fintech.loan_backend.model.DocumentType;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -112,7 +113,7 @@ public class LoanProductController {
         p.setLoanType(Loan.LoanType.valueOf(body.get("loanType").toString().toUpperCase()));
 
     if (body.get("interestRate") != null)
-        p.setInterestRate(num(body.get("interestRate")));
+        p.setInterestRate(BigDecimal.valueOf(num(body.get("interestRate"))));
 
     if (body.get("interestRateType") != null) {
         String t = body.get("interestRateType").toString().toUpperCase();
@@ -125,21 +126,21 @@ public class LoanProductController {
     }
 
     if (body.get("minAmount") != null)
-        p.setMinAmount(num(body.get("minAmount")));
+        p.setMinAmount(BigDecimal.valueOf(num(body.get("minAmount"))));
 
     // unlimited products have no upper limit
     if (Boolean.TRUE.equals(body.get("unlimited"))) {
-        p.setMaxAmount(null);
+        p.setMaxAmount((BigDecimal) null);
     } else if (body.containsKey("maxAmount")) {
         p.setMaxAmount(
                 body.get("maxAmount") != null
-                        ? num(body.get("maxAmount"))
+                        ? BigDecimal.valueOf(num(body.get("maxAmount")))
                         : null
         );
     }
 
     if (body.get("processingFeePercent") != null)
-        p.setProcessingFeePercent(num(body.get("processingFeePercent")));
+        p.setProcessingFeePercent(BigDecimal.valueOf(num(body.get("processingFeePercent"))));
 
     if (body.get("minTermMonths") != null)
         p.setMinTermMonths((int) Math.round(num(body.get("minTermMonths"))));

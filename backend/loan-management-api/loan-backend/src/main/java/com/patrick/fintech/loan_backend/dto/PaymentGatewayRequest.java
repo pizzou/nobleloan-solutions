@@ -1,6 +1,11 @@
 
 package com.patrick.fintech.loan_backend.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.math.BigDecimal;
+
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -11,7 +16,10 @@ public class PaymentGatewayRequest {
     private Long paymentId;
 
     @NotNull
-    private Double amount;
+    
+
+    @JsonProperty("amount")
+private BigDecimal amount;
 
     @NotBlank
     private String paymentMethod;
@@ -33,4 +41,24 @@ public class PaymentGatewayRequest {
 
     private String accountNumber;
     private String bankCode;
+
+    @Deprecated
+    @JsonIgnore
+    public Double getAmount() {
+        return amount == null ? null : amount.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getAmountDecimal() {
+        return amount;
+    }
+
+    @Deprecated
+    public void setAmount(Double value) {
+        this.amount = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setAmount(BigDecimal value) {
+        this.amount = value;
+    }
 }

@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 
@@ -58,7 +59,7 @@ public class DataSeeder implements CommandLineRunner {
             .subscriptionTier(Organization.SubscriptionTier.PROFESSIONAL)
             .status(Organization.OrgStatus.ACTIVE)
             .maxUsers(100).maxActiveLoans(10000)
-            .minLoanAmount(20000.0).maxLoanAmount(30_000_000.0)
+            .minLoanAmount(BigDecimal.valueOf(20000.0)).maxLoanAmount(BigDecimal.valueOf(30_000_000.0))
             .subscribedAt(LocalDateTime.now()).subscriptionExpiresAt(LocalDateTime.now().plusYears(1))
             .build());
 
@@ -119,9 +120,10 @@ public class DataSeeder implements CommandLineRunner {
                               int minTerm, int maxTerm, String description, int order) {
         loanProductRepo.save(LoanProduct.builder()
             .organization(org).name(name).icon(icon).loanType(type)
-            .interestRate(rate).interestRateType(rateType).minAmount(minAmount).maxAmount(maxAmount)
+            .interestRate(BigDecimal.valueOf(rate)).interestRateType(rateType)
+            .minAmount(BigDecimal.valueOf(minAmount)).maxAmount(BigDecimal.valueOf(maxAmount))
             .minTermMonths(minTerm).maxTermMonths(maxTerm)
-            .processingFeePercent(2.0).description(description)
+            .processingFeePercent(BigDecimal.valueOf(2.0)).description(description)
             .active(true).displayOrder(order).build());
     }
 }

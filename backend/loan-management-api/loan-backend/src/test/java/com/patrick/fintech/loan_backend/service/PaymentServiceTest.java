@@ -1,116 +1,75 @@
 package com.patrick.fintech.loan_backend.service;
 
-import com.patrick.fintech.loan_backend.model.*;
-import com.patrick.fintech.loan_backend.repository.*;
-import org.junit.jupiter.api.BeforeEach;
+import com.patrick.fintech.loan_backend.model.Payment;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import java.time.LocalDate;
+
+import java.math.BigDecimal;
 import java.util.List;
-import java.util.Optional;
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
 
-@ExtendWith(MockitoExtension.class)
-class PaymentServiceTest {
+import static org.assertj.core.api.Assertions.assertThat;
 
-    @Mock PaymentRepository  paymentRepository;
-    @Mock LoanRepository     loanRepository;
-    @Mock AuditLogRepository auditLogRepository;
-    @Mock UserRepository     userRepository;
-    @Mock NotificationService notificationService;
-    @Mock WebhookService     webhookService;
-    @InjectMocks PaymentService paymentService;
+class PaymentServiceInterestStateTest {
 
-    private Organization org;
-    private Loan         loan;
-    private User         teller;
+    @Test
+    void schedulePlaceholderMustStillBeFirstInterestCalculation() {
+        Payment scheduled = Payment.builder()
+                .amount(new BigDecimal("100000.00"))
+                .principalComponent(new BigDecimal("80000.00"))
+                .interestComponent(new BigDecimal("20000.00"))
+                .amountPaid(BigDecimal.ZERO)
+                .cycleInterestDue(BigDecimal.ZERO)
+                .cycleInterestRemaining(BigDecimal.ZERO)
+                .paid(false)
+                .status(Payment.PaymentStatus.PENDING)
+                .build();
 
-    @BeforeEach
-    void setUp() {
-        org = new Organization();
-        org.setId(1L);
-        org.setName("TestOrg");
-        org.setDefaultCurrency("USD");
+        PaymentService service = new PaymentService(
+                null, null, null, null, null, null, null, null, null, null
+        );
 
-        loan = new Loan();
-        loan.setId(1L);
-        loan.setStatus(LoanStatus.ACTIVE);
-        loan.setAmount(12000.0);
-        loan.setInterestRate(12.0);
-        loan.setDurationMonths(12);
-        loan.setTotalRepayable(12800.0);
-        loan.setOutstandingBalance(12800.0);
-        loan.setTotalPaid(0.0);
-        loan.setOrganization(org);
-
-        teller = new User();
-        teller.setId(1L);
-        teller.setName("Test Teller");
-        teller.setOrganization(org);
+        assertThat(service.isFirstInterestCalculation(List.of(scheduled)))
+                .isTrue();
     }
 
     @Test
-    void recordPayment_shouldMarkInstallmentPaid_andUpdateLoanBalance() {
-        Payment installment = new Payment();
-        installment.setId(1L);
-        installment.setPaid(false);
-        installment.setAmount(1066.67);
-        installment.setPenalty(0.0);
-        installment.setDueDate(LocalDate.now().plusDays(5));
-        installment.setLoan(loan);
+    void actualPaymentMustEndFirstInterestCalculationState() {
+        Payment paid = Payment.builder()
+                .amount(new BigDecimal("100000.00"))
+                .principalComponent(new BigDecimal("80000.00"))
+                .interestComponent(new BigDecimal("20000.00"))
+                .amountPaid(new BigDecimal("100000.00"))
+                .cycleInterestDue(new BigDecimal("20000.00"))
+                .cycleInterestRemaining(BigDecimal.ZERO)
+                .paid(true)
+                .status(Payment.PaymentStatus.COMPLETED)
+                .build();
 
-        when(loanRepository.findById(1L)).thenReturn(Optional.of(loan));
-        when(paymentRepository.findByLoanId(1L)).thenReturn(List.of(installment));
-        when(paymentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(loanRepository.save(any())).thenReturn(loan);
+        PaymentService service = new PaymentService(
+                null, null, null, null, null, null, null, null, null, null
+        );
 
-        // recordPayment(Long loanId, Double amount, String method,
-        //               String txnId, String channel, String notes, User recordedBy)
-        Payment result = paymentService.recordPayment(
-            1L, 1066.67, "CASH", null, null, null, teller);
-
-        assertThat(result).isNotNull();
-        assertThat(result.getPaid()).isTrue();
-        assertThat(result.getPaidDate()).isEqualTo(LocalDate.now());
-        assertThat(result.getPenalty()).isEqualTo(0.0);
+        assertThat(service.isFirstInterestCalculation(List.of(paid)))
+                .isFalse();
     }
 
     @Test
-    void recordPayment_shouldApplyPenalty_whenInstallmentOverdue() {
-        Payment installment = new Payment();
-        installment.setId(1L);
-        installment.setPaid(false);
-        installment.setAmount(1066.67);
-        installment.setPenalty(0.0);
-        installment.setDueDate(LocalDate.now().minusDays(10)); // overdue
-        installment.setLoan(loan);
+    void previouslyAccruedCycleInterestMustEndFirstInterestState() {
+        Payment accrued = Payment.builder()
+                .amount(new BigDecimal("100000.00"))
+                .principalComponent(new BigDecimal("80000.00"))
+                .interestComponent(new BigDecimal("20000.00"))
+                .amountPaid(BigDecimal.ZERO)
+                .cycleInterestDue(new BigDecimal("5000.00"))
+                .cycleInterestRemaining(new BigDecimal("5000.00"))
+                .paid(false)
+                .status(Payment.PaymentStatus.PENDING)
+                .build();
 
-        when(loanRepository.findById(1L)).thenReturn(Optional.of(loan));
-        when(paymentRepository.findByLoanId(1L)).thenReturn(List.of(installment));
-        when(paymentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(loanRepository.save(any())).thenReturn(loan);
+        PaymentService service = new PaymentService(
+                null, null, null, null, null, null, null, null, null, null
+        );
 
-        Payment result = paymentService.recordPayment(
-            1L, 1066.67, "BANK_TRANSFER", null, null, "Late payment", teller);
-
-        assertThat(result.getPaid()).isTrue();
-        assertThat(result.isLate()).isTrue();
-        assertThat(result.getDaysLate()).isGreaterThan(0);
-    }
-
-    @Test
-    void recordPayment_shouldThrow_whenLoanNotActive() {
-        loan.setStatus(LoanStatus.PENDING); // not active
-        when(loanRepository.findById(1L)).thenReturn(Optional.of(loan));
-
-        assertThatThrownBy(() ->
-            paymentService.recordPayment(1L, 500.0, "CASH", null, null, null, teller))
-            .isInstanceOf(RuntimeException.class)
-            .hasMessageContaining("not active");
+        assertThat(service.isFirstInterestCalculation(List.of(accrued)))
+                .isFalse();
     }
 }

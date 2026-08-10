@@ -16,50 +16,167 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class CollectionsService {
 
-    private final CollectionCaseRepository caseRepo;
-    private final CollectionActionRepository actionRepo;
-    private final LoanRepository loanRepo;
-    private final UserRepository userRepo;
-    private final AuditService auditService;
-    private final AccountingService accountingService;
+    private static final int MONEY_SCALE = 6;
 
+    private static final RoundingMode MONEY_ROUNDING =
+            RoundingMode.HALF_UP;
+
+    private static final BigDecimal ZERO =
+            BigDecimal.ZERO.setScale(
+                    MONEY_SCALE,
+                    MONEY_ROUNDING
+            );
+
+    /**
+     * Loans considered delinquent by the collections module.
+     */
     private static final List<LoanStatus> DELINQUENT_STATUSES =
             List.of(
                     LoanStatus.OVERDUE,
                     LoanStatus.DEFAULTED
             );
 
+    private final CollectionCaseRepository caseRepo;
+
+    private final CollectionActionRepository actionRepo;
+
+    private final LoanRepository loanRepo;
+
+    private final UserRepository userRepo;
+
+    private final AuditService auditService;
+
+    private final AccountingService accountingService;
+
 
     // ============================================================
-    // SYNCHRONIZE COLLECTION CASES
+    // MONEY HELPERS
     // ============================================================
 
     /**
-     * Synchronizes collection cases from delinquent loans.
+     * Normalizes monetary values used by collections.
+     */
+    private BigDecimal money(BigDecimal value) {
+
+        if (value == null) {
+            return ZERO;
+        }
+
+        return value.setScale(
+                MONEY_SCALE,
+                MONEY_ROUNDING
+        );
+    }
+
+
+    /**
+     * Converts legacy Double values safely.
      *
-     * A loan is considered eligible for collections when:
+     * This method is retained only for compatibility with
+     * existing entity fields or callers that still use Double.
      *
-     * 1. Its status is OVERDUE or DEFAULTED
+     * New financial code should use BigDecimal.
+     */
+    private BigDecimal money(Double value) {
+
+        if (value == null) {
+            return ZERO;
+        }
+
+        if (!Double.isFinite(value)) {
+            throw new IllegalArgumentException(
+                    "Monetary amount must be finite"
+            );
+        }
+
+        return money(
+                BigDecimal.valueOf(value)
+        );
+    }
+
+
+    private BigDecimal money(double value) {
+
+        if (!Double.isFinite(value)) {
+            throw new IllegalArgumentException(
+                    "Monetary amount must be finite"
+            );
+        }
+
+        return money(
+                BigDecimal.valueOf(value)
+        );
+    }
+
+
+    private boolean isZeroOrLess(
+            BigDecimal value
+    ) {
+
+        return money(value).compareTo(
+                ZERO
+        ) <= 0;
+    }
+
+
+    private boolean isEffectivelyCleared(
+            BigDecimal value
+    ) {
+
+        /*
+         * Six-decimal accounting precision means that a balance
+         * rounded to zero is considered cleared.
+         */
+        return money(value).compareTo(
+                ZERO
+        ) == 0;
+    }
+
+
+    private String safeText(
+            String value,
+            String fallback
+    ) {
+
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+
+        return value.trim();
+    }
+
+
+    // ============================================================
+    // SYNC DELINQUENT LOANS
+    // ============================================================
+
+    /**
+     * Scans overdue/defaulted loans and creates or refreshes
+     * collection cases.
      *
-     * OR
+     * This method is intended for scheduled execution.
      *
-     * 2. Its daysOverdue is >= 1
-     *
-     * This is important because the loan status may still be ACTIVE
-     * even though the borrower has already missed a payment.
+     * Important:
+     * - Resolved cases are not automatically reopened.
+     * - Written-off cases are not automatically reopened.
+     * - Existing active cases are refreshed.
+     * - Money is normalized to BigDecimal.
      */
     @Transactional
     public int syncCasesFromOverdueLoans() {
@@ -67,221 +184,183 @@ public class CollectionsService {
         int touched = 0;
 
         List<Loan> delinquentLoans =
-                loanRepo.findByStatusInOrDaysOverdueGreaterThanEqual(
-                        DELINQUENT_STATUSES,
-                        1
+                loanRepo.findByStatusIn(
+                        DELINQUENT_STATUSES
                 );
 
-        if (delinquentLoans == null || delinquentLoans.isEmpty()) {
-
-            log.debug(
-                    "Collection synchronization: no delinquent loans found."
-            );
+        if (delinquentLoans == null
+                || delinquentLoans.isEmpty()) {
 
             return 0;
         }
 
-        log.info(
-                "Collection synchronization found {} potentially delinquent loans.",
-                delinquentLoans.size()
-        );
-
 
         for (Loan loan : delinquentLoans) {
 
-            if (loan == null || loan.getId() == null) {
+            if (loan == null
+                    || loan.getId() == null) {
+
                 continue;
             }
 
-            try {
 
-                /*
-                 * A loan with no organization should not create a
-                 * tenant collection case.
-                 */
-                if (loan.getOrganization() == null) {
+            if (loan.getOrganization() == null
+                    || loan.getOrganization().getId() == null) {
 
-                    log.warn(
-                            "Skipping delinquent loan {} because organization is null.",
-                            loan.getId()
+                log.warn(
+                        "Skipping delinquent loan {} because organization is missing",
+                        loan.getId()
+                );
+
+                continue;
+            }
+
+
+            CollectionCase existingCase =
+                    caseRepo
+                            .findByLoan_Id(
+                                    loan.getId()
+                            )
+                            .orElse(null);
+
+
+            int daysPastDue =
+                    loan.getDaysOverdue() != null
+                            ? Math.max(
+                                    loan.getDaysOverdue(),
+                                    0
+                            )
+                            : 0;
+
+
+            CollectionCase.CollectionBucket bucket =
+                    bucketFor(
+                            daysPastDue
                     );
 
-                    continue;
-                }
+
+            boolean isNew =
+                    existingCase == null;
 
 
-                CollectionCase collectionCase =
-                        caseRepo.findByLoan_Id(loan.getId())
-                                .orElse(null);
+            CollectionCase collectionCase;
 
 
-                /*
-                 * daysOverdue is the primary source for the collection
-                 * bucket.
-                 */
-                int daysPastDue =
-                        loan.getDaysOverdue() != null
-                                ? Math.max(
-                                        loan.getDaysOverdue(),
-                                        0
+            if (isNew) {
+
+                collectionCase =
+                        CollectionCase.builder()
+                                .loan(loan)
+                                .organization(
+                                        loan.getOrganization()
                                 )
-                                : 0;
+                                .bucket(bucket)
+                                .status(
+                                        CollectionCase.CollectionStatus.OPEN
+                                )
+                                .priority(
+                                        priorityFor(bucket)
+                                )
+                                .build();
+
+            } else {
+
+                collectionCase =
+                        existingCase;
 
 
                 /*
-                 * Safety:
-                 *
-                 * This repository query can find OVERDUE/DEFAULTED loans
-                 * even when daysOverdue is 0.
-                 *
-                 * Such a loan should still be visible in collections,
-                 * but it belongs to CURRENT rather than a DPD bucket.
+                 * Closed collection cases are intentionally
+                 * not reopened automatically.
                  */
-                CollectionCase.CollectionBucket bucket =
-                        bucketFor(daysPastDue);
-
-
-                boolean isNew =
-                        collectionCase == null;
-
-
-                /*
-                 * Never automatically reopen a case that was deliberately
-                 * resolved or written off.
-                 */
-                if (!isNew
-                        && (
+                if (
                         collectionCase.getStatus()
                                 == CollectionCase.CollectionStatus.RESOLVED
 
-                        || collectionCase.getStatus()
+                                ||
+
+                        collectionCase.getStatus()
                                 == CollectionCase.CollectionStatus.WRITTEN_OFF
-                )) {
+                ) {
 
                     continue;
                 }
 
 
-                /*
-                 * CREATE NEW CASE
-                 */
-                if (isNew) {
+                collectionCase.setBucket(
+                        bucket
+                );
 
-                    collectionCase =
-                            CollectionCase.builder()
-                                    .loan(loan)
-                                    .organization(
-                                            loan.getOrganization()
-                                    )
-                                    .bucket(bucket)
-                                    .status(
-                                            CollectionCase.CollectionStatus.OPEN
-                                    )
-                                    .priority(
-                                            priorityFor(bucket)
-                                    )
-                                    .daysPastDue(daysPastDue)
-                                    .overdueAmount(
-                                            loan.getOutstandingBalance()
-                                    )
-                                    .totalOutstanding(
-                                            loan.getOutstandingBalance()
-                                    )
-                                    .build();
-
-                }
-
-                /*
-                 * UPDATE EXISTING CASE
-                 */
-                else {
-
-                    collectionCase.setBucket(bucket);
-
-                    /*
-                     * Only automatically update priority while the
-                     * case is still in active collections.
-                     */
-                    if (
-                            collectionCase.getStatus()
-                                    != CollectionCase.CollectionStatus.ESCALATED
-                                    &&
-                                    collectionCase.getStatus()
-                                            != CollectionCase.CollectionStatus.LEGAL
-                    ) {
-
-                        collectionCase.setPriority(
-                                priorityFor(bucket)
-                        );
-                    }
-
-
-                    collectionCase.setDaysPastDue(
-                            daysPastDue
-                    );
-
-
-                    if (loan.getOutstandingBalance() != null) {
-
-                        collectionCase.setOverdueAmount(
-                                loan.getOutstandingBalance()
-                        );
-
-                        collectionCase.setTotalOutstanding(
-                                loan.getOutstandingBalance()
-                        );
-                    }
-                }
-
-
-                collectionCase =
-                        caseRepo.save(collectionCase);
-
-
-                /*
-                 * Automatically create the first collection action.
-                 */
-                if (isNew) {
-
-                    logAction(
-                            collectionCase.getId(),
-                            CollectionAction.ActionType.CASE_OPENED,
-                            "Automatically opened because loan is "
-                                    + daysPastDue
-                                    + " day(s) past due.",
-                            "SYSTEM",
-                            "CASE OPENED",
-                            null,
-                            null
-                    );
-
-
-                    log.info(
-                            "Collection case {} opened automatically for loan {}. DPD={}",
-                            collectionCase.getId(),
-                            loan.getId(),
-                            daysPastDue
-                    );
-                }
-
-
-                touched++;
-
-            } catch (Exception ex) {
-
-                log.error(
-                        "Failed to synchronize collection case for loan {}",
-                        loan.getId(),
-                        ex
+                collectionCase.setPriority(
+                        priorityFor(bucket)
                 );
             }
+
+
+            collectionCase.setDaysPastDue(
+                    daysPastDue
+            );
+
+
+            /*
+             * IMPORTANT:
+             *
+             * Your current implementation uses outstandingBalance
+             * for overdueAmount.
+             *
+             * That is only correct if your Loan model defines the
+             * entire outstanding balance as overdue.
+             *
+             * Since the exact Loan overdue-principal/interest fields
+             * are not available here, we preserve the existing
+             * behavior rather than inventing an entity property.
+             */
+            BigDecimal outstanding =
+                    money(
+                            loan.getOutstandingBalance()
+                    );
+
+
+            collectionCase.setOverdueAmount(
+                    outstanding
+            );
+
+            collectionCase.setTotalOutstanding(
+                    outstanding
+            );
+
+
+            collectionCase =
+                    caseRepo.save(
+                            collectionCase
+                    );
+
+
+            if (isNew) {
+
+                logAction(
+                        collectionCase.getId(),
+                        CollectionAction.ActionType.CASE_OPENED,
+                        "Auto-opened: loan is "
+                                + daysPastDue
+                                + " day(s) past due",
+                        "SYSTEM",
+                        null,
+                        null,
+                        null
+                );
+            }
+
+
+            touched++;
         }
 
 
         log.info(
-                "Collection synchronization completed. {} cases touched.",
+                "Collection synchronization completed. {} case(s) touched.",
                 touched
         );
+
 
         return touched;
     }
@@ -292,81 +371,78 @@ public class CollectionsService {
     // ============================================================
 
     /**
-     * Returns collection queue for an organization.
+     * Returns the collection queue for an organization.
+     *
+     * Organization ID is mandatory to maintain tenant isolation.
      */
     @Transactional(readOnly = true)
     public List<CollectionCase> getQueue(
             Long orgId,
             CollectionCase.CollectionBucket bucket,
             CollectionCase.CollectionStatus status,
-            Long agentId) {
+            Long agentId
+    ) {
 
-        if (orgId == null) {
-            return List.of();
-        }
+        requireOrganizationId(
+                orgId
+        );
 
 
         List<CollectionCase> cases =
-                caseRepo.findByOrganization_Id(orgId);
+                caseRepo.findByOrganization_Id(
+                        orgId
+                );
 
 
-        if (cases == null || cases.isEmpty()) {
+        if (cases == null
+                || cases.isEmpty()) {
+
             return List.of();
         }
 
 
         return cases.stream()
 
-                .filter(c -> c != null)
-
-                .filter(c ->
-                        bucket == null
-                                || c.getBucket() == bucket
+                .filter(
+                        Objects::nonNull
                 )
 
-                .filter(c ->
-                        status == null
-                                || c.getStatus() == status
+                .filter(
+                        c ->
+                                bucket == null
+                                        || c.getBucket() == bucket
                 )
 
-                .filter(c ->
-                        agentId == null
-                                ||
-                                (
-                                        c.getAssignedAgent() != null
-                                                &&
+                .filter(
+                        c ->
+                                status == null
+                                        || c.getStatus() == status
+                )
+
+                .filter(
+                        c ->
+                                agentId == null
+                                        ||
+                                        (
+                                                c.getAssignedAgent() != null
+                                                        &&
                                                 agentId.equals(
-                                                        c.getAssignedAgent()
-                                                                .getId()
+                                                        c.getAssignedAgent().getId()
                                                 )
-                                )
+                                        )
                 )
 
                 .sorted(
                         Comparator
                                 .comparing(
-                                        (CollectionCase c) ->
+                                        (
+                                                CollectionCase c
+                                        ) ->
                                                 c.getDaysPastDue() == null
                                                         ? 0
                                                         : c.getDaysPastDue()
                                 )
                                 .reversed()
-
-                                .thenComparing(
-                                        c ->
-                                                priorityRank(
-                                                        c.getPriority()
-                                                ),
-                                        Comparator.reverseOrder()
-                                )
-
-                                .thenComparing(
-                                        c ->
-                                                c.getOverdueAmount() == null
-                                                        ? 0.0
-                                                        : c.getOverdueAmount(),
-                                        Comparator.reverseOrder()
-                                )
                 )
 
                 .toList();
@@ -377,24 +453,95 @@ public class CollectionsService {
     // GET CASE
     // ============================================================
 
+    /**
+     * Gets a collection case without organization filtering.
+     *
+     * Retained for compatibility with existing callers.
+     *
+     * Tenant-sensitive controllers should prefer getCaseForOrg().
+     */
     @Transactional(readOnly = true)
-    public CollectionCase getCase(Long caseId) {
+    public CollectionCase getCase(
+            Long caseId
+    ) {
 
-        if (caseId == null) {
+        requireId(
+                caseId,
+                "Collection case ID"
+        );
 
-            throw new IllegalArgumentException(
-                    "Collection case ID is required"
+
+        return caseRepo
+                .findById(
+                        caseId
+                )
+                .orElseThrow(
+                        () ->
+                                new IllegalArgumentException(
+                                        "Collection case not found: "
+                                                + caseId
+                                )
+                );
+    }
+
+
+    /**
+     * Production-safe tenant-scoped case lookup.
+     */
+    @Transactional(readOnly = true)
+    public CollectionCase getCaseForOrg(
+            Long caseId,
+            Long orgId
+    ) {
+
+        requireId(
+                caseId,
+                "Collection case ID"
+        );
+
+        requireOrganizationId(
+                orgId
+        );
+
+
+        CollectionCase collectionCase =
+                getCase(
+                        caseId
+                );
+
+
+        if (
+                collectionCase.getOrganization() == null
+                        ||
+                collectionCase.getOrganization().getId() == null
+        ) {
+
+            throw new IllegalStateException(
+                    "Collection case has no organization: "
+                            + caseId
             );
         }
 
 
-        return caseRepo.findById(caseId)
-                .orElseThrow(
-                        () -> new RuntimeException(
-                                "Collection case not found: "
-                                        + caseId
-                        )
-                );
+        if (
+                !orgId.equals(
+                        collectionCase
+                                .getOrganization()
+                                .getId()
+                )
+        ) {
+
+            /*
+             * Do not reveal whether another tenant's case exists.
+             */
+            throw new IllegalArgumentException(
+                    "Collection case not found: "
+                            + caseId
+            );
+        }
+
+
+        return collectionCase;
     }
 
 
@@ -402,35 +549,108 @@ public class CollectionsService {
     // ASSIGN AGENT
     // ============================================================
 
+    /**
+     * Assigns a collection case to an agent.
+     *
+     * Agent must belong to the same organization as the case.
+     */
     @Transactional
     public CollectionCase assignAgent(
             Long caseId,
             Long agentUserId,
-            String assignedBy) {
+            String assignedBy
+    ) {
+
+        requireId(
+                caseId,
+                "Collection case ID"
+        );
+
+        requireId(
+                agentUserId,
+                "Agent user ID"
+        );
+
 
         CollectionCase collectionCase =
-                getCase(caseId);
+                getCase(
+                        caseId
+                );
 
 
-        if (agentUserId == null) {
+        if (
+                collectionCase.getOrganization() == null
+                        ||
+                collectionCase
+                        .getOrganization()
+                        .getId() == null
+        ) {
 
-            throw new IllegalArgumentException(
-                    "Collection agent ID is required"
+            throw new IllegalStateException(
+                    "Collection case has no organization"
             );
         }
 
 
+        Long organizationId =
+                collectionCase
+                        .getOrganization()
+                        .getId();
+
+
         User agent =
-                userRepo.findById(agentUserId)
+                userRepo
+                        .findById(
+                                agentUserId
+                        )
                         .orElseThrow(
-                                () -> new RuntimeException(
-                                        "Collection agent not found: "
-                                                + agentUserId
-                                )
+                                () ->
+                                        new IllegalArgumentException(
+                                                "Agent not found: "
+                                                        + agentUserId
+                                        )
                         );
 
 
-        collectionCase.setAssignedAgent(agent);
+        /*
+         * Tenant isolation.
+         *
+         * We do not allow an agent belonging to another
+         * organization to be assigned to this case.
+         *
+         * This assumes User has getOrganization(), which is
+         * consistent with the multi-tenant architecture.
+         */
+        if (
+                agent.getOrganization() == null
+                        ||
+                agent.getOrganization().getId() == null
+        ) {
+
+            throw new IllegalStateException(
+                    "Agent has no organization: "
+                            + agentUserId
+            );
+        }
+
+
+        if (
+                !organizationId.equals(
+                        agent
+                                .getOrganization()
+                                .getId()
+                )
+        ) {
+
+            throw new IllegalArgumentException(
+                    "Agent does not belong to the same organization"
+            );
+        }
+
+
+        collectionCase.setAssignedAgent(
+                agent
+        );
 
 
         if (
@@ -445,7 +665,16 @@ public class CollectionsService {
 
 
         collectionCase =
-                caseRepo.save(collectionCase);
+                caseRepo.save(
+                        collectionCase
+                );
+
+
+        String actor =
+                safeText(
+                        assignedBy,
+                        "SYSTEM"
+                );
 
 
         auditService.log(
@@ -455,13 +684,12 @@ public class CollectionsService {
                 "COLLECTION_CASE",
                 String.valueOf(caseId),
                 "Assigned to "
-                        + agent.getName()
+                        + safeText(
+                                agent.getName(),
+                                "agent"
+                        )
                         + " by "
-                        + (
-                        assignedBy == null
-                                ? "SYSTEM"
-                                : assignedBy
-                )
+                        + actor
         );
 
 
@@ -473,6 +701,12 @@ public class CollectionsService {
     // LOG COLLECTION ACTION
     // ============================================================
 
+    /**
+     * Records a collection action and updates the case state.
+     *
+     * This is transactional because the action, collection case,
+     * loan write-off and accounting entry must remain consistent.
+     */
     @Transactional
     public CollectionAction logAction(
             Long caseId,
@@ -481,15 +715,13 @@ public class CollectionsService {
             String performedBy,
             String outcome,
             LocalDate promiseDate,
-            Double promiseAmount) {
+            Double promiseAmount
+    ) {
 
-
-        if (caseId == null) {
-
-            throw new IllegalArgumentException(
-                    "Collection case ID is required"
-            );
-        }
+        requireId(
+                caseId,
+                "Collection case ID"
+        );
 
 
         if (type == null) {
@@ -501,156 +733,349 @@ public class CollectionsService {
 
 
         CollectionCase collectionCase =
-                getCase(caseId);
-
-
-        CollectionAction action =
-                CollectionAction.builder()
-                        .collectionCase(collectionCase)
-                        .actionType(type)
-                        .notes(notes)
-                        .performedBy(
-                                performedBy == null
-                                        ? "SYSTEM"
-                                        : performedBy
-                        )
-                        .outcome(outcome)
-                        .promiseDate(promiseDate)
-                        .promiseAmount(promiseAmount)
-                        .build();
-
-
-        action =
-                actionRepo.save(action);
-
-
-        /*
-         * Contact actions update last contact date.
-         */
-        switch (type) {
-
-            case CALL:
-            case SMS:
-            case EMAIL:
-            case FIELD_VISIT:
-            case LEGAL_NOTICE:
-            case PROMISE_TO_PAY:
-            case ESCALATED:
-
-                collectionCase.setLastContactDate(
-                        LocalDate.now()
+                getCase(
+                        caseId
                 );
 
-                break;
 
-            default:
-                break;
+        if (
+                collectionCase.getOrganization() == null
+                        ||
+                collectionCase
+                        .getOrganization()
+                        .getId() == null
+        ) {
+
+            throw new IllegalStateException(
+                    "Collection case has no organization"
+            );
         }
 
 
+        String actor =
+                safeText(
+                        performedBy,
+                        "SYSTEM"
+                );
+
+
+        String safeNotes =
+                notes != null
+                        ? notes.trim()
+                        : null;
+
+
+        String safeOutcome =
+                outcome != null
+                        ? outcome.trim()
+                        : null;
+
+
         /*
-         * PROMISE TO PAY
+         * Promise-to-pay validation.
          */
         if (
                 type
                         == CollectionAction.ActionType.PROMISE_TO_PAY
         ) {
 
-            collectionCase.setStatus(
-                    CollectionCase.CollectionStatus.PROMISE_TO_PAY
-            );
+            if (promiseDate == null) {
+
+                throw new IllegalArgumentException(
+                        "Promise-to-pay date is required"
+                );
+            }
 
 
-            collectionCase.setPromiseToPayDate(
-                    promiseDate
-            );
-
-
-            collectionCase.setPromiseToPayAmount(
-                    promiseAmount
-            );
-
-
-            collectionCase.setNextActionDate(
-                    promiseDate
-            );
-        }
-
-
-        /*
-         * ESCALATION
-         */
-        else if (
-                type
-                        == CollectionAction.ActionType.ESCALATED
-        ) {
-
-            collectionCase.setStatus(
-                    CollectionCase.CollectionStatus.ESCALATED
-            );
+            BigDecimal promise =
+                    money(
+                            promiseAmount
+                    );
 
 
             if (
-                    collectionCase.getNextActionDate()
-                            == null
+                    promise.compareTo(
+                            ZERO
+                    ) <= 0
             ) {
 
-                collectionCase.setNextActionDate(
-                        LocalDate.now()
+                throw new IllegalArgumentException(
+                        "Promise-to-pay amount must be greater than zero"
+                );
+            }
+
+
+            if (
+                    promiseDate.isBefore(
+                            LocalDate.now()
+                    )
+            ) {
+
+                throw new IllegalArgumentException(
+                        "Promise-to-pay date cannot be in the past"
                 );
             }
         }
 
 
         /*
-         * LEGAL NOTICE
+         * Do not allow operational actions on cases that are
+         * already written off.
          */
-        else if (
+        if (
+                collectionCase.getStatus()
+                        == CollectionCase.CollectionStatus.WRITTEN_OFF
+                &&
                 type
-                        == CollectionAction.ActionType.LEGAL_NOTICE
+                        != CollectionAction.ActionType.CASE_CLOSED
         ) {
 
-            collectionCase.setStatus(
-                    CollectionCase.CollectionStatus.LEGAL
+            throw new IllegalStateException(
+                    "Cannot add this action to a written-off collection case"
             );
-
-
-            if (
-                    collectionCase.getNextActionDate()
-                            == null
-            ) {
-
-                collectionCase.setNextActionDate(
-                        LocalDate.now()
-                );
-            }
         }
 
 
         /*
-         * PAYMENT RECEIVED
+         * Do not create another write-off for a case that has
+         * already been written off.
+         *
+         * This is an important protection against duplicate
+         * accounting entries.
          */
-        else if (
+        if (
                 type
-                        == CollectionAction.ActionType.PAYMENT_RECEIVED
+                        == CollectionAction.ActionType.WRITE_OFF
+                &&
+                collectionCase.getStatus()
+                        == CollectionCase.CollectionStatus.WRITTEN_OFF
         ) {
 
-            Loan loan =
-                    collectionCase.getLoan();
+            throw new IllegalStateException(
+                    "Collection case has already been written off"
+            );
+        }
 
 
-            boolean cleared =
-                    loan != null
-                            &&
-                            (
-                                    loan.getOutstandingBalance() == null
-                                            ||
-                                            loan.getOutstandingBalance()
-                                                    <= 0.01
-                            );
+        BigDecimal normalizedPromiseAmount =
+                promiseAmount == null
+                        ? null
+                        : money(
+                                promiseAmount
+                        );
 
 
-            if (cleared) {
+        CollectionAction action =
+                CollectionAction.builder()
+                        .collectionCase(collectionCase)
+                        .actionType(type)
+                        .notes(safeNotes)
+                        .performedBy(actor)
+                        .outcome(safeOutcome)
+                        .promiseDate(promiseDate)
+                        .promiseAmount(
+                                normalizedPromiseAmount != null
+                                        ? normalizedPromiseAmount.doubleValue()
+                                        : null
+                        )
+                        .build();
+
+
+        action =
+                actionRepo.save(
+                        action
+                );
+
+
+        collectionCase.setLastContactDate(
+                LocalDate.now()
+        );
+
+
+        // ========================================================
+        // STATUS TRANSITIONS
+        // ========================================================
+
+        switch (type) {
+
+            case PROMISE_TO_PAY -> {
+
+                BigDecimal promise =
+                        money(
+                                promiseAmount
+                        );
+
+
+                collectionCase.setStatus(
+                        CollectionCase.CollectionStatus.PROMISE_TO_PAY
+                );
+
+
+                collectionCase.setPromiseToPayDate(
+                        promiseDate
+                );
+
+
+                collectionCase.setPromiseToPayAmount(
+                        promise.doubleValue()
+                );
+
+
+                collectionCase.setNextActionDate(
+                        promiseDate
+                );
+            }
+
+
+            case ESCALATED -> {
+
+                collectionCase.setStatus(
+                        CollectionCase.CollectionStatus.ESCALATED
+                );
+            }
+
+
+            case LEGAL_NOTICE -> {
+
+                collectionCase.setStatus(
+                        CollectionCase.CollectionStatus.LEGAL
+                );
+            }
+
+
+            case PAYMENT_RECEIVED -> {
+
+                Loan loan =
+                        collectionCase.getLoan();
+
+
+                if (loan == null) {
+
+                    throw new IllegalStateException(
+                            "Collection case has no loan"
+                    );
+                }
+
+
+                BigDecimal outstanding =
+                        money(
+                                loan.getOutstandingBalance()
+                        );
+
+
+                boolean cleared =
+                        isEffectivelyCleared(
+                                outstanding
+                        );
+
+
+                if (cleared) {
+
+                    collectionCase.setStatus(
+                            CollectionCase.CollectionStatus.RESOLVED
+                    );
+
+
+                    collectionCase.setClosedAt(
+                            LocalDateTime.now()
+                    );
+
+
+                    collectionCase.setNextActionDate(
+                            null
+                    );
+
+                } else if (
+                        collectionCase.getStatus()
+                                == CollectionCase.CollectionStatus.PROMISE_TO_PAY
+                ) {
+
+                    collectionCase.setStatus(
+                            CollectionCase.CollectionStatus.IN_PROGRESS
+                    );
+                }
+            }
+
+
+            case WRITE_OFF -> {
+
+                Loan loan =
+                        collectionCase.getLoan();
+
+
+                if (loan == null) {
+
+                    throw new IllegalStateException(
+                            "Cannot write off collection case without a loan"
+                    );
+                }
+
+
+                if (
+                        loan.getId() == null
+                ) {
+
+                    throw new IllegalStateException(
+                            "Cannot write off loan without an ID"
+                    );
+                }
+
+
+                /*
+                 * The loan status is changed before accounting
+                 * so the transaction can roll back both changes
+                 * if accounting fails.
+                 */
+                loan.setStatus(
+                        LoanStatus.WRITTEN_OFF
+                );
+
+
+                loanRepo.save(
+                        loan
+                );
+
+
+                collectionCase.setStatus(
+                        CollectionCase.CollectionStatus.WRITTEN_OFF
+                );
+
+
+                collectionCase.setBucket(
+                        CollectionCase.CollectionBucket.WRITE_OFF
+                );
+
+
+                collectionCase.setClosedAt(
+                        LocalDateTime.now()
+                );
+
+
+                collectionCase.setResolutionNotes(
+                        safeNotes
+                );
+
+
+                collectionCase.setNextActionDate(
+                        null
+                );
+
+
+                /*
+                 * Accounting write-off.
+                 *
+                 * This MUST be idempotent in AccountingService.
+                 * If postWriteOff() can create duplicates when called
+                 * twice, that service should be protected with a
+                 * unique reference/idempotency check.
+                 */
+                accountingService.postWriteOff(
+                        loan
+                );
+            }
+
+
+            case CASE_CLOSED -> {
 
                 collectionCase.setStatus(
                         CollectionCase.CollectionStatus.RESOLVED
@@ -662,165 +1087,67 @@ public class CollectionsService {
                 );
 
 
+                collectionCase.setResolutionNotes(
+                        safeNotes
+                );
+
+
                 collectionCase.setNextActionDate(
                         null
                 );
-
-
-                collectionCase.setResolutionNotes(
-                        notes != null
-                                ? notes
-                                : "Loan fully cleared."
-                );
-
             }
 
-            else if (
-                    collectionCase.getStatus()
-                            == CollectionCase.CollectionStatus.PROMISE_TO_PAY
-            ) {
 
-                collectionCase.setStatus(
-                        CollectionCase.CollectionStatus.IN_PROGRESS
+            case CALL,
+                 SMS,
+                 EMAIL,
+                 FIELD_VISIT,
+                 CASE_OPENED -> {
+
+                /*
+                 * Contact/action-only events.
+                 *
+                 * Do not change the case status automatically.
+                 */
+            }
+
+
+            default -> {
+
+                log.debug(
+                        "No explicit collection status transition for action {}",
+                        type
                 );
             }
         }
+
+
+        collectionCase =
+                caseRepo.save(
+                        collectionCase
+                );
 
 
         /*
-         * WRITE OFF
+         * Audit after all business changes have succeeded.
+         *
+         * Because this method is transactional, a failure later
+         * causes the entire transaction to roll back.
          */
-        else if (
-                type
-                        == CollectionAction.ActionType.WRITE_OFF
-        ) {
-
-            collectionCase.setStatus(
-                    CollectionCase.CollectionStatus.WRITTEN_OFF
-            );
-
-
-            collectionCase.setBucket(
-                    CollectionCase.CollectionBucket.WRITE_OFF
-            );
-
-
-            collectionCase.setClosedAt(
-                    LocalDateTime.now()
-            );
-
-
-            collectionCase.setNextActionDate(
-                    null
-            );
-
-
-            collectionCase.setResolutionNotes(
-                    notes
-            );
-
-
-            Loan loan =
-                    collectionCase.getLoan();
-
-
-            if (loan != null) {
-
-                loan.setStatus(
-                        LoanStatus.WRITTEN_OFF
-                );
-
-
-                loanRepo.save(loan);
-
-
-                accountingService.postWriteOff(
-                        loan
-                );
-            }
-        }
-
-
-        /*
-         * CASE CLOSED
-         */
-        else if (
-                type
-                        == CollectionAction.ActionType.CASE_CLOSED
-        ) {
-
-            collectionCase.setStatus(
-                    CollectionCase.CollectionStatus.RESOLVED
-            );
-
-
-            collectionCase.setClosedAt(
-                    LocalDateTime.now()
-            );
-
-
-            collectionCase.setNextActionDate(
-                    null
-            );
-
-
-            collectionCase.setResolutionNotes(
-                    notes
-            );
-        }
-
-
-        /*
-         * NORMAL CONTACT ACTION
-         */
-        else if (
-                type
-                        == CollectionAction.ActionType.CALL
-
-                        || type
-                        == CollectionAction.ActionType.SMS
-
-                        || type
-                        == CollectionAction.ActionType.EMAIL
-
-                        || type
-                        == CollectionAction.ActionType.FIELD_VISIT
-        ) {
-
-            if (
-                    collectionCase.getStatus()
-                            == CollectionCase.CollectionStatus.OPEN
-            ) {
-
-                collectionCase.setStatus(
-                        CollectionCase.CollectionStatus.IN_PROGRESS
-                );
-            }
-        }
-
-
-        caseRepo.save(collectionCase);
-
-
         auditService.log(
                 collectionCase.getOrganization(),
                 null,
-                "COLLECTION_ACTION_" + type,
+                "COLLECTION_ACTION_" + type.name(),
                 "COLLECTION_CASE",
                 String.valueOf(caseId),
-                type
+                type.name()
                         + " logged by "
+                        + actor
                         + (
-                        performedBy == null
-                                ? "SYSTEM"
-                                : performedBy
-                )
-                        + (
-                        notes != null
-                                && !notes.isBlank()
-                                ? ": " + notes
-                                : ""
-                )
+                                safeNotes != null
+                                        ? ": " + safeNotes
+                                        : ""
+                        )
         );
 
 
@@ -834,35 +1161,56 @@ public class CollectionsService {
 
     @Transactional(readOnly = true)
     public List<CollectionAction> getActions(
-            Long caseId) {
+            Long caseId
+    ) {
 
-        if (caseId == null) {
+        requireId(
+                caseId,
+                "Collection case ID"
+        );
+
+
+        List<CollectionAction> actions =
+                actionRepo
+                        .findByCollectionCase_IdOrderByCreatedAtDesc(
+                                caseId
+                        );
+
+
+        if (actions == null
+                || actions.isEmpty()) {
+
             return List.of();
         }
 
 
-        return actionRepo
-                .findByCollectionCase_IdOrderByCreatedAtDesc(
-                        caseId
-                );
+        return actions;
     }
 
 
     // ============================================================
-    // COLLECTION STATISTICS
+    // STATS
     // ============================================================
 
+    /**
+     * Returns collection statistics for one organization.
+     *
+     * BigDecimal is used for all monetary calculations.
+     */
     @Transactional(readOnly = true)
     public Map<String, Object> getStats(
-            Long orgId) {
+            Long orgId
+    ) {
 
-        if (orgId == null) {
-            return emptyStats();
-        }
+        requireOrganizationId(
+                orgId
+        );
 
 
         List<CollectionCase> cases =
-                caseRepo.findByOrganization_Id(orgId);
+                caseRepo.findByOrganization_Id(
+                        orgId
+                );
 
 
         if (cases == null) {
@@ -870,61 +1218,80 @@ public class CollectionsService {
         }
 
 
-        Map<String, Long> byBucket =
-                new LinkedHashMap<>();
+        Map<CollectionCase.CollectionBucket, Long>
+                bucketCounts =
+                new EnumMap<>(
+                        CollectionCase.CollectionBucket.class
+                );
 
 
-        Map<String, Double> amountByBucket =
-                new LinkedHashMap<>();
+        Map<CollectionCase.CollectionBucket, BigDecimal>
+                bucketAmounts =
+                new EnumMap<>(
+                        CollectionCase.CollectionBucket.class
+                );
 
 
         for (
                 CollectionCase.CollectionBucket bucket
-                        : CollectionCase.CollectionBucket.values()
+                :
+                CollectionCase.CollectionBucket.values()
         ) {
 
-            byBucket.put(
-                    bucket.name(),
+            bucketCounts.put(
+                    bucket,
                     0L
             );
 
 
-            amountByBucket.put(
-                    bucket.name(),
-                    0.0
+            bucketAmounts.put(
+                    bucket,
+                    ZERO
             );
         }
 
 
-        long openCases = 0;
-        long activePromises = 0;
-        long escalatedCases = 0;
-        long legalCases = 0;
-        long resolvedCases = 0;
-        long writtenOffCases = 0;
+        BigDecimal totalOverdue =
+                ZERO;
 
 
-        double totalOverdue = 0.0;
+        long activePromises =
+                0L;
 
 
-        long calls = 0;
-        long sms = 0;
-        long emails = 0;
-        long fieldVisits = 0;
-        long escalations = 0;
-        long promisesToPay = 0;
-        long paymentsReceived = 0;
-        long legalNotices = 0;
+        long totalOpenCases =
+                0L;
 
 
-        List<CollectionAction> allActions =
-                new ArrayList<>();
-
-
-        for (CollectionCase collectionCase : cases) {
+        for (
+                CollectionCase collectionCase
+                :
+                cases
+        ) {
 
             if (collectionCase == null) {
                 continue;
+            }
+
+
+            CollectionCase.CollectionStatus status =
+                    collectionCase.getStatus();
+
+
+            if (
+                    status
+                            == CollectionCase.CollectionStatus.WRITTEN_OFF
+            ) {
+
+                continue;
+            }
+
+
+            if (
+                    status != CollectionCase.CollectionStatus.RESOLVED
+            ) {
+
+                totalOpenCases++;
             }
 
 
@@ -934,52 +1301,31 @@ public class CollectionsService {
 
             if (bucket != null) {
 
-                String bucketKey =
-                        bucket.name();
-
-
-                byBucket.merge(
-                        bucketKey,
+                bucketCounts.merge(
+                        bucket,
                         1L,
                         Long::sum
                 );
 
 
-                double amount =
-                        collectionCase.getOverdueAmount() != null
-                                ? collectionCase.getOverdueAmount()
-                                : 0.0;
+                BigDecimal amount =
+                        money(
+                                collectionCase
+                                        .getOverdueAmount()
+                        );
 
 
-                amountByBucket.merge(
-                        bucketKey,
+                bucketAmounts.merge(
+                        bucket,
                         amount,
-                        Double::sum
+                        BigDecimal::add
                 );
 
 
-                if (
-                        collectionCase.getStatus()
-                                != CollectionCase.CollectionStatus.WRITTEN_OFF
-                ) {
-
-                    totalOverdue += amount;
-                }
-            }
-
-
-            CollectionCase.CollectionStatus status =
-                    collectionCase.getStatus();
-
-
-            if (
-                    status != CollectionCase.CollectionStatus.RESOLVED
-                            &&
-                            status
-                                    != CollectionCase.CollectionStatus.WRITTEN_OFF
-            ) {
-
-                openCases++;
+                totalOverdue =
+                        totalOverdue.add(
+                                amount
+                        );
             }
 
 
@@ -990,115 +1336,44 @@ public class CollectionsService {
 
                 activePromises++;
             }
-
-
-            if (
-                    status
-                            == CollectionCase.CollectionStatus.ESCALATED
-            ) {
-
-                escalatedCases++;
-            }
-
-
-            if (
-                    status
-                            == CollectionCase.CollectionStatus.LEGAL
-            ) {
-
-                legalCases++;
-            }
-
-
-            if (
-                    status
-                            == CollectionCase.CollectionStatus.RESOLVED
-            ) {
-
-                resolvedCases++;
-            }
-
-
-            if (
-                    status
-                            == CollectionCase.CollectionStatus.WRITTEN_OFF
-            ) {
-
-                writtenOffCases++;
-            }
-
-
-            /*
-             * Retrieve action history.
-             */
-            List<CollectionAction> actions =
-                    actionRepo
-                            .findByCollectionCase_IdOrderByCreatedAtDesc(
-                                    collectionCase.getId()
-                            );
-
-
-            if (
-                    actions != null
-                            && !actions.isEmpty()
-            ) {
-
-                allActions.addAll(actions);
-            }
         }
 
 
         /*
-         * Count action types.
+         * Convert maps to String-keyed maps for predictable JSON.
          */
-        for (CollectionAction action : allActions) {
-
-            if (
-                    action == null
-                            || action.getActionType() == null
-            ) {
-
-                continue;
-            }
+        Map<String, Long> casesByBucket =
+                new LinkedHashMap<>();
 
 
-            switch (action.getActionType()) {
+        Map<String, BigDecimal> overdueAmountByBucket =
+                new LinkedHashMap<>();
 
-                case CALL:
-                    calls++;
-                    break;
 
-                case SMS:
-                    sms++;
-                    break;
+        for (
+                CollectionCase.CollectionBucket bucket
+                :
+                CollectionCase.CollectionBucket.values()
+        ) {
 
-                case EMAIL:
-                    emails++;
-                    break;
+            casesByBucket.put(
+                    bucket.name(),
+                    bucketCounts.getOrDefault(
+                            bucket,
+                            0L
+                    )
+            );
 
-                case FIELD_VISIT:
-                    fieldVisits++;
-                    break;
 
-                case ESCALATED:
-                    escalations++;
-                    break;
-
-                case PROMISE_TO_PAY:
-                    promisesToPay++;
-                    break;
-
-                case PAYMENT_RECEIVED:
-                    paymentsReceived++;
-                    break;
-
-                case LEGAL_NOTICE:
-                    legalNotices++;
-                    break;
-
-                default:
-                    break;
-            }
+            overdueAmountByBucket.put(
+                    bucket.name(),
+                    money(
+                            bucketAmounts.getOrDefault(
+                                    bucket,
+                                    ZERO
+                            )
+                    )
+            );
         }
 
 
@@ -1108,25 +1383,27 @@ public class CollectionsService {
 
         stats.put(
                 "casesByBucket",
-                byBucket
+                casesByBucket
         );
 
 
         stats.put(
                 "overdueAmountByBucket",
-                amountByBucket
+                overdueAmountByBucket
         );
 
 
         stats.put(
                 "totalOpenCases",
-                openCases
+                totalOpenCases
         );
 
 
         stats.put(
                 "totalOverdueAmount",
-                totalOverdue
+                money(
+                        totalOverdue
+                )
         );
 
 
@@ -1136,277 +1413,37 @@ public class CollectionsService {
         );
 
 
-        stats.put(
-                "totalCases",
-                cases.size()
-        );
-
-
-        stats.put(
-                "escalatedCases",
-                escalatedCases
-        );
-
-
-        stats.put(
-                "legalCases",
-                legalCases
-        );
-
-
-        stats.put(
-                "resolvedCases",
-                resolvedCases
-        );
-
-
-        stats.put(
-                "writtenOffCases",
-                writtenOffCases
-        );
-
-
-        /*
-         * Action statistics.
-         */
-        stats.put(
-                "calls",
-                calls
-        );
-
-
-        stats.put(
-                "sms",
-                sms
-        );
-
-
-        stats.put(
-                "emails",
-                emails
-        );
-
-
-        stats.put(
-                "fieldVisits",
-                fieldVisits
-        );
-
-
-        stats.put(
-                "escalations",
-                escalations
-        );
-
-
-        stats.put(
-                "promisesToPay",
-                promisesToPay
-        );
-
-
-        stats.put(
-                "paymentsReceived",
-                paymentsReceived
-        );
-
-
-        stats.put(
-                "legalNotices",
-                legalNotices
-        );
-
-
-        stats.put(
-                "totalActions",
-                allActions.size()
-        );
-
-
         return stats;
     }
 
 
     // ============================================================
-    // EMPTY STATISTICS
-    // ============================================================
-
-    private Map<String, Object> emptyStats() {
-
-        Map<String, Long> byBucket =
-                new LinkedHashMap<>();
-
-
-        Map<String, Double> amountByBucket =
-                new LinkedHashMap<>();
-
-
-        for (
-                CollectionCase.CollectionBucket bucket
-                        : CollectionCase.CollectionBucket.values()
-        ) {
-
-            byBucket.put(
-                    bucket.name(),
-                    0L
-            );
-
-
-            amountByBucket.put(
-                    bucket.name(),
-                    0.0
-            );
-        }
-
-
-        Map<String, Object> stats =
-                new LinkedHashMap<>();
-
-
-        stats.put(
-                "casesByBucket",
-                byBucket
-        );
-
-
-        stats.put(
-                "overdueAmountByBucket",
-                amountByBucket
-        );
-
-
-        stats.put(
-                "totalOpenCases",
-                0L
-        );
-
-
-        stats.put(
-                "totalOverdueAmount",
-                0.0
-        );
-
-
-        stats.put(
-                "activePromises",
-                0L
-        );
-
-
-        stats.put(
-                "totalCases",
-                0
-        );
-
-
-        stats.put(
-                "escalatedCases",
-                0L
-        );
-
-
-        stats.put(
-                "legalCases",
-                0L
-        );
-
-
-        stats.put(
-                "resolvedCases",
-                0L
-        );
-
-
-        stats.put(
-                "writtenOffCases",
-                0L
-        );
-
-
-        stats.put(
-                "calls",
-                0L
-        );
-
-
-        stats.put(
-                "sms",
-                0L
-        );
-
-
-        stats.put(
-                "emails",
-                0L
-        );
-
-
-        stats.put(
-                "fieldVisits",
-                0L
-        );
-
-
-        stats.put(
-                "escalations",
-                0L
-        );
-
-
-        stats.put(
-                "promisesToPay",
-                0L
-        );
-
-
-        stats.put(
-                "paymentsReceived",
-                0L
-        );
-
-
-        stats.put(
-                "legalNotices",
-                0L
-        );
-
-
-        stats.put(
-                "totalActions",
-                0L
-        );
-
-
-        return stats;
-    }
-
-
-    // ============================================================
-    // BUCKET
+    // BUCKET CALCULATION
     // ============================================================
 
     private CollectionCase.CollectionBucket bucketFor(
-            int daysPastDue) {
+            int dpd
+    ) {
 
-        if (daysPastDue <= 0) {
+        if (dpd <= 0) {
 
             return CollectionCase.CollectionBucket.CURRENT;
         }
 
 
-        if (daysPastDue <= 30) {
+        if (dpd <= 30) {
 
             return CollectionCase.CollectionBucket.DPD_1_30;
         }
 
 
-        if (daysPastDue <= 60) {
+        if (dpd <= 60) {
 
             return CollectionCase.CollectionBucket.DPD_31_60;
         }
 
 
-        if (daysPastDue <= 90) {
+        if (dpd <= 90) {
 
             return CollectionCase.CollectionBucket.DPD_61_90;
         }
@@ -1421,11 +1458,12 @@ public class CollectionsService {
     // ============================================================
 
     private CollectionCase.Priority priorityFor(
-            CollectionCase.CollectionBucket bucket) {
+            CollectionCase.CollectionBucket bucket
+    ) {
 
         if (bucket == null) {
 
-            return CollectionCase.Priority.MEDIUM;
+            return CollectionCase.Priority.LOW;
         }
 
 
@@ -1435,11 +1473,14 @@ public class CollectionsService {
                  DPD_1_30 ->
                     CollectionCase.Priority.LOW;
 
+
             case DPD_31_60 ->
                     CollectionCase.Priority.MEDIUM;
 
+
             case DPD_61_90 ->
                     CollectionCase.Priority.HIGH;
+
 
             case DPD_90_PLUS,
                  WRITE_OFF ->
@@ -1449,26 +1490,34 @@ public class CollectionsService {
 
 
     // ============================================================
-    // PRIORITY RANK
+    // VALIDATION HELPERS
     // ============================================================
 
-    private int priorityRank(
-            CollectionCase.Priority priority) {
+    private void requireId(
+            Long id,
+            String field
+    ) {
 
-        if (priority == null) {
-            return 0;
+        if (id == null
+                || id <= 0) {
+
+            throw new IllegalArgumentException(
+                    field + " is required"
+            );
         }
+    }
 
 
-        return switch (priority) {
+    private void requireOrganizationId(
+            Long orgId
+    ) {
 
-            case LOW -> 1;
+        if (orgId == null
+                || orgId <= 0) {
 
-            case MEDIUM -> 2;
-
-            case HIGH -> 3;
-
-            case URGENT -> 4;
-        };
+            throw new IllegalArgumentException(
+                    "Organization ID is required"
+            );
+        }
     }
 }

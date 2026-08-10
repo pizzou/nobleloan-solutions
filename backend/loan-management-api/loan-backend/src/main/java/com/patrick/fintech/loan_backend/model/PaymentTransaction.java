@@ -94,4 +94,56 @@ public class PaymentTransaction {
     }
 
     public enum TransactionStatus { POSTED, REVERSED }
+    /** Backward-compatible builder overloads for legacy Double callers.
+     *  Financial state is stored as BigDecimal.
+     */
+    public static class PaymentTransactionBuilder {
+        private BigDecimal amount;
+        private BigDecimal interestComponent;
+        private BigDecimal penaltyComponent;
+        private BigDecimal principalComponent;
+        private BigDecimal unappliedAmount;
+
+
+        public PaymentTransactionBuilder amount(Double value) {
+            this.amount = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }
+        public PaymentTransactionBuilder penaltyComponent(Double value) {
+            this.penaltyComponent = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }
+        public PaymentTransactionBuilder interestComponent(Double value) {
+            this.interestComponent = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }
+        public PaymentTransactionBuilder principalComponent(Double value) {
+            this.principalComponent = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }
+        public PaymentTransactionBuilder unappliedAmount(Double value) {
+            this.unappliedAmount = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }        public PaymentTransactionBuilder amount(BigDecimal value) {
+            this.amount = value;
+            return this;
+        }
+        public PaymentTransactionBuilder penaltyComponent(BigDecimal value) {
+            this.penaltyComponent = value;
+            return this;
+        }
+        public PaymentTransactionBuilder interestComponent(BigDecimal value) {
+            this.interestComponent = value;
+            return this;
+        }
+        public PaymentTransactionBuilder principalComponent(BigDecimal value) {
+            this.principalComponent = value;
+            return this;
+        }
+        public PaymentTransactionBuilder unappliedAmount(BigDecimal value) {
+            this.unappliedAmount = value;
+            return this;
+        }
+    }
+
 }

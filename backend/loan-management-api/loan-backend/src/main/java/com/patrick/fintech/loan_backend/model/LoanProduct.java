@@ -1,6 +1,9 @@
 package com.patrick.fintech.loan_backend.model;
 
+import java.math.BigDecimal;
+
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
@@ -37,24 +40,29 @@ public class LoanProduct {
     @Column(nullable = false)
     private Loan.LoanType loanType;      // drives which product is picked up when a loan of this type is created
 
-    @Column(nullable = false)
-    private Double interestRate;         // meaning depends on interestRateType — see below, before credit-score adjustment
+    @Column(nullable = false, precision = 19, scale = 9)
+    @JsonProperty("interestRate")
+    private BigDecimal interestRate;         // meaning depends on interestRateType — see below, before credit-score adjustment
 
     /** MONTHLY (e.g. 6/8/10% per month — common for microfinance/salary-advance products)
      *  or ANNUAL (the rate the system assumed everywhere before this field existed). */
     @Builder.Default
     private String interestRateType = "MONTHLY";
 
-    @Column(nullable = false)
-    private Double minAmount;
+    @Column(nullable = false, precision = 19, scale = 6)
+    @JsonProperty("minAmount")
+    private BigDecimal minAmount;
     /** Null means no upper limit ("unlimited") for this product. */
-    private Double maxAmount;
+    @Column(precision = 19, scale = 6)
+    @JsonProperty("maxAmount")
+    private BigDecimal maxAmount;
     @Column(nullable = false)
     private Integer minTermMonths;
-    @Column(nullable = false)
+    @Column(nullable = false, precision = 19, scale = 6)
     private Integer maxTermMonths;
+    @JsonProperty("processingFeePercent")
 
-    private Double processingFeePercent; // defaults to 2% if not set
+    private BigDecimal processingFeePercent; // defaults to 2% if not set
 
     @Builder.Default
     private Boolean active = true;
@@ -72,7 +80,7 @@ public class LoanProduct {
     protected void onCreate() {
         createdAt = LocalDateTime.now(); updatedAt = LocalDateTime.now();
         if (active == null) active = true;
-        if (processingFeePercent == null) processingFeePercent = 2.0;
+        if (processingFeePercent == null) processingFeePercent = BigDecimal.valueOf(2.0);
         if (interestRateType == null) interestRateType = "MONTHLY";
     }
 
@@ -87,4 +95,146 @@ public class LoanProduct {
 
     @PreUpdate
     protected void onUpdate() { updatedAt = LocalDateTime.now(); }
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getInterestRateDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getInterestRate() {
+        return interestRate == null ? null : interestRate.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getInterestRateDecimal() {
+        return interestRate;
+    }
+
+    @Deprecated
+    public void setInterestRate(Double value) {
+        this.interestRate = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setInterestRate(BigDecimal value) {
+        this.interestRate = value;
+    }
+
+
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getMinAmountDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getMinAmount() {
+        return minAmount == null ? null : minAmount.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getMinAmountDecimal() {
+        return minAmount;
+    }
+
+    @Deprecated
+    public void setMinAmount(Double value) {
+        this.minAmount = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setMinAmount(BigDecimal value) {
+        this.minAmount = value;
+    }
+
+
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getMaxAmountDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getMaxAmount() {
+        return maxAmount == null ? null : maxAmount.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getMaxAmountDecimal() {
+        return maxAmount;
+    }
+
+    @Deprecated
+    public void setMaxAmount(Double value) {
+        this.maxAmount = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setMaxAmount(BigDecimal value) {
+        this.maxAmount = value;
+    }
+
+
+    /**
+     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * New financial code should use getProcessingFeePercentDecimal().
+     */
+    @Deprecated
+    @JsonIgnore
+    public Double getProcessingFeePercent() {
+        return processingFeePercent == null ? null : processingFeePercent.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getProcessingFeePercentDecimal() {
+        return processingFeePercent;
+    }
+
+    @Deprecated
+    public void setProcessingFeePercent(Double value) {
+        this.processingFeePercent = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setProcessingFeePercent(BigDecimal value) {
+        this.processingFeePercent = value;
+    }
+
+    /** Backward-compatible builder overloads for legacy Double callers.
+     *  Financial state is stored as BigDecimal.
+     */
+    public static class LoanProductBuilder {
+        private BigDecimal interestRate;
+        private BigDecimal maxAmount;
+        private BigDecimal minAmount;
+        private BigDecimal processingFeePercent;
+
+
+        public LoanProductBuilder interestRate(Double value) {
+            this.interestRate = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }
+        public LoanProductBuilder minAmount(Double value) {
+            this.minAmount = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }
+        public LoanProductBuilder maxAmount(Double value) {
+            this.maxAmount = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }
+        public LoanProductBuilder processingFeePercent(Double value) {
+            this.processingFeePercent = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }        public LoanProductBuilder interestRate(BigDecimal value) {
+            this.interestRate = value;
+            return this;
+        }
+        public LoanProductBuilder minAmount(BigDecimal value) {
+            this.minAmount = value;
+            return this;
+        }
+        public LoanProductBuilder maxAmount(BigDecimal value) {
+            this.maxAmount = value;
+            return this;
+        }
+        public LoanProductBuilder processingFeePercent(BigDecimal value) {
+            this.processingFeePercent = value;
+            return this;
+        }
+    }
+
 }
