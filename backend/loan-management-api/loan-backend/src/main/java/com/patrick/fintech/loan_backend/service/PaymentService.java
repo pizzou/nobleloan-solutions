@@ -416,10 +416,10 @@ public class PaymentService {
                 ).max(ZERO);
 
         /*
-         * Payment currently does not maintain a separate penalty-paid
-         * field. The existing implementation therefore treats the
-         * assessed penalty as the outstanding penalty until the current
-         * payment allocation covers it.
+         * Payment currently has no separate penalty-paid field.
+         * Therefore penalty allocation for the current installment
+         * is calculated from the assessed penalty and the current
+         * payment allocation.
          */
         BigDecimal penaltyAlreadyPaid =
                 ZERO;
@@ -443,7 +443,7 @@ public class PaymentService {
                 ).max(ZERO);
 
         // ============================================================
-        // VALIDATE INTEREST CONFIGURATION BEFORE ALLOCATION
+        // VALIDATE INTEREST CONFIGURATION
         // ============================================================
 
         BigDecimal dailyRate =
@@ -468,32 +468,6 @@ public class PaymentService {
         // ============================================================
         // INTEREST CYCLE ANCHOR
         // ============================================================
-
-        /*
-         * IMPORTANT:
-         *
-         * We DO NOT use "cycleInterestAlreadyEstablished" to stop
-         * future interest forever.
-         *
-         * Instead:
-         *
-         * 1. First calculation:
-         *      disbursedAt -> payment timestamp
-         *
-         * 2. Same-day second payment:
-         *      previous interest timestamp -> payment timestamp
-         *      = 0 new calendar days
-         *
-         * 3. Next-day payment:
-         *      previous interest timestamp -> payment timestamp
-         *      = 1 new calendar day
-         *
-         * 4. The timestamp is then moved forward to the current
-         *      payment timestamp.
-         *
-         * This prevents charging the same day twice while allowing
-         * genuine new elapsed days to accrue.
-         */
 
         LocalDateTime previousInterestCalculationDate =
                 installment.getInterestCalculationDate();
@@ -593,8 +567,8 @@ public class PaymentService {
                 );
 
         /*
-         * If the installment already contains a larger remaining
-         * interest amount, never reduce the obligation accidentally.
+         * Never allow an already-established interest obligation
+         * to disappear because of a later payment calculation.
          */
         if (existingCycleInterestRemaining.compareTo(ZERO) > 0) {
 
@@ -622,15 +596,22 @@ public class PaymentService {
         // INTEREST REMAINING BEFORE PAYMENT
         // ============================================================
 
+        /*
+         * IMPORTANT:
+         *
+         * Interest already paid must always be subtracted from
+         * the total cycle interest due.
+         *
+         * The remaining interest is therefore the actual amount
+         * that MUST be satisfied before principal can be reduced.
+         */
         BigDecimal calculatedRemainingInterest =
                 roundMoney(
                         totalCycleInterestDue
                                 .subtract(
                                         interestAlreadyPaid
                                 )
-                                .max(
-                                        BigDecimal.ZERO
-                                )
+                                .max(ZERO)
                 );
 
         BigDecimal remainingInterestBeforePayment =
@@ -658,7 +639,7 @@ public class PaymentService {
                 );
 
         BigDecimal calculatedTotalPenalty =
-                BigDecimal.ZERO;
+                ZERO;
 
         if (daysLate > 0
                 && currentBalance.compareTo(ZERO) > 0) {
@@ -692,7 +673,7 @@ public class PaymentService {
                                         penaltyAlreadyPaid
                                 )
                                 .max(
-                                        BigDecimal.ZERO
+                                        ZERO
                                 )
                 );
 
@@ -704,7 +685,7 @@ public class PaymentService {
                 amount;
 
         // ============================================================
-        // 1. PENALTY
+        // 1. PENALTY FIRST
         // ============================================================
 
         BigDecimal penaltyPaidThisPayment =
@@ -721,14 +702,34 @@ public class PaymentService {
                                         penaltyPaidThisPayment
                                 )
                                 .max(
-                                        BigDecimal.ZERO
+                                        ZERO
                                 )
                 );
 
         // ============================================================
-        // 2. INTEREST
+        // 2. INTEREST SECOND
         // ============================================================
 
+        /*
+         * CRITICAL FIX:
+         *
+         * Interest MUST be allocated before principal.
+         *
+         * Example:
+         *
+         * Payment = 1,000,000.00
+         * Interest due = 16,666.67
+         * Principal = 5,000,000.00
+         *
+         * Correct result:
+         *
+         * Interest paid  = 16,666.67
+         * Principal paid = 983,333.33
+         * New balance    = 4,016,666.67
+         *
+         * Principal MUST NEVER receive the full payment while
+         * remainingInterestBeforePayment is greater than zero.
+         */
         BigDecimal interestPaidThisPayment =
                 roundMoney(
                         paymentRemaining.min(
@@ -743,12 +744,12 @@ public class PaymentService {
                                         interestPaidThisPayment
                                 )
                                 .max(
-                                        BigDecimal.ZERO
+                                        ZERO
                                 )
                 );
 
         // ============================================================
-        // 3. PRINCIPAL
+        // 3. PRINCIPAL THIRD
         // ============================================================
 
         BigDecimal principalPaidThisPayment =
@@ -765,9 +766,9 @@ public class PaymentService {
                                         principalPaidThisPayment
                                 )
                                 .max(
-                                        BigDecimal.ZERO
+                                        ZERO
                                 )
-        );
+                );
 
         // ============================================================
         // 4. OVERPAYMENT
@@ -776,7 +777,7 @@ public class PaymentService {
         BigDecimal overpayment =
                 roundMoney(
                         paymentRemaining.max(
-                                BigDecimal.ZERO
+                                ZERO
                         )
                 );
 
@@ -791,7 +792,7 @@ public class PaymentService {
                                         principalPaidThisPayment
                                 )
                                 .max(
-                                        BigDecimal.ZERO
+                                        ZERO
                                 )
                 );
 
@@ -830,9 +831,75 @@ public class PaymentService {
                                         totalInterestPaid
                                 )
                                 .max(
-                                        BigDecimal.ZERO
+                                        ZERO
                                 )
                 );
+
+        // ============================================================
+        // ALLOCATION SAFETY VALIDATION
+        // ============================================================
+
+        /*
+         * Never permit principal allocation while interest remains
+         * unpaid and payment money was available for that interest.
+         */
+        if (remainingInterestBeforePayment.compareTo(ZERO) > 0
+                && amount.compareTo(
+                penaltyRemainingBeforePayment
+        ) > 0
+                && interestPaidThisPayment.compareTo(
+                remainingInterestBeforePayment
+        ) < 0
+                && paymentRemaining.compareTo(ZERO) > 0) {
+
+            throw new IllegalStateException(
+                    "Payment allocation error: principal cannot be " +
+                            "allocated while required interest remains unpaid. "
+                            +
+                            "loanId=" + loanId
+                            + ", amount=" + amount
+                            + ", interestRemaining="
+                            + remainingInterestBeforePayment
+                            + ", interestPaid="
+                            + interestPaidThisPayment
+            );
+        }
+
+        /*
+         * Explicit invariant:
+         *
+         * If there is enough payment remaining after penalty to
+         * cover all interest, then all interest MUST be paid before
+         * any principal is allocated.
+         */
+        BigDecimal availableForInterestAndPrincipal =
+                amount
+                        .subtract(
+                                penaltyPaidThisPayment
+                        )
+                        .max(ZERO);
+
+        if (availableForInterestAndPrincipal.compareTo(
+                remainingInterestBeforePayment
+        ) >= 0
+                && interestPaidThisPayment.compareTo(
+                remainingInterestBeforePayment
+        ) != 0) {
+
+            throw new IllegalStateException(
+                    "Payment allocation invariant violated: " +
+                            "available payment is sufficient to cover " +
+                            "interest but interest was not fully allocated. "
+                            +
+                            "loanId=" + loanId
+                            + ", available="
+                            + availableForInterestAndPrincipal
+                            + ", interestRemaining="
+                            + remainingInterestBeforePayment
+                            + ", interestPaid="
+                            + interestPaidThisPayment
+            );
+        }
 
         // ============================================================
         // COMPLETION FLAGS
@@ -900,10 +967,8 @@ public class PaymentService {
         }
 
         /*
-         * IMPORTANT SAFETY:
-         *
-         * Principal being zero does NOT mean the loan is paid if
-         * interest or penalty remains.
+         * Principal reaching zero does NOT automatically mean the
+         * loan is paid. Interest and penalty must also be cleared.
          */
         if (principalCovered
                 && !interestCovered) {
@@ -928,7 +993,9 @@ public class PaymentService {
                             "loanId={}, remainingPenalty={}",
                     loanId,
                     penaltyRemainingBeforePayment
-                            .subtract(penaltyPaidThisPayment)
+                            .subtract(
+                                    penaltyPaidThisPayment
+                            )
                             .max(ZERO)
             );
         }
@@ -949,6 +1016,10 @@ public class PaymentService {
                 newAmountPaid
         );
 
+        /*
+         * Store cumulative interest paid, NOT only the current
+         * payment's interest allocation.
+         */
         installment.setInterestComponent(
                 totalInterestPaid
         );
@@ -1020,38 +1091,25 @@ public class PaymentService {
         // ============================================================
 
         /*
-         * CRITICAL:
+         * Always advance the anchor to the actual payment timestamp
+         * after this calculation.
          *
-         * Advance the interest calculation timestamp ONLY after
-         * calculating the current elapsed period.
+         * This guarantees:
          *
-         * This gives us:
+         * First payment:
+         * 10 Aug 20:58 -> 10 Aug 21:00 = 1 day minimum
          *
-         * 09 Aug 10:00 -> 09 Aug 10:01 = 1 day
+         * Second payment:
+         * 10 Aug 21:00 -> 10 Aug 21:05 = 0 new days
          *
-         * Then:
+         * Third payment:
+         * 11 Aug 21:05 -> 1 new calendar day
          *
-         * 09 Aug 10:01 -> 09 Aug 10:05 = 0 new days
-         *
-         * Then:
-         *
-         * 09 Aug 10:05 -> 10 Aug 10:05 = 1 new day
-         *
-         * Therefore no calendar day is charged twice.
+         * No calendar day is charged twice.
          */
-        if (newlyAccruedInterest.compareTo(ZERO) > 0
-                || installment.getInterestCalculationDate() == null) {
-
-            installment.setInterestCalculationDate(
-                    now
-            );
-        } else if (installment.getInterestCalculationDate() != null
-                && elapsedDays > 0) {
-
-            installment.setInterestCalculationDate(
-                    now
-            );
-        }
+        installment.setInterestCalculationDate(
+                now
+        );
 
         installment.setPaid(
                 cycleCompleted
@@ -1209,12 +1267,6 @@ public class PaymentService {
 
         } else {
 
-            /*
-             * CRITICAL:
-             *
-             * The loan remains active/overdue when interest is still
-             * outstanding, even if principal has reached zero.
-             */
             loan.setStatus(
                     isLate
                             ? LoanStatus.OVERDUE
@@ -1295,10 +1347,14 @@ public class PaymentService {
                         + newlyAccruedInterest
                         + ", total cycle interest: "
                         + totalCycleInterestDue
-                        + ", interest paid: "
+                        + ", interest paid this payment: "
                         + interestPaidThisPayment
-                        + ", principal paid: "
+                        + ", total interest paid: "
+                        + totalInterestPaid
+                        + ", principal paid this payment: "
                         + principalPaidThisPayment
+                        + ", total principal paid: "
+                        + totalPrincipalPaid
                         + ", penalty days: "
                         + daysLate
                         + ", penalty paid: "
@@ -1461,6 +1517,11 @@ public class PaymentService {
             );
 
             paymentWebhook.put(
+                    "totalInterestPaid",
+                    totalInterestPaid
+            );
+
+            paymentWebhook.put(
                     "penaltyPaid",
                     penaltyPaidThisPayment
             );
@@ -1478,11 +1539,6 @@ public class PaymentService {
             paymentWebhook.put(
                     "dailyPenaltyRate",
                     dailyPenaltyRate
-            );
-
-            paymentWebhook.put(
-                    "totalInterestPaid",
-                    totalInterestPaid
             );
 
             paymentWebhook.put(
@@ -1635,7 +1691,10 @@ public class PaymentService {
                         "interestDays={}, dailyRate={}, " +
                         "newlyAccruedInterest={}, " +
                         "totalCycleInterest={}, " +
-                        "interestPaid={}, principalPaid={}, " +
+                        "interestPaidThisPayment={}, " +
+                        "totalInterestPaid={}, " +
+                        "principalPaidThisPayment={}, " +
+                        "totalPrincipalPaid={}, " +
                         "penaltyPaid={}, penaltyDays={}, " +
                         "overpayment={}, outstandingBalance={}, " +
                         "cycleCompleted={}, loanStatus={}",
@@ -1650,7 +1709,9 @@ public class PaymentService {
                 newlyAccruedInterest,
                 totalCycleInterestDue,
                 interestPaidThisPayment,
+                totalInterestPaid,
                 principalPaidThisPayment,
+                totalPrincipalPaid,
                 penaltyPaidThisPayment,
                 daysLate,
                 overpayment,
@@ -2014,25 +2075,25 @@ public class PaymentService {
         }
 
         /*
-         * IMPORTANT:
+         * Calendar-day calculation:
          *
-         * We intentionally use calendar dates rather than elapsed
-         * 24-hour periods.
+         * FIRST payment:
          *
-         * Therefore:
+         * 10 Aug 20:58 -> 10 Aug 21:00
+         * calendarDays = 0
+         * first payment minimum = 1 day
          *
-         * 09 Aug 10:00 -> 09 Aug 10:01
-         * = 0 calendar days
+         * SECOND payment:
          *
-         * But the FIRST calculation has a mandatory minimum of 1 day.
+         * 10 Aug 21:00 -> 10 Aug 21:05
+         * calendarDays = 0
+         * new interest = 0 days
          *
-         * After that:
+         * NEXT DAY:
          *
-         * 09 Aug 10:01 -> 09 Aug 10:05
-         * = 0 new days
-         *
-         * 09 Aug 10:05 -> 10 Aug 10:05
-         * = 1 new day
+         * 10 Aug 21:05 -> 11 Aug 21:05
+         * calendarDays = 1
+         * new interest = 1 day
          */
 
         long calendarDays =
@@ -2041,13 +2102,6 @@ public class PaymentService {
                         now.toLocalDate()
                 );
 
-        /*
-         * Only the initial interest calculation receives the mandatory
-         * minimum one-day charge.
-         *
-         * Subsequent payments on the same calendar day receive ZERO
-         * additional interest days.
-         */
         long effectiveDays;
 
         if (firstInterestCalculation
@@ -2225,17 +2279,6 @@ public class PaymentService {
             return ZERO;
         }
 
-        /*
-         * IMPORTANT:
-         *
-         * Do NOT force subsequent calculations to one day.
-         *
-         * The first calculation is already handled by
-         * calculateActualInterestDays().
-         *
-         * A second payment on the same calendar day must therefore
-         * receive ZERO new interest.
-         */
         if (elapsedDays <= 0) {
 
             log.info(
