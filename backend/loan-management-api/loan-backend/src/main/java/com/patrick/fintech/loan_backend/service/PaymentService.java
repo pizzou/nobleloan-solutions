@@ -1689,9 +1689,9 @@ public class PaymentService {
     // FIRST INTEREST CALCULATION
     // ================================================================
 
-    private boolean isFirstInterestCalculation(
-            List<Payment> payments
-    ) {
+   public boolean isFirstInterestCalculation(
+        List<Payment> payments
+) {
 
         if (payments == null || payments.isEmpty()) {
             return true;
