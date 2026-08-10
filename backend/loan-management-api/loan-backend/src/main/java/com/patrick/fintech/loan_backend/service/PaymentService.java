@@ -187,7 +187,7 @@ public class PaymentService {
                 LocalDateTime.now();
 
         // ============================================================
-        // LOAD COMPLETE PAYMENT HISTORY
+        // COMPLETE PAYMENT HISTORY
         // ============================================================
 
         List<Payment> loanPayments =
@@ -199,25 +199,13 @@ public class PaymentService {
 
         // ============================================================
         // FIRST INTEREST CALCULATION
-        //
-        // IMPORTANT:
-        //
-        // This is based on whether ACTUAL MONEY has previously been
-        // recorded against any payment row.
-        //
-        // Scheduled interest/principal values do NOT make this false.
         // ============================================================
 
         boolean firstInterestCalculation =
                 isFirstInterestCalculation(loanPayments);
 
         // ============================================================
-        // FIND GLOBAL INTEREST ANCHOR
-        //
-        // We search the entire loan payment history.
-        //
-        // This prevents a new installment from resetting the
-        // interest clock.
+        // GLOBAL INTEREST ANCHOR
         // ============================================================
 
         LocalDateTime previousInterestCalculationDate =
@@ -240,9 +228,7 @@ public class PaymentService {
         );
 
         // ============================================================
-        // FIND CURRENT OPEN PAYMENT CYCLE
-        //
-        // A partially paid installment is preferred.
+        // FIND CURRENT PARTIALLY PAID INSTALLMENT
         // ============================================================
 
         Optional<Payment> existingCurrentCycle =
@@ -291,7 +277,7 @@ public class PaymentService {
         Payment installment;
 
         // ============================================================
-        // SELECT PAYMENT RECORD
+        // SELECT PAYMENT ROW
         // ============================================================
 
         if (existingCurrentCycle.isPresent()) {
@@ -412,21 +398,21 @@ public class PaymentService {
         /*
          * IMPORTANT:
          *
-         * DO NOT use installment.getInterestComponentDecimal()
-         * as "interest already paid".
+         * DO NOT use installment.interestComponent as the amount of
+         * interest already paid in the CURRENT cycle.
          *
-         * That field may contain the scheduled installment interest,
-         * for example 500,000.
+         * interestComponent may contain cumulative interest associated
+         * with this payment row.
          *
-         * The actual unpaid/paid cycle interest is tracked by:
+         * The current-cycle state is represented by:
          *
-         *     cycleInterestDue
-         *     cycleInterestRemaining
+         * cycleInterestDue
+         * cycleInterestRemaining
          *
-         * Therefore actual interest already satisfied is calculated
-         * from those two fields.
+         * Therefore current-cycle interest already paid is:
+         *
+         * cycleInterestDue - cycleInterestRemaining
          */
-
         BigDecimal existingCycleInterestDue =
                 roundMoney(
                         safe(
@@ -441,35 +427,6 @@ public class PaymentService {
                         )
                 ).max(ZERO);
 
-        /*
-         * If a legacy or previously saved row contains a due amount
-         * but has no remaining value yet, the whole due amount is
-         * considered unpaid.
-         */
-        if (existingCycleInterestDue.compareTo(ZERO) > 0
-                && existingCycleInterestRemaining.compareTo(ZERO) == 0
-                && amountPaidSoFar.compareTo(ZERO) == 0) {
-
-            existingCycleInterestRemaining =
-                    existingCycleInterestDue;
-        }
-
-        /*
-         * Actual interest already paid in THIS cycle.
-         *
-         * Example:
-         *
-         * cycleInterestDue      = 16,666.67
-         * cycleInterestRemaining = 0
-         *
-         * actual interest paid = 16,666.67
-         *
-         * This is fundamentally different from:
-         *
-         * installment.interestComponent = 500,000
-         *
-         * which may simply be the scheduled installment component.
-         */
         BigDecimal interestAlreadyPaidThisCycle =
                 roundMoney(
                         existingCycleInterestDue
@@ -479,9 +436,13 @@ public class PaymentService {
                                 .max(ZERO)
                 );
 
-        // ============================================================
-        // PENALTY
-        // ============================================================
+        /*
+         * If a row is genuinely new and both fields are zero,
+         * current-cycle interest paid is zero.
+         *
+         * NEVER inherit installment.getInterestComponentDecimal()
+         * here.
+         */
 
         BigDecimal penaltyAssessed =
                 roundMoney(
@@ -490,17 +451,6 @@ public class PaymentService {
                         )
                 ).max(ZERO);
 
-        /*
-         * Payment rows currently do not have a separate
-         * "penalty paid" field.
-         *
-         * We therefore derive the already-paid penalty from the
-         * amount allocation only when a remaining cycle penalty
-         * exists through the stored penalty state.
-         *
-         * For a new penalty calculation, the outstanding penalty
-         * is calculated below.
-         */
         BigDecimal penaltyAlreadyPaid =
                 ZERO;
 
@@ -523,7 +473,7 @@ public class PaymentService {
                 ).max(ZERO);
 
         // ============================================================
-        // INTEREST CONFIGURATION
+        // INTEREST RATE
         // ============================================================
 
         BigDecimal dailyRate =
@@ -587,7 +537,7 @@ public class PaymentService {
         }
 
         // ============================================================
-        // NEW INTEREST DAYS
+        // INTEREST DAYS
         // ============================================================
 
         long elapsedDays =
@@ -600,7 +550,7 @@ public class PaymentService {
                 );
 
         // ============================================================
-        // NEWLY ACCRUED INTEREST
+        // NEW INTEREST
         // ============================================================
 
         BigDecimal newlyAccruedInterest =
@@ -611,17 +561,16 @@ public class PaymentService {
                 );
 
         // ============================================================
-        // TOTAL CYCLE INTEREST
+        // CURRENT CYCLE INTEREST
         // ============================================================
 
         /*
-         * The cycle interest obligation consists of:
+         * The current cycle begins with whatever unpaid interest
+         * belongs to THIS payment row.
          *
-         *     previously established cycle interest
-         *     +
-         *     newly accrued interest
+         * Previous cycle interest is NOT copied into this value.
          *
-         * We NEVER use scheduled interestComponent here.
+         * New elapsed interest is then added.
          */
 
         BigDecimal totalCycleInterestDue =
@@ -630,35 +579,33 @@ public class PaymentService {
                                 .add(
                                         newlyAccruedInterest
                                 )
-        );
+                );
 
         /*
-         * Never reduce an already established obligation.
-         *
-         * Example:
-         *
-         * Existing due      = 16,666.67
-         * Existing remaining = 6,666.67
-         * New interest       = 0
-         *
-         * Total due remains  = 16,666.67
+         * The minimum obligation must preserve interest already
+         * established inside this SAME cycle.
          */
-        if (existingCycleInterestDue.compareTo(ZERO) > 0
-                && totalCycleInterestDue.compareTo(
-                        existingCycleInterestDue
-                ) < 0) {
+        BigDecimal minimumCurrentCycleObligation =
+                roundMoney(
+                        interestAlreadyPaidThisCycle
+                                .add(
+                                        existingCycleInterestRemaining
+                                )
+                );
+
+        if (minimumCurrentCycleObligation.compareTo(
+                totalCycleInterestDue
+        ) > 0) {
 
             totalCycleInterestDue =
-                    existingCycleInterestDue;
+                    minimumCurrentCycleObligation;
         }
 
         totalCycleInterestDue =
-                roundMoney(
-                        totalCycleInterestDue
-                );
+                roundMoney(totalCycleInterestDue);
 
         // ============================================================
-        // INTEREST REMAINING BEFORE PAYMENT
+        // CURRENT CYCLE INTEREST REMAINING
         // ============================================================
 
         BigDecimal remainingInterestBeforePayment =
@@ -667,18 +614,15 @@ public class PaymentService {
                                 .subtract(
                                         interestAlreadyPaidThisCycle
                                 )
-                                .max(
-                                        ZERO
-                                )
+                                .max(ZERO)
                 );
 
         /*
-         * Preserve an existing positive remaining amount.
+         * Never lose previously unpaid current-cycle interest.
          */
-        if (existingCycleInterestRemaining.compareTo(ZERO) > 0
-                && remainingInterestBeforePayment.compareTo(
-                        existingCycleInterestRemaining
-                ) < 0) {
+        if (existingCycleInterestRemaining.compareTo(
+                remainingInterestBeforePayment
+        ) > 0) {
 
             remainingInterestBeforePayment =
                     existingCycleInterestRemaining;
@@ -690,7 +634,7 @@ public class PaymentService {
                 );
 
         // ============================================================
-        // PENALTY CALCULATION
+        // PENALTY
         // ============================================================
 
         BigDecimal monthlyPenaltyRate =
@@ -737,27 +681,18 @@ public class PaymentService {
                                 .subtract(
                                         penaltyAlreadyPaid
                                 )
-                                .max(
-                                        ZERO
-                                )
+                                .max(ZERO)
                 );
 
         // ============================================================
         // PAYMENT ALLOCATION
-        //
-        // ORDER:
-        //
-        // 1. Penalty
-        // 2. Interest
-        // 3. Principal
-        // 4. Overpayment
         // ============================================================
 
         BigDecimal paymentRemaining =
                 amount;
 
         // ============================================================
-        // 1. PENALTY
+        // 1. PENALTY FIRST
         // ============================================================
 
         BigDecimal penaltyPaidThisPayment =
@@ -773,13 +708,11 @@ public class PaymentService {
                                 .subtract(
                                         penaltyPaidThisPayment
                                 )
-                                .max(
-                                        ZERO
-                                )
+                                .max(ZERO)
                 );
 
         // ============================================================
-        // 2. INTEREST
+        // 2. INTEREST SECOND
         // ============================================================
 
         BigDecimal interestPaidThisPayment =
@@ -795,13 +728,11 @@ public class PaymentService {
                                 .subtract(
                                         interestPaidThisPayment
                                 )
-                                .max(
-                                        ZERO
-                                )
+                                .max(ZERO)
                 );
 
         // ============================================================
-        // 3. PRINCIPAL
+        // 3. PRINCIPAL THIRD
         // ============================================================
 
         BigDecimal principalPaidThisPayment =
@@ -817,9 +748,7 @@ public class PaymentService {
                                 .subtract(
                                         principalPaidThisPayment
                                 )
-                                .max(
-                                        ZERO
-                                )
+                                .max(ZERO)
                 );
 
         // ============================================================
@@ -828,9 +757,7 @@ public class PaymentService {
 
         BigDecimal overpayment =
                 roundMoney(
-                        paymentRemaining.max(
-                                ZERO
-                        )
+                        paymentRemaining.max(ZERO)
                 );
 
         // ============================================================
@@ -843,37 +770,11 @@ public class PaymentService {
                                 .subtract(
                                         principalPaidThisPayment
                                 )
-                                .max(
-                                        ZERO
-                                )
+                                .max(ZERO)
                 );
 
         // ============================================================
-        // ACTUAL PAID INTEREST AFTER THIS PAYMENT
-        // ============================================================
-
-        BigDecimal totalInterestPaid =
-                roundMoney(
-                        interestAlreadyPaidThisCycle
-                                .add(
-                                        interestPaidThisPayment
-                                )
-                );
-
-        // ============================================================
-        // ACTUAL PAID PRINCIPAL
-        //
-        // IMPORTANT:
-        //
-        // principalComponent may contain scheduled principal in
-        // some legacy schedule rows.
-        //
-        // Therefore, when determining actual principal paid,
-        // use amountPaid allocation history only where possible.
-        //
-        // For an installment that is being used for actual payment
-        // collection, the stored principalComponent is maintained
-        // as actual principal paid by this service.
+        // CURRENT PAYMENT ROW COMPONENTS
         // ============================================================
 
         BigDecimal existingPrincipalPaid =
@@ -884,18 +785,6 @@ public class PaymentService {
                         )
                 ).max(ZERO);
 
-        /*
-         * Protect against scheduled principal values being treated
-         * as actual cash allocation.
-         *
-         * If the row has no actual payment yet, its principal
-         * component should be zero. If legacy data contains a
-         * scheduled value, do not let it reduce the loan twice.
-         */
-        if (amountPaidSoFar.compareTo(ZERO) <= 0) {
-            existingPrincipalPaid = ZERO;
-        }
-
         BigDecimal totalPrincipalPaid =
                 roundMoney(
                         existingPrincipalPaid
@@ -904,56 +793,63 @@ public class PaymentService {
                                 )
                 );
 
+        /*
+         * interestComponent is the cumulative interest component
+         * recorded on THIS payment row.
+         *
+         * We intentionally update it from its existing value.
+         *
+         * It is NOT used to determine current-cycle interest owed.
+         */
+        BigDecimal existingInterestComponent =
+                roundMoney(
+                        safe(
+                                installment
+                                        .getInterestComponentDecimal()
+                        )
+                ).max(ZERO);
+
+        BigDecimal totalInterestPaid =
+                roundMoney(
+                        existingInterestComponent
+                                .add(
+                                        interestPaidThisPayment
+                                )
+                );
+
         // ============================================================
-        // INTEREST REMAINING AFTER PAYMENT
+        // CURRENT CYCLE REMAINING AFTER PAYMENT
         // ============================================================
 
         BigDecimal remainingInterestAfterPayment =
                 roundMoney(
                         totalCycleInterestDue
                                 .subtract(
-                                        totalInterestPaid
+                                        interestAlreadyPaidThisCycle
+                                                .add(
+                                                        interestPaidThisPayment
+                                                )
                                 )
-                                .max(
-                                        ZERO
-                                )
+                                .max(ZERO)
                 );
 
         // ============================================================
-        // PENALTY REMAINING AFTER PAYMENT
-        // ============================================================
-
-        BigDecimal remainingPenaltyAfterPayment =
-                roundMoney(
-                        penaltyRemainingBeforePayment
-                                .subtract(
-                                        penaltyPaidThisPayment
-                                )
-                                .max(
-                                        ZERO
-                                )
-                );
-
-        // ============================================================
-        // COMPLETION FLAGS
+        // COMPLETION
         // ============================================================
 
         boolean penaltyCovered =
-                remainingPenaltyAfterPayment
-                        .compareTo(
-                                ONE_CENT
-                        ) <= 0;
+                penaltyRemainingBeforePayment
+                        .subtract(
+                                penaltyPaidThisPayment
+                        )
+                        .compareTo(ONE_CENT) <= 0;
 
         boolean interestCovered =
                 remainingInterestAfterPayment
-                        .compareTo(
-                                ONE_CENT
-                        ) <= 0;
+                        .compareTo(ONE_CENT) <= 0;
 
         boolean principalCovered =
-                newBalance.compareTo(
-                        ONE_CENT
-                ) <= 0;
+                newBalance.compareTo(ONE_CENT) <= 0;
 
         boolean scheduledAmountCovered =
                 isScheduledInstallmentCovered(
@@ -1017,12 +913,16 @@ public class PaymentService {
                     "Loan principal is fully covered but penalty remains. " +
                             "loanId={}, remainingPenalty={}",
                     loanId,
-                    remainingPenaltyAfterPayment
+                    penaltyRemainingBeforePayment
+                            .subtract(
+                                    penaltyPaidThisPayment
+                            )
+                            .max(ZERO)
             );
         }
 
         // ============================================================
-        // UPDATE PAYMENT RECORD
+        // UPDATE PAYMENT ROW
         // ============================================================
 
         BigDecimal newAmountPaid =
@@ -1037,22 +937,10 @@ public class PaymentService {
                 newAmountPaid
         );
 
-        /*
-         * IMPORTANT:
-         *
-         * interestComponent now represents ACTUAL INTEREST PAID,
-         * not the scheduled interest amount.
-         *
-         * This prevents the old 500,000 scheduled interest from being
-         * interpreted as already paid.
-         */
         installment.setInterestComponent(
                 totalInterestPaid
         );
 
-        /*
-         * principalComponent represents ACTUAL PRINCIPAL PAID.
-         */
         installment.setPrincipalComponent(
                 totalPrincipalPaid
         );
@@ -1065,10 +953,20 @@ public class PaymentService {
                 newBalance
         );
 
+        /*
+         * IMPORTANT:
+         *
+         * cycleInterestDue is the total interest obligation for
+         * THIS cycle.
+         */
         installment.setCycleInterestDue(
                 totalCycleInterestDue
         );
 
+        /*
+         * cycleInterestRemaining is what is still unpaid for
+         * THIS cycle.
+         */
         installment.setCycleInterestRemaining(
                 remainingInterestAfterPayment
         );
@@ -1116,26 +1014,27 @@ public class PaymentService {
         );
 
         // ============================================================
-        // CRITICAL INTEREST ANCHOR
-        //
-        // ALWAYS move the anchor to this payment timestamp.
-        //
-        // Example:
-        //
-        // 10 Aug 10:00 -> 10 Aug 10:01
-        // first payment = 1 day
-        //
-        // anchor = 10 Aug 10:01
-        //
-        // 10 Aug 10:01 -> 10 Aug 10:05
-        // = 0 new days
-        //
-        // anchor = 10 Aug 10:05
-        //
-        // 10 Aug 10:05 -> 11 Aug 10:05
-        // = 1 new day
+        // INTEREST ANCHOR
         // ============================================================
 
+        /*
+         * ALWAYS move the interest anchor to this payment timestamp.
+         *
+         * Example:
+         *
+         * 10 Aug 10:00 -> 10 Aug 10:01
+         * first payment = 1 day
+         *
+         * anchor = 10 Aug 10:01
+         *
+         * 10 Aug 10:01 -> 10 Aug 10:05
+         * = 0 days
+         *
+         * anchor = 10 Aug 10:05
+         *
+         * 10 Aug 10:05 -> 11 Aug 10:05
+         * = 1 day
+         */
         installment.setInterestCalculationDate(
                 now
         );
@@ -1151,9 +1050,7 @@ public class PaymentService {
         );
 
         if (installment.getPaymentReference() == null
-                || installment
-                .getPaymentReference()
-                .isBlank()) {
+                || installment.getPaymentReference().isBlank()) {
 
             installment.setPaymentReference(
                     generateRef(loan)
@@ -1211,16 +1108,6 @@ public class PaymentService {
 
         // ============================================================
         // UPDATE LOAN TOTAL PAID
-        //
-        // ALWAYS ADD THE FULL CASH PAYMENT.
-        //
-        // Example:
-        //
-        // payment 1 = 1,000,000
-        // payment 2 = 1,000,000
-        // payment 3 = 1,000,000
-        //
-        // totalPaid = 3,000,000
         // ============================================================
 
         BigDecimal oldTotalPaid =
@@ -1238,6 +1125,13 @@ public class PaymentService {
                                 )
                 );
 
+        /*
+         * CRITICAL:
+         *
+         * totalPaid increases by the FULL cash payment.
+         *
+         * It is NOT principalPaidThisPayment.
+         */
         loan.setTotalPaid(
                 newTotalPaid
         );
@@ -1343,26 +1237,25 @@ public class PaymentService {
 
         // ============================================================
         // ACCOUNTING
-        //
-        // VERY IMPORTANT:
-        //
-        // amount = FULL CASH RECEIVED
-        //
-        // NOT principalPaidThisPayment.
-        //
-        // Therefore:
-        //
-        // Payment = 1,000,000
-        // Interest = 16,666.67
-        // Principal = 983,333.33
-        //
-        // Accounting cash = 1,000,000
-        //
-        // Three payments of 1,000,000:
-        //
-        // Accounting cash = 3,000,000
         // ============================================================
 
+        /*
+         * CRITICAL ACCOUNTING RULE:
+         *
+         * The accounting service receives the FULL CASH PAYMENT.
+         *
+         * Example:
+         *
+         * Cash received = 1,000,000
+         * Interest      =    16,666.67
+         * Principal     =   983,333.33
+         *
+         * Accounting cash receipt is STILL:
+         *
+         * 1,000,000
+         *
+         * Never pass principalPaidThisPayment as the cash amount.
+         */
         accountingService.postPaymentReceived(
                 installment,
                 amount,
@@ -1402,26 +1295,22 @@ public class PaymentService {
                         + dailyRate
                         + ", newly accrued interest: "
                         + newlyAccruedInterest
-                        + ", cycle interest due: "
+                        + ", current cycle interest due: "
                         + totalCycleInterestDue
-                        + ", interest already paid this cycle: "
+                        + ", current cycle interest already paid: "
                         + interestAlreadyPaidThisCycle
                         + ", interest paid this payment: "
                         + interestPaidThisPayment
-                        + ", total interest paid: "
-                        + totalInterestPaid
-                        + ", principal paid this payment: "
+                        + ", remaining cycle interest: "
+                        + remainingInterestAfterPayment
+                        + ", principal paid: "
                         + principalPaidThisPayment
-                        + ", total principal paid: "
-                        + totalPrincipalPaid
                         + ", penalty days: "
                         + daysLate
                         + ", penalty paid: "
                         + penaltyPaidThisPayment
                         + ", total penalty: "
                         + totalPenalty
-                        + ", remaining interest: "
-                        + remainingInterestAfterPayment
                         + ", outstanding principal: "
                         + newBalance
                         + ", overpayment: "
@@ -1560,9 +1449,6 @@ public class PaymentService {
                 );
             }
 
-            /*
-             * amount is ALWAYS the full cash amount.
-             */
             paymentWebhook.put(
                     "amount",
                     amount
@@ -1606,6 +1492,11 @@ public class PaymentService {
             paymentWebhook.put(
                     "totalInterestDue",
                     totalCycleInterestDue
+            );
+
+            paymentWebhook.put(
+                    "currentCycleInterestAlreadyPaid",
+                    interestAlreadyPaidThisCycle
             );
 
             paymentWebhook.put(
@@ -1789,10 +1680,11 @@ public class PaymentService {
 
     // ================================================================
     // FIRST INTEREST CALCULATION
-    //
-    // PUBLIC because PaymentServiceTest calls this method directly.
     // ================================================================
 
+    /*
+     * PUBLIC because PaymentServiceTest calls this method directly.
+     */
     public boolean isFirstInterestCalculation(
             List<Payment> payments
     ) {
@@ -1812,13 +1704,6 @@ public class PaymentService {
                             payment.getAmountPaidDecimal()
                     );
 
-            /*
-             * Actual cash paid determines whether interest calculation
-             * has already occurred.
-             *
-             * Scheduled amount, scheduled principal, or scheduled
-             * interest do not count.
-             */
             if (amountPaid.compareTo(
                     BigDecimal.ZERO
             ) > 0) {
@@ -2161,21 +2046,21 @@ public class PaymentService {
         }
 
         /*
-         * CALENDAR-DAY LOGIC
+         * EXACT BUSINESS RULE:
          *
          * First payment:
          *
-         * 10 Aug 10:00 -> 10 Aug 10:01
+         * 09 Aug 10:00 -> 09 Aug 10:01
          * = 1 day
          *
-         * Second payment:
+         * Same-day subsequent payment:
          *
-         * 10 Aug 10:01 -> 10 Aug 10:05
+         * 09 Aug 10:01 -> 09 Aug 10:05
          * = 0 days
          *
-         * Next day:
+         * Next calendar day:
          *
-         * 10 Aug 10:05 -> 11 Aug 10:05
+         * 09 Aug 10:05 -> 10 Aug 10:05
          * = 1 day
          */
 
@@ -2271,7 +2156,7 @@ public class PaymentService {
         }
 
         // ============================================================
-        // MONTHLY -> DAILY
+        // MONTHLY
         // ============================================================
 
         if ("MONTHLY".equalsIgnoreCase(
@@ -2292,7 +2177,7 @@ public class PaymentService {
         }
 
         // ============================================================
-        // ANNUAL -> DAILY
+        // ANNUAL
         // ============================================================
 
         if ("ANNUAL".equalsIgnoreCase(
