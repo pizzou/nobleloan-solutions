@@ -2294,12 +2294,7 @@ public class PublicController {
                         )
                 );
 
-        /*
-         * Persist the successful response against the idempotency key so
-         * browser retries return the original application result instead
-         * of creating another loan. The surrounding transaction commits
-         * this record together with the loan application.
-         */
+        
         idempotencyService.recordSuccess(
                 idempotencyKey,
                 org,
