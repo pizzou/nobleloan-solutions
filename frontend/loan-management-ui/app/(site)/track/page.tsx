@@ -968,14 +968,14 @@ export default function TrackPage() {
             </div>
 
             <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-[1.05]">
-              Your loan,
+              Noble by name, 
               <span
                 className="block"
                 style={{
                   color: accent,
                 }}
               >
-                always within reach.
+                honest by nature.
               </span>
             </h1>
 
