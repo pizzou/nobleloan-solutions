@@ -1,6 +1,6 @@
+
 'use client';
 
-import Image from 'next/image';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -14,14 +14,13 @@ import ForcedPasswordChange from '@/components/ForcedPasswordChange';
    NOBLE LOAN SOLUTIONS BRAND
    ============================================================ */
 
-const BRAND = {
-  navy: '#0B1F3A',
-  navyLight: '#16365F',
-  navyDark: '#07152A',
-  yellow: '#F4C430',
-  yellowLight: '#FFF9DB',
-  yellowDark: '#C99A00',
-};
+const NAVY = '#0B1F3A';
+const NAVY_LIGHT = '#16365F';
+const NAVY_DARK = '#07152A';
+
+const YELLOW = '#F4C430';
+const YELLOW_LIGHT = '#FFF9DB';
+const YELLOW_DARK = '#C99A00';
 
 /* ============================================================
    AUTH HEADER
@@ -32,7 +31,7 @@ const authHeader = (): Record<string, string> => {
     return {};
   }
 
-  const token = window.localStorage.getItem('token');
+  const token = localStorage.getItem('token');
 
   if (!token) {
     return {};
@@ -42,144 +41,6 @@ const authHeader = (): Record<string, string> => {
     Authorization: `Bearer ${token}`,
   };
 };
-
-/* ============================================================
-   PREMIUM BRAND MARK
-   ============================================================ */
-
-function BrandMark({
-  size = 40,
-  priority = false,
-}: {
-  size?: number;
-  priority?: boolean;
-}) {
-  return (
-    <Image
-      src="/favIcon.png"
-      alt="Noble Loan Solutions"
-      width={size}
-      height={size}
-      priority={priority}
-      unoptimized
-      className="block object-contain"
-    />
-  );
-}
-
-/* ============================================================
-   LOADING SCREEN
-   ============================================================ */
-
-function DashboardLoading() {
-  return (
-    <main
-      className="
-        flex
-        min-h-screen
-        items-center
-        justify-center
-        bg-[#F4F7FB]
-        px-6
-      "
-      aria-label="Loading Noble Loan Solutions"
-      aria-busy="true"
-    >
-      <div className="flex w-full max-w-sm flex-col items-center">
-
-        {/* Premium logo */}
-
-        <div
-          className="
-            relative
-            flex
-            h-20
-            w-20
-            items-center
-            justify-center
-            rounded-2xl
-            border
-            border-[#DCE4EF]
-            bg-white
-            p-3
-            shadow-[0_12px_35px_rgba(11,31,58,0.10)]
-          "
-        >
-          <BrandMark
-            size={56}
-            priority
-          />
-
-          <span
-            className="
-              absolute
-              -bottom-1
-              -right-1
-              h-4
-              w-4
-              rounded-full
-              border-[3px]
-              border-white
-              bg-[#F4C430]
-              shadow-sm
-            "
-            aria-hidden="true"
-          />
-        </div>
-
-        {/* Loading indicator */}
-
-        <div
-          className="
-            relative
-            mt-7
-            h-9
-            w-9
-          "
-          aria-hidden="true"
-        >
-          <div
-            className="
-              absolute
-              inset-0
-              rounded-full
-              border-[3px]
-              border-[#E3EAF3]
-            "
-          />
-
-          <div
-            className="
-              absolute
-              inset-0
-              animate-spin
-              rounded-full
-              border-[3px]
-              border-transparent
-              border-t-[#0B1F3A]
-              border-r-[#F4C430]
-            "
-          />
-        </div>
-
-        {/* Loading message */}
-
-        <div className="mt-5 text-center">
-
-          <p className="text-sm font-bold text-[#0B1F3A]">
-            Loading Noble Loan Solutions
-          </p>
-
-          <p className="mt-1 text-xs text-gray-500">
-            Preparing your financial workspace…
-          </p>
-
-        </div>
-
-      </div>
-    </main>
-  );
-}
 
 /* ============================================================
    DASHBOARD LAYOUT
@@ -194,33 +55,95 @@ export default function DashboardLayout({
   const router = useRouter();
 
   /* ==========================================================
-     AUTHENTICATION REDIRECT
+     AUTHENTICATION CHECK
      ========================================================== */
 
   useEffect(() => {
-    if (auth.loading) {
-      return;
-    }
-
-    if (!auth.user) {
+    if (!auth.loading && !auth.user) {
       router.replace('/login');
     }
-  }, [
-    auth.loading,
-    auth.user,
-    router,
-  ]);
+  }, [auth.loading, auth.user, router]);
 
   /* ==========================================================
-     LOADING
+     LOADING SCREEN
      ========================================================== */
 
   if (auth.loading) {
-    return <DashboardLoading />;
+    return (
+      <div className="min-h-screen bg-[#F4F7FB] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+
+          {/* Noble logo */}
+
+          <div className="relative">
+            <div
+              className="
+                flex
+                h-14
+                w-14
+                items-center
+                justify-center
+                rounded-2xl
+                bg-[#0B1F3A]
+                shadow-lg
+              "
+            >
+              <span className="text-xl font-extrabold text-[#F4C430]">
+                N
+              </span>
+            </div>
+
+            <span
+              className="
+                absolute
+                -bottom-1
+                -right-1
+                h-4
+                w-4
+                rounded-full
+                border-2
+                border-white
+                bg-[#F4C430]
+              "
+            />
+          </div>
+
+          {/* Loading spinner */}
+
+          <div className="relative h-10 w-10">
+            <div className="absolute inset-0 rounded-full border-4 border-[#E3EAF3]" />
+
+            <div
+              className="
+                absolute
+                inset-0
+                animate-spin
+                rounded-full
+                border-4
+                border-transparent
+                border-t-[#0B1F3A]
+                border-r-[#F4C430]
+              "
+            />
+          </div>
+
+          <div className="text-center">
+            <p className="text-sm font-bold text-[#0B1F3A]">
+              Loading Noble Loan Solutions
+            </p>
+
+            <p className="mt-1 text-xs text-gray-500">
+              Preparing your financial workspace…
+            </p>
+          </div>
+
+        </div>
+      </div>
+    );
   }
 
   /* ==========================================================
-     NOT AUTHENTICATED
+     USER NOT AUTHENTICATED
      ========================================================== */
 
   if (!auth.user) {
@@ -234,15 +157,11 @@ export default function DashboardLayout({
   if (auth.mustChangePassword) {
     return (
       <AuthContext.Provider value={auth}>
-
-        <main className="min-h-screen bg-[#F4F7FB]">
-
+        <div className="min-h-screen bg-[#F4F7FB]">
           <ForcedPasswordChange />
-
-        </main>
+        </div>
 
         <ToastContainer />
-
       </AuthContext.Provider>
     );
   }
@@ -253,16 +172,9 @@ export default function DashboardLayout({
 
   return (
     <AuthContext.Provider value={auth}>
-
       <OfflineProvider authHeader={authHeader} />
 
-      <div
-        className="
-          min-h-screen
-          bg-[#F4F7FB]
-          text-gray-900
-        "
-      >
+      <div className="min-h-screen bg-[#F4F7FB] text-gray-900">
 
         <div className="flex min-h-screen">
 
@@ -270,34 +182,15 @@ export default function DashboardLayout({
               SIDEBAR
               ================================================== */}
 
-          <aside
-            className="
-              fixed
-              bottom-0
-              left-0
-              top-0
-              z-40
-              w-64
-            "
-            aria-label="Primary navigation"
-          >
+          <aside className="fixed left-0 top-0 bottom-0 z-40 w-64">
             <Sidebar />
           </aside>
 
           {/* ==================================================
-              APPLICATION AREA
+              RIGHT APPLICATION AREA
               ================================================== */}
 
-          <div
-            className="
-              flex
-              min-h-screen
-              min-w-0
-              flex-1
-              flex-col
-              pl-64
-            "
-          >
+          <div className="flex min-h-screen flex-1 flex-col pl-64">
 
             {/* =================================================
                 TOP NAVIGATION
@@ -315,60 +208,37 @@ export default function DashboardLayout({
                 backdrop-blur-xl
               "
             >
-
-              <div
-                className="
-                  flex
-                  h-full
-                  items-center
-                  justify-between
-                  gap-4
-                  px-5
-                  sm:px-7
-                "
-              >
+              <div className="flex h-full items-center justify-between px-7">
 
                 {/* =================================================
-                    BRAND
+                    LEFT SIDE
                     ================================================= */}
 
-                <div
-                  className="
-                    flex
-                    min-w-0
-                    items-center
-                    gap-3
-                  "
-                >
+                <div className="flex items-center gap-4">
 
-                  {/* Premium favicon / brand mark */}
+                  {/* Noble Loan Solutions Logo */}
 
                   <div
                     className="
                       flex
                       h-10
                       w-10
-                      shrink-0
                       items-center
                       justify-center
                       rounded-xl
-                      border
-                      border-[#DCE4EF]
-                      bg-white
-                      p-1.5
+                      bg-[#0B1F3A]
                       shadow-sm
                     "
                   >
-                    <BrandMark size={32} />
+                    <span className="text-base font-extrabold text-[#F4C430]">
+                      N
+                    </span>
                   </div>
 
-                  {/* Brand text */}
-
-                  <div className="min-w-0">
+                  <div>
 
                     <p
                       className="
-                        truncate
                         text-[11px]
                         font-extrabold
                         uppercase
@@ -379,14 +249,7 @@ export default function DashboardLayout({
                       Noble Loan Solutions
                     </p>
 
-                    <h2
-                      className="
-                        truncate
-                        text-sm
-                        font-bold
-                        text-[#0B1F3A]
-                      "
-                    >
+                    <h2 className="text-sm font-bold text-[#0B1F3A]">
                       Loan Management Platform
                     </h2>
 
@@ -398,15 +261,7 @@ export default function DashboardLayout({
                     RIGHT SIDE
                     ================================================= */}
 
-                <div
-                  className="
-                    flex
-                    shrink-0
-                    items-center
-                    gap-2
-                    sm:gap-3
-                  "
-                >
+                <div className="flex items-center gap-3">
 
                   {/* =================================================
                       SYSTEM STATUS
@@ -425,19 +280,9 @@ export default function DashboardLayout({
                       py-1.5
                       sm:flex
                     "
-                    role="status"
-                    aria-label="System online"
                   >
 
-                    <span
-                      className="
-                        relative
-                        flex
-                        h-2
-                        w-2
-                      "
-                      aria-hidden="true"
-                    >
+                    <span className="relative flex h-2 w-2">
 
                       <span
                         className="
@@ -465,13 +310,7 @@ export default function DashboardLayout({
 
                     </span>
 
-                    <span
-                      className="
-                        text-xs
-                        font-semibold
-                        text-[#806200]
-                      "
-                    >
+                    <span className="text-xs font-semibold text-[#806200]">
                       System Online
                     </span>
 
@@ -496,30 +335,16 @@ export default function DashboardLayout({
                       border-[#DCE4EF]
                       bg-white
                       text-gray-500
-                      shadow-sm
                       transition
-                      duration-200
                       hover:border-[#C7D5E5]
                       hover:bg-[#EEF3F9]
                       hover:text-[#0B1F3A]
-                      focus:outline-none
-                      focus:ring-2
-                      focus:ring-[#F4C430]/40
-                      focus:ring-offset-2
                     "
                   >
 
-                    <span
-                      className="
-                        text-base
-                        leading-none
-                      "
-                      aria-hidden="true"
-                    >
+                    <span className="text-lg">
                       🔔
                     </span>
-
-                    {/* Notification indicator */}
 
                     <span
                       className="
@@ -533,7 +358,6 @@ export default function DashboardLayout({
                         border-white
                         bg-[#F4C430]
                       "
-                      aria-hidden="true"
                     />
 
                   </button>
@@ -549,48 +373,34 @@ export default function DashboardLayout({
                       gap-3
                       border-l
                       border-[#DCE4EF]
-                      pl-3
-                      sm:pl-4
+                      pl-4
                     "
                   >
 
-                    {/* Organization information */}
+                    {/* Organization name */}
 
-                    <div
-                      className="
-                        hidden
-                        max-w-[240px]
-                        text-right
-                        sm:block
-                      "
-                    >
+                    <div className="hidden text-right sm:block">
 
-                      <p
-                        className="
-                          truncate
-                          text-sm
-                          font-bold
-                          text-[#0B1F3A]
-                        "
-                      >
+                      <p className="text-sm font-bold text-[#0B1F3A]">
                         {auth.user.organizationName ||
                           'Noble Loan Solutions'}
                       </p>
 
-                      <p
-                        className="
-                          truncate
-                          text-[11px]
-                          font-medium
-                          text-gray-500
-                        "
-                      >
+                      <p className="text-[11px] font-medium text-gray-500">
                         Financial Management Workspace
                       </p>
 
                     </div>
 
-                    {/* Premium avatar */}
+                    {/* =================================================
+                        NOBLE LOAN SOLUTIONS AVATAR
+                        
+                        OLD:
+                        GF
+
+                        NEW:
+                        NL
+                        ================================================= */}
 
                     <div
                       className="
@@ -598,28 +408,25 @@ export default function DashboardLayout({
                         flex
                         h-10
                         w-10
-                        shrink-0
                         items-center
                         justify-center
-                        overflow-hidden
                         rounded-xl
-                        border
-                        border-[#DCE4EF]
-                        bg-white
-                        p-1.5
+                        bg-[#0B1F3A]
+                        text-xs
+                        font-extrabold
+                        text-[#F4C430]
                         shadow-sm
                       "
                     >
-
-                      <BrandMark size={30} />
+                      NL
 
                       {/* Online indicator */}
 
                       <span
                         className="
                           absolute
-                          bottom-[-1px]
-                          right-[-1px]
+                          -bottom-0.5
+                          -right-0.5
                           h-3
                           w-3
                           rounded-full
@@ -627,7 +434,6 @@ export default function DashboardLayout({
                           border-white
                           bg-[#F4C430]
                         "
-                        aria-label="Online"
                       />
 
                     </div>
@@ -637,29 +443,22 @@ export default function DashboardLayout({
                 </div>
 
               </div>
-
             </header>
 
             {/* =================================================
                 MAIN CONTENT
                 ================================================= */}
 
-            <main
-              className="
-                min-w-0
-                flex-1
-              "
-            >
+            <main className="flex-1">
 
               <div
                 className="
                   mx-auto
                   w-full
                   max-w-[1800px]
-                  px-4
-                  py-5
-                  sm:px-6
-                  sm:py-6
+                  px-5
+                  py-6
+                  sm:px-7
                   lg:px-8
                   lg:py-7
                 "
@@ -678,9 +477,8 @@ export default function DashboardLayout({
                 border-t
                 border-[#DCE4EF]
                 bg-white/80
-                px-5
+                px-7
                 py-4
-                sm:px-7
               "
             >
 
@@ -691,11 +489,9 @@ export default function DashboardLayout({
                   items-center
                   justify-between
                   gap-2
-                  text-center
                   text-[11px]
                   text-gray-400
                   sm:flex-row
-                  sm:text-left
                 "
               >
 
@@ -704,27 +500,13 @@ export default function DashboardLayout({
                   All rights reserved.
                 </p>
 
-                <div
-                  className="
-                    flex
-                    items-center
-                    gap-2
-                  "
-                >
+                <div className="flex items-center gap-2">
 
                   <span>
                     Secure Financial Platform
                   </span>
 
-                  <span
-                    className="
-                      h-1
-                      w-1
-                      rounded-full
-                      bg-[#F4C430]
-                    "
-                    aria-hidden="true"
-                  />
+                  <span className="h-1 w-1 rounded-full bg-[#F4C430]" />
 
                   <span>
                     Loan Management System
@@ -742,12 +524,7 @@ export default function DashboardLayout({
 
       </div>
 
-      {/* ======================================================
-          GLOBAL TOASTS
-          ====================================================== */}
-
       <ToastContainer />
-
     </AuthContext.Provider>
   );
 }

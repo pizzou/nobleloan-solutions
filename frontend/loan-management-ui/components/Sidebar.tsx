@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -293,25 +294,38 @@ export default function Sidebar() {
       return;
     }
 
-    const load = () => {
-      getUnreadCount()
-        .then((response) => {
-          setUnread(
-            Number(response?.count || 0)
-          );
-        })
-        .catch(() => {});
+    let active = true;
+
+    const load = async () => {
+      try {
+        const response = await getUnreadCount();
+
+        if (!active) {
+          return;
+        }
+
+        setUnread(
+          Number(response?.count || 0)
+        );
+      } catch {
+        /*
+         * Notification polling failure should not
+         * break the dashboard navigation.
+         */
+      }
     };
 
     load();
 
-    const interval = setInterval(
+    const interval = window.setInterval(
       load,
       30000
     );
 
-    return () =>
-      clearInterval(interval);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
   }, [user]);
 
   /* ==========================================================
@@ -323,26 +337,39 @@ export default function Sidebar() {
       return;
     }
 
-    const load = () => {
-      contactMessageApi
-        .unreadCount()
-        .then((response: any) => {
-          setUnreadMessages(
-            Number(response?.count || 0)
-          );
-        })
-        .catch(() => {});
+    let active = true;
+
+    const load = async () => {
+      try {
+        const response =
+          await contactMessageApi.unreadCount();
+
+        if (!active) {
+          return;
+        }
+
+        setUnreadMessages(
+          Number(response?.count || 0)
+        );
+      } catch {
+        /*
+         * Message polling failure should not
+         * break the dashboard navigation.
+         */
+      }
     };
 
     load();
 
-    const interval = setInterval(
+    const interval = window.setInterval(
       load,
       30000
     );
 
-    return () =>
-      clearInterval(interval);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
   }, [user]);
 
   /* ==========================================================
@@ -388,9 +415,9 @@ export default function Sidebar() {
         min-h-screen
         w-64
         flex-col
-        bg-[#07152A]
         border-r
         border-white/5
+        bg-[#07152A]
       "
     >
 
@@ -410,27 +437,52 @@ export default function Sidebar() {
         "
       >
 
-        {/* Noble Logo */}
+        {/* ====================================================
+            PREMIUM FAVICON / BRAND MARK
+
+            Uses:
+              /public/favIcon.png
+
+            Browser path:
+              /favIcon.png
+            ==================================================== */}
 
         <div
           className="
+            relative
             flex
-            h-9
-            w-9
+            h-10
+            w-10
+            shrink-0
             items-center
             justify-center
-            rounded-lg
-            bg-[#0B1F3A]
-            text-base
-            font-extrabold
-            text-[#F4C430]
-            shadow-sm
+            overflow-hidden
+            rounded-xl
+            border
+            border-[#F4C430]/30
+            bg-white
+            shadow-[0_4px_16px_rgba(0,0,0,0.25)]
             ring-1
-            ring-[#F4C430]/20
+            ring-white/10
           "
         >
-          N
+          <Image
+            src="/favIcon.png"
+            alt="Noble Loan Solutions"
+            width={40}
+            height={40}
+            priority
+            className="
+              h-full
+              w-full
+              object-contain
+            "
+          />
         </div>
+
+        {/* ====================================================
+            BRAND NAME
+            ==================================================== */}
 
         <div
           className="
@@ -450,8 +502,6 @@ export default function Sidebar() {
           >
             Noble Loan Solutions
           </div>
-
-          {/* Small gold brand accent only */}
 
           <div
             className="
@@ -576,25 +626,31 @@ export default function Sidebar() {
                       <Link
                         key={item.href}
                         href={item.href}
+                        aria-current={
+                          active
+                            ? 'page'
+                            : undefined
+                        }
                         className={`
                           mb-0.5
                           flex
                           items-center
                           gap-2.5
                           rounded-lg
+                          border-l-2
                           px-3
                           py-2
                           text-sm
                           font-medium
                           transition-all
-                          border-l-2
+                          duration-150
 
                           ${
                             active
                               ? `
+                                border-white
                                 bg-white/10
                                 text-white
-                                border-white
                                 shadow-sm
                               `
                               : `
@@ -610,6 +666,7 @@ export default function Sidebar() {
                         {/* ICON */}
 
                         <span
+                          aria-hidden="true"
                           className="
                             w-5
                             text-center
@@ -631,6 +688,7 @@ export default function Sidebar() {
                           '/dashboard/notifications' &&
                           unread > 0 && (
                             <span
+                              aria-label={`${unread} unread notifications`}
                               className="
                                 flex
                                 h-[18px]
@@ -659,6 +717,7 @@ export default function Sidebar() {
                           '/dashboard/messages' &&
                           unreadMessages > 0 && (
                             <span
+                              aria-label={`${unreadMessages} unread messages`}
                               className="
                                 flex
                                 h-[18px]
@@ -706,6 +765,10 @@ export default function Sidebar() {
                   !previous
               )
             }
+            aria-expanded={
+              regulatoryOpen
+            }
+            aria-controls="regulatory-navigation"
             className={`
               mb-0.5
               flex
@@ -713,19 +776,20 @@ export default function Sidebar() {
               items-center
               gap-2.5
               rounded-lg
+              border-l-2
               px-3
               py-2
               text-sm
               font-medium
               transition-all
-              border-l-2
+              duration-150
 
               ${
                 isRegulatoryRoute
                   ? `
+                    border-white
                     bg-white/10
                     text-white
-                    border-white
                   `
                   : `
                     border-transparent
@@ -740,6 +804,7 @@ export default function Sidebar() {
             {/* ICON */}
 
             <span
+              aria-hidden="true"
               className="
                 w-5
                 text-center
@@ -763,6 +828,7 @@ export default function Sidebar() {
             {/* ARROW */}
 
             <span
+              aria-hidden="true"
               className={`
                 text-[10px]
                 text-gray-400
@@ -785,6 +851,7 @@ export default function Sidebar() {
 
           {regulatoryOpen && (
             <div
+              id="regulatory-navigation"
               className="
                 ml-4
                 space-y-0.5
@@ -806,25 +873,31 @@ export default function Sidebar() {
                     <Link
                       key={item.href}
                       href={item.href}
+                      aria-current={
+                        active
+                          ? 'page'
+                          : undefined
+                      }
                       className={`
                         group
                         flex
                         items-center
                         gap-2.5
                         rounded-lg
+                        border-l-2
                         px-3
                         py-2
                         text-sm
                         transition-all
-                        border-l-2
+                        duration-150
 
                         ${
                           active
                             ? `
+                              border-white
                               bg-white/10
                               font-semibold
                               text-white
-                              border-white
                             `
                             : `
                               border-transparent
@@ -839,6 +912,7 @@ export default function Sidebar() {
                       {/* CHILD ICON */}
 
                       <span
+                        aria-hidden="true"
                         className="
                           w-5
                           text-center
@@ -858,6 +932,7 @@ export default function Sidebar() {
 
                       {active && (
                         <span
+                          aria-hidden="true"
                           className="
                             h-1.5
                             w-1.5
@@ -892,19 +967,26 @@ export default function Sidebar() {
         "
       >
 
-        <div
+        <button
+          type="button"
+          onClick={handleLogout}
           className="
             flex
-            cursor-pointer
+            w-full
             items-center
             gap-2.5
             rounded-lg
             px-3
             py-2
+            text-left
             transition-colors
             hover:bg-white/5
+            focus:outline-none
+            focus-visible:ring-2
+            focus-visible:ring-[#F4C430]
+            focus-visible:ring-offset-2
+            focus-visible:ring-offset-[#07152A]
           "
-          onClick={handleLogout}
         >
 
           {/* AVATAR */}
@@ -919,14 +1001,14 @@ export default function Sidebar() {
               justify-center
               rounded-full
               bg-[#0B1F3A]
-              ring-1
-              ring-white/10
               text-sm
               font-bold
               text-white
+              ring-1
+              ring-white/10
             "
           >
-            {user?.name?.[0] ?? 'U'}
+            {user?.name?.[0]?.toUpperCase() ?? 'U'}
           </div>
 
           {/* USER */}
@@ -946,7 +1028,7 @@ export default function Sidebar() {
                 text-white
               "
             >
-              {user?.name}
+              {user?.name || 'User'}
             </div>
 
             <div
@@ -963,6 +1045,7 @@ export default function Sidebar() {
           {/* LOGOUT ICON */}
 
           <span
+            aria-hidden="true"
             className="
               text-xs
               text-gray-500
@@ -971,7 +1054,7 @@ export default function Sidebar() {
             →
           </span>
 
-        </div>
+        </button>
 
       </div>
 
