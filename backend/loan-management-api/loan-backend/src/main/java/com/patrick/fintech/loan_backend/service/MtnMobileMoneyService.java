@@ -6,19 +6,14 @@ import com.patrick.fintech.loan_backend.model.Payment;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentTransactionRepository;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import jakarta.annotation.PostConstruct;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.reactive.function.client.WebClient;
 
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -29,8 +24,7 @@ import java.util.concurrent.TimeUnit;
 public class MtnMobileMoneyService {
 
     private static final String MTN_PROVIDER = "MTN_MOMO";
-
-    private final WebClient.Builder webClientBuilder;
+    private static final String PAYMENT_METHOD = "MOBILE_MONEY";
 
     private final PaymentService paymentService;
     private final LoanRepository loanRepo;
@@ -43,67 +37,96 @@ public class MtnMobileMoneyService {
     @Value("${mtn.momo.enabled:false}")
     private boolean enabled;
 
+    /*
+     * IMPORTANT:
+     *
+     * For your current testing, this MUST remain true.
+     *
+     * When true:
+     * - NO MTN API is called
+     * - NO access token is requested
+     * - NO MTN credentials are required
+     * - payment is simulated
+     * - webhook processing is tested internally
+     */
     @Value("${mtn.momo.sandbox:true}")
     private boolean sandbox;
-
-    @Value("${mtn.momo.base-url:https://sandbox.momodeveloper.mtn.com}")
-    private String baseUrl;
-
-    @Value("${mtn.momo.subscription-key:}")
-    private String subscriptionKey;
-
-    @Value("${mtn.momo.api-user:}")
-    private String apiUser;
-
-    @Value("${mtn.momo.api-key:}")
-    private String apiKey;
-
-    @Value("${mtn.momo.environment:sandbox}")
-    private String environment;
 
     @Value("${mtn.momo.currency:RWF}")
     private String configuredCurrency;
 
-    @Value("${app.environment:development}")
-    private String applicationEnvironment;
-
-    /**
-     * Delay used only for the local MTN sandbox simulation before the
-     * simulated asynchronous webhook is delivered.
-     */
     @Value("${mtn.momo.simulation-delay-ms:1500}")
     private long simulationDelayMs;
 
+    @Value("${app.environment:development}")
+    private String applicationEnvironment;
+
+    // ============================================================
+    // STARTUP VALIDATION
+    // ============================================================
+
     @PostConstruct
-    private void validateProductionMode() {
-        if (isProductionEnvironment() && sandbox) {
-            throw new IllegalStateException(
-                    "MTN Mobile Money sandbox mode cannot be enabled in production."
+    private void validateConfiguration() {
+
+        log.info(
+                "[MTN MOMO] Configuration: enabled={}, sandbox={}, " +
+                "currency={}, environment={}, simulationDelayMs={}",
+                enabled,
+                sandbox,
+                configuredCurrency,
+                applicationEnvironment,
+                simulationDelayMs
+        );
+
+        /*
+         * This service is currently intended for sandbox testing.
+         *
+         * We deliberately do NOT require:
+         * - subscription key
+         * - API user
+         * - API key
+         * - access token
+         *
+         * because no real MTN API is being used.
+         */
+
+        if (sandbox) {
+
+            log.info(
+                    "[MTN MOMO] SANDBOX SIMULATION MODE ENABLED. " +
+                    "No real MTN API calls will be made."
             );
         }
     }
 
-    /**
-     * Returns whether MTN Mobile Money can be presented as an available
-     * payment option. Local sandbox mode is allowed only outside production.
-     */
+    // ============================================================
+    // AVAILABILITY
+    // ============================================================
+
     public boolean isAvailable() {
+
         if (!enabled) {
             return false;
         }
 
+        /*
+         * Sandbox simulation is always available when enabled.
+         */
         if (sandbox) {
             return true;
         }
 
-        return isConfigured();
+        /*
+         * Real MTN integration is deliberately disabled in this
+         * version because you do not have a real MTN API integration.
+         */
+        return false;
     }
 
     // ============================================================
     // INITIATE PAYMENT
     // ============================================================
 
-   
     public PaymentGatewayResponse initiate(
             Long loanId,
             PaymentGatewayRequest request,
@@ -113,7 +136,7 @@ public class MtnMobileMoneyService {
     ) {
 
         // ========================================================
-        // BASIC VALIDATION
+        // VALIDATION
         // ========================================================
 
         if (loanId == null) {
@@ -150,7 +173,7 @@ public class MtnMobileMoneyService {
         }
 
         // ========================================================
-        // VERIFY LOAN EXISTS
+        // VERIFY LOAN
         // ========================================================
 
         loanRepo.findById(loanId)
@@ -170,7 +193,7 @@ public class MtnMobileMoneyService {
                 );
 
         // ========================================================
-        // PAYMENT CURRENCY
+        // CURRENCY
         // ========================================================
 
         String paymentCurrency =
@@ -180,31 +203,16 @@ public class MtnMobileMoneyService {
                         : configuredCurrency;
 
         // ========================================================
-        // CREATE STABLE TRANSACTION ID
-        // ========================================================
-
-        String transactionId =
-                createSandboxTransactionId(
-                        loanId
-                );
-
-        log.info(
-                "[MTN MOMO] Initiating payment. " +
-                        "loanId={}, amount={}, currency={}, phone={}, " +
-                        "transactionId={}, sandbox={}",
-                loanId,
-                amount,
-                paymentCurrency,
-                maskPhone(phoneNumber),
-                transactionId,
-                sandbox
-        );
-
-        // ========================================================
-        // DISABLED
+        // CHECK ENABLED
         // ========================================================
 
         if (!enabled) {
+
+            log.warn(
+                    "[MTN MOMO] Payment attempted while integration is disabled. " +
+                    "loanId={}",
+                    loanId
+            );
 
             return PaymentGatewayResponse.failed(
                     "MTN Mobile Money integration is disabled",
@@ -213,172 +221,85 @@ public class MtnMobileMoneyService {
         }
 
         // ========================================================
-        // LOCAL SANDBOX
+        // SANDBOX ONLY
         // ========================================================
 
-        if (sandbox) {
+        /*
+         * IMPORTANT:
+         *
+         * This is intentionally BEFORE ANY MTN API logic.
+         *
+         * Your current testing does NOT use:
+         *
+         * POST /collection/token/
+         *
+         * or:
+         *
+         * /collection/v1_0/requesttopay
+         *
+         * Therefore there is no possibility of the application
+         * hanging while waiting for MTN authentication.
+         */
 
-            log.info(
-                    "[MTN SANDBOX] Payment request created. " +
-                            "loanId={}, transactionId={}, amount={}, currency={}. " +
-                            "Scheduling automatic simulated webhook.",
-                    loanId,
-                    transactionId,
-                    amount,
-                    paymentCurrency
-            );
-
-            scheduleAutomaticSandboxWebhook(
-                    loanId,
-                    transactionId,
-                    amount,
-                    paymentCurrency
-            );
-
-            return PaymentGatewayResponse.pending(
-                    "MTN Mobile Money sandbox payment created. " +
-                            "A simulated customer confirmation will be processed automatically.",
-                    transactionId,
-                    MTN_PROVIDER
-            );
-        }
-
-        // ========================================================
-        // REAL MTN CONFIGURATION
-        // ========================================================
-
-        if (!isConfigured()) {
+        if (!sandbox) {
 
             log.error(
-                    "[MTN MOMO] Production integration enabled " +
-                            "but credentials are missing."
+                    "[MTN MOMO] Real MTN integration was requested, " +
+                    "but this application is configured for sandbox-only testing. " +
+                    "No real MTN API is available."
             );
 
             return PaymentGatewayResponse.failed(
-                    "MTN Mobile Money credentials are not configured",
+                    "MTN sandbox simulation must be enabled for testing",
                     MTN_PROVIDER
             );
         }
 
         // ========================================================
-        // REAL MTN REQUEST
+        // CREATE TRANSACTION ID
         // ========================================================
 
-        try {
+        String transactionId =
+                createSandboxTransactionId(loanId);
 
-            String referenceId =
-                    UUID.randomUUID().toString();
+        log.info(
+                "[MTN SANDBOX] Public payment received. " +
+                "loanId={}, amount={}, currency={}, phone={}, " +
+                "transactionId={}",
+                loanId,
+                amount,
+                paymentCurrency,
+                maskPhone(phoneNumber),
+                transactionId
+        );
 
-            String accessToken =
-                    getAccessToken();
+        // ========================================================
+        // SIMULATED WEBHOOK
+        // ========================================================
 
-            if (accessToken == null
-                    || accessToken.isBlank()) {
+        scheduleAutomaticSandboxWebhook(
+                loanId,
+                transactionId,
+                amount,
+                paymentCurrency
+        );
 
-                return PaymentGatewayResponse.failed(
-                        "Unable to authenticate with MTN Mobile Money",
-                        MTN_PROVIDER
-                );
-            }
+        // ========================================================
+        // RETURN IMMEDIATELY
+        // ========================================================
 
-            String externalId =
-                    externalReference(loanId);
-
-            MtnRequestBody body =
-                    new MtnRequestBody(
-                            amount.toString(),
-                            paymentCurrency,
-                            externalId,
-                            new MtnPayer(
-                                    phoneNumber,
-                                    "msisdn"
-                            ),
-                            description != null
-                                    && !description.isBlank()
-                                    ? description
-                                    : "Loan repayment"
-                    );
-
-            var response =
-                    webClientBuilder
-                            .baseUrl(baseUrl)
-                            .build()
-                            .post()
-                            .uri(
-                                    "/collection/v1_0/requesttopay"
-                            )
-                            .contentType(
-                                    MediaType.APPLICATION_JSON
-                            )
-                            .header(
-                                    "Authorization",
-                                    "Bearer " + accessToken
-                            )
-                            .header(
-                                    "X-Reference-Id",
-                                    referenceId
-                            )
-                            .header(
-                                    "X-Target-Environment",
-                                    environment
-                            )
-                            .header(
-                                    "Ocp-Apim-Subscription-Key",
-                                    subscriptionKey
-                            )
-                            .bodyValue(body)
-                            .retrieve()
-                            .toBodilessEntity()
-                            .block();
-
-            log.info(
-                    "[MTN MOMO] Request submitted. " +
-                            "HTTP status={}, loanId={}, referenceId={}",
-                    response != null
-                            ? response.getStatusCode().value()
-                            : "unknown",
-                    loanId,
-                    referenceId
-            );
-
-            /*
-             * MTN accepted the request.
-             *
-             * It is NOT yet a successful payment.
-             *
-             * The payment must only be recorded after MTN
-             * confirms SUCCESSFUL.
-             */
-
-            return PaymentGatewayResponse.pending(
-                    "Payment request sent to MTN Mobile Money. " +
-                            "Please approve the payment on your phone.",
-                    referenceId,
-                    MTN_PROVIDER
-            );
-
-        } catch (Exception e) {
-
-            log.error(
-                    "[MTN MOMO] Payment initiation failed. " +
-                            "loanId={}: {}",
-                    loanId,
-                    e.getMessage(),
-                    e
-            );
-
-            return PaymentGatewayResponse.failed(
-                    "MTN Mobile Money payment initiation failed",
-                    MTN_PROVIDER
-            );
-        }
+        return PaymentGatewayResponse.pending(
+                "MTN Mobile Money sandbox payment created. " +
+                "Simulated webhook confirmation has been scheduled.",
+                transactionId,
+                MTN_PROVIDER
+        );
     }
 
     // ============================================================
-    // SANDBOX CONFIRMATION
+    // MANUAL SANDBOX CONFIRMATION
     // ============================================================
 
-   
     @Transactional
     public PaymentGatewayResponse simulateConfirmation(
             Long loanId,
@@ -390,10 +311,19 @@ public class MtnMobileMoneyService {
         if (!sandbox) {
 
             return PaymentGatewayResponse.failed(
-                    "Sandbox simulation is disabled",
+                    "MTN sandbox simulation is disabled",
                     MTN_PROVIDER
             );
         }
+
+        log.info(
+                "[MTN SANDBOX] Manual webhook simulation requested. " +
+                "loanId={}, transactionId={}, amount={}, currency={}",
+                loanId,
+                transactionId,
+                amount,
+                currency
+        );
 
         return processWebhookConfirmation(
                 loanId,
@@ -403,85 +333,109 @@ public class MtnMobileMoneyService {
         );
     }
 
-    /**
-     * Delivers the local sandbox callback asynchronously through the same
-     * processWebhookConfirmation() boundary used by the real MTN callback.
-     * No payment is recorded at initiation time.
-     */
+    // ============================================================
+    // AUTOMATIC SANDBOX WEBHOOK
+    // ============================================================
+
     private void scheduleAutomaticSandboxWebhook(
             Long loanId,
             String transactionId,
             Double amount,
             String currency
     ) {
-        long delay = Math.max(0L, simulationDelayMs);
 
-       CompletableFuture.runAsync(
-        () -> {
-            try {
-                log.info(
-                        "[MTN SANDBOX WEBHOOK] Delivering simulated SUCCESSFUL callback. " +
-                                "loanId={}, transactionId={}, amount={}, currency={}",
-                        loanId,
-                        transactionId,
-                        amount,
-                        currency
+        long delay =
+                Math.max(
+                        0L,
+                        simulationDelayMs
                 );
 
-                PaymentGatewayResponse response =
-                        processWebhookConfirmation(
+        CompletableFuture.runAsync(
+                () -> {
+
+                    try {
+
+                        log.info(
+                                "[MTN SANDBOX WEBHOOK] " +
+                                "Simulating successful MTN callback. " +
+                                "loanId={}, transactionId={}, amount={}, currency={}",
                                 loanId,
                                 transactionId,
                                 amount,
                                 currency
                         );
 
-                if (response == null ||
-                        !"success".equalsIgnoreCase(response.getStatus())) {
+                        PaymentGatewayResponse response =
+                                processWebhookConfirmation(
+                                        loanId,
+                                        transactionId,
+                                        amount,
+                                        currency
+                                );
 
-                    log.error(
-                            "[MTN SANDBOX WEBHOOK] Simulated callback was not processed successfully. " +
-                                    "loanId={}, transactionId={}, responseStatus={}, message={}",
-                            loanId,
-                            transactionId,
-                            response != null ? response.getStatus() : null,
-                            response != null ? response.getMessage() : null
-                    );
+                        if (response == null) {
 
-                    return;
-                }
+                            log.error(
+                                    "[MTN SANDBOX WEBHOOK] " +
+                                    "Webhook returned null response. " +
+                                    "loanId={}, transactionId={}",
+                                    loanId,
+                                    transactionId
+                            );
 
-                log.info(
-                        "[MTN SANDBOX WEBHOOK] Simulated callback processed successfully. " +
+                            return;
+                        }
+
+                        if (!"success".equalsIgnoreCase(
+                                response.getStatus()
+                        )) {
+
+                            log.error(
+                                    "[MTN SANDBOX WEBHOOK] " +
+                                    "Webhook processing failed. " +
+                                    "loanId={}, transactionId={}, " +
+                                    "status={}, message={}",
+                                    loanId,
+                                    transactionId,
+                                    response.getStatus(),
+                                    response.getMessage()
+                            );
+
+                            return;
+                        }
+
+                        log.info(
+                                "[MTN SANDBOX WEBHOOK] " +
+                                "Webhook processed successfully. " +
                                 "loanId={}, transactionId={}, amount={}",
-                        loanId,
-                        transactionId,
-                        amount
-                );
+                                loanId,
+                                transactionId,
+                                amount
+                        );
 
-            } catch (Exception e) {
+                    } catch (Exception e) {
 
-                log.error(
-                        "[MTN SANDBOX WEBHOOK] Automatic simulated callback failed. " +
+                        log.error(
+                                "[MTN SANDBOX WEBHOOK] " +
+                                "Webhook processing threw an exception. " +
                                 "loanId={}, transactionId={}",
-                        loanId,
-                        transactionId,
-                        e
-                );
-            }
-        },
-        CompletableFuture.delayedExecutor(
-                delay,
-                TimeUnit.MILLISECONDS
-        )
-);
+                                loanId,
+                                transactionId,
+                                e
+                        );
+                    }
+                },
+                CompletableFuture.delayedExecutor(
+                        delay,
+                        TimeUnit.MILLISECONDS
+                )
+        );
     }
 
     // ============================================================
     // CONFIRM PAYMENT
     // ============================================================
 
-   
     @Transactional
     public PaymentGatewayResponse confirmPayment(
             Long loanId,
@@ -532,6 +486,10 @@ public class MtnMobileMoneyService {
                                 )
                         );
 
+        // ========================================================
+        // VERIFY ORGANIZATION
+        // ========================================================
+
         if (loan.getOrganization() == null
                 || loan.getOrganization().getId() == null) {
 
@@ -541,8 +499,11 @@ public class MtnMobileMoneyService {
             );
         }
 
+        Long organizationId =
+                loan.getOrganization().getId();
+
         // ========================================================
-        // NORMALIZE TRANSACTION ID
+        // NORMALIZE TRANSACTION
         // ========================================================
 
         String normalizedTransactionId =
@@ -559,32 +520,44 @@ public class MtnMobileMoneyService {
                         : configuredCurrency;
 
         // ========================================================
-        // IDEMPOTENT CALLBACK CHECK
+        // IDEMPOTENCY
         // ========================================================
-        // MTN can retry the same callback. The payment_transactions table
-        // has a unique constraint on (organization_id, transaction_reference).
-        // Return the existing result instead of posting the payment again.
+
+        /*
+         * A webhook can arrive more than once.
+         *
+         * The same transaction must NEVER create two payments.
+         */
+
         var existingTransaction =
                 paymentTransactionRepo
                         .findByOrganization_IdAndTransactionReference(
-                                loan.getOrganization().getId(),
+                                organizationId,
                                 normalizedTransactionId
                         )
                         .orElse(null);
 
         if (existingTransaction != null) {
-            if (Boolean.TRUE.equals(existingTransaction.getReversed())) {
+
+            if (Boolean.TRUE.equals(
+                    existingTransaction.getReversed()
+            )) {
+
                 return PaymentGatewayResponse.failed(
                         "MTN transaction has already been reversed",
                         MTN_PROVIDER
                 );
             }
 
-            if (existingTransaction.getLoan() == null ||
-                    !loanId.equals(existingTransaction.getLoan().getId())) {
+            if (existingTransaction.getLoan() == null
+                    || !loanId.equals(
+                    existingTransaction.getLoan().getId()
+            )) {
+
                 log.error(
-                        "[MTN MOMO] Transaction reference belongs to another loan. " +
-                                "loanId={}, transactionId={}, existingLoanId={}",
+                        "[MTN SANDBOX] Transaction reference belongs " +
+                        "to another loan. loanId={}, transactionId={}, " +
+                        "existingLoanId={}",
                         loanId,
                         normalizedTransactionId,
                         existingTransaction.getLoan() != null
@@ -604,8 +577,10 @@ public class MtnMobileMoneyService {
                             : BigDecimal.ZERO;
 
             log.info(
-                    "[MTN MOMO] Duplicate callback ignored; payment already recorded. " +
-                            "loanId={}, transactionId={}, paymentTransactionId={}, amount={}",
+                    "[MTN SANDBOX] Duplicate webhook ignored. " +
+                    "Payment already exists. " +
+                    "loanId={}, transactionId={}, " +
+                    "paymentTransactionId={}, amount={}",
                     loanId,
                     normalizedTransactionId,
                     existingTransaction.getId(),
@@ -617,48 +592,28 @@ public class MtnMobileMoneyService {
                     normalizedTransactionId,
                     existingAmount.doubleValue(),
                     paymentCurrency,
-                    "MOBILE_MONEY",
+                    PAYMENT_METHOD,
                     MTN_PROVIDER
             );
         }
 
         // ========================================================
-        // VERIFY REAL MTN PAYMENT
+        // SANDBOX CONFIRMATION
         // ========================================================
 
         if (!sandbox) {
 
-            boolean verified =
-                    verify(
-                            normalizedTransactionId
-                    );
-
-            if (!verified) {
-
-                log.warn(
-                        "[MTN MOMO] Payment confirmation rejected. " +
-                                "loanId={}, transactionId={}, source={}",
-                        loanId,
-                        normalizedTransactionId,
-                        confirmationSource
-                );
-
-                return PaymentGatewayResponse.failed(
-                        "MTN Mobile Money transaction has not been confirmed as successful",
-                        MTN_PROVIDER
-                );
-            }
+            return PaymentGatewayResponse.failed(
+                    "Real MTN API verification is not configured. " +
+                    "Enable MTN sandbox simulation for testing.",
+                    MTN_PROVIDER
+            );
         }
 
-        // ========================================================
-        // PREVENT DOUBLE PROCESSING
-        // ========================================================
-
-
         log.info(
-                "[MTN MOMO] Confirming payment. " +
-                        "loanId={}, transactionId={}, amount={}, " +
-                        "currency={}, source={}",
+                "[MTN SANDBOX] Processing simulated webhook. " +
+                "loanId={}, transactionId={}, amount={}, " +
+                "currency={}, source={}",
                 loanId,
                 normalizedTransactionId,
                 amount,
@@ -667,7 +622,7 @@ public class MtnMobileMoneyService {
         );
 
         // ========================================================
-        // RECORD PAYMENT EXACTLY ONCE
+        // RECORD PAYMENT
         // ========================================================
 
         Payment payment;
@@ -678,10 +633,10 @@ public class MtnMobileMoneyService {
                     paymentService.recordPayment(
                             loanId,
                             BigDecimal.valueOf(amount),
-                            "MOBILE_MONEY",
+                            PAYMENT_METHOD,
                             normalizedTransactionId,
-                            "MTN_MOMO",
-                            "Confirmed by MTN Mobile Money. Source="
+                            MTN_PROVIDER,
+                            "MTN sandbox webhook confirmation. Source="
                                     + confirmationSource,
                             (User) null
                     );
@@ -689,8 +644,8 @@ public class MtnMobileMoneyService {
         } catch (Exception e) {
 
             log.error(
-                    "[MTN MOMO] Failed to record confirmed payment. " +
-                            "loanId={}, transactionId={}, amount={}",
+                    "[MTN SANDBOX] Failed to record payment. " +
+                    "loanId={}, transactionId={}, amount={}",
                     loanId,
                     normalizedTransactionId,
                     amount,
@@ -698,7 +653,7 @@ public class MtnMobileMoneyService {
             );
 
             return PaymentGatewayResponse.failed(
-                    "MTN payment was confirmed but could not be recorded against the loan",
+                    "MTN sandbox payment could not be recorded against the loan",
                     MTN_PROVIDER
             );
         }
@@ -708,9 +663,9 @@ public class MtnMobileMoneyService {
         // ========================================================
 
         BigDecimal outstandingBalance =
-        payment.getOutstandingAfterDecimal() != null
-                ? payment.getOutstandingAfterDecimal()
-                : loan.getOutstandingBalanceDecimal();
+                payment.getOutstandingAfterDecimal() != null
+                        ? payment.getOutstandingAfterDecimal()
+                        : loan.getOutstandingBalanceDecimal();
 
         BigDecimal interestPaid =
                 payment.getInterestComponentDecimal();
@@ -719,10 +674,10 @@ public class MtnMobileMoneyService {
                 payment.getPrincipalComponentDecimal();
 
         log.info(
-                "[MTN MOMO] Payment successfully recorded. " +
-                        "loanId={}, paymentId={}, transactionId={}, " +
-                        "amount={}, interestPaid={}, principalPaid={}, " +
-                        "outstandingBalance={}, paymentStatus={}",
+                "[MTN SANDBOX] Payment successfully recorded. " +
+                "loanId={}, paymentId={}, transactionId={}, " +
+                "amount={}, interestPaid={}, principalPaid={}, " +
+                "outstandingBalance={}, paymentStatus={}",
                 loanId,
                 payment.getId(),
                 normalizedTransactionId,
@@ -734,24 +689,23 @@ public class MtnMobileMoneyService {
         );
 
         // ========================================================
-        // SUCCESS RESPONSE
+        // SUCCESS
         // ========================================================
 
         return PaymentGatewayResponse.success(
-                "MTN Mobile Money payment confirmed and recorded against the loan",
+                "MTN Mobile Money sandbox payment confirmed and recorded against the loan",
                 normalizedTransactionId,
                 amount,
                 paymentCurrency,
-                "MOBILE_MONEY",
+                PAYMENT_METHOD,
                 MTN_PROVIDER
         );
     }
 
     // ============================================================
-    // REAL MTN WEBHOOK / CALLBACK PROCESSING
+    // WEBHOOK ENTRY POINT
     // ============================================================
 
-   
     @Transactional
     public PaymentGatewayResponse processWebhookConfirmation(
             Long loanId,
@@ -760,34 +714,39 @@ public class MtnMobileMoneyService {
             String currency
     ) {
 
-        if (sandbox) {
-
-            /*
-             * In sandbox mode this behaves exactly like the
-             * simulated confirmation.
-             */
-            return confirmPayment(
-                    loanId,
-                    transactionId,
-                    amount,
-                    currency,
-                    "MTN_SANDBOX_WEBHOOK"
-            );
-        }
+        log.info(
+                "[MTN WEBHOOK] Callback received. " +
+                "loanId={}, transactionId={}, amount={}, currency={}, sandbox={}",
+                loanId,
+                transactionId,
+                amount,
+                currency,
+                sandbox
+        );
 
         /*
-         * Production MTN callback.
+         * For your current project this always goes through the
+         * sandbox confirmation path.
+         *
+         * This is the same boundary that your PublicController
+         * webhook endpoint can call.
          */
+
         return confirmPayment(
                 loanId,
                 transactionId,
                 amount,
                 currency,
-                "MTN_WEBHOOK"
+                sandbox
+                        ? "MTN_SANDBOX_WEBHOOK"
+                        : "MTN_WEBHOOK"
         );
     }
 
-    
+    // ============================================================
+    // VERIFY
+    // ============================================================
+
     public boolean verify(
             String transactionId
     ) {
@@ -801,198 +760,33 @@ public class MtnMobileMoneyService {
         String normalizedTransactionId =
                 transactionId.trim();
 
-        // ========================================================
-        // SANDBOX
-        // ========================================================
+        /*
+         * Sandbox testing does not contact MTN.
+         */
 
         if (sandbox) {
 
             log.info(
-                    "[MTN SANDBOX] Transaction {} considered verified for testing",
+                    "[MTN SANDBOX] Transaction {} accepted as verified " +
+                    "for sandbox testing.",
                     normalizedTransactionId
             );
 
             return true;
         }
 
-        // ========================================================
-        // PRODUCTION CONFIGURATION
-        // ========================================================
+        /*
+         * There is intentionally no real MTN verification
+         * implementation in this testing service.
+         */
 
-        if (!isConfigured()) {
+        log.warn(
+                "[MTN MOMO] Real MTN verification is not configured. " +
+                "transactionId={}",
+                normalizedTransactionId
+        );
 
-            log.warn(
-                    "[MTN MOMO] Cannot verify transaction because credentials are missing"
-            );
-
-            return false;
-        }
-
-        // ========================================================
-        // VERIFY WITH MTN
-        // ========================================================
-
-        try {
-
-            String accessToken =
-                    getAccessToken();
-
-            if (accessToken == null
-                    || accessToken.isBlank()) {
-
-                return false;
-            }
-
-            Map response =
-                    webClientBuilder
-                            .baseUrl(baseUrl)
-                            .build()
-                            .get()
-                            .uri(
-                                    "/collection/v1_0/requesttopay/{referenceId}",
-                                    normalizedTransactionId
-                            )
-                            .header(
-                                    "Authorization",
-                                    "Bearer " + accessToken
-                            )
-                            .header(
-                                    "X-Target-Environment",
-                                    environment
-                            )
-                            .header(
-                                    "Ocp-Apim-Subscription-Key",
-                                    subscriptionKey
-                            )
-                            .retrieve()
-                            .bodyToMono(
-                                    Map.class
-                            )
-                            .block();
-
-            if (response == null) {
-
-                return false;
-            }
-
-            Object status =
-                    response.get("status");
-
-            boolean successful =
-                    status != null
-                            && "SUCCESSFUL".equalsIgnoreCase(
-                            status.toString()
-                    );
-
-            log.info(
-                    "[MTN MOMO] Transaction verification. " +
-                            "transactionId={}, status={}, successful={}",
-                    normalizedTransactionId,
-                    status,
-                    successful
-            );
-
-            return successful;
-
-        } catch (Exception e) {
-
-            log.error(
-                    "[MTN MOMO] Verification failed. " +
-                            "transactionId={}, error={}",
-                    normalizedTransactionId,
-                    e.getMessage(),
-                    e
-            );
-
-            return false;
-        }
-    }
-
-    // ============================================================
-    // ACCESS TOKEN
-    // ============================================================
-
-    private String getAccessToken() {
-
-        try {
-
-            String credentials =
-                    apiUser + ":" + apiKey;
-
-            String basicAuth =
-                    Base64.getEncoder()
-                            .encodeToString(
-                                    credentials.getBytes(
-                                            StandardCharsets.UTF_8
-                                    )
-                            );
-
-            Map response =
-                    webClientBuilder
-                            .baseUrl(baseUrl)
-                            .build()
-                            .post()
-                            .uri(
-                                    "/collection/token/"
-                            )
-                            .header(
-                                    "Authorization",
-                                    "Basic " + basicAuth
-                            )
-                            .header(
-                                    "Ocp-Apim-Subscription-Key",
-                                    subscriptionKey
-                            )
-                            .contentType(
-                                    MediaType.APPLICATION_FORM_URLENCODED
-                            )
-                            .retrieve()
-                            .bodyToMono(
-                                    Map.class
-                            )
-                            .block();
-
-            if (response == null) {
-
-                return null;
-            }
-
-            Object token =
-                    response.get("access_token");
-
-            return token != null
-                    ? token.toString()
-                    : null;
-
-        } catch (Exception e) {
-
-            log.error(
-                    "[MTN MOMO] Failed to obtain access token: {}",
-                    e.getMessage(),
-                    e
-            );
-
-            return null;
-        }
-    }
-
-    // ============================================================
-    // CONFIGURATION
-    // ============================================================
-
-    private boolean isConfigured() {
-
-        return subscriptionKey != null
-                && !subscriptionKey.isBlank()
-
-                && apiUser != null
-                && !apiUser.isBlank()
-
-                && apiKey != null
-                && !apiKey.isBlank()
-
-                && baseUrl != null
-                && !baseUrl.isBlank();
+        return false;
     }
 
     // ============================================================
@@ -1004,7 +798,6 @@ public class MtnMobileMoneyService {
     ) {
 
         if (phone == null) {
-
             return "";
         }
 
@@ -1060,7 +853,6 @@ public class MtnMobileMoneyService {
     // SANDBOX TRANSACTION ID
     // ============================================================
 
-    
     private String createSandboxTransactionId(
             Long loanId
     ) {
@@ -1075,48 +867,16 @@ public class MtnMobileMoneyService {
     }
 
     // ============================================================
-    // EXTERNAL REFERENCE
+    // ENVIRONMENT
     // ============================================================
-
-    private String externalReference(
-            Long loanId
-    ) {
-
-        return "LOAN-"
-                + loanId
-                + "-"
-                + UUID.randomUUID()
-                .toString()
-                .substring(0, 8)
-                .toUpperCase();
-    }
-
-    // ============================================================
-    // MTN REQUEST DTO
-    // ============================================================
-
-    private record MtnRequestBody(
-            String amount,
-            String currency,
-            String externalId,
-            MtnPayer payer,
-            String payerMessage
-    ) {
-    }
-
-    // ============================================================
-    // MTN PAYER
-    // ============================================================
-
-    private record MtnPayer(
-            String partyId,
-            String partyIdType
-    ) {
-    }
 
     private boolean isProductionEnvironment() {
-        return "production".equalsIgnoreCase(applicationEnvironment)
-                || "prod".equalsIgnoreCase(applicationEnvironment);
-    }
 
+        return "production".equalsIgnoreCase(
+                applicationEnvironment
+        )
+                || "prod".equalsIgnoreCase(
+                applicationEnvironment
+        );
+    }
 }
