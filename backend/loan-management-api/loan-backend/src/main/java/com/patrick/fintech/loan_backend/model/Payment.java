@@ -1,28 +1,69 @@
 package com.patrick.fintech.loan_backend.model;
 
 import java.math.BigDecimal;
-
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import jakarta.persistence.*;
-import lombok.*;
-
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@JsonIgnoreProperties({
+        "hibernateLazyInitializer",
+        "handler"
+})
 @Entity
 @Table(
         name = "payments",
         indexes = {
-                @Index(name = "idx_payment_loan", columnList = "loan_id"),
-                @Index(name = "idx_payment_due", columnList = "due_date"),
-                @Index(name = "idx_payment_paid_date", columnList = "paid_date"),
-                @Index(name = "idx_payment_status", columnList = "status"),
-                @Index(name = "idx_payment_org", columnList = "organization_id"),
-                @Index(name = "idx_payment_transaction", columnList = "transaction_id"),
-                @Index(name = "idx_payment_interest_date", columnList = "interest_calculation_date")
+                @Index(
+                        name = "idx_payment_loan",
+                        columnList = "loan_id"
+                ),
+                @Index(
+                        name = "idx_payment_due",
+                        columnList = "due_date"
+                ),
+                @Index(
+                        name = "idx_payment_paid_date",
+                        columnList = "paid_date"
+                ),
+                @Index(
+                        name = "idx_payment_status",
+                        columnList = "status"
+                ),
+                @Index(
+                        name = "idx_payment_org",
+                        columnList = "organization_id"
+                ),
+                @Index(
+                        name = "idx_payment_transaction",
+                        columnList = "transaction_id"
+                ),
+                @Index(
+                        name = "idx_payment_interest_date",
+                        columnList = "interest_calculation_date"
+                )
         }
 )
 @Data
@@ -31,13 +72,17 @@ import java.time.LocalDateTime;
 @Builder
 public class Payment {
 
+    // ============================================================
+    // ID
+    // ============================================================
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-
-    
+    // ============================================================
+    // REFERENCES
+    // ============================================================
 
     @Column(
             name = "payment_reference",
@@ -46,77 +91,136 @@ public class Payment {
     )
     private String paymentReference;
 
-
-
     @JsonIgnore
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(
+            fetch = FetchType.LAZY,
+            optional = false
+    )
     @JoinColumn(
             name = "loan_id",
             nullable = false
     )
     private Loan loan;
 
-
     @JsonIgnore
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(
+            fetch = FetchType.LAZY,
+            optional = false
+    )
     @JoinColumn(
             name = "organization_id",
             nullable = false
     )
     private Organization organization;
 
-
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "recorded_by")
     private User recordedBy;
 
-
-   
+    // ============================================================
+    // INSTALLMENT
+    // ============================================================
 
     @Column(name = "installment_number")
     private Integer installmentNumber;
 
-    @Column(name = "amount", precision = 19, scale = 6)
+    // ============================================================
+    // FINANCIAL AMOUNTS
+    // ============================================================
+
+    @Column(
+            name = "amount",
+            precision = 19,
+            scale = 6
+    )
     @JsonProperty("amount")
     private BigDecimal amount;
 
-    @Column(name = "principal_component", precision = 19, scale = 6)
+    @Column(
+            name = "principal_component",
+            precision = 19,
+            scale = 6
+    )
     @JsonProperty("principalComponent")
     private BigDecimal principalComponent;
 
-
-    @Column(name = "interest_component", precision = 19, scale = 6)
+    @Column(
+            name = "interest_component",
+            precision = 19,
+            scale = 6
+    )
     @JsonProperty("interestComponent")
     private BigDecimal interestComponent;
 
-    @Column(name = "amount_paid", precision = 19, scale = 6)
+    @Column(
+            name = "amount_paid",
+            precision = 19,
+            scale = 6
+    )
     @JsonProperty("amountPaid")
     private BigDecimal amountPaid;
 
+    // ============================================================
+    // PENALTY
+    // ============================================================
 
-    @Column(name = "penalty", precision = 19, scale = 6)
+    /**
+     * Total penalty assessed for this payment/installment cycle.
+     */
+    @Column(
+            name = "penalty",
+            precision = 19,
+            scale = 6
+    )
     @Builder.Default
     @JsonProperty("penalty")
     private BigDecimal penalty = BigDecimal.ZERO;
 
+    /**
+     * Total penalty already paid for this payment/installment row.
+     *
+     * This field is required by PaymentService so that multiple
+     * payments in the same cycle do not charge the same penalty
+     * repeatedly.
+     */
+    @Column(
+            name = "penalty_paid",
+            precision = 19,
+            scale = 6
+    )
+    @Builder.Default
+    @JsonProperty("penaltyPaid")
+    private BigDecimal penaltyPaid = BigDecimal.ZERO;
 
-    @Column(name = "waived_amount", precision = 19, scale = 6)
+    // ============================================================
+    // OTHER FINANCIAL FIELDS
+    // ============================================================
+
+    @Column(
+            name = "waived_amount",
+            precision = 19,
+            scale = 6
+    )
     @Builder.Default
     @JsonProperty("waivedAmount")
     private BigDecimal waivedAmount = BigDecimal.ZERO;
 
-
-    @Column(name = "outstanding_after", precision = 19, scale = 6)
+    @Column(
+            name = "outstanding_after",
+            precision = 19,
+            scale = 6
+    )
     @JsonProperty("outstandingAfter")
     private BigDecimal outstandingAfter;
 
-
+    // ============================================================
+    // PAYMENT STATUS
+    // ============================================================
 
     @Column(name = "paid")
     @Builder.Default
     private Boolean paid = false;
-
 
     @Enumerated(EnumType.STRING)
     @Column(
@@ -126,38 +230,56 @@ public class Payment {
     @Builder.Default
     private PaymentStatus status = PaymentStatus.PENDING;
 
+    // ============================================================
+    // DATES
+    // ============================================================
 
-    
     @Column(name = "due_date")
     private LocalDate dueDate;
 
     @Column(name = "paid_date")
     private LocalDate paidDate;
 
-
+    /**
+     * This is the timestamp used as the anchor for elapsed
+     * calendar-day interest calculation.
+     */
     @Column(name = "interest_calculation_date")
     private LocalDateTime interestCalculationDate;
+
+    // ============================================================
+    // LATE PAYMENT
+    // ============================================================
 
     @Column(name = "days_late")
     @Builder.Default
     private Integer daysLate = 0;
 
-
     @Column(name = "is_late")
     @Builder.Default
     private boolean isLate = false;
 
-    @Column(name = "payment_method", length = 50)
+    // ============================================================
+    // PAYMENT INFORMATION
+    // ============================================================
+
+    @Column(
+            name = "payment_method",
+            length = 50
+    )
     private String paymentMethod;
 
-
-    @Column(name = "transaction_id", length = 150)
+    @Column(
+            name = "transaction_id",
+            length = 150
+    )
     private String transactionId;
 
-
-    @Column(name = "external_reference", length = 150)
+    @Column(
+            name = "external_reference",
+            length = 150
+    )
     private String externalReference;
-
 
     @Column(
             name = "gateway_response",
@@ -165,10 +287,11 @@ public class Payment {
     )
     private String gatewayResponse;
 
-
-    @Column(name = "channel", length = 50)
+    @Column(
+            name = "channel",
+            length = 50
+    )
     private String channel;
-
 
     @Column(
             name = "notes",
@@ -176,25 +299,45 @@ public class Payment {
     )
     private String notes;
 
-
+    // ============================================================
+    // AUDIT DATES
+    // ============================================================
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
-
     @Column(name = "verified_at")
     private LocalDateTime verifiedAt;
 
+    // ============================================================
+    // CURRENT INTEREST CYCLE
+    // ============================================================
 
-    @Column(name = "cycle_interest_due", precision = 19, scale = 6)
+    /**
+     * Total interest assessed for the current payment cycle.
+     */
+    @Column(
+            name = "cycle_interest_due",
+            precision = 19,
+            scale = 6
+    )
     @JsonProperty("cycleInterestDue")
     private BigDecimal cycleInterestDue;
 
-    @Column(name = "cycle_interest_remaining", precision = 19, scale = 6)
+    /**
+     * Interest still unpaid in the current payment cycle.
+     */
+    @Column(
+            name = "cycle_interest_remaining",
+            precision = 19,
+            scale = 6
+    )
     @JsonProperty("cycleInterestRemaining")
     private BigDecimal cycleInterestRemaining;
 
-
+    // ============================================================
+    // PRE-PERSIST
+    // ============================================================
 
     @PrePersist
     protected void onCreate() {
@@ -208,11 +351,15 @@ public class Payment {
         }
 
         if (penalty == null) {
-            penalty = BigDecimal.valueOf(0.0);
+            penalty = BigDecimal.ZERO;
+        }
+
+        if (penaltyPaid == null) {
+            penaltyPaid = BigDecimal.ZERO;
         }
 
         if (waivedAmount == null) {
-            waivedAmount = BigDecimal.valueOf(0.0);
+            waivedAmount = BigDecimal.ZERO;
         }
 
         if (daysLate == null) {
@@ -224,23 +371,23 @@ public class Payment {
         }
 
         if (amountPaid == null) {
-            amountPaid = BigDecimal.valueOf(0.0);
+            amountPaid = BigDecimal.ZERO;
         }
 
         if (principalComponent == null) {
-            principalComponent = BigDecimal.valueOf(0.0);
+            principalComponent = BigDecimal.ZERO;
         }
 
         if (interestComponent == null) {
-            interestComponent = BigDecimal.valueOf(0.0);
+            interestComponent = BigDecimal.ZERO;
         }
 
         if (cycleInterestDue == null) {
-            cycleInterestDue = BigDecimal.valueOf(0.0);
+            cycleInterestDue = BigDecimal.ZERO;
         }
 
         if (cycleInterestRemaining == null) {
-            cycleInterestRemaining = BigDecimal.valueOf(0.0);
+            cycleInterestRemaining = BigDecimal.ZERO;
         }
 
         if (daysLate > 0) {
@@ -248,6 +395,9 @@ public class Payment {
         }
     }
 
+    // ============================================================
+    // PRE-UPDATE
+    // ============================================================
 
     @PreUpdate
     protected void onUpdate() {
@@ -256,15 +406,42 @@ public class Payment {
             isLate = true;
         }
 
+        if (penalty == null) {
+            penalty = BigDecimal.ZERO;
+        }
+
+        if (penaltyPaid == null) {
+            penaltyPaid = BigDecimal.ZERO;
+        }
+
+        if (waivedAmount == null) {
+            waivedAmount = BigDecimal.ZERO;
+        }
+
+        if (amountPaid == null) {
+            amountPaid = BigDecimal.ZERO;
+        }
+
+        if (principalComponent == null) {
+            principalComponent = BigDecimal.ZERO;
+        }
+
+        if (interestComponent == null) {
+            interestComponent = BigDecimal.ZERO;
+        }
+
         if (cycleInterestDue == null) {
-            cycleInterestDue = BigDecimal.valueOf(0.0);
+            cycleInterestDue = BigDecimal.ZERO;
         }
 
         if (cycleInterestRemaining == null) {
-            cycleInterestRemaining = BigDecimal.valueOf(0.0);
+            cycleInterestRemaining = BigDecimal.ZERO;
         }
     }
 
+    // ============================================================
+    // PAYMENT STATUS ENUM
+    // ============================================================
 
     public enum PaymentStatus {
 
@@ -278,11 +455,17 @@ public class Payment {
 
         PARTIALLY_PAID
     }
-   
+
+    // ============================================================
+    // AMOUNT
+    // ============================================================
+
     @Deprecated
     @JsonIgnore
     public Double getAmount() {
-        return amount == null ? null : amount.doubleValue();
+        return amount == null
+                ? null
+                : amount.doubleValue();
     }
 
     @JsonIgnore
@@ -292,18 +475,26 @@ public class Payment {
 
     @Deprecated
     public void setAmount(Double value) {
-        this.amount = value == null ? null : BigDecimal.valueOf(value);
+        this.amount =
+                value == null
+                        ? null
+                        : BigDecimal.valueOf(value);
     }
 
     public void setAmount(BigDecimal value) {
         this.amount = value;
     }
 
+    // ============================================================
+    // PRINCIPAL COMPONENT
+    // ============================================================
 
     @Deprecated
     @JsonIgnore
     public Double getPrincipalComponent() {
-        return principalComponent == null ? null : principalComponent.doubleValue();
+        return principalComponent == null
+                ? null
+                : principalComponent.doubleValue();
     }
 
     @JsonIgnore
@@ -313,19 +504,26 @@ public class Payment {
 
     @Deprecated
     public void setPrincipalComponent(Double value) {
-        this.principalComponent = value == null ? null : BigDecimal.valueOf(value);
+        this.principalComponent =
+                value == null
+                        ? null
+                        : BigDecimal.valueOf(value);
     }
 
     public void setPrincipalComponent(BigDecimal value) {
         this.principalComponent = value;
     }
 
+    // ============================================================
+    // INTEREST COMPONENT
+    // ============================================================
 
-   
     @Deprecated
     @JsonIgnore
     public Double getInterestComponent() {
-        return interestComponent == null ? null : interestComponent.doubleValue();
+        return interestComponent == null
+                ? null
+                : interestComponent.doubleValue();
     }
 
     @JsonIgnore
@@ -335,18 +533,26 @@ public class Payment {
 
     @Deprecated
     public void setInterestComponent(Double value) {
-        this.interestComponent = value == null ? null : BigDecimal.valueOf(value);
+        this.interestComponent =
+                value == null
+                        ? null
+                        : BigDecimal.valueOf(value);
     }
 
     public void setInterestComponent(BigDecimal value) {
         this.interestComponent = value;
     }
 
+    // ============================================================
+    // AMOUNT PAID
+    // ============================================================
 
     @Deprecated
     @JsonIgnore
     public Double getAmountPaid() {
-        return amountPaid == null ? null : amountPaid.doubleValue();
+        return amountPaid == null
+                ? null
+                : amountPaid.doubleValue();
     }
 
     @JsonIgnore
@@ -356,18 +562,26 @@ public class Payment {
 
     @Deprecated
     public void setAmountPaid(Double value) {
-        this.amountPaid = value == null ? null : BigDecimal.valueOf(value);
+        this.amountPaid =
+                value == null
+                        ? null
+                        : BigDecimal.valueOf(value);
     }
 
     public void setAmountPaid(BigDecimal value) {
         this.amountPaid = value;
     }
 
+    // ============================================================
+    // PENALTY
+    // ============================================================
 
     @Deprecated
     @JsonIgnore
     public Double getPenalty() {
-        return penalty == null ? null : penalty.doubleValue();
+        return penalty == null
+                ? null
+                : penalty.doubleValue();
     }
 
     @JsonIgnore
@@ -377,22 +591,55 @@ public class Payment {
 
     @Deprecated
     public void setPenalty(Double value) {
-        this.penalty = value == null ? null : BigDecimal.valueOf(value);
+        this.penalty =
+                value == null
+                        ? null
+                        : BigDecimal.valueOf(value);
     }
 
     public void setPenalty(BigDecimal value) {
         this.penalty = value;
     }
 
+    // ============================================================
+    // PENALTY PAID
+    // ============================================================
 
-    /**
-     * Legacy binary-floating-point read boundary retained for existing service integrations.
-     * New financial code should use getWaivedAmountDecimal().
-     */
+    @Deprecated
+    @JsonIgnore
+    public Double getPenaltyPaid() {
+        return penaltyPaid == null
+                ? null
+                : penaltyPaid.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getPenaltyPaidDecimal() {
+        return penaltyPaid;
+    }
+
+    @Deprecated
+    public void setPenaltyPaid(Double value) {
+        this.penaltyPaid =
+                value == null
+                        ? null
+                        : BigDecimal.valueOf(value);
+    }
+
+    public void setPenaltyPaid(BigDecimal value) {
+        this.penaltyPaid = value;
+    }
+
+    // ============================================================
+    // WAIVED AMOUNT
+    // ============================================================
+
     @Deprecated
     @JsonIgnore
     public Double getWaivedAmount() {
-        return waivedAmount == null ? null : waivedAmount.doubleValue();
+        return waivedAmount == null
+                ? null
+                : waivedAmount.doubleValue();
     }
 
     @JsonIgnore
@@ -402,22 +649,26 @@ public class Payment {
 
     @Deprecated
     public void setWaivedAmount(Double value) {
-        this.waivedAmount = value == null ? null : BigDecimal.valueOf(value);
+        this.waivedAmount =
+                value == null
+                        ? null
+                        : BigDecimal.valueOf(value);
     }
 
     public void setWaivedAmount(BigDecimal value) {
         this.waivedAmount = value;
     }
 
+    // ============================================================
+    // OUTSTANDING AFTER
+    // ============================================================
 
-    /**
-     * Legacy binary-floating-point read boundary retained for existing service integrations.
-     * New financial code should use getOutstandingAfterDecimal().
-     */
     @Deprecated
     @JsonIgnore
     public Double getOutstandingAfter() {
-        return outstandingAfter == null ? null : outstandingAfter.doubleValue();
+        return outstandingAfter == null
+                ? null
+                : outstandingAfter.doubleValue();
     }
 
     @JsonIgnore
@@ -427,22 +678,26 @@ public class Payment {
 
     @Deprecated
     public void setOutstandingAfter(Double value) {
-        this.outstandingAfter = value == null ? null : BigDecimal.valueOf(value);
+        this.outstandingAfter =
+                value == null
+                        ? null
+                        : BigDecimal.valueOf(value);
     }
 
     public void setOutstandingAfter(BigDecimal value) {
         this.outstandingAfter = value;
     }
 
+    // ============================================================
+    // CYCLE INTEREST DUE
+    // ============================================================
 
-    /**
-     * Legacy binary-floating-point read boundary retained for existing service integrations.
-     * New financial code should use getCycleInterestDueDecimal().
-     */
     @Deprecated
     @JsonIgnore
     public Double getCycleInterestDue() {
-        return cycleInterestDue == null ? null : cycleInterestDue.doubleValue();
+        return cycleInterestDue == null
+                ? null
+                : cycleInterestDue.doubleValue();
     }
 
     @JsonIgnore
@@ -452,22 +707,26 @@ public class Payment {
 
     @Deprecated
     public void setCycleInterestDue(Double value) {
-        this.cycleInterestDue = value == null ? null : BigDecimal.valueOf(value);
+        this.cycleInterestDue =
+                value == null
+                        ? null
+                        : BigDecimal.valueOf(value);
     }
 
     public void setCycleInterestDue(BigDecimal value) {
         this.cycleInterestDue = value;
     }
 
+    // ============================================================
+    // CYCLE INTEREST REMAINING
+    // ============================================================
 
-    /**
-     * Legacy binary-floating-point read boundary retained for existing service integrations.
-     * New financial code should use getCycleInterestRemainingDecimal().
-     */
     @Deprecated
     @JsonIgnore
     public Double getCycleInterestRemaining() {
-        return cycleInterestRemaining == null ? null : cycleInterestRemaining.doubleValue();
+        return cycleInterestRemaining == null
+                ? null
+                : cycleInterestRemaining.doubleValue();
     }
 
     @JsonIgnore
@@ -477,16 +736,20 @@ public class Payment {
 
     @Deprecated
     public void setCycleInterestRemaining(Double value) {
-        this.cycleInterestRemaining = value == null ? null : BigDecimal.valueOf(value);
+        this.cycleInterestRemaining =
+                value == null
+                        ? null
+                        : BigDecimal.valueOf(value);
     }
 
     public void setCycleInterestRemaining(BigDecimal value) {
         this.cycleInterestRemaining = value;
     }
 
-    /** Backward-compatible builder overloads for legacy Double callers.
-     *  Financial state is stored as BigDecimal.
-     */
+    // ============================================================
+    // LOMBOK BUILDER COMPATIBILITY
+    // ============================================================
+
     public static class PaymentBuilder {
 
         private BigDecimal amount;
@@ -494,83 +757,148 @@ public class Payment {
         private BigDecimal interestComponent;
         private BigDecimal amountPaid;
         private BigDecimal penalty;
+        private BigDecimal penaltyPaid;
         private BigDecimal waivedAmount;
         private BigDecimal outstandingAfter;
         private BigDecimal cycleInterestDue;
         private BigDecimal cycleInterestRemaining;
 
+        // --------------------------------------------------------
+        // DOUBLE COMPATIBILITY
+        // --------------------------------------------------------
 
         public PaymentBuilder amount(Double value) {
-            this.amount = value == null ? null : BigDecimal.valueOf(value);
+            this.amount =
+                    value == null
+                            ? null
+                            : BigDecimal.valueOf(value);
             return this;
         }
+
         public PaymentBuilder principalComponent(Double value) {
-            this.principalComponent = value == null ? null : BigDecimal.valueOf(value);
+            this.principalComponent =
+                    value == null
+                            ? null
+                            : BigDecimal.valueOf(value);
             return this;
         }
+
         public PaymentBuilder interestComponent(Double value) {
-            this.interestComponent = value == null ? null : BigDecimal.valueOf(value);
+            this.interestComponent =
+                    value == null
+                            ? null
+                            : BigDecimal.valueOf(value);
             return this;
         }
+
         public PaymentBuilder amountPaid(Double value) {
-            this.amountPaid = value == null ? null : BigDecimal.valueOf(value);
+            this.amountPaid =
+                    value == null
+                            ? null
+                            : BigDecimal.valueOf(value);
             return this;
         }
+
         public PaymentBuilder penalty(Double value) {
-            this.penalty = value == null ? null : BigDecimal.valueOf(value);
+            this.penalty =
+                    value == null
+                            ? null
+                            : BigDecimal.valueOf(value);
             return this;
         }
+
+        public PaymentBuilder penaltyPaid(Double value) {
+            this.penaltyPaid =
+                    value == null
+                            ? null
+                            : BigDecimal.valueOf(value);
+            return this;
+        }
+
         public PaymentBuilder waivedAmount(Double value) {
-            this.waivedAmount = value == null ? null : BigDecimal.valueOf(value);
+            this.waivedAmount =
+                    value == null
+                            ? null
+                            : BigDecimal.valueOf(value);
             return this;
         }
+
         public PaymentBuilder outstandingAfter(Double value) {
-            this.outstandingAfter = value == null ? null : BigDecimal.valueOf(value);
+            this.outstandingAfter =
+                    value == null
+                            ? null
+                            : BigDecimal.valueOf(value);
             return this;
         }
+
         public PaymentBuilder cycleInterestDue(Double value) {
-            this.cycleInterestDue = value == null ? null : BigDecimal.valueOf(value);
+            this.cycleInterestDue =
+                    value == null
+                            ? null
+                            : BigDecimal.valueOf(value);
             return this;
         }
+
         public PaymentBuilder cycleInterestRemaining(Double value) {
-            this.cycleInterestRemaining = value == null ? null : BigDecimal.valueOf(value);
+            this.cycleInterestRemaining =
+                    value == null
+                            ? null
+                            : BigDecimal.valueOf(value);
             return this;
-        }        public PaymentBuilder amount(BigDecimal value) {
+        }
+
+        // --------------------------------------------------------
+        // BIGDECIMAL METHODS
+        // --------------------------------------------------------
+
+        public PaymentBuilder amount(BigDecimal value) {
             this.amount = value;
             return this;
         }
+
         public PaymentBuilder principalComponent(BigDecimal value) {
             this.principalComponent = value;
             return this;
         }
+
         public PaymentBuilder interestComponent(BigDecimal value) {
             this.interestComponent = value;
             return this;
         }
+
         public PaymentBuilder amountPaid(BigDecimal value) {
             this.amountPaid = value;
             return this;
         }
+
         public PaymentBuilder penalty(BigDecimal value) {
             this.penalty = value;
             return this;
         }
+
+        public PaymentBuilder penaltyPaid(BigDecimal value) {
+            this.penaltyPaid = value;
+            return this;
+        }
+
         public PaymentBuilder waivedAmount(BigDecimal value) {
             this.waivedAmount = value;
             return this;
         }
+
         public PaymentBuilder outstandingAfter(BigDecimal value) {
             this.outstandingAfter = value;
             return this;
         }
+
         public PaymentBuilder cycleInterestDue(BigDecimal value) {
             this.cycleInterestDue = value;
             return this;
         }
+
         public PaymentBuilder cycleInterestRemaining(BigDecimal value) {
             this.cycleInterestRemaining = value;
             return this;
         }
     }
-
 }
