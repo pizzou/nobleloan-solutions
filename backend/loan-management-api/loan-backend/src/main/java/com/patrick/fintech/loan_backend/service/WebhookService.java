@@ -1,7 +1,7 @@
-
 package com.patrick.fintech.loan_backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.WebhookEndpoint;
 import com.patrick.fintech.loan_backend.repository.WebhookRepository;
@@ -35,7 +35,12 @@ import java.util.Map;
 public class WebhookService {
 
     private final WebhookRepository webhookRepo;
+
+    private final WebhookDeliveryTransactionService
+            webhookDeliveryTransactionService;
+
     private final ObjectMapper objectMapper;
+
     private final RestTemplate restTemplate;
 
     // ================================================================
@@ -44,12 +49,12 @@ public class WebhookService {
 
     @Async
     public void dispatch(
-            Organization org,
+            Organization organization,
             String eventType,
             Object payload
     ) {
 
-        if (org == null) {
+        if (organization == null) {
 
             log.warn(
                     "[WEBHOOK] Dispatch skipped because organization is null. event={}",
@@ -59,7 +64,7 @@ public class WebhookService {
             return;
         }
 
-        if (org.getId() == null) {
+        if (organization.getId() == null) {
 
             log.warn(
                     "[WEBHOOK] Dispatch skipped because organization ID is null. event={}",
@@ -73,17 +78,17 @@ public class WebhookService {
 
             log.warn(
                     "[WEBHOOK] Dispatch skipped because event type is empty. organization={}",
-                    org.getId()
+                    organization.getId()
             );
 
             return;
         }
 
-        String normalizedEventType =
-                eventType.trim();
+        final Long organizationId =
+                organization.getId();
 
-        Long organizationId =
-                org.getId();
+        final String normalizedEventType =
+                eventType.trim();
 
         log.info(
                 "[WEBHOOK] =================================================="
@@ -104,7 +109,10 @@ public class WebhookService {
         try {
 
             endpoints =
-                    webhookRepo.findByOrganizationAndActiveTrue(org);
+                    webhookRepo
+                            .findByOrganizationAndActiveTrue(
+                                    organization
+                            );
 
         } catch (Exception e) {
 
@@ -120,15 +128,18 @@ public class WebhookService {
         }
 
         // ============================================================
-        // NO ENDPOINTS
+        // NO ACTIVE ENDPOINT
         // ============================================================
 
-        if (endpoints == null || endpoints.isEmpty()) {
+        if (
+                endpoints == null
+                        || endpoints.isEmpty()
+        ) {
 
             log.warn(
                     "[WEBHOOK] NO ACTIVE ENDPOINT FOUND. " +
                             "organization={}, event={}. " +
-                            "Payment/event processing will continue normally.",
+                            "Event processing will continue normally.",
                     organizationId,
                     normalizedEventType
             );
@@ -152,7 +163,7 @@ public class WebhookService {
         );
 
         // ============================================================
-        // BUILD WEBHOOK BODY ONCE
+        // BUILD PAYLOAD
         // ============================================================
 
         String body;
@@ -190,7 +201,7 @@ public class WebhookService {
         } catch (Exception e) {
 
             log.error(
-                    "[WEBHOOK] Could not serialize webhook payload. " +
+                    "[WEBHOOK] Failed to serialize payload. " +
                             "organization={}, event={}",
                     organizationId,
                     normalizedEventType,
@@ -201,7 +212,7 @@ public class WebhookService {
         }
 
         // ============================================================
-        // PROCESS EVERY ENDPOINT
+        // PROCESS EACH ENDPOINT
         // ============================================================
 
         for (WebhookEndpoint endpoint : endpoints) {
@@ -209,7 +220,7 @@ public class WebhookService {
             if (endpoint == null) {
 
                 log.warn(
-                        "[WEBHOOK] Null endpoint returned from repository. " +
+                        "[WEBHOOK] Repository returned null endpoint. " +
                                 "organization={}, event={}",
                         organizationId,
                         normalizedEventType
@@ -238,7 +249,7 @@ public class WebhookService {
             }
 
             // ========================================================
-            // ORGANIZATION SAFETY CHECK
+            // ORGANIZATION CHECK
             // ========================================================
 
             if (
@@ -247,38 +258,34 @@ public class WebhookService {
             ) {
 
                 log.error(
-                        "[WEBHOOK] Endpoint has no organization. " +
+                        "[WEBHOOK] Endpoint organization is missing. " +
                                 "endpoint={}, event={}",
                         endpointId,
                         normalizedEventType
                 );
 
-                markFailure(
-                        endpoint,
-                        "Webhook endpoint organization is missing"
-                );
-
                 continue;
             }
 
+            Long endpointOrganizationId =
+                    endpoint
+                            .getOrganization()
+                            .getId();
+
             if (
                     !organizationId.equals(
-                            endpoint.getOrganization().getId()
+                            endpointOrganizationId
                     )
             ) {
 
                 log.error(
                         "[WEBHOOK] Organization mismatch. " +
-                                "endpoint={}, expectedOrganization={}, endpointOrganization={}, event={}",
+                                "endpoint={}, expectedOrganization={}, " +
+                                "endpointOrganization={}, event={}",
                         endpointId,
                         organizationId,
-                        endpoint.getOrganization().getId(),
+                        endpointOrganizationId,
                         normalizedEventType
-                );
-
-                markFailure(
-                        endpoint,
-                        "Webhook endpoint organization mismatch"
                 );
 
                 continue;
@@ -288,13 +295,15 @@ public class WebhookService {
             // EVENT SUBSCRIPTION
             // ========================================================
 
-            if (!isSubscribed(
-                    endpoint,
-                    normalizedEventType
-            )) {
+            if (
+                    !isSubscribed(
+                            endpoint,
+                            normalizedEventType
+                    )
+            ) {
 
                 log.info(
-                        "[WEBHOOK] Endpoint not subscribed to event. " +
+                        "[WEBHOOK] Endpoint not subscribed. " +
                                 "endpoint={}, event={}, subscriptions={}",
                         endpointId,
                         normalizedEventType,
@@ -314,14 +323,15 @@ public class WebhookService {
             if (url == null || url.isBlank()) {
 
                 log.error(
-                        "[WEBHOOK] Endpoint has empty URL. " +
+                        "[WEBHOOK] Endpoint URL is empty. " +
                                 "endpoint={}, event={}",
                         endpointId,
                         normalizedEventType
                 );
 
-                markFailure(
+                handleFailure(
                         endpoint,
+                        normalizedEventType,
                         "Empty webhook URL"
                 );
 
@@ -330,6 +340,47 @@ public class WebhookService {
 
             url =
                     url.trim();
+
+            // ========================================================
+            // CREATE DELIVERY HISTORY RECORD
+            // ========================================================
+
+            Long deliveryId = null;
+
+            try {
+
+                var delivery =
+                        webhookDeliveryTransactionService
+                                .createPendingDelivery(
+                                        endpoint,
+                                        organization,
+                                        normalizedEventType,
+                                        body,
+                                        url
+                                );
+
+                if (delivery != null) {
+
+                    deliveryId =
+                            delivery.getId();
+                }
+
+            } catch (Exception e) {
+
+                /*
+                 * Do not prevent the actual webhook from being sent
+                 * just because delivery-history persistence failed.
+                 */
+
+                log.error(
+                        "[WEBHOOK] Could not create PENDING delivery record. " +
+                                "organization={}, endpoint={}, event={}",
+                        organizationId,
+                        endpointId,
+                        normalizedEventType,
+                        e
+                );
+            }
 
             // ========================================================
             // HEADERS
@@ -373,7 +424,7 @@ public class WebhookService {
             );
 
             // ========================================================
-            // HMAC SIGNATURE
+            // HMAC
             // ========================================================
 
             if (
@@ -397,16 +448,28 @@ public class WebhookService {
                 } catch (Exception e) {
 
                     log.error(
-                            "[WEBHOOK] Signature generation failed. " +
+                            "[WEBHOOK] HMAC generation failed. " +
                                     "endpoint={}, event={}",
                             endpointId,
                             normalizedEventType,
                             e
                     );
 
-                    markFailure(
+                    if (deliveryId != null) {
+
+                        webhookDeliveryTransactionService
+                                .markFailure(
+                                        deliveryId,
+                                        null,
+                                        null,
+                                        "HMAC signature generation failed"
+                                );
+                    }
+
+                    handleFailure(
                             endpoint,
-                            "Signature generation error"
+                            normalizedEventType,
+                            "HMAC signature generation failed"
                     );
 
                     continue;
@@ -414,17 +477,18 @@ public class WebhookService {
             }
 
             // ========================================================
-            // DELIVERY
+            // SEND HTTP REQUEST
             // ========================================================
 
             try {
 
                 log.info(
                         "[WEBHOOK] SENDING EVENT. " +
-                                "event={}, organization={}, endpoint={}, url={}",
+                                "event={}, organization={}, endpoint={}, deliveryId={}, url={}",
                         normalizedEventType,
                         organizationId,
                         endpointId,
+                        deliveryId,
                         url
                 );
 
@@ -443,36 +507,109 @@ public class WebhookService {
                         );
 
                 int httpStatus =
-                        response.getStatusCode().value();
+                        response
+                                .getStatusCode()
+                                .value();
+
+                String responseBody =
+                        response.getBody();
 
                 // ====================================================
                 // SUCCESS
                 // ====================================================
 
                 if (
-                        response.getStatusCode()
+                        response
+                                .getStatusCode()
                                 .is2xxSuccessful()
                 ) {
 
-                    markSuccess(
+                    if (deliveryId != null) {
+
+                        try {
+
+                            webhookDeliveryTransactionService
+                                    .markSuccess(
+                                            deliveryId,
+                                            httpStatus,
+                                            responseBody
+                                    );
+
+                        } catch (Exception e) {
+
+                            log.error(
+                                    "[WEBHOOK] HTTP delivery succeeded, " +
+                                            "but delivery history could not be updated. " +
+                                            "deliveryId={}",
+                                    deliveryId,
+                                    e
+                            );
+                        }
+                    }
+
+                    markEndpointSuccess(
                             endpoint,
                             normalizedEventType,
                             httpStatus
                     );
 
+                    log.info(
+                            "[WEBHOOK] DELIVERY SUCCESS. " +
+                                    "organization={}, endpoint={}, " +
+                                    "event={}, deliveryId={}, HTTP={}",
+                            organizationId,
+                            endpointId,
+                            normalizedEventType,
+                            deliveryId,
+                            httpStatus
+                    );
+
                 } else {
 
-                    markFailure(
+                    // =================================================
+                    // NON-2XX RESPONSE
+                    // =================================================
+
+                    String error =
+                            "HTTP " + httpStatus;
+
+                    if (deliveryId != null) {
+
+                        try {
+
+                            webhookDeliveryTransactionService
+                                    .markFailure(
+                                            deliveryId,
+                                            httpStatus,
+                                            responseBody,
+                                            error
+                                    );
+
+                        } catch (Exception e) {
+
+                            log.error(
+                                    "[WEBHOOK] Failed to persist failed delivery. " +
+                                            "deliveryId={}",
+                                    deliveryId,
+                                    e
+                            );
+                        }
+                    }
+
+                    handleFailure(
                             endpoint,
-                            "HTTP " + httpStatus
+                            normalizedEventType,
+                            error
                     );
 
                     log.warn(
                             "[WEBHOOK] DELIVERY FAILED. " +
-                                    "event={}, organization={}, endpoint={}, HTTP={}",
-                            normalizedEventType,
+                                    "organization={}, endpoint={}, " +
+                                    "event={}, deliveryId={}, HTTP={}",
                             organizationId,
                             endpointId,
+                            normalizedEventType,
+                            deliveryId,
                             httpStatus
                     );
                 }
@@ -494,17 +631,51 @@ public class WebhookService {
                                     .getSimpleName();
                 }
 
-                markFailure(
+                // ====================================================
+                // SAVE DELIVERY FAILURE
+                // ====================================================
+
+                if (deliveryId != null) {
+
+                    try {
+
+                        webhookDeliveryTransactionService
+                                .markFailure(
+                                        deliveryId,
+                                        null,
+                                        null,
+                                        error
+                                );
+
+                    } catch (Exception persistenceException) {
+
+                        log.error(
+                                "[WEBHOOK] Could not persist delivery failure. " +
+                                        "deliveryId={}",
+                                deliveryId,
+                                persistenceException
+                        );
+                    }
+                }
+
+                // ====================================================
+                // UPDATE ENDPOINT FAILURE
+                // ====================================================
+
+                handleFailure(
                         endpoint,
+                        normalizedEventType,
                         error
                 );
 
                 log.error(
                         "[WEBHOOK] DELIVERY EXCEPTION. " +
-                                "event={}, organization={}, endpoint={}, url={}, error={}",
-                        normalizedEventType,
+                                "organization={}, endpoint={}, event={}, " +
+                                "deliveryId={}, url={}, error={}",
                         organizationId,
                         endpointId,
+                        normalizedEventType,
+                        deliveryId,
                         url,
                         error,
                         e
@@ -525,10 +696,10 @@ public class WebhookService {
     }
 
     // ================================================================
-    // SUCCESS
+    // ENDPOINT SUCCESS
     // ================================================================
 
-    private void markSuccess(
+    private void markEndpointSuccess(
             WebhookEndpoint endpoint,
             String eventType,
             int httpStatus
@@ -552,20 +723,81 @@ public class WebhookService {
                     endpoint
             );
 
-            log.info(
-                    "[WEBHOOK] DELIVERY SUCCESS. " +
-                            "event={}, endpoint={}, HTTP={}, " +
-                            "lastDeliveryStatus=SUCCESS",
-                    eventType,
+        } catch (Exception e) {
+
+            log.error(
+                    "[WEBHOOK] Delivery succeeded but endpoint " +
+                            "status could not be persisted. " +
+                            "endpoint={}, event={}",
                     endpoint.getId(),
-                    httpStatus
+                    eventType,
+                    e
+            );
+        }
+    }
+
+    // ================================================================
+    // ENDPOINT FAILURE
+    // ================================================================
+
+    private void handleFailure(
+            WebhookEndpoint endpoint,
+            String eventType,
+            String reason
+    ) {
+
+        int failures =
+                endpoint.getFailureCount() == null
+                        ? 1
+                        : endpoint.getFailureCount() + 1;
+
+        endpoint.setLastDeliveryAt(
+                LocalDateTime.now()
+        );
+
+        endpoint.setLastDeliveryStatus(
+                "FAILED: "
+                        + shorten(reason)
+        );
+
+        endpoint.setFailureCount(
+                failures
+        );
+
+        /*
+         * Disable after 10 consecutive failures.
+         */
+        if (failures >= 10) {
+
+            endpoint.setActive(
+                    false
+            );
+
+            log.warn(
+                    "[WEBHOOK] Endpoint automatically disabled after " +
+                            "{} consecutive failures. endpoint={}, event={}",
+                    failures,
+                    endpoint.getId(),
+                    eventType
+            );
+        }
+
+        try {
+
+            webhookRepo.save(
+                    endpoint
             );
 
         } catch (Exception e) {
 
+            /*
+             * Never allow endpoint status persistence failure
+             * to break the main business transaction.
+             */
+
             log.error(
-                    "[WEBHOOK] Delivery succeeded but endpoint status " +
-                            "could not be persisted. endpoint={}, event={}",
+                    "[WEBHOOK] Could not persist endpoint failure state. " +
+                            "endpoint={}, event={}",
                     endpoint.getId(),
                     eventType,
                     e
@@ -586,7 +818,7 @@ public class WebhookService {
                 endpoint.getSubscribedEvents();
 
         /*
-         * Empty/null subscription list means ALL EVENTS.
+         * Empty/null subscriptions mean ALL EVENTS.
          */
         if (
                 subscribedEvents == null
@@ -615,71 +847,6 @@ public class WebhookService {
                                         normalizedEvent
                                 )
                 );
-    }
-
-    // ================================================================
-    // FAILURE HANDLING
-    // ================================================================
-
-    private void markFailure(
-            WebhookEndpoint endpoint,
-            String reason
-    ) {
-
-        int failures =
-                endpoint.getFailureCount() == null
-                        ? 1
-                        : endpoint.getFailureCount() + 1;
-
-        endpoint.setLastDeliveryAt(
-                LocalDateTime.now()
-        );
-
-        endpoint.setLastDeliveryStatus(
-                "FAILED: "
-                        + shorten(reason)
-        );
-
-        endpoint.setFailureCount(
-                failures
-        );
-
-        /*
-         * Disable the endpoint only after 10 consecutive failures.
-         */
-        if (failures >= 10) {
-
-            endpoint.setActive(
-                    false
-            );
-
-            log.warn(
-                    "[WEBHOOK] Endpoint automatically disabled after " +
-                            "{} consecutive failures. endpoint={}",
-                    failures,
-                    endpoint.getId()
-            );
-        }
-
-        try {
-
-            webhookRepo.save(
-                    endpoint
-            );
-
-        } catch (Exception e) {
-
-            /*
-             * Never allow webhook status persistence failure
-             * to break payment processing.
-             */
-            log.error(
-                    "[WEBHOOK] Could not persist endpoint failure status. " +
-                            "endpoint={}",
-                    endpoint.getId(),
-                    e
-            );
-        }
     }
 
     // ================================================================
@@ -737,10 +904,6 @@ public class WebhookService {
                 System.currentTimeMillis()
         );
 
-        /*
-         * A test webhook is sent through the same dispatch pipeline
-         * as production events.
-         */
         dispatch(
                 organization,
                 "WEBHOOK_TEST",
@@ -829,11 +992,11 @@ public class WebhookService {
             return "Unknown error";
         }
 
-        if (cleaned.length() > 250) {
+        if (cleaned.length() > 5000) {
 
             return cleaned.substring(
                     0,
-                    250
+                    5000
             );
         }
 
