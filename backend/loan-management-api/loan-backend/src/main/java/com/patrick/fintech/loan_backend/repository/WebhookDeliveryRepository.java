@@ -15,40 +15,44 @@ import java.util.List;
 public interface WebhookDeliveryRepository
         extends JpaRepository<WebhookDelivery, Long> {
 
-
     // ============================================================
     // BY ORGANIZATION
     // ============================================================
 
-    List<WebhookDelivery>
-    findByOrganizationOrderByCreatedAtDesc(
+    List<WebhookDelivery> findByOrganizationOrderByCreatedAtDesc(
             Organization organization
     );
 
-
-    Page<WebhookDelivery>
-    findByOrganizationOrderByCreatedAtDesc(
+    Page<WebhookDelivery> findByOrganizationOrderByCreatedAtDesc(
             Organization organization,
             Pageable pageable
     );
 
+    // ============================================================
+    // BY ORGANIZATION ID
+    // ============================================================
+
+    List<WebhookDelivery> findByOrganization_IdOrderByCreatedAtDesc(
+            Long organizationId
+    );
+
+    Page<WebhookDelivery> findByOrganization_IdOrderByCreatedAtDesc(
+            Long organizationId,
+            Pageable pageable
+    );
 
     // ============================================================
     // BY WEBHOOK ENDPOINT
     // ============================================================
 
-    List<WebhookDelivery>
-    findByWebhookEndpointOrderByCreatedAtDesc(
+    List<WebhookDelivery> findByWebhookEndpointOrderByCreatedAtDesc(
             WebhookEndpoint webhookEndpoint
     );
 
-
-    Page<WebhookDelivery>
-    findByWebhookEndpointOrderByCreatedAtDesc(
+    Page<WebhookDelivery> findByWebhookEndpointOrderByCreatedAtDesc(
             WebhookEndpoint webhookEndpoint,
             Pageable pageable
     );
-
 
     // ============================================================
     // BY EVENT TYPE
@@ -60,7 +64,6 @@ public interface WebhookDeliveryRepository
             String eventType
     );
 
-
     // ============================================================
     // COUNTS
     // ============================================================
@@ -69,9 +72,21 @@ public interface WebhookDeliveryRepository
             Organization organization
     );
 
-
     long countByOrganizationAndStatus(
             Organization organization,
+            String status
+    );
+
+    // ============================================================
+    // COUNTS BY ORGANIZATION ID
+    // ============================================================
+
+    long countByOrganization_Id(
+            Long organizationId
+    );
+
+    long countByOrganization_IdAndStatus(
+            Long organizationId,
             String status
     );
 }

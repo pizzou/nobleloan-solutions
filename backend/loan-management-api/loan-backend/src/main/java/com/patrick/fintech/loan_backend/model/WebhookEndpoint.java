@@ -1,23 +1,8 @@
 package com.patrick.fintech.loan_backend.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import jakarta.persistence.CollectionTable;
-import jakarta.persistence.Column;
-import jakarta.persistence.ElementCollection;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
-import jakarta.persistence.Table;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import jakarta.persistence.*;
+import lombok.*;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -47,7 +32,7 @@ public class WebhookEndpoint {
     // ORGANIZATION
     // ============================================================
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(
             name = "organization_id",
             nullable = false
@@ -55,43 +40,41 @@ public class WebhookEndpoint {
     private Organization organization;
 
     // ============================================================
-    // WEBHOOK URL
+    // ENDPOINT
     // ============================================================
 
     @Column(
             nullable = false,
-            length = 1000
+            columnDefinition = "TEXT"
     )
     private String url;
 
-    // ============================================================
-    // DESCRIPTION
-    // ============================================================
-
-    @Column(length = 500)
+    @Column(
+            columnDefinition = "TEXT"
+    )
     private String description;
 
-    // ============================================================
-    // HMAC SECRET
-    // ============================================================
-
-    @Column(length = 500)
+    /**
+     * HMAC-SHA256 signing secret.
+     */
+    @Column(
+            columnDefinition = "TEXT"
+    )
     private String secret;
 
-    // ============================================================
-    // ACTIVE
-    // ============================================================
-
+    /**
+     * Whether the endpoint should receive events.
+     */
     @Column(
             nullable = false
     )
-    private boolean active;
+    private boolean active = true;
 
     // ============================================================
     // SUBSCRIBED EVENTS
     // ============================================================
 
-    @ElementCollection(fetch = FetchType.EAGER)
+    @ElementCollection
     @CollectionTable(
             name = "webhook_events",
             joinColumns = @JoinColumn(
@@ -99,44 +82,32 @@ public class WebhookEndpoint {
             )
     )
     @Column(
-            name = "event_type",
-            nullable = false,
-            length = 100
+            name = "event_type"
     )
     @Builder.Default
     private List<String> subscribedEvents =
             new ArrayList<>();
 
     // ============================================================
-    // FAILURE COUNT
+    // DELIVERY STATUS
     // ============================================================
 
     @Column(
             nullable = false
     )
-    private Integer failureCount;
-
-    // ============================================================
-    // LAST DELIVERY
-    // ============================================================
+    private Integer failureCount = 0;
 
     private LocalDateTime lastDeliveryAt;
 
-    @Column(length = 500)
+    @Column(
+            columnDefinition = "TEXT"
+    )
     private String lastDeliveryStatus;
 
-    // ============================================================
-    // CREATED
-    // ============================================================
-
-    @Column(
-            nullable = false,
-            updatable = false
-    )
     private LocalDateTime createdAt;
 
     // ============================================================
-    // CREATE DEFAULTS
+    // PRE-PERSIST
     // ============================================================
 
     @PrePersist
@@ -146,38 +117,17 @@ public class WebhookEndpoint {
             createdAt = LocalDateTime.now();
         }
 
+        if (failureCount == null) {
+            failureCount = 0;
+        }
+
+        if (subscribedEvents == null) {
+            subscribedEvents = new ArrayList<>();
+        }
+
         /*
-         * Only default active to true when no meaningful value has
-         * been supplied by the application.
-         *
-         * Because primitive boolean cannot represent "not supplied",
-         * existing application code should explicitly set active
-         * when it needs a specific value.
+         * New webhook endpoints are active by default.
          */
         active = true;
-
-        if (failureCount == null) {
-            failureCount = 0;
-        }
-
-        if (subscribedEvents == null) {
-            subscribedEvents = new ArrayList<>();
-        }
-    }
-
-    // ============================================================
-    // UPDATE DEFAULTS
-    // ============================================================
-
-    @PreUpdate
-    protected void onUpdate() {
-
-        if (failureCount == null) {
-            failureCount = 0;
-        }
-
-        if (subscribedEvents == null) {
-            subscribedEvents = new ArrayList<>();
-        }
     }
 }

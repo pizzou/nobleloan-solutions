@@ -6,23 +6,30 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 
-@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+@JsonIgnoreProperties({
+        "hibernateLazyInitializer",
+        "handler"
+})
 @Entity
 @Table(
         name = "webhook_deliveries",
         indexes = {
+
                 @Index(
                         name = "idx_webhook_delivery_endpoint",
                         columnList = "webhook_endpoint_id"
                 ),
+
                 @Index(
                         name = "idx_webhook_delivery_organization",
                         columnList = "organization_id"
                 ),
+
                 @Index(
                         name = "idx_webhook_delivery_event",
                         columnList = "event_type"
                 ),
+
                 @Index(
                         name = "idx_webhook_delivery_created",
                         columnList = "created_at"
@@ -35,11 +42,17 @@ import java.time.LocalDateTime;
 @Builder
 public class WebhookDelivery {
 
+    // ============================================================
+    // ID
+    // ============================================================
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-
+    // ============================================================
+    // WEBHOOK ENDPOINT
+    // ============================================================
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(
@@ -48,7 +61,9 @@ public class WebhookDelivery {
     )
     private WebhookEndpoint webhookEndpoint;
 
-
+    // ============================================================
+    // ORGANIZATION
+    // ============================================================
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(
@@ -57,6 +72,9 @@ public class WebhookDelivery {
     )
     private Organization organization;
 
+    // ============================================================
+    // EVENT
+    // ============================================================
 
     @Column(
             name = "event_type",
@@ -65,6 +83,9 @@ public class WebhookDelivery {
     )
     private String eventType;
 
+    // ============================================================
+    // PAYLOAD
+    // ============================================================
 
     @Column(
             name = "payload",
@@ -72,27 +93,20 @@ public class WebhookDelivery {
     )
     private String payload;
 
+    // ============================================================
+    // ENDPOINT URL
+    // ============================================================
 
-    /**
-     * URL where the webhook was delivered.
-     *
-     * Stored separately so the delivery history remains useful
-     * even if the endpoint URL is later changed.
-     */
     @Column(
             name = "endpoint_url",
             columnDefinition = "TEXT"
     )
     private String endpointUrl;
 
-
     // ============================================================
-    // DELIVERY RESULT
+    // RESULT
     // ============================================================
 
-    /**
-     * SUCCESS or FAILED.
-     */
     @Column(
             name = "status",
             nullable = false,
@@ -100,77 +114,47 @@ public class WebhookDelivery {
     )
     private String status;
 
-
-    /**
-     * HTTP response status returned by the receiving endpoint.
-     *
-     * Example:
-     *
-     * 200
-     * 201
-     * 400
-     * 500
-     */
-    @Column(name = "http_status")
+    @Column(
+            name = "http_status"
+    )
     private Integer httpStatus;
 
-
-    /**
-     * Response body returned by the external webhook endpoint.
-     */
     @Column(
             name = "response_body",
             columnDefinition = "TEXT"
     )
     private String responseBody;
 
-
-    /**
-     * Error message when delivery fails.
-     */
     @Column(
             name = "error_message",
             columnDefinition = "TEXT"
     )
     private String errorMessage;
 
-
     // ============================================================
     // ATTEMPTS
     // ============================================================
 
-    /**
-     * Number of delivery attempts.
-     *
-     * Initially 1.
-     */
     @Column(
             name = "attempt_count",
             nullable = false
     )
     private Integer attemptCount;
 
-
     // ============================================================
     // TIMESTAMPS
     // ============================================================
 
-    /**
-     * When this webhook delivery record was created.
-     */
     @Column(
             name = "created_at",
             nullable = false
     )
     private LocalDateTime createdAt;
 
-
-    /**
-     * When the delivery was completed.
-     */
-    @Column(name = "delivered_at")
+    @Column(
+            name = "delivered_at"
+    )
     private LocalDateTime deliveredAt;
-
 
     // ============================================================
     // PRE-PERSIST
