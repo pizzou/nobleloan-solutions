@@ -165,9 +165,7 @@ public class Payment {
     // PENALTY
     // ============================================================
 
-    /**
-     * Total penalty assessed for this payment/installment cycle.
-     */
+   
     @Column(
             name = "penalty",
             precision = 19,
@@ -177,13 +175,7 @@ public class Payment {
     @JsonProperty("penalty")
     private BigDecimal penalty = BigDecimal.ZERO;
 
-    /**
-     * Total penalty already paid for this payment/installment row.
-     *
-     * This field is required by PaymentService so that multiple
-     * payments in the same cycle do not charge the same penalty
-     * repeatedly.
-     */
+    
     @Column(
             name = "penalty_paid",
             precision = 19,

@@ -352,10 +352,7 @@ export default function Sidebar() {
           Number(response?.count || 0)
         );
       } catch {
-        /*
-         * Message polling failure should not
-         * break the dashboard navigation.
-         */
+        
       }
     };
 
@@ -437,15 +434,7 @@ export default function Sidebar() {
         "
       >
 
-        {/* ====================================================
-            PREMIUM FAVICON / BRAND MARK
-
-            Uses:
-              /public/favIcon.png
-
-            Browser path:
-              /favIcon.png
-            ==================================================== */}
+        
 
         <div
           className="
