@@ -66,17 +66,7 @@ public class MtnMobileMoneyService {
                                 applicationEnvironment,
                                 simulationDelayMs);
 
-                /*
-                 * This service is currently intended for sandbox testing.
-                 *
-                 * We deliberately do NOT require:
-                 * - subscription key
-                 * - API user
-                 * - API key
-                 * - access token
-                 *
-                 * because no real MTN API is being used.
-                 */
+                
 
                 if (sandbox) {
 
