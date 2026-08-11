@@ -559,6 +559,317 @@ public class PublicController {
     }
 
     // ============================================================
+    // MTN MOBILE MONEY WEBHOOK / CALLBACK
+    // ============================================================
+
+    /**
+     * Receives the asynchronous MTN Mobile Money callback.
+     *
+     * The callback payload is used to identify the loan and transaction,
+     * but the payment is not trusted merely because the callback says
+     * SUCCESSFUL. In real MTN mode, MtnMobileMoneyService verifies the
+     * transaction directly with MTN before PaymentService records it.
+     *
+     * In sandbox mode the same endpoint uses the sandbox confirmation path,
+     * which allows the local simulator to exercise the complete webhook
+     * lifecycle without charging real money.
+     */
+    @PostMapping("/webhooks/mtn")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> receiveMtnWebhook(
+            @RequestBody Map<String, Object> payload) {
+
+        Map<String, Object> response =
+                new LinkedHashMap<>();
+
+        if (payload == null || payload.isEmpty()) {
+            response.put("received", false);
+            response.put("status", "REJECTED");
+            response.put("message", "Webhook payload is empty");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        try {
+            Map<String, Object> data = flattenWebhookPayload(payload);
+
+            String status = firstString(
+                    data,
+                    "status",
+                    "transactionStatus",
+                    "transaction_status"
+            );
+
+            if (status == null ||
+                    !"SUCCESSFUL".equalsIgnoreCase(status.trim())) {
+
+                response.put("received", true);
+                response.put("status", "IGNORED");
+                response.put("message", "MTN transaction is not successful");
+                response.put("providerStatus", status);
+
+                log.info(
+                        "[MTN WEBHOOK] Non-success callback ignored. status={}",
+                        status
+                );
+
+                return ResponseEntity.ok(response);
+            }
+
+            String transactionId = firstString(
+                    data,
+                    "transactionId",
+                    "transaction_id",
+                    "referenceId",
+                    "reference_id",
+                    "financialTransactionId",
+                    "financial_transaction_id"
+            );
+
+            String externalId = firstString(
+                    data,
+                    "externalId",
+                    "external_id"
+            );
+
+            Long loanId = firstLong(
+                    data,
+                    "loanId",
+                    "loan_id"
+            );
+
+            if (loanId == null) {
+                loanId = loanIdFromExternalReference(externalId);
+            }
+
+            Double amount = firstDouble(
+                    data,
+                    "amount",
+                    "paidAmount",
+                    "paid_amount"
+            );
+
+            String currency = firstString(
+                    data,
+                    "currency",
+                    "currencyCode",
+                    "currency_code"
+            );
+
+            if (loanId == null) {
+                throw new IllegalArgumentException(
+                        "MTN webhook does not contain a valid loan identifier"
+                );
+            }
+
+            if (transactionId == null || transactionId.isBlank()) {
+                throw new IllegalArgumentException(
+                        "MTN webhook does not contain a transaction/reference ID"
+                );
+            }
+
+            if (amount == null || amount <= 0) {
+                throw new IllegalArgumentException(
+                        "MTN webhook does not contain a valid payment amount"
+                );
+            }
+
+            if (currency == null || currency.isBlank()) {
+                throw new IllegalArgumentException(
+                        "MTN webhook does not contain a currency"
+                );
+            }
+
+            log.info(
+                    "[MTN WEBHOOK] Successful callback received. " +
+                            "loanId={}, transactionId={}, amount={}, currency={}",
+                    loanId,
+                    transactionId,
+                    amount,
+                    currency
+            );
+
+            PaymentGatewayResponse gatewayResponse =
+                    mtnMobileMoneyService.processWebhookConfirmation(
+                            loanId,
+                            transactionId,
+                            amount,
+                            currency
+                    );
+
+            if (gatewayResponse == null) {
+                throw new IllegalStateException(
+                        "MTN payment service returned no response"
+                );
+            }
+
+            boolean successful =
+                    "success".equalsIgnoreCase(
+                            gatewayResponse.getStatus()
+                    );
+
+            response.put("received", true);
+            response.put(
+                    "status",
+                    successful ? "PROCESSED" : "REJECTED"
+            );
+            response.put(
+                    "message",
+                    gatewayResponse.getMessage()
+            );
+            response.put(
+                    "transactionId",
+                    gatewayResponse.getTransactionId()
+            );
+            response.put(
+                    "provider",
+                    gatewayResponse.getProvider()
+            );
+
+            // A duplicate callback is intentionally answered with HTTP 200
+            // because the payment service has already safely processed it.
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error(
+                    "[MTN WEBHOOK] Failed to process callback: {}",
+                    e.getMessage(),
+                    e
+            );
+
+            response.put("received", false);
+            response.put("status", "REJECTED");
+            response.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+    private Map<String, Object> flattenWebhookPayload(
+            Map<String, Object> payload) {
+
+        Map<String, Object> result =
+                new LinkedHashMap<>();
+
+        flattenMap(payload, result);
+        return result;
+    }
+
+    private void flattenMap(
+            Map<String, Object> source,
+            Map<String, Object> target) {
+
+        if (source == null) {
+            return;
+        }
+
+        source.forEach((key, value) -> {
+            if (key == null) {
+                return;
+            }
+
+            target.putIfAbsent(key, value);
+
+            if (value instanceof Map<?, ?> nested) {
+                Map<String, Object> nestedMap =
+                        new LinkedHashMap<>();
+
+                nested.forEach((nestedKey, nestedValue) -> {
+                    if (nestedKey != null) {
+                        nestedMap.put(
+                                String.valueOf(nestedKey),
+                                nestedValue
+                        );
+                    }
+                });
+
+                flattenMap(nestedMap, target);
+            }
+        });
+    }
+
+    private String firstString(
+            Map<String, Object> data,
+            String... keys) {
+
+        for (String key : keys) {
+            Object value = data.get(key);
+
+            if (value != null &&
+                    !String.valueOf(value).isBlank()) {
+                return String.valueOf(value).trim();
+            }
+        }
+
+        return null;
+    }
+
+    private Long firstLong(
+            Map<String, Object> data,
+            String... keys) {
+
+        String value = firstString(data, keys);
+
+        if (value == null) {
+            return null;
+        }
+
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private Double firstDouble(
+            Map<String, Object> data,
+            String... keys) {
+
+        String value = firstString(data, keys);
+
+        if (value == null) {
+            return null;
+        }
+
+        try {
+            return Double.valueOf(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private Long loanIdFromExternalReference(
+            String externalId) {
+
+        if (externalId == null ||
+                externalId.isBlank()) {
+            return null;
+        }
+
+        String value = externalId.trim();
+
+        if (!value.regionMatches(
+                true,
+                0,
+                "LOAN-",
+                0,
+                5
+        )) {
+            return null;
+        }
+
+        String remainder = value.substring(5);
+        int separator = remainder.indexOf('-');
+        String loanIdPart = separator >= 0
+                ? remainder.substring(0, separator)
+                : remainder;
+
+        try {
+            return Long.valueOf(loanIdPart);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    // ============================================================
     // PUBLIC PAYMENT INITIATION
     // ============================================================
 
@@ -2294,7 +2605,12 @@ public class PublicController {
                         )
                 );
 
-        
+        /*
+         * Persist the successful response against the idempotency key so
+         * browser retries return the original application result instead
+         * of creating another loan. The surrounding transaction commits
+         * this record together with the loan application.
+         */
         idempotencyService.recordSuccess(
                 idempotencyKey,
                 org,
