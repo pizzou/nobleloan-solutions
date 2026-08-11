@@ -24,27 +24,7 @@ public class ComplianceService {
     private final BorrowerRepository borrowerRepo;
     private final AuditService auditService;
 
-    /*
-     * IMPORTANT:
-     *
-     * This service is intentionally structured so the actual sanctions provider
-     * can be introduced without changing the controller/service contract.
-     *
-     * Do NOT use a hard-coded sanctions list in production.
-     *
-     * The current implementation performs:
-     *
-     * 1. Organization ownership validation
-     * 2. Required identity-data validation
-     * 3. Internal screening placeholder
-     * 4. Explicit decision calculation
-     * 5. Persistent KYC check
-     * 6. Borrower KYC status update
-     * 7. Audit logging
-     *
-     * Replace the internal screening implementation with a real provider
-     * before enabling production onboarding.
-     */
+    
 
     private static final String INTERNAL_PROVIDER = "INTERNAL";
 
@@ -53,12 +33,7 @@ public class ComplianceService {
 
     private static final int MAX_NAME_LENGTH = 200;
 
-    /**
-     * Runs the complete KYC screening process for a borrower.
-     *
-     * The organization ID is mandatory and is used to prevent cross-tenant
-     * access to borrowers.
-     */
+   
     @Transactional
     public KycCheck runFullScreening(Long borrowerId, Long orgId) {
 
@@ -72,12 +47,6 @@ public class ComplianceService {
                 )
             );
 
-        /*
-         * Multi-tenant security check.
-         *
-         * Never allow an organization to screen or modify another
-         * organization's borrower.
-         */
         validateOrganizationOwnership(borrower, orgId);
 
         /*
@@ -107,13 +76,6 @@ public class ComplianceService {
             identityResult
         );
 
-        /*
-         * Persist the screening result.
-         *
-         * We deliberately create a new KycCheck record rather than
-         * overwriting historical checks. KYC decisions must remain
-         * auditable.
-         */
         KycCheck check = KycCheck.builder()
             .borrower(borrower)
             .organization(borrower.getOrganization())
@@ -169,12 +131,7 @@ public class ComplianceService {
         return check;
     }
 
-    /**
-     * Performs a manual compliance review.
-     *
-     * Manual review is only valid for a KYC check belonging to the
-     * supplied organization.
-     */
+   
     @Transactional
     public KycCheck manualReview(
         Long checkId,

@@ -33,19 +33,7 @@ public class PublicPortalService {
     private final PaymentRepository paymentRepository;
     private final FinancialCalculationService financialCalculationService;
 
-    /**
-     * Public borrower dashboard.
-     *
-     * IMPORTANT:
-     *
-     * The public portal must reflect the same daily-interest logic
-     * used by PaymentService.
-     *
-     * It must NOT simply display loan.getNextInstallmentAmount(),
-     * because that value belongs to the original repayment schedule
-     * and may not represent the amount currently payable after
-     * principal reductions and daily interest accrual.
-     */
+    
     @Transactional(readOnly = true)
     public BorrowerDashboardResponse getDashboard(
             BorrowerDashboardRequest request) {
@@ -107,31 +95,14 @@ public class PublicPortalService {
                             loan.getNextPaymentDate());
         }
 
-        //------------------------------------------------------------
-        // ALL PAYMENT RECORDS
-        //
-        // We need these because the PaymentService uses the payment
-        // records to determine:
-        //
-        // - current installment
-        // - previous interest timestamp
-        // - interest already paid
-        // - cycle interest already accrued
-        // - penalty already recorded
-        //------------------------------------------------------------
+       
+        
 
         List<Payment> loanPayments =
                 paymentRepository.findByLoanId(
                         loan.getId());
 
-        //------------------------------------------------------------
-        // FIND CURRENT PAYMENT CYCLE
-        //
-        // Same basic selection logic used by PaymentService:
-        //
-        // 1. Existing partially-paid cycle
-        // 2. Otherwise earliest unpaid installment
-        //------------------------------------------------------------
+        
 
         Optional<Payment> existingCurrentCycle =
                 loanPayments.stream()

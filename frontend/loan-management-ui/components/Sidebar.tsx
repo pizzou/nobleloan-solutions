@@ -20,10 +20,6 @@ const NAVY_DARK = '#07152A';
 const YELLOW = '#F4C430';
 const YELLOW_DARK = '#C99A00';
 
-/*
- * Sidebar navigation should primarily use white/navy.
- * Yellow is reserved for branding and small accents.
- */
 const ACTIVE_BG = 'bg-white/10';
 const ACTIVE_TEXT = 'text-white';
 const ACTIVE_BORDER = 'border-l-2 border-white';
@@ -243,6 +239,16 @@ export default function Sidebar() {
     'ACCOUNTANT',
   ].includes(user?.role || '');
 
+  /*
+   * Regulatory reporting is restricted to users who should
+   * have access to financial/regulatory functions.
+   */
+  const canSeeRegulatory = [
+    'ADMIN',
+    'MANAGER',
+    'ACCOUNTANT',
+  ].includes(user?.role || '');
+
   /* ==========================================================
      NOTIFICATIONS
      ========================================================== */
@@ -276,7 +282,7 @@ export default function Sidebar() {
   ] = useState(isRegulatoryRoute);
 
   /* ==========================================================
-     KEEP REGULATORY OPEN
+     KEEP REGULATORY OPEN ON REGULATORY ROUTES
      ========================================================== */
 
   useEffect(() => {
@@ -298,7 +304,8 @@ export default function Sidebar() {
 
     const load = async () => {
       try {
-        const response = await getUnreadCount();
+        const response =
+          await getUnreadCount();
 
         if (!active) {
           return;
@@ -309,22 +316,25 @@ export default function Sidebar() {
         );
       } catch {
         /*
-         * Notification polling failure should not
-         * break the dashboard navigation.
+         * Notification polling failure should
+         * not break the sidebar.
          */
       }
     };
 
     load();
 
-    const interval = window.setInterval(
-      load,
-      30000
-    );
+    const interval =
+      window.setInterval(
+        load,
+        30000
+      );
 
     return () => {
       active = false;
-      window.clearInterval(interval);
+      window.clearInterval(
+        interval
+      );
     };
   }, [user]);
 
@@ -352,20 +362,26 @@ export default function Sidebar() {
           Number(response?.count || 0)
         );
       } catch {
-        
+        /*
+         * Message polling failure should
+         * not break the sidebar.
+         */
       }
     };
 
     load();
 
-    const interval = window.setInterval(
-      load,
-      30000
-    );
+    const interval =
+      window.setInterval(
+        load,
+        30000
+      );
 
     return () => {
       active = false;
-      window.clearInterval(interval);
+      window.clearInterval(
+        interval
+      );
     };
   }, [user]);
 
@@ -434,8 +450,6 @@ export default function Sidebar() {
         "
       >
 
-        
-
         <div
           className="
             relative
@@ -469,9 +483,7 @@ export default function Sidebar() {
           />
         </div>
 
-        {/* ====================================================
-            BRAND NAME
-            ==================================================== */}
+        {/* BRAND NAME */}
 
         <div
           className="
@@ -573,7 +585,9 @@ export default function Sidebar() {
               key={section.section}
             >
 
-              {/* SECTION TITLE */}
+              {/* ==================================================
+                  SECTION TITLE
+                  ================================================== */}
 
               <div
                 className="
@@ -589,7 +603,9 @@ export default function Sidebar() {
                 {section.section}
               </div>
 
-              {/* SECTION ITEMS */}
+              {/* ==================================================
+                  SECTION ITEMS
+                  ================================================== */}
 
               {section.items
                 .filter(
@@ -734,142 +750,37 @@ export default function Sidebar() {
                   }
                 )}
 
-            </div>
-          )
-        )}
+              {/* ==================================================
+                  REGULATORY REPORTS
+                  
+                  IMPORTANT:
+                  This is rendered INSIDE the Admin section,
+                  immediately after Expenses because Expenses
+                  appears before Users & Roles in NAV_STAFF.
+                  ================================================== */}
 
-        {/* ====================================================
-            REGULATORY REPORTS
-            ==================================================== */}
+              {section.section === 'Admin' &&
+                canSeeRegulatory && (
+                  <div className="mt-0.5">
 
-        <div>
+                    {/* REGULATORY PARENT */}
 
-          {/* REGULATORY PARENT */}
-
-          <button
-            type="button"
-            onClick={() =>
-              setRegulatoryOpen(
-                (previous) =>
-                  !previous
-              )
-            }
-            aria-expanded={
-              regulatoryOpen
-            }
-            aria-controls="regulatory-navigation"
-            className={`
-              mb-0.5
-              flex
-              w-full
-              items-center
-              gap-2.5
-              rounded-lg
-              border-l-2
-              px-3
-              py-2
-              text-sm
-              font-medium
-              transition-all
-              duration-150
-
-              ${
-                isRegulatoryRoute
-                  ? `
-                    border-white
-                    bg-white/10
-                    text-white
-                  `
-                  : `
-                    border-transparent
-                    text-gray-400
-                    hover:bg-white/8
-                    hover:text-white
-                  `
-              }
-            `}
-          >
-
-            {/* ICON */}
-
-            <span
-              aria-hidden="true"
-              className="
-                w-5
-                text-center
-                text-base
-              "
-            >
-              📊
-            </span>
-
-            {/* LABEL */}
-
-            <span
-              className="
-                flex-1
-                text-left
-              "
-            >
-              Regulatory Reports
-            </span>
-
-            {/* ARROW */}
-
-            <span
-              aria-hidden="true"
-              className={`
-                text-[10px]
-                text-gray-400
-                transition-transform
-                duration-200
-
-                ${
-                  regulatoryOpen
-                    ? 'rotate-180'
-                    : ''
-                }
-              `}
-            >
-              ▼
-            </span>
-
-          </button>
-
-          {/* REGULATORY CHILDREN */}
-
-          {regulatoryOpen && (
-            <div
-              id="regulatory-navigation"
-              className="
-                ml-4
-                space-y-0.5
-                border-l
-                border-white/10
-                pl-2
-              "
-            >
-
-              {REGULATORY_ITEMS.map(
-                (item) => {
-
-                  const active =
-                    isActive(
-                      item.href
-                    );
-
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      aria-current={
-                        active
-                          ? 'page'
-                          : undefined
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRegulatoryOpen(
+                          (previous) =>
+                            !previous
+                        )
                       }
+                      aria-expanded={
+                        regulatoryOpen
+                      }
+                      aria-controls="regulatory-navigation"
                       className={`
-                        group
+                        mb-0.5
                         flex
+                        w-full
                         items-center
                         gap-2.5
                         rounded-lg
@@ -877,69 +788,182 @@ export default function Sidebar() {
                         px-3
                         py-2
                         text-sm
+                        font-medium
                         transition-all
                         duration-150
 
                         ${
-                          active
+                          isRegulatoryRoute
                             ? `
                               border-white
                               bg-white/10
-                              font-semibold
                               text-white
                             `
                             : `
                               border-transparent
-                              text-gray-500
+                              text-gray-400
                               hover:bg-white/8
-                              hover:text-gray-200
+                              hover:text-white
                             `
                         }
                       `}
                     >
 
-                      {/* CHILD ICON */}
+                      {/* ICON */}
 
                       <span
                         aria-hidden="true"
                         className="
                           w-5
                           text-center
-                          text-sm
+                          text-base
                         "
                       >
-                        {item.icon}
+                        📊
                       </span>
 
-                      {/* CHILD LABEL */}
+                      {/* LABEL */}
 
-                      <span className="flex-1">
-                        {item.label}
+                      <span
+                        className="
+                          flex-1
+                          text-left
+                        "
+                      >
+                        Regulatory Reports
                       </span>
 
-                      {/* ACTIVE INDICATOR */}
+                      {/* ARROW */}
 
-                      {active && (
-                        <span
-                          aria-hidden="true"
-                          className="
-                            h-1.5
-                            w-1.5
-                            rounded-full
-                            bg-white
-                          "
-                        />
-                      )}
+                      <span
+                        aria-hidden="true"
+                        className={`
+                          text-[10px]
+                          text-gray-400
+                          transition-transform
+                          duration-200
 
-                    </Link>
-                  );
-                }
-              )}
+                          ${
+                            regulatoryOpen
+                              ? 'rotate-180'
+                              : ''
+                          }
+                        `}
+                      >
+                        ▼
+                      </span>
+
+                    </button>
+
+                    {/* REGULATORY CHILDREN */}
+
+                    {regulatoryOpen && (
+                      <div
+                        id="regulatory-navigation"
+                        className="
+                          ml-4
+                          space-y-0.5
+                          border-l
+                          border-white/10
+                          pl-2
+                        "
+                      >
+
+                        {REGULATORY_ITEMS.map(
+                          (item) => {
+
+                            const active =
+                              isActive(
+                                item.href
+                              );
+
+                            return (
+                              <Link
+                                key={item.href}
+                                href={item.href}
+                                aria-current={
+                                  active
+                                    ? 'page'
+                                    : undefined
+                                }
+                                className={`
+                                  group
+                                  flex
+                                  items-center
+                                  gap-2.5
+                                  rounded-lg
+                                  border-l-2
+                                  px-3
+                                  py-2
+                                  text-sm
+                                  transition-all
+                                  duration-150
+
+                                  ${
+                                    active
+                                      ? `
+                                        border-white
+                                        bg-white/10
+                                        font-semibold
+                                        text-white
+                                      `
+                                      : `
+                                        border-transparent
+                                        text-gray-500
+                                        hover:bg-white/8
+                                        hover:text-gray-200
+                                      `
+                                  }
+                                `}
+                              >
+
+                                {/* CHILD ICON */}
+
+                                <span
+                                  aria-hidden="true"
+                                  className="
+                                    w-5
+                                    text-center
+                                    text-sm
+                                  "
+                                >
+                                  {item.icon}
+                                </span>
+
+                                {/* CHILD LABEL */}
+
+                                <span className="flex-1">
+                                  {item.label}
+                                </span>
+
+                                {/* ACTIVE INDICATOR */}
+
+                                {active && (
+                                  <span
+                                    aria-hidden="true"
+                                    className="
+                                      h-1.5
+                                      w-1.5
+                                      rounded-full
+                                      bg-white
+                                    "
+                                  />
+                                )}
+
+                              </Link>
+                            );
+                          }
+                        )}
+
+                      </div>
+                    )}
+
+                  </div>
+                )}
 
             </div>
-          )}
-
-        </div>
+          )
+        )}
 
       </nav>
 
