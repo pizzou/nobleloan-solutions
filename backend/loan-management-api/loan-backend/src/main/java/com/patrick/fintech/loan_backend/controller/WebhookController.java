@@ -149,18 +149,7 @@ public class WebhookController {
     // MTN MOBILE MONEY SANDBOX WEBHOOK
     // ============================================================
 
-    /*
-     * IMPORTANT:
-     *
-     * This endpoint is intentionally NOT protected by JWT.
-     *
-     * The sandbox HTTP callback must be able to reach it without
-     * logging into the application.
-     *
-     * URL:
-     *
-     * POST /api/webhooks/mtn/momo
-     */
+    
 
     @PostMapping("/mtn/momo")
     @PreAuthorize("permitAll()")
