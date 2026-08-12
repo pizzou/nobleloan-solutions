@@ -42,8 +42,6 @@ public class SecurityConfig {
     @Value("${app.cors.allowed-origins:https://nobleloan-solutions.vercel.app}")
     private String allowedOrigins;
 
-    
-
     @Bean
     public SecurityFilterChain filterChain(
             HttpSecurity http
@@ -140,6 +138,10 @@ public class SecurityConfig {
             .authorizeHttpRequests(authorize ->
                 authorize
 
+                    // ------------------------------------------------
+                    // PUBLIC / INFRASTRUCTURE ENDPOINTS
+                    // ------------------------------------------------
+
                     .requestMatchers(
                         "/api/auth/**",
                         "/h2-console/**",
@@ -151,6 +153,24 @@ public class SecurityConfig {
                         "/public/**"
                     )
                     .permitAll()
+
+                    // ------------------------------------------------
+                    // WEBSOCKET HANDSHAKE
+                    //
+                    // The browser must be able to establish the
+                    // WebSocket connection before STOMP can subscribe
+                    // to /topic/... destinations.
+                    // ------------------------------------------------
+
+                    .requestMatchers(
+                        "/ws",
+                        "/ws/**"
+                    )
+                    .permitAll()
+
+                    // ------------------------------------------------
+                    // EVERYTHING ELSE
+                    // ------------------------------------------------
 
                     .anyRequest()
                     .authenticated()
@@ -208,41 +228,41 @@ public class SecurityConfig {
 
         List<String> origins =
                 Arrays.stream(
-                        allowedOrigins.split(",")
+                    allowedOrigins.split(",")
                 )
                 .map(String::trim)
                 .filter(origin -> !origin.isBlank())
                 .toList();
 
         configuration.setAllowedOrigins(
-                origins
+            origins
         );
 
         configuration.setAllowedMethods(
-                List.of(
-                    "GET",
-                    "POST",
-                    "PUT",
-                    "PATCH",
-                    "DELETE",
-                    "OPTIONS"
-                )
+            List.of(
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE",
+                "OPTIONS"
+            )
         );
 
         configuration.setAllowedHeaders(
-                List.of("*")
+            List.of("*")
         );
 
         configuration.setAllowCredentials(
-                true
+            true
         );
 
         UrlBasedCorsConfigurationSource source =
                 new UrlBasedCorsConfigurationSource();
 
         source.registerCorsConfiguration(
-                "/**",
-                configuration
+            "/**",
+            configuration
         );
 
         return source;
