@@ -9,21 +9,28 @@ export interface PaymentNotification {
   organizationId: number;
   loanId: number;
   paymentId: number;
+
   amount: number | string;
+
   transactionId?: string;
   paymentMethod?: string;
   paymentStatus?: string;
+
   outstandingBalance?: number | string;
+
   borrowerName?: string;
   loanNumber?: string;
+
   message?: string;
   createdAt?: string;
 }
 
 export interface RealtimePaymentCallbacks {
   onPaymentReceived: (notification: PaymentNotification) => void;
+
   onConnected?: () => void;
   onDisconnected?: () => void;
+
   onError?: (error: unknown) => void;
 }
 
@@ -33,15 +40,18 @@ let organizationSubscription: StompSubscription | null = null;
 let currentOrganizationId: number | null = null;
 
 /**
- * Returns the backend WebSocket endpoint.
+ * Converts the configured HTTP API URL into the WebSocket URL.
  *
- * Example:
+ * Examples:
  *
- * NEXT_PUBLIC_API_URL=https://loansaas-backend.onrender.com/api
+ * https://loansaas-backend.onrender.com
+ *       -> wss://loansaas-backend.onrender.com/ws
  *
- * becomes:
+ * http://localhost:8080
+ *       -> ws://localhost:8080/ws
  *
- * wss://loansaas-backend.onrender.com/ws
+ * The /api portion of the REST API URL is deliberately removed.
+ * WebSocketConfig exposes /ws at the server root.
  */
 function getWebSocketUrl(): string {
   const apiUrl =
@@ -54,334 +64,99 @@ function getWebSocketUrl(): string {
     );
   }
 
-  let normalizedApiUrl = apiUrl.trim();
+  let normalized = apiUrl.trim();
 
-  /*
-   * Remove trailing slashes.
-   */
-  normalizedApiUrl = normalizedApiUrl.replace(/\/+$/, '');
+  // Remove trailing slashes.
+  normalized = normalized.replace(/\/+$/, '');
 
-  let parsedUrl: URL;
+  // Remove REST API suffixes because WebSocket endpoint is /ws.
+  normalized = normalized.replace(/\/api$/i, '');
 
-  try {
-    parsedUrl = new URL(normalizedApiUrl);
-  } catch (error) {
+  // Remove accidental /api/... suffixes.
+  normalized = normalized.replace(/\/api\/.*$/i, '');
+
+  const url = new URL(normalized);
+
+  let protocol: string;
+
+  if (url.protocol === 'https:') {
+    protocol = 'wss:';
+  } else if (url.protocol === 'http:') {
+    protocol = 'ws:';
+  } else {
     throw new Error(
-      `Invalid API URL configured for realtime notifications: ${normalizedApiUrl}`
+      `Unsupported API URL protocol: ${url.protocol}`
     );
   }
 
-  /*
-   * Spring WebSocket endpoint is:
-   *
-   * /ws
-   *
-   * We intentionally use only the host and port here.
-   *
-   * This prevents:
-   *
-   * https://backend.com/api
-   *
-   * from becoming:
-   *
-   * wss://backend.com/api/ws
-   *
-   * which would be wrong for the Spring configuration:
-   *
-   * registry.addEndpoint("/ws")
-   */
-  const protocol =
-    parsedUrl.protocol === 'https:'
-      ? 'wss:'
-      : 'ws:';
-
-  return `${protocol}//${parsedUrl.host}/ws`;
+  return `${protocol}//${url.host}/ws`;
 }
 
 /**
- * Safely converts a value to a number.
+ * Safely converts organization ID values.
  */
-function toNumber(value: unknown): number | null {
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value : null;
-  }
+function normalizeOrganizationId(
+  organizationId: number | string
+): number {
+  const parsed = Number(organizationId);
 
-  if (typeof value === 'string') {
-    const parsed = Number(value);
-
-    return Number.isFinite(parsed)
-      ? parsed
-      : null;
-  }
-
-  return null;
-}
-
-/**
- * Validates and normalizes an incoming payment notification.
- */
-function normalizePaymentNotification(
-  raw: unknown
-): PaymentNotification | null {
-  if (!raw || typeof raw !== 'object') {
-    return null;
-  }
-
-  const value = raw as Record<string, unknown>;
-
-  const organizationId =
-    toNumber(value.organizationId);
-
-  const loanId =
-    toNumber(value.loanId);
-
-  const paymentId =
-    toNumber(value.paymentId);
-
-  if (
-    organizationId === null ||
-    loanId === null ||
-    paymentId === null
-  ) {
-    console.error(
-      '[STOMP] Invalid payment notification received:',
-      raw
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(
+      `Invalid organizationId for realtime notifications: ${organizationId}`
     );
-
-    return null;
   }
 
-  if (
-    value.amount === undefined ||
-    value.amount === null
-  ) {
-    console.error(
-      '[STOMP] Payment notification has no amount:',
-      raw
-    );
-
-    return null;
-  }
-
-  return {
-    organizationId,
-    loanId,
-    paymentId,
-    amount:
-      typeof value.amount === 'number' ||
-      typeof value.amount === 'string'
-        ? value.amount
-        : String(value.amount),
-
-    transactionId:
-      value.transactionId != null
-        ? String(value.transactionId)
-        : undefined,
-
-    paymentMethod:
-      value.paymentMethod != null
-        ? String(value.paymentMethod)
-        : undefined,
-
-    paymentStatus:
-      value.paymentStatus != null
-        ? String(value.paymentStatus)
-        : undefined,
-
-    outstandingBalance:
-      value.outstandingBalance != null
-        ? (
-            typeof value.outstandingBalance === 'number' ||
-            typeof value.outstandingBalance === 'string'
-              ? value.outstandingBalance
-              : String(value.outstandingBalance)
-          )
-        : undefined,
-
-    borrowerName:
-      value.borrowerName != null
-        ? String(value.borrowerName)
-        : undefined,
-
-    loanNumber:
-      value.loanNumber != null
-        ? String(value.loanNumber)
-        : undefined,
-
-    message:
-      value.message != null
-        ? String(value.message)
-        : undefined,
-
-    createdAt:
-      value.createdAt != null
-        ? String(value.createdAt)
-        : undefined,
-  };
+  return parsed;
 }
 
 /**
- * Disconnects the existing payment realtime connection.
- *
- * This is intentionally asynchronous internally, but the public
- * function remains simple for callers.
- */
-export function disconnectFromPaymentNotifications(): void {
-  if (organizationSubscription) {
-    try {
-      organizationSubscription.unsubscribe();
-    } catch (error) {
-      console.error(
-        '[STOMP] Failed to unsubscribe from payment topic.',
-        error
-      );
-    }
-
-    organizationSubscription = null;
-  }
-
-  currentOrganizationId = null;
-
-  if (stompClient) {
-    const client = stompClient;
-
-    stompClient = null;
-
-    try {
-      void client.deactivate();
-    } catch (error) {
-      console.error(
-        '[STOMP] Failed to deactivate payment realtime client.',
-        error
-      );
-    }
-  }
-}
-
-/**
- * Connects the dashboard to realtime payment notifications.
- *
- * Backend:
- *
- * /ws
- *
- * Organization topic:
- *
- * /topic/organization/{organizationId}/payments
+ * Connects the dashboard to the backend STOMP WebSocket
+ * and subscribes to organization-level payment notifications.
  */
 export function connectToPaymentNotifications(
-  organizationId: number,
+  organizationId: number | string,
   callbacks: RealtimePaymentCallbacks
 ): () => void {
-  if (
-    !organizationId ||
-    !Number.isFinite(organizationId)
-  ) {
-    const error = new Error(
-      'Cannot connect to payment notifications without a valid organizationId.'
-    );
+  const normalizedOrganizationId =
+    normalizeOrganizationId(organizationId);
 
-    console.error(
-      '[STOMP]',
-      error.message
-    );
+  // Always close an existing connection before creating another.
+  disconnectFromPaymentNotifications();
 
-    callbacks.onError?.(error);
+  currentOrganizationId = normalizedOrganizationId;
 
-    return () => undefined;
-  }
-
-  /*
-   * Do not create another connection if this exact organization
-   * is already connected.
-   */
-  if (
-    stompClient &&
-    currentOrganizationId === organizationId
-  ) {
-    if (process.env.NODE_ENV === 'development') {
-      console.debug(
-        `[STOMP] Existing payment connection already active for organization ${organizationId}.`
-      );
-    }
-
-    return () => {
-      disconnectFromPaymentNotifications();
-    };
-  }
-
-  /*
-   * If another organization is currently connected, close it first.
-   */
-  if (stompClient) {
-    disconnectFromPaymentNotifications();
-  }
-
-  let brokerURL: string;
-
-  try {
-    brokerURL = getWebSocketUrl();
-  } catch (error) {
-    console.error(
-      '[STOMP] Failed to build WebSocket URL.',
-      error
-    );
-
-    callbacks.onError?.(error);
-
-    return () => undefined;
-  }
+  const brokerURL = getWebSocketUrl();
 
   if (process.env.NODE_ENV === 'development') {
-    console.debug(
-      '[STOMP] Payment WebSocket URL:',
+    console.log(
+      '[REALTIME] WebSocket URL:',
       brokerURL
     );
 
-    console.debug(
-      '[STOMP] Organization:',
-      organizationId
+    console.log(
+      '[REALTIME] Organization:',
+      normalizedOrganizationId
     );
 
-    console.debug(
-      '[STOMP] Payment topic:',
-      `/topic/organization/${organizationId}/payments`
+    console.log(
+      '[REALTIME] Subscription:',
+      `/topic/organization/${normalizedOrganizationId}/payments`
     );
   }
 
   const client = new Client({
     brokerURL,
 
-    /*
-     * Production-friendly reconnect.
-     *
-     * The browser will continue reconnecting if the backend,
-     * Render instance, network, or connection temporarily goes down.
-     */
     reconnectDelay: 5000,
 
-    /*
-     * STOMP heartbeats.
-     */
     heartbeatIncoming: 10000,
     heartbeatOutgoing: 10000,
 
-    /*
-     * Prevent a dead connection from remaining open forever.
-     */
-    connectionTimeout: 10000,
+    connectHeaders: {},
 
-    /*
-     * Debug only in development.
-     */
     debug: (message: string) => {
-      if (
-        process.env.NODE_ENV === 'development'
-      ) {
-        console.debug(
-          '[STOMP]',
-          message
-        );
+      if (process.env.NODE_ENV === 'development') {
+        console.debug('[STOMP]', message);
       }
     },
   });
@@ -389,25 +164,20 @@ export function connectToPaymentNotifications(
   /**
    * Successful STOMP connection.
    */
-  client.onConnect = (
-    frame: IFrame
-  ) => {
+  client.onConnect = (_frame: IFrame) => {
     if (process.env.NODE_ENV === 'development') {
-      console.debug(
-        '[STOMP] Connected to payment realtime broker.',
-        frame.headers
+      console.log(
+        '[REALTIME] WebSocket/STOMP connected.'
       );
     }
 
-    /*
-     * Remove an old subscription before creating a new one.
-     */
+    // Prevent an accidental duplicate subscription.
     if (organizationSubscription) {
       try {
         organizationSubscription.unsubscribe();
       } catch (error) {
-        console.error(
-          '[STOMP] Failed to remove previous payment subscription.',
+        console.warn(
+          '[REALTIME] Existing subscription cleanup failed.',
           error
         );
       }
@@ -416,173 +186,144 @@ export function connectToPaymentNotifications(
     }
 
     const destination =
-      `/topic/organization/${organizationId}/payments`;
+      `/topic/organization/${normalizedOrganizationId}/payments`;
 
-    try {
-      organizationSubscription =
-        client.subscribe(
-          destination,
-          (message: IMessage) => {
-            try {
-              if (!message.body) {
-                console.warn(
-                  '[STOMP] Empty payment notification received.'
-                );
+    organizationSubscription = client.subscribe(
+      destination,
+      (message: IMessage) => {
+        try {
+          if (!message.body) {
+            console.warn(
+              '[REALTIME] Received empty payment notification.'
+            );
 
-                return;
-              }
-
-              const parsed =
-                JSON.parse(message.body);
-
-              const notification =
-                normalizePaymentNotification(
-                  parsed
-                );
-
-              if (!notification) {
-                callbacks.onError?.(
-                  new Error(
-                    'Invalid payment notification payload.'
-                  )
-                );
-
-                return;
-              }
-
-              /*
-               * Multi-tenant safety.
-               *
-               * Never allow a notification belonging to another
-               * organization to appear in this dashboard.
-               */
-              if (
-                notification.organizationId !==
-                organizationId
-              ) {
-                console.warn(
-                  '[STOMP] Ignoring payment notification for another organization.',
-                  {
-                    expectedOrganizationId:
-                      organizationId,
-
-                    receivedOrganizationId:
-                      notification.organizationId,
-
-                    loanId:
-                      notification.loanId,
-
-                    paymentId:
-                      notification.paymentId,
-                  }
-                );
-
-                return;
-              }
-
-              if (process.env.NODE_ENV === 'development') {
-                console.debug(
-                  '[STOMP] PAYMENT NOTIFICATION RECEIVED:',
-                  notification
-                );
-              }
-
-              callbacks.onPaymentReceived(
-                notification
-              );
-            } catch (error) {
-              console.error(
-                '[STOMP] Failed to process payment notification.',
-                error
-              );
-
-              callbacks.onError?.(
-                error
-              );
-            }
+            return;
           }
-        );
 
-      currentOrganizationId =
-        organizationId;
+          const notification =
+            JSON.parse(
+              message.body
+            ) as PaymentNotification;
 
-      callbacks.onConnected?.();
+          const notificationOrganizationId =
+            Number(
+              notification.organizationId
+            );
 
-      console.info(
-        `[STOMP] Payment realtime notifications connected. Organization=${organizationId}`
-      );
-    } catch (error) {
-      console.error(
-        '[STOMP] Failed to subscribe to payment topic.',
-        error
-      );
+          if (
+            !Number.isInteger(
+              notificationOrganizationId
+            )
+          ) {
+            console.warn(
+              '[REALTIME] Ignoring payment notification with invalid organizationId.',
+              notification
+            );
 
-      callbacks.onError?.(
-        error
+            return;
+          }
+
+          if (
+            notificationOrganizationId !==
+            normalizedOrganizationId
+          ) {
+            console.warn(
+              '[REALTIME] Ignoring payment notification belonging to another organization.',
+              {
+                expected:
+                  normalizedOrganizationId,
+                received:
+                  notificationOrganizationId,
+              }
+            );
+
+            return;
+          }
+
+          if (
+            !notification.loanId ||
+            !notification.paymentId
+          ) {
+            console.warn(
+              '[REALTIME] Ignoring malformed payment notification.',
+              notification
+            );
+
+            return;
+          }
+
+          if (process.env.NODE_ENV === 'development') {
+            console.log(
+              '[REALTIME] PAYMENT NOTIFICATION RECEIVED.',
+              notification
+            );
+          }
+
+          callbacks.onPaymentReceived(
+            notification
+          );
+        } catch (error) {
+          console.error(
+            '[REALTIME] Failed to parse payment notification.',
+            error,
+            message.body
+          );
+
+          callbacks.onError?.(error);
+        }
+      }
+    );
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log(
+        '[REALTIME] Subscribed successfully:',
+        destination
       );
     }
+
+    callbacks.onConnected?.();
   };
 
   /**
-   * STOMP broker-level error.
+   * STOMP broker error.
    */
-  client.onStompError = (
-    frame: IFrame
-  ) => {
+  client.onStompError = (frame: IFrame) => {
     console.error(
-      '[STOMP] Broker error.',
-      {
-        message:
-          frame.headers?.message,
-
-        details:
-          frame.headers,
-
-        body:
-          frame.body,
-      }
+      '[REALTIME] STOMP broker error:',
+      frame.headers['message'],
+      frame.body
     );
 
     callbacks.onError?.(
-      frame
+      new Error(
+        frame.headers['message'] ||
+          'STOMP broker error'
+      )
     );
   };
 
-  /**
-   * Raw WebSocket error.
-   */
-  client.onWebSocketError = (
-    event: Event
-  ) => {
+  client.onWebSocketError = (event: Event) => {
     console.error(
-      '[STOMP] WebSocket connection error.',
+      '[REALTIME] WebSocket error:',
       event
     );
 
-    callbacks.onError?.(
-      event
-    );
+    callbacks.onError?.(event);
   };
 
-  /**
-   * WebSocket closed.
-   *
-   * STOMP will automatically reconnect because
-   * reconnectDelay is configured.
-   */
-  client.onWebSocketClose = (
-    event: CloseEvent
-  ) => {
+ 
+  client.onWebSocketClose = (event: CloseEvent) => {
     organizationSubscription = null;
 
-    console.warn(
-      '[STOMP] Payment WebSocket connection closed.',
-      {
-        code: event.code,
-        reason: event.reason,
-        wasClean: event.wasClean,
-      }
-    );
+    if (process.env.NODE_ENV === 'development') {
+      console.warn(
+        '[REALTIME] WebSocket closed.',
+        {
+          code: event.code,
+          reason: event.reason,
+        }
+      );
+    }
 
     callbacks.onDisconnected?.();
   };
@@ -594,40 +335,19 @@ export function connectToPaymentNotifications(
     organizationSubscription = null;
 
     if (process.env.NODE_ENV === 'development') {
-      console.debug(
-        '[STOMP] Payment STOMP connection disconnected.'
+      console.log(
+        '[REALTIME] STOMP disconnected.'
       );
     }
 
     callbacks.onDisconnected?.();
   };
 
-  /*
-   * Save the client globally.
-   */
   stompClient = client;
-  currentOrganizationId = organizationId;
 
-  /*
-   * Start connection.
-   */
-  try {
-    client.activate();
-  } catch (error) {
-    console.error(
-      '[STOMP] Failed to activate payment realtime client.',
-      error
-    );
+  client.activate();
 
-    stompClient = null;
-    currentOrganizationId = null;
-
-    callbacks.onError?.(
-      error
-    );
-  }
-
-  /*
+  /**
    * Cleanup function for React useEffect.
    */
   return () => {
@@ -637,4 +357,54 @@ export function connectToPaymentNotifications(
       disconnectFromPaymentNotifications();
     }
   };
+}
+
+/**
+ * Disconnects the current realtime connection.
+ */
+export function disconnectFromPaymentNotifications(): void {
+  currentOrganizationId = null;
+
+  if (organizationSubscription) {
+    try {
+      organizationSubscription.unsubscribe();
+    } catch (error) {
+      console.warn(
+        '[REALTIME] Failed to unsubscribe.',
+        error
+      );
+    }
+
+    organizationSubscription = null;
+  }
+
+  if (stompClient) {
+    const client = stompClient;
+
+    stompClient = null;
+
+    try {
+      void client.deactivate();
+    } catch (error) {
+      console.warn(
+        '[REALTIME] Failed to deactivate STOMP client.',
+        error
+      );
+    }
+  }
+}
+
+
+export function isPaymentRealtimeConnected(): boolean {
+  return (
+    stompClient !== null &&
+    stompClient.connected
+  );
+}
+
+/**
+ * Returns the organization currently connected to realtime notifications.
+ */
+export function getRealtimeOrganizationId(): number | null {
+  return currentOrganizationId;
 }
