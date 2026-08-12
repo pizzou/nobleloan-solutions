@@ -8,7 +8,6 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-
 public record PaymentReceivedEvent(
 
         Long paymentId,
@@ -16,6 +15,8 @@ public record PaymentReceivedEvent(
         Long loanId,
 
         Long borrowerId,
+
+        String borrowerName,
 
         Long organizationId,
 
@@ -84,10 +85,18 @@ public record PaymentReceivedEvent(
             loanReference = loanReference.trim();
         }
 
+        if (borrowerName != null) {
+            borrowerName = borrowerName.trim();
+
+            if (borrowerName.isBlank()) {
+                borrowerName = null;
+            }
+        }
+
         if (currency == null || currency.isBlank()) {
             currency = "RWF";
         } else {
-            currency = currency.trim();
+            currency = currency.trim().toUpperCase();
         }
 
         if (paymentMethod != null) {

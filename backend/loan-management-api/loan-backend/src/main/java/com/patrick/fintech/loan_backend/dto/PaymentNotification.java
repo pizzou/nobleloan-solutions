@@ -1,3 +1,4 @@
+
 package com.patrick.fintech.loan_backend.dto;
 
 import lombok.Builder;
@@ -17,6 +18,8 @@ public class PaymentNotification {
     private String loanReference;
 
     private Long borrowerId;
+
+    private String borrowerName;
 
     private Long organizationId;
 

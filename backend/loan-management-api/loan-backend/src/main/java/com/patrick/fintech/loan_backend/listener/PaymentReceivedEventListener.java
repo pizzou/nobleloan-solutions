@@ -44,98 +44,101 @@ public class PaymentReceivedEventListener {
         try {
 
             PaymentNotification notification =
-                    PaymentNotification.builder()
+        PaymentNotification.builder()
 
-                            .paymentId(
-                                    event.paymentId()
-                            )
+                .paymentId(
+                        event.paymentId()
+                )
 
-                            .loanId(
-                                    event.loanId()
-                            )
+                .loanId(
+                        event.loanId()
+                )
 
-                            .loanReference(
-                                    event.loanReference()
-                            )
+                .loanReference(
+                        event.loanReference()
+                )
 
-                            .borrowerId(
-                                    event.borrowerId()
-                            )
+                .borrowerId(
+                        event.borrowerId()
+                )
 
-                            .organizationId(
-                                    event.organizationId()
-                            )
+                .borrowerName(
+                        event.borrowerName()
+                )
 
-                            .amount(
-                                    event.amount()
-                            )
+                .organizationId(
+                        event.organizationId()
+                )
 
-                            .principalPaid(
-                                    event.principalPaid()
-                            )
+                .amount(
+                        event.amount()
+                )
 
-                            .interestPaid(
-                                    event.interestPaid()
-                            )
+                .principalPaid(
+                        event.principalPaid()
+                )
 
-                            .penaltyPaid(
-                                    event.penaltyPaid()
-                            )
+                .interestPaid(
+                        event.interestPaid()
+                )
 
-                            .outstandingBalance(
-                                    event.outstandingBalance()
-                            )
+                .penaltyPaid(
+                        event.penaltyPaid()
+                )
 
-                            .currency(
-                                    event.currency()
-                            )
+                .outstandingBalance(
+                        event.outstandingBalance()
+                )
 
-                            .paymentMethod(
-                                    event.paymentMethod()
-                            )
+                .currency(
+                        event.currency()
+                )
 
-                            .channel(
-                                    event.channel()
-                            )
+                .paymentMethod(
+                        event.paymentMethod()
+                )
 
-                            .transactionId(
-                                    event.transactionId()
-                            )
+                .channel(
+                        event.channel()
+                )
 
-                            .paymentReference(
-                                    event.paymentReference()
-                            )
+                .transactionId(
+                        event.transactionId()
+                )
 
-                            .paymentStatus(
-                                    event.paymentStatus() != null
-                                            ? event.paymentStatus().name()
-                                            : null
-                            )
+                .paymentReference(
+                        event.paymentReference()
+                )
 
-                            .loanStatus(
-                                    event.loanStatus() != null
-                                            ? event.loanStatus().name()
-                                            : null
-                            )
+                .paymentStatus(
+                        event.paymentStatus() != null
+                                ? event.paymentStatus().name()
+                                : null
+                )
 
-                            .paymentTimestamp(
-                                    event.paymentTimestamp()
-                            )
+                .loanStatus(
+                        event.loanStatus() != null
+                                ? event.loanStatus().name()
+                                : null
+                )
 
-                            .title(
-                                    "Payment Received"
-                            )
+                .paymentTimestamp(
+                        event.paymentTimestamp()
+                )
 
-                            .message(
-                                    event.currency()
-                                            + " "
-                                            + event.amount()
-                                            + " payment received for loan "
-                                            + event.loanReference()
-                            )
+                .title(
+                        "Payment Received"
+                )
 
-                            .build();
+                .message(
+                        event.currency()
+                                + " "
+                                + event.amount()
+                                + " payment received for loan "
+                                + event.loanReference()
+                )
 
+                .build();
             realtimePaymentNotificationService
                     .publishPaymentReceived(
                             notification

@@ -1,1233 +1,1674 @@
-'use client';
+"use client";
 
-import {
+import React, {
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-} from 'react';
-
-import Link from 'next/link';
-
-import {
-  getLoans,
-} from '../../../services/loanService';
-
-import {
-  getOverduePayments,
-} from '../../../services/paymentService';
-
-import {
-  getDashboardStats,
-} from '../../../services/dashboardService';
-
-import {
-  getMyNotifications,
-  markNotificationRead,
-} from '../../../services/notificationsService';
+} from "react";
 
 import {
   connectToPaymentNotifications,
   disconnectFromPaymentNotifications,
   PaymentNotification,
-} from '../../../services/realtimeNotificationService';
+} from "@/services/realtimeNotificationService";
 
-import {
-  Loan,
-  Payment,
-  DashboardStats,
-} from '../../../types/index';
-
-import {
-  PageSpinner,
-} from '../../../components/ui/Skeleton';
-
-interface Notif {
-  id: string;
-
-  type:
-    | 'danger'
-    | 'warning'
-    | 'success'
-    | 'info';
-
-  title: string;
-
-  message: string;
-
-  link?: string;
-
-  time: string;
-
-  realId?: number;
-
-  read?: boolean;
-
-  realtime?: boolean;
-
-  paymentId?: number;
-
-  transactionId?: string;
+interface NotificationPageProps {
+  organizationId?: number;
 }
 
-type NotificationFilter =
-  | 'all'
-  | 'danger'
-  | 'warning'
-  | 'success'
-  | 'info';
+interface DisplayNotification
+  extends PaymentNotification {
+  localId: string;
+  receivedAt: string;
+  read: boolean;
+}
 
-export default function NotificationsPage() {
-  const [notifs, setNotifs] =
-    useState<Notif[]>([]);
+const MAX_NOTIFICATIONS = 100;
 
-  const [loading, setLoading] =
-    useState(true);
+function toNumber(
+  value: number | string | undefined | null
+): number {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return 0;
+  }
 
-  const [filter, setFilter] =
-    useState<NotificationFilter>('all');
+  const parsed =
+    typeof value === "number"
+      ? value
+      : Number(value);
 
-  const [realtimeConnected, setRealtimeConnected] =
-    useState(false);
+  return Number.isFinite(parsed)
+    ? parsed
+    : 0;
+}
 
-  const [realtimeError, setRealtimeError] =
-    useState(false);
+function formatCurrency(
+  value: number | string | undefined | null,
+  currency = "RWF"
+): string {
+  const amount = toNumber(value);
 
-  /*
-   * Prevent duplicate realtime payment notifications.
-   */
-  const paymentIdsRef =
-    useRef<Set<number>>(
-      new Set()
+  return new Intl.NumberFormat("en-RW", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
+function formatDate(
+  value?: string
+): string {
+  if (!value) {
+    return "—";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(
+    "en-RW",
+    {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }
+  ).format(date);
+}
+
+function formatRelativeTime(
+  value: string
+): string {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const seconds =
+    Math.floor(
+      (Date.now() - date.getTime()) / 1000
     );
 
-  const transactionIdsRef =
-    useRef<Set<string>>(
-      new Set()
+  if (seconds < 10) {
+    return "Just now";
+  }
+
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+
+  const minutes =
+    Math.floor(seconds / 60);
+
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  const hours =
+    Math.floor(minutes / 60);
+
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+
+  const days =
+    Math.floor(hours / 24);
+
+  return `${days}d ago`;
+}
+
+function getPaymentMethodLabel(
+  notification: PaymentNotification
+): string {
+  if (
+    notification.paymentMethod &&
+    notification.channel
+  ) {
+    return `${notification.paymentMethod} • ${notification.channel}`;
+  }
+
+  return (
+    notification.paymentMethod ||
+    notification.channel ||
+    "Payment"
+  );
+}
+
+function getBorrowerDisplayName(
+  notification: PaymentNotification
+): string {
+  if (notification.borrowerName) {
+    return notification.borrowerName;
+  }
+
+  if (notification.borrowerId) {
+    return `Borrower #${notification.borrowerId}`;
+  }
+
+  return "Borrower";
+}
+
+function getPaymentStatusClass(
+  status?: string
+): string {
+  switch (
+    status?.toUpperCase()
+  ) {
+    case "PAID":
+    case "COMPLETED":
+    case "SUCCESS":
+    case "FULLY_PAID":
+      return "status-success";
+
+    case "PARTIALLY_PAID":
+    case "PARTIAL":
+      return "status-warning";
+
+    case "FAILED":
+    case "REJECTED":
+    case "CANCELLED":
+      return "status-danger";
+
+    default:
+      return "status-neutral";
+  }
+}
+
+export default function NotificationPage({
+  organizationId = 1,
+}: NotificationPageProps) {
+  const [
+    notifications,
+    setNotifications,
+  ] = useState<DisplayNotification[]>(
+    []
+  );
+
+  const [
+    realtimeConnected,
+    setRealtimeConnected,
+  ] = useState(false);
+
+  const [
+    realtimeError,
+    setRealtimeError,
+  ] = useState<string | null>(
+    null
+  );
+
+  const [
+    connecting,
+    setConnecting,
+  ] = useState(true);
+
+  const [
+    showUnreadOnly,
+    setShowUnreadOnly,
+  ] = useState(false);
+
+  const [
+    selectedNotification,
+    setSelectedNotification,
+  ] =
+    useState<DisplayNotification | null>(
+      null
     );
 
-  /*
-   * ------------------------------------------------------------
-   * ORGANIZATION ID
-   * ------------------------------------------------------------
-   *
-   * The organization ID must come from the authenticated
-   * organization/user context used by the existing application.
-   *
-   * We first check localStorage because many existing tenant
-   * applications already persist the authenticated organization.
-   */
-  const getOrganizationId =
-    useCallback((): number | null => {
-      if (typeof window === 'undefined') {
-        return null;
-      }
+  const reconnectTimer =
+    useRef<ReturnType<
+      typeof setTimeout
+    > | null>(null);
 
-      const possibleKeys = [
-        'organizationId',
-        'organization_id',
-        'orgId',
-        'org_id',
-      ];
+  const connectionAttempt =
+    useRef(0);
 
-      for (const key of possibleKeys) {
-        const value =
-          window.localStorage.getItem(
-            key
-          );
+  const mountedRef =
+    useRef(true);
 
-        if (!value) {
-          continue;
-        }
+  const audioRef =
+    useRef<HTMLAudioElement | null>(
+      null
+    );
 
-        const parsed =
-          Number(value);
-
-        if (
-          Number.isInteger(parsed) &&
-          parsed > 0
-        ) {
-          return parsed;
-        }
-      }
-
-      /*
-       * Some applications store the authenticated
-       * user object.
-       */
-      const possibleUserKeys = [
-        'user',
-        'currentUser',
-        'authUser',
-        'auth_user',
-      ];
-
-      for (const key of possibleUserKeys) {
-        try {
-          const raw =
-            window.localStorage.getItem(
-              key
+  const playNotificationSound =
+    useCallback(() => {
+      try {
+        if (!audioRef.current) {
+          audioRef.current =
+            new Audio(
+              "/sounds/notification.mp3"
             );
 
-          if (!raw) {
-            continue;
-          }
-
-          const user =
-            JSON.parse(raw);
-
-          const organizationId =
-            Number(
-              user?.organizationId ??
-              user?.organization_id ??
-              user?.organization?.id ??
-              user?.organization?.organizationId
-            );
-
-          if (
-            Number.isInteger(
-              organizationId
-            ) &&
-            organizationId > 0
-          ) {
-            return organizationId;
-          }
-        } catch {
-          /*
-           * Ignore malformed localStorage
-           * values and continue checking.
-           */
+          audioRef.current.volume =
+            0.35;
         }
-      }
 
-      return null;
+        void audioRef.current.play();
+      } catch {
+        // Browser may block autoplay.
+      }
     }, []);
 
-  /*
-   * ------------------------------------------------------------
-   * REALTIME PAYMENT HANDLER
-   * ------------------------------------------------------------
-   */
-  const handleRealtimePayment =
+  const addNotification =
     useCallback(
       (
-        payment: PaymentNotification
+        notification: PaymentNotification
       ) => {
-        const paymentId =
-          Number(
-            payment.paymentId
-          );
-
-        const transactionId =
-          payment.transactionId
-            ?.trim();
-
-        /*
-         * Strong duplicate protection.
-         *
-         * A provider can retry a webhook and STOMP can also
-         * deliver messages again after reconnecting.
-         */
-        if (
-          Number.isInteger(
-            paymentId
-          ) &&
-          paymentId > 0
-        ) {
-          if (
-            paymentIdsRef.current.has(
-              paymentId
-            )
-          ) {
-            return;
-          }
-
-          paymentIdsRef.current.add(
-            paymentId
-          );
+        if (!mountedRef.current) {
+          return;
         }
 
-        if (transactionId) {
-          if (
-            transactionIdsRef.current.has(
-              transactionId
-            )
-          ) {
-            return;
-          }
+        const now =
+          new Date().toISOString();
 
-          transactionIdsRef.current.add(
-            transactionId
-          );
-        }
+        const displayNotification:
+          DisplayNotification = {
+          ...notification,
 
-        const amount =
-          Number(
-            payment.amount
-          );
+          localId:
+            `${notification.paymentId}-${notification.transactionId || now}-${Date.now()}`,
 
-        const outstandingBalance =
-          Number(
-            payment.outstandingBalance ??
-            0
-          );
+          receivedAt: now,
 
-        const amountText =
-          Number.isFinite(amount)
-            ? `RWF ${amount.toLocaleString(
-                undefined,
-                {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                }
-              )}`
-            : `RWF ${payment.amount}`;
-
-        const balanceText =
-          Number.isFinite(
-            outstandingBalance
-          )
-            ? `RWF ${outstandingBalance.toLocaleString(
-                undefined,
-                {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                }
-              )}`
-            : 'RWF 0.00';
-
-        const borrower =
-          payment.borrowerName ||
-          'Borrower';
-
-        const loanNumber =
-          payment.loanNumber
-            ? ` (${payment.loanNumber})`
-            : '';
-
-        const newNotification: Notif = {
-          id:
-            paymentId > 0
-              ? `realtime-payment-${paymentId}`
-              : `realtime-payment-${Date.now()}`,
-
-          type: 'success',
-
-          title: 'Payment Received',
-
-          message:
-            `${borrower} made a payment of ` +
-            `${amountText}${loanNumber}. ` +
-            `Outstanding balance: ${balanceText}.`,
-
-          link:
-            payment.loanId
-              ? `/dashboard/loans/${payment.loanId}`
-              : '/dashboard/payments',
-
-          time: 'Just now',
-
-          realtime: true,
-
-          paymentId:
-            paymentId > 0
-              ? paymentId
-              : undefined,
-
-          transactionId,
+          read: false,
         };
 
-        /*
-         * Put the newest notification at the top.
-         */
-        setNotifs(
-          (current) => [
-            newNotification,
-            ...current.filter(
-              (item) =>
-                item.id !==
-                newNotification.id
-            ),
-          ]
-        );
+        setNotifications(
+          (current) => {
+            const exists =
+              current.some(
+                (item) =>
+                  item.paymentId ===
+                    notification.paymentId &&
+                  item.transactionId ===
+                    notification.transactionId
+              );
 
-        /*
-         * Browser notification.
-         *
-         * This is optional and only works if the user has
-         * granted permission.
-         */
-        try {
-          if (
-            typeof window !== 'undefined' &&
-            'Notification' in window &&
-            Notification.permission ===
-              'granted'
-          ) {
-            new Notification(
-              'Payment Received',
-              {
-                body:
-                  `${borrower} paid ${amountText}. ` +
-                  `Balance: ${balanceText}`,
-              }
+            if (exists) {
+              return current;
+            }
+
+            return [
+              displayNotification,
+              ...current,
+            ].slice(
+              0,
+              MAX_NOTIFICATIONS
             );
           }
-        } catch {
-          /*
-           * Browser notifications must never
-           * break the dashboard.
-           */
-        }
+        );
+
+        playNotificationSound();
       },
-      []
+      [playNotificationSound]
     );
 
-  /*
-   * ------------------------------------------------------------
-   * LOAD EXISTING NOTIFICATIONS
-   * ------------------------------------------------------------
-   */
-  useEffect(() => {
-    let mounted = true;
+  const connect =
+    useCallback(() => {
+      if (!organizationId) {
+        setRealtimeError(
+          "Organization ID is missing."
+        );
 
-    setLoading(true);
+        setConnecting(false);
 
-    Promise.all([
-      getLoans().catch(
-        (error) => {
-          console.error(
-            'notifications: getLoans failed',
-            error
-          );
+        return;
+      }
 
-          return [];
-        }
-      ),
+      connectionAttempt.current += 1;
 
-      getOverduePayments().catch(
-        (error) => {
-          console.error(
-            'notifications: getOverduePayments failed',
-            error
-          );
+      const attempt =
+        connectionAttempt.current;
 
-          return [];
-        }
-      ),
+      setConnecting(true);
 
-      getDashboardStats().catch(
-        (error) => {
-          console.error(
-            'notifications: getDashboardStats failed',
-            error
-          );
+      setRealtimeError(null);
 
-          return null;
-        }
-      ),
+      try {
+        disconnectFromPaymentNotifications();
 
-      getMyNotifications().catch(
-        (error) => {
-          console.error(
-            'notifications: getMyNotifications failed',
-            error
-          );
+        connectToPaymentNotifications(
+          organizationId,
+          {
+            onPaymentReceived:
+              addNotification,
 
-          return [];
-        }
-      ),
-    ])
-      .then(
-        ([
-          loans,
-          overdue,
-          stats,
-          real,
-        ]) => {
-          if (!mounted) {
-            return;
-          }
-
-          const l =
-            Array.isArray(loans)
-              ? (loans as Loan[])
-              : [];
-
-          const o =
-            Array.isArray(overdue)
-              ? (overdue as Payment[])
-              : [];
-
-          const s =
-            stats as
-              | DashboardStats
-              | null;
-
-          const realList =
-            Array.isArray(real)
-              ? (real as any[])
-              : [];
-
-          const n: Notif[] = [];
-
-          /*
-           * Existing backend-persisted notifications.
-           *
-           * These are the notifications that were already
-           * working for loan creation and other events.
-           */
-          realList.forEach(
-            (r) => {
-              if (!r?.id) {
+            onConnected: () => {
+              if (
+                !mountedRef.current ||
+                attempt !==
+                  connectionAttempt.current
+              ) {
                 return;
               }
 
-              n.push({
-                id: `real-${r.id}`,
-
-                realId: Number(
-                  r.id
-                ),
-
-                read:
-                  Boolean(r.read),
-
-                type:
-                  (
-                    r.type as
-                      | Notif['type']
-                      | undefined
-                  ) || 'info',
-
-                title:
-                  r.title ||
-                  'Notification',
-
-                message:
-                  r.message ||
-                  '',
-
-                link:
-                  r.link ||
-                  undefined,
-
-                time:
-                  r.createdAt
-                    ? new Date(
-                        r.createdAt
-                      ).toLocaleString()
-                    : '',
-              });
-            }
-          );
-
-          /*
-           * Portfolio-derived notifications.
-           */
-          try {
-            if (o.length > 0) {
-              n.push({
-                id: 'ov',
-
-                type: 'danger',
-
-                title:
-                  `${o.length} Overdue Payment` +
-                  `${
-                    o.length > 1
-                      ? 's'
-                      : ''
-                  }`,
-
-                message:
-                  `${o.length} payment` +
-                  `${
-                    o.length > 1
-                      ? 's are'
-                      : ' is'
-                  } past due. Penalties accruing daily.`,
-
-                link:
-                  '/dashboard/payments',
-
-                time: 'Now',
-              });
-            }
-
-            const pending =
-              l.filter(
-                (x) =>
-                  x.status ===
-                  'PENDING'
+              console.info(
+                "[REALTIME] Payment notification connection established."
               );
 
-            if (
-              pending.length > 0
-            ) {
-              n.push({
-                id: 'pend',
-
-                type: 'warning',
-
-                title:
-                  `${pending.length} Loan` +
-                  `${
-                    pending.length >
-                    1
-                      ? 's'
-                      : ''
-                  } Awaiting Approval`,
-
-                message:
-                  `${pending.length} application` +
-                  `${
-                    pending.length >
-                    1
-                      ? 's need'
-                      : ' needs'
-                  } your review.`,
-
-                link:
-                  '/dashboard/approvals',
-
-                time: 'Today',
-              });
-            }
-
-            const highRisk =
-              l.filter(
-                (x) =>
-                  x.riskCategory ===
-                    'HIGH' ||
-                  x.riskCategory ===
-                    'CRITICAL'
+              setRealtimeConnected(
+                true
               );
 
-            if (
-              highRisk.length > 0
-            ) {
-              n.push({
-                id: 'hr',
+              setConnecting(false);
 
-                type: 'warning',
+              setRealtimeError(
+                null
+              );
+            },
 
-                title:
-                  `${highRisk.length} High-Risk Loan` +
-                  `${
-                    highRisk.length >
-                    1
-                      ? 's'
-                      : ''
-                  }`,
+            onDisconnected: () => {
+              if (
+                !mountedRef.current ||
+                attempt !==
+                  connectionAttempt.current
+              ) {
+                return;
+              }
 
-                message:
-                  `${highRisk.length} loan` +
-                  `${
-                    highRisk.length >
-                    1
-                      ? 's are'
-                      : ' is'
-                  } rated HIGH or CRITICAL risk. Review collateral.`,
+              console.warn(
+                "[REALTIME] Payment notification connection disconnected."
+              );
 
-                link:
-                  '/dashboard/loans',
+              setRealtimeConnected(
+                false
+              );
 
-                time: 'Today',
-              });
-            }
+              setConnecting(false);
 
-            const rate =
-              s &&
-              Number(
-                s.totalDisbursed
-              ) > 0
-                ? (
-                    Number(
-                      s.totalCollected
-                    ) /
-                    Number(
-                      s.totalDisbursed
-                    )
-                  ) *
-                  100
-                : 0;
+              setRealtimeError(
+                "Realtime connection temporarily unavailable."
+              );
+            },
 
-            if (
-              s &&
-              rate >= 80
-            ) {
-              n.push({
-                id: 'cr-good',
+            onError: (error) => {
+              if (
+                !mountedRef.current ||
+                attempt !==
+                  connectionAttempt.current
+              ) {
+                return;
+              }
 
-                type: 'success',
+              console.error(
+                "[REALTIME] Payment notification connection error:",
+                error
+              );
 
-                title:
-                  'Strong Collection Rate',
+              setRealtimeConnected(
+                false
+              );
 
-                message:
-                  `Portfolio collection rate is ${rate.toFixed(
-                    0
-                  )}% — excellent performance!`,
+              setConnecting(false);
 
-                time: 'This week',
-              });
-            } else if (
-              s &&
-              rate < 50 &&
-              Number(
-                s.totalDisbursed
-              ) > 0
-            ) {
-              n.push({
-                id: 'cr-low',
-
-                type: 'warning',
-
-                title:
-                  'Low Collection Rate',
-
-                message:
-                  `Collection rate is only ${rate.toFixed(
-                    0
-                  )}%. Consider sending payment reminders.`,
-
-                time: 'This week',
-              });
-            }
-
-            if (
-              s &&
-              Number(
-                s.completedLoans
-              ) > 0
-            ) {
-              n.push({
-                id: 'closed',
-
-                type: 'success',
-
-                title:
-                  `${s.completedLoans} Loan` +
-                  `${
-                    s.completedLoans >
-                    1
-                      ? 's'
-                      : ''
-                  } Fully Repaid`,
-
-                message:
-                  `${s.completedLoans} loan` +
-                  `${
-                    s.completedLoans >
-                    1
-                      ? 's have'
-                      : ' has'
-                  } been fully repaid. Great portfolio health!`,
-
-                link:
-                  '/dashboard/loans',
-
-                time: 'This month',
-              });
-            }
-
-            if (s) {
-              n.push({
-                id: 'summary',
-
-                type: 'info',
-
-                title:
-                  'Portfolio Summary',
-
-                message:
-                  `${s.totalBorrowers} borrowers · ` +
-                  `${s.activeLoans} active loans · ` +
-                  `RWF ${Number(
-                    s.totalDisbursed
-                  ).toLocaleString()} disbursed.`,
-
-                link:
-                  '/dashboard/reports',
-
-                time: 'Today',
-              });
-            }
-          } catch (error) {
-            console.error(
-              'notifications: failed to build portfolio-derived alerts',
-              error
-            );
+              setRealtimeError(
+                "Realtime connection temporarily unavailable."
+              );
+            },
           }
+        );
+      } catch (error) {
+        console.error(
+          "[REALTIME] Failed to start payment notification connection:",
+          error
+        );
 
-          setNotifs(n);
+        if (
+          !mountedRef.current ||
+          attempt !==
+            connectionAttempt.current
+        ) {
+          return;
         }
-      )
-      .finally(() => {
-        if (mounted) {
-          setLoading(false);
-        }
-      });
+
+        setRealtimeConnected(
+          false
+        );
+
+        setConnecting(false);
+
+        setRealtimeError(
+          error instanceof Error
+            ? error.message
+            : "Unable to connect to realtime notifications."
+        );
+      }
+    }, [
+      organizationId,
+      addNotification,
+    ]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    connect();
 
     return () => {
-      mounted = false;
-    };
-  }, []);
+      mountedRef.current = false;
 
-  /*
-   * ------------------------------------------------------------
-   * CONNECT REALTIME PAYMENT WEBSOCKET
-   * ------------------------------------------------------------
-   */
-  useEffect(() => {
-    if (loading) {
-      return;
-    }
+      connectionAttempt.current += 1;
 
-    const organizationId =
-      getOrganizationId();
-
-    if (!organizationId) {
-      console.error(
-        '[REALTIME] No organization ID found. Cannot subscribe to payment notifications.'
-      );
-
-      setRealtimeError(true);
-
-      return;
-    }
-
-    console.log(
-      `[REALTIME] Starting payment notification connection. Organization=${organizationId}`
-    );
-
-    const cleanup =
-      connectToPaymentNotifications(
-        organizationId,
-        {
-          onPaymentReceived:
-            handleRealtimePayment,
-
-          onConnected: () => {
-            console.log(
-              '[REALTIME] Payment notification connection established.'
-            );
-
-            setRealtimeConnected(
-              true
-            );
-
-            setRealtimeError(
-              false
-            );
-          },
-
-          onDisconnected: () => {
-            console.warn(
-              '[REALTIME] Payment notification connection disconnected.'
-            );
-
-            setRealtimeConnected(
-              false
-            );
-          },
-
-          onError: (error) => {
-            console.error(
-              '[REALTIME] Payment notification connection error:',
-              error
-            );
-
-            setRealtimeConnected(
-              false
-            );
-
-            setRealtimeError(
-              true
-            );
-          },
-        }
-      );
-
-    return () => {
-      cleanup();
-
-      setRealtimeConnected(
-        false
-      );
-    };
-  }, [
-    loading,
-    getOrganizationId,
-    handleRealtimePayment,
-  ]);
-
-  /*
-   * ------------------------------------------------------------
-   * REQUEST BROWSER NOTIFICATION PERMISSION
-   * ------------------------------------------------------------
-   */
-  useEffect(() => {
-    if (
-      typeof window === 'undefined' ||
-      !('Notification' in window)
-    ) {
-      return;
-    }
-
-    if (
-      Notification.permission ===
-      'default'
-    ) {
-      /*
-       * Do not automatically request permission on page load.
-       * The browser may block this because it is not user initiated.
-       */
-    }
-  }, []);
-
-  const filtered =
-    useMemo(() => {
       if (
-        filter === 'all'
+        reconnectTimer.current
       ) {
-        return notifs;
+        clearTimeout(
+          reconnectTimer.current
+        );
+
+        reconnectTimer.current =
+          null;
       }
 
-      return notifs.filter(
-        (notification) =>
-          notification.type ===
-          filter
-      );
-    }, [
-      filter,
-      notifs,
-    ]);
+      disconnectFromPaymentNotifications();
+    };
+  }, [connect]);
+
+  useEffect(() => {
+    if (realtimeConnected) {
+      return;
+    }
+
+    if (
+      reconnectTimer.current
+    ) {
+      return;
+    }
+
+    reconnectTimer.current =
+      setTimeout(() => {
+        reconnectTimer.current =
+          null;
+
+        if (
+          mountedRef.current
+        ) {
+          connect();
+        }
+      }, 5000);
+
+    return () => {
+      if (
+        reconnectTimer.current
+      ) {
+        clearTimeout(
+          reconnectTimer.current
+        );
+
+        reconnectTimer.current =
+          null;
+      }
+    };
+  }, [
+    realtimeConnected,
+    connect,
+  ]);
 
   const unreadCount =
     useMemo(
       () =>
-        notifs.filter(
-          (notification) =>
-            notification.realId &&
-            !notification.read
+        notifications.filter(
+          (item) => !item.read
         ).length,
-      [notifs]
+      [notifications]
     );
 
-  const ICON = {
-    danger: '🔴',
-    warning: '⚠️',
-    success: '✅',
-    info: '💡',
-  } as const;
+  const visibleNotifications =
+    useMemo(() => {
+      if (!showUnreadOnly) {
+        return notifications;
+      }
 
-  const BG = {
-    danger:
-      'bg-red-50 border-red-100',
+      return notifications.filter(
+        (item) => !item.read
+      );
+    }, [
+      notifications,
+      showUnreadOnly,
+    ]);
 
-    warning:
-      'bg-yellow-50 border-yellow-100',
+  const markAsRead =
+    useCallback(
+      (localId: string) => {
+        setNotifications(
+          (current) =>
+            current.map(
+              (item) =>
+                item.localId ===
+                localId
+                  ? {
+                      ...item,
+                      read: true,
+                    }
+                  : item
+            )
+        );
+      },
+      []
+    );
 
-    success:
-      'bg-green-50 border-green-100',
+  const markAllAsRead =
+    useCallback(() => {
+      setNotifications(
+        (current) =>
+          current.map(
+            (item) => ({
+              ...item,
+              read: true,
+            })
+          )
+      );
+    }, []);
 
-    info:
-      'bg-blue-50 border-blue-100',
-  } as const;
-
-  const TXT = {
-    danger:
-      'text-red-700',
-
-    warning:
-      'text-yellow-700',
-
-    success:
-      'text-green-700',
-
-    info:
-      'text-blue-700',
-  } as const;
-
-  const BTN = {
-    danger:
-      'bg-red-100 text-red-700 hover:bg-red-200',
-
-    warning:
-      'bg-yellow-100 text-yellow-700 hover:bg-yellow-200',
-
-    success:
-      'bg-green-100 text-green-700 hover:bg-green-200',
-
-    info:
-      'bg-blue-100 text-blue-700 hover:bg-blue-200',
-  } as const;
-
-  if (loading) {
-    return <PageSpinner />;
-  }
+  const clearNotifications =
+    useCallback(() => {
+      setNotifications([]);
+      setSelectedNotification(
+        null
+      );
+    }, []);
 
   return (
-    <div className="space-y-5 max-w-3xl">
+    <main className="notification-page">
+      <style jsx>{`
+        .notification-page {
+          min-height: 100vh;
+          padding: 32px;
+          background: #f7f8fa;
+          color: #172033;
+        }
 
-      {/* HEADER */}
-      <div>
-        <div className="flex items-center justify-between gap-4">
+        .container {
+          max-width: 1400px;
+          margin: 0 auto;
+        }
 
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">
-              Notifications
+        .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 24px;
+          margin-bottom: 28px;
+        }
+
+        .title-area h1 {
+          margin: 0;
+          font-size: 30px;
+          font-weight: 700;
+          letter-spacing: -0.02em;
+        }
+
+        .title-area p {
+          margin: 8px 0 0;
+          color: #687386;
+          font-size: 14px;
+        }
+
+        .connection {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 9px 13px;
+          border-radius: 999px;
+          font-size: 13px;
+          font-weight: 600;
+        }
+
+        .connection.live {
+          background: #e9f9ef;
+          color: #187a43;
+        }
+
+        .connection.offline {
+          background: #fff1f0;
+          color: #c9342d;
+        }
+
+        .connection.connecting {
+          background: #fff7e5;
+          color: #9a6700;
+        }
+
+        .dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: currentColor;
+        }
+
+        .toolbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          margin-bottom: 18px;
+        }
+
+        .toolbar-left,
+        .toolbar-right {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .button {
+          border: 1px solid #d9dee7;
+          background: white;
+          color: #293449;
+          padding: 9px 13px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 13px;
+          font-weight: 600;
+        }
+
+        .button:hover {
+          background: #f4f6f9;
+        }
+
+        .button.primary {
+          background: #172033;
+          border-color: #172033;
+          color: white;
+        }
+
+        .button.danger {
+          color: #b42318;
+        }
+
+        .count {
+          background: #eef2f7;
+          border-radius: 999px;
+          padding: 4px 9px;
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .warning {
+          margin-bottom: 18px;
+          padding: 14px 16px;
+          border-radius: 10px;
+          border: 1px solid #f2d58a;
+          background: #fff9e8;
+          color: #755500;
+          font-size: 14px;
+        }
+
+        .success {
+          margin-bottom: 18px;
+          padding: 12px 16px;
+          border-radius: 10px;
+          background: #ecfdf3;
+          color: #167647;
+          border: 1px solid #b7ebc9;
+          font-size: 13px;
+        }
+
+        .grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+          gap: 14px;
+        }
+
+        .card {
+          background: white;
+          border: 1px solid #e2e6ed;
+          border-radius: 14px;
+          padding: 20px;
+          box-shadow:
+            0 2px 8px rgba(20, 30, 50, 0.04);
+          cursor: pointer;
+          transition:
+            border-color 0.15s ease,
+            box-shadow 0.15s ease,
+            transform 0.15s ease;
+        }
+
+        .card:hover {
+          border-color: #c7ced9;
+          box-shadow:
+            0 8px 24px rgba(20, 30, 50, 0.08);
+          transform: translateY(-1px);
+        }
+
+        .card.unread {
+          border-left: 4px solid #1d72f3;
+        }
+
+        .card-top {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          align-items: flex-start;
+        }
+
+        .payment-title {
+          display: flex;
+          gap: 12px;
+          align-items: flex-start;
+        }
+
+        .payment-icon {
+          width: 42px;
+          height: 42px;
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #edf6ff;
+          color: #1464c4;
+          font-size: 20px;
+          flex-shrink: 0;
+        }
+
+        .payment-title h3 {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 700;
+        }
+
+        .payment-title p {
+          margin: 5px 0 0;
+          color: #6c7789;
+          font-size: 13px;
+        }
+
+        .amount {
+          font-size: 20px;
+          font-weight: 800;
+          white-space: nowrap;
+          color: #147a45;
+        }
+
+        .details {
+          display: grid;
+          grid-template-columns:
+            repeat(4, minmax(0, 1fr));
+          gap: 12px;
+          margin-top: 20px;
+        }
+
+        .detail {
+          background: #f8f9fb;
+          border-radius: 9px;
+          padding: 12px;
+          min-width: 0;
+        }
+
+        .detail-label {
+          color: #7b8595;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          font-weight: 700;
+        }
+
+        .detail-value {
+          margin-top: 5px;
+          font-size: 13px;
+          font-weight: 650;
+          color: #253047;
+          word-break: break-word;
+        }
+
+        .status {
+          display: inline-flex;
+          align-items: center;
+          border-radius: 999px;
+          padding: 5px 9px;
+          font-size: 11px;
+          font-weight: 700;
+        }
+
+        .status-success {
+          background: #e9f9ef;
+          color: #187a43;
+        }
+
+        .status-warning {
+          background: #fff7e5;
+          color: #996600;
+        }
+
+        .status-danger {
+          background: #fff0ef;
+          color: #c52b25;
+        }
+
+        .status-neutral {
+          background: #edf0f4;
+          color: #596579;
+        }
+
+        .bottom-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          margin-top: 16px;
+          padding-top: 14px;
+          border-top: 1px solid #edf0f4;
+          color: #7b8595;
+          font-size: 12px;
+        }
+
+        .empty {
+          padding: 70px 20px;
+          background: white;
+          border: 1px solid #e2e6ed;
+          border-radius: 14px;
+          text-align: center;
+        }
+
+        .empty-icon {
+          font-size: 42px;
+          margin-bottom: 12px;
+        }
+
+        .empty h3 {
+          margin: 0;
+          font-size: 18px;
+        }
+
+        .empty p {
+          color: #707b8c;
+          font-size: 14px;
+          margin: 8px 0 0;
+        }
+
+        .modal-backdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(12, 18, 30, 0.55);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          padding: 20px;
+          z-index: 1000;
+        }
+
+        .modal {
+          width: min(760px, 100%);
+          max-height: 90vh;
+          overflow-y: auto;
+          background: white;
+          border-radius: 16px;
+          box-shadow:
+            0 24px 80px rgba(0, 0, 0, 0.2);
+        }
+
+        .modal-header {
+          padding: 22px;
+          border-bottom: 1px solid #e6e9ef;
+          display: flex;
+          justify-content: space-between;
+          gap: 20px;
+        }
+
+        .modal-header h2 {
+          margin: 0;
+          font-size: 20px;
+        }
+
+        .modal-body {
+          padding: 22px;
+        }
+
+        .modal-section {
+          margin-bottom: 22px;
+        }
+
+        .modal-section h4 {
+          margin: 0 0 12px;
+          font-size: 13px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: #687386;
+        }
+
+        .modal-grid {
+          display: grid;
+          grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .modal-item {
+          padding: 12px;
+          border: 1px solid #e3e7ed;
+          border-radius: 9px;
+        }
+
+        .modal-item span {
+          display: block;
+          font-size: 11px;
+          color: #7a8494;
+          margin-bottom: 4px;
+        }
+
+        .modal-item strong {
+          font-size: 14px;
+          color: #202b3e;
+        }
+
+        .close {
+          border: 0;
+          background: #f0f2f5;
+          width: 34px;
+          height: 34px;
+          border-radius: 50%;
+          cursor: pointer;
+          font-size: 18px;
+        }
+
+        @media (max-width: 900px) {
+          .notification-page {
+            padding: 20px;
+          }
+
+          .header {
+            flex-direction: column;
+          }
+
+          .details {
+            grid-template-columns:
+              repeat(2, minmax(0, 1fr));
+          }
+
+          .toolbar {
+            flex-direction: column;
+            align-items: stretch;
+          }
+        }
+
+        @media (max-width: 600px) {
+          .notification-page {
+            padding: 14px;
+          }
+
+          .details {
+            grid-template-columns: 1fr;
+          }
+
+          .card-top {
+            flex-direction: column;
+          }
+
+          .amount {
+            font-size: 18px;
+          }
+
+          .modal-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
+
+      <div className="container">
+        <header className="header">
+          <div className="title-area">
+            <h1>
+              Payment Notifications
             </h1>
 
-            <p className="text-sm text-gray-500">
-              {notifs.length} alerts for your portfolio
-              {unreadCount > 0 &&
-                ` · ${unreadCount} unread`}
+            <p>
+              Real-time payment activity
+              for organization{" "}
+              <strong>
+                #{organizationId}
+              </strong>
             </p>
           </div>
 
-          {/* REALTIME STATUS */}
-          <div className="flex items-center gap-2 text-xs">
+          <div
+            className={`connection ${
+              realtimeConnected
+                ? "live"
+                : connecting
+                ? "connecting"
+                : "offline"
+            }`}
+          >
+            <span className="dot" />
 
-            {realtimeConnected ? (
-              <>
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
-                </span>
-
-                <span className="font-medium text-green-700">
-                  Live
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="h-2.5 w-2.5 rounded-full bg-yellow-400" />
-
-                <span className="font-medium text-yellow-700">
-                  Connecting...
-                </span>
-              </>
-            )}
+            {realtimeConnected
+              ? "Realtime live"
+              : connecting
+              ? "Connecting..."
+              : "Realtime unavailable"}
           </div>
-        </div>
-      </div>
+        </header>
 
-      {/* REALTIME ERROR */}
-      {realtimeError &&
-        !realtimeConnected && (
-          <div className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3">
+        {!realtimeConnected &&
+          realtimeError && (
+            <div className="warning">
+              ⚠️{" "}
+              <strong>
+                Realtime notifications
+                unavailable
+              </strong>
+              <br />
 
-            <div className="flex items-start gap-3">
-
-              <span className="text-lg">
-                ⚠️
+              <span>
+                Existing notifications are
+                still available. The system
+                will continue trying to
+                reconnect.
               </span>
-
-              <div>
-                <p className="text-sm font-semibold text-yellow-800">
-                  Realtime notifications unavailable
-                </p>
-
-                <p className="mt-1 text-xs text-yellow-700">
-                  Existing notifications are still
-                  available. The system will continue
-                  trying to reconnect.
-                </p>
-              </div>
-
-            </div>
-          </div>
-        )}
-
-      {/* FILTER */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit flex-wrap">
-
-        {(
-          [
-            'all',
-            'danger',
-            'warning',
-            'success',
-            'info',
-          ] as const
-        ).map(
-          (f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() =>
-                setFilter(f)
-              }
-              className={
-                `px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition ` +
-                `${
-                  filter === f
-                    ? 'bg-white shadow text-green-600'
-                    : 'text-gray-500 hover:text-gray-800'
-                }`
-              }
-            >
-              {f === 'all'
-                ? 'All'
-                : `${ICON[f]} ${f.charAt(
-                    0
-                  ).toUpperCase()}${f.slice(
-                    1
-                  )}`}
-            </button>
-          )
-        )}
-
-      </div>
-
-      {/* NOTIFICATIONS */}
-      <div className="space-y-3">
-
-        {filtered.length ===
-          0 && (
-            <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
-
-              <p className="text-3xl mb-3">
-                🔔
-              </p>
-
-              <p className="text-gray-500 font-medium">
-                No notifications
-              </p>
-
-              <p className="text-gray-400 text-sm mt-1">
-                All caught up!
-              </p>
-
             </div>
           )}
 
-        {filtered.map(
-          (notification) => (
-            <div
-              key={
-                notification.id
-              }
-              className={
-                `rounded-2xl border p-5 ` +
-                `${BG[notification.type]} ` +
-                `${
-                  notification.realId &&
-                  !notification.read
-                    ? 'ring-2 ring-offset-1 ring-teal-300'
-                    : ''
-                }`
-              }
-            >
-
-              <div className="flex items-start gap-4">
-
-                <span className="text-2xl flex-shrink-0">
-                  {
-                    ICON[
-                      notification.type
-                    ]
-                  }
-                </span>
-
-                <div className="flex-1 min-w-0">
-
-                  <div className="flex items-center justify-between gap-2 mb-1">
-
-                    <div className="flex items-center gap-2">
-
-                      <p
-                        className={
-                          `font-semibold text-sm ` +
-                          TXT[
-                            notification.type
-                          ]
-                        }
-                      >
-                        {
-                          notification.title
-                        }
-                      </p>
-
-                      {notification.realtime && (
-                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
-                          LIVE
-                        </span>
-                      )}
-
-                    </div>
-
-                    <span className="text-xs text-gray-400 flex-shrink-0">
-                      {
-                        notification.time
-                      }
-                    </span>
-
-                  </div>
-
-                  <p className="text-sm text-gray-600 leading-relaxed">
-                    {
-                      notification.message
-                    }
-                  </p>
-
-                  {notification.link && (
-                    <Link
-                      href={
-                        notification.link
-                      }
-                      onClick={() => {
-                        if (
-                          notification.realId &&
-                          !notification.read
-                        ) {
-                          markNotificationRead(
-                            notification.realId
-                          ).catch(
-                            () => undefined
-                          );
-
-                          setNotifs(
-                            (current) =>
-                              current.map(
-                                (
-                                  item
-                                ) =>
-                                  item.id ===
-                                  notification.id
-                                    ? {
-                                        ...item,
-                                        read: true,
-                                      }
-                                    : item
-                              )
-                          );
-                        }
-                      }}
-                      className={
-                        `inline-block mt-3 text-xs font-semibold px-3 py-1.5 rounded-lg transition ` +
-                        BTN[
-                          notification.type
-                        ]
-                      }
-                    >
-                      Take action →
-                    </Link>
-                  )}
-
-                </div>
-
-              </div>
-
-            </div>
-          )
+        {realtimeConnected && (
+          <div className="success">
+            ✓ Realtime payment notifications
+            are connected and listening for
+            new payments.
+          </div>
         )}
 
+        <div className="toolbar">
+          <div className="toolbar-left">
+            <button
+              className="button"
+              onClick={() =>
+                setShowUnreadOnly(
+                  (value) => !value
+                )
+              }
+            >
+              {showUnreadOnly
+                ? "Show All"
+                : "Unread Only"}
+            </button>
+
+            <span className="count">
+              {unreadCount} unread
+            </span>
+
+            <span className="count">
+              {notifications.length} total
+            </span>
+          </div>
+
+          <div className="toolbar-right">
+            {unreadCount > 0 && (
+              <button
+                className="button"
+                onClick={
+                  markAllAsRead
+                }
+              >
+                Mark all as read
+              </button>
+            )}
+
+            {notifications.length >
+              0 && (
+              <button
+                className="button danger"
+                onClick={
+                  clearNotifications
+                }
+              >
+                Clear
+              </button>
+            )}
+
+            {!realtimeConnected && (
+              <button
+                className="button primary"
+                onClick={connect}
+              >
+                Reconnect
+              </button>
+            )}
+          </div>
+        </div>
+
+        <section className="grid">
+          {visibleNotifications.length ===
+          0 ? (
+            <div className="empty">
+              <div className="empty-icon">
+                💳
+              </div>
+
+              <h3>
+                No payment notifications
+              </h3>
+
+              <p>
+                New borrower payments will
+                appear here automatically in
+                real time.
+              </p>
+            </div>
+          ) : (
+            visibleNotifications.map(
+              (notification) => (
+                <article
+                  key={
+                    notification.localId
+                  }
+                  className={`card ${
+                    notification.read
+                      ? ""
+                      : "unread"
+                  }`}
+                  onClick={() => {
+                    markAsRead(
+                      notification.localId
+                    );
+
+                    setSelectedNotification(
+                      notification
+                    );
+                  }}
+                >
+                  <div className="card-top">
+                    <div className="payment-title">
+                      <div className="payment-icon">
+                        💳
+                      </div>
+
+                      <div>
+                        <h3>
+                          {notification.title ||
+                            "Payment Received"}
+                        </h3>
+
+                        <p>
+                          {getBorrowerDisplayName(
+                            notification
+                          )}
+                          {" • "}
+                          {notification.loanReference ||
+                            `Loan #${notification.loanId}`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="amount">
+                      {formatCurrency(
+                        notification.amount,
+                        notification.currency
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="details">
+                    <div className="detail">
+                      <div className="detail-label">
+                        Borrower
+                      </div>
+
+                      <div className="detail-value">
+                        {getBorrowerDisplayName(
+                          notification
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="detail">
+                      <div className="detail-label">
+                        Loan
+                      </div>
+
+                      <div className="detail-value">
+                        {notification.loanReference ||
+                          `Loan #${notification.loanId}`}
+                      </div>
+                    </div>
+
+                    <div className="detail">
+                      <div className="detail-label">
+                        Amount Paid
+                      </div>
+
+                      <div className="detail-value">
+                        {formatCurrency(
+                          notification.amount,
+                          notification.currency
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="detail">
+                      <div className="detail-label">
+                        Principal
+                      </div>
+
+                      <div className="detail-value">
+                        {formatCurrency(
+                          notification.principalPaid,
+                          notification.currency
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="detail">
+                      <div className="detail-label">
+                        Interest
+                      </div>
+
+                      <div className="detail-value">
+                        {formatCurrency(
+                          notification.interestPaid,
+                          notification.currency
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="detail">
+                      <div className="detail-label">
+                        Penalty
+                      </div>
+
+                      <div className="detail-value">
+                        {formatCurrency(
+                          notification.penaltyPaid,
+                          notification.currency
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="detail">
+                      <div className="detail-label">
+                        Outstanding Balance
+                      </div>
+
+                      <div className="detail-value">
+                        {formatCurrency(
+                          notification.outstandingBalance,
+                          notification.currency
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="detail">
+                      <div className="detail-label">
+                        Status
+                      </div>
+
+                      <div className="detail-value">
+                        <span
+                          className={`status ${getPaymentStatusClass(
+                            notification.paymentStatus
+                          )}`}
+                        >
+                          {notification.paymentStatus ||
+                            "RECEIVED"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="detail">
+                      <div className="detail-label">
+                        Payment Method
+                      </div>
+
+                      <div className="detail-value">
+                        {getPaymentMethodLabel(
+                          notification
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="detail">
+                      <div className="detail-label">
+                        Transaction ID
+                      </div>
+
+                      <div className="detail-value">
+                        {notification.transactionId ||
+                          "—"}
+                      </div>
+                    </div>
+
+                    <div className="detail">
+                      <div className="detail-label">
+                        Payment Reference
+                      </div>
+
+                      <div className="detail-value">
+                        {notification.paymentReference ||
+                          "—"}
+                      </div>
+                    </div>
+
+                    <div className="detail">
+                      <div className="detail-label">
+                        Loan Status
+                      </div>
+
+                      <div className="detail-value">
+                        {notification.loanStatus ||
+                          "—"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bottom-row">
+                    <span>
+                      {formatDate(
+                        notification.paymentTimestamp
+                      )}
+                    </span>
+
+                    <span>
+                      {formatRelativeTime(
+                        notification.receivedAt
+                      )}
+                    </span>
+                  </div>
+                </article>
+              )
+            )
+          )}
+        </section>
       </div>
-    </div>
+
+      {selectedNotification && (
+        <div
+          className="modal-backdrop"
+          onClick={() =>
+            setSelectedNotification(
+              null
+            )
+          }
+        >
+          <div
+            className="modal"
+            onClick={(event) =>
+              event.stopPropagation()
+            }
+          >
+            <div className="modal-header">
+              <div>
+                <h2>
+                  Payment Details
+                </h2>
+
+                <p
+                  style={{
+                    margin:
+                      "6px 0 0",
+                    color:
+                      "#707b8c",
+                    fontSize:
+                      "13px",
+                  }}
+                >
+                  {
+                    selectedNotification
+                      .loanReference
+                  }
+                </p>
+              </div>
+
+              <button
+                className="close"
+                onClick={() =>
+                  setSelectedNotification(
+                    null
+                  )
+                }
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div className="modal-section">
+                <h4>
+                  Payment
+                </h4>
+
+                <div className="modal-grid">
+                  <div className="modal-item">
+                    <span>
+                      Amount Received
+                    </span>
+
+                    <strong>
+                      {formatCurrency(
+                        selectedNotification.amount,
+                        selectedNotification.currency
+                      )}
+                    </strong>
+                  </div>
+
+                  <div className="modal-item">
+                    <span>
+                      Payment Status
+                    </span>
+
+                    <strong>
+                      {
+                        selectedNotification.paymentStatus
+                      }
+                    </strong>
+                  </div>
+
+                  <div className="modal-item">
+                    <span>
+                      Principal Paid
+                    </span>
+
+                    <strong>
+                      {formatCurrency(
+                        selectedNotification.principalPaid,
+                        selectedNotification.currency
+                      )}
+                    </strong>
+                  </div>
+
+                  <div className="modal-item">
+                    <span>
+                      Interest Paid
+                    </span>
+
+                    <strong>
+                      {formatCurrency(
+                        selectedNotification.interestPaid,
+                        selectedNotification.currency
+                      )}
+                    </strong>
+                  </div>
+
+                  <div className="modal-item">
+                    <span>
+                      Penalty Paid
+                    </span>
+
+                    <strong>
+                      {formatCurrency(
+                        selectedNotification.penaltyPaid,
+                        selectedNotification.currency
+                      )}
+                    </strong>
+                  </div>
+
+                  <div className="modal-item">
+                    <span>
+                      Outstanding Balance
+                    </span>
+
+                    <strong>
+                      {formatCurrency(
+                        selectedNotification.outstandingBalance,
+                        selectedNotification.currency
+                      )}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="modal-section">
+                <h4>
+                  Borrower & Loan
+                </h4>
+
+                <div className="modal-grid">
+                  <div className="modal-item">
+                    <span>
+                      Borrower
+                    </span>
+
+                    <strong>
+                      {getBorrowerDisplayName(
+                        selectedNotification
+                      )}
+                    </strong>
+                  </div>
+
+                  <div className="modal-item">
+                    <span>
+                      Borrower ID
+                    </span>
+
+                    <strong>
+                      {selectedNotification.borrowerId ||
+                        "—"}
+                    </strong>
+                  </div>
+
+                  <div className="modal-item">
+                    <span>
+                      Loan
+                    </span>
+
+                    <strong>
+                      {selectedNotification.loanReference ||
+                        `Loan #${selectedNotification.loanId}`}
+                    </strong>
+                  </div>
+
+                  <div className="modal-item">
+                    <span>
+                      Loan Status
+                    </span>
+
+                    <strong>
+                      {selectedNotification.loanStatus ||
+                        "—"}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="modal-section">
+                <h4>
+                  Transaction
+                </h4>
+
+                <div className="modal-grid">
+                  <div className="modal-item">
+                    <span>
+                      Payment Method
+                    </span>
+
+                    <strong>
+                      {selectedNotification.paymentMethod ||
+                        "—"}
+                    </strong>
+                  </div>
+
+                  <div className="modal-item">
+                    <span>
+                      Channel
+                    </span>
+
+                    <strong>
+                      {selectedNotification.channel ||
+                        "—"}
+                    </strong>
+                  </div>
+
+                  <div className="modal-item">
+                    <span>
+                      Transaction ID
+                    </span>
+
+                    <strong>
+                      {selectedNotification.transactionId ||
+                        "—"}
+                    </strong>
+                  </div>
+
+                  <div className="modal-item">
+                    <span>
+                      Payment Reference
+                    </span>
+
+                    <strong>
+                      {selectedNotification.paymentReference ||
+                        "—"}
+                    </strong>
+                  </div>
+
+                  <div className="modal-item">
+                    <span>
+                      Payment Date
+                    </span>
+
+                    <strong>
+                      {formatDate(
+                        selectedNotification.paymentTimestamp
+                      )}
+                    </strong>
+                  </div>
+
+                  <div className="modal-item">
+                    <span>
+                      Currency
+                    </span>
+
+                    <strong>
+                      {selectedNotification.currency ||
+                        "RWF"}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="modal-section">
+                <h4>
+                  Message
+                </h4>
+
+                <div
+                  style={{
+                    padding:
+                      "14px",
+                    background:
+                      "#f7f8fa",
+                    borderRadius:
+                      "10px",
+                    fontSize:
+                      "14px",
+                    lineHeight:
+                      1.6,
+                    color:
+                      "#3f4a5d",
+                  }}
+                >
+                  {selectedNotification.message ||
+                    "Payment received successfully."}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
   );
 }

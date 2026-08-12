@@ -2,32 +2,106 @@ import {
   Client,
   IMessage,
   StompSubscription,
-} from '@stomp/stompjs';
+  IFrame,
+} from "@stomp/stompjs";
 
 export interface PaymentNotification {
-  organizationId: number;
-  loanId: number;
   paymentId: number;
-  amount: number | string;
-  transactionId?: string;
-  paymentMethod?: string;
-  paymentStatus?: string;
-  outstandingBalance?: number | string;
+  loanId: number;
+  loanReference?: string;
+  borrowerId?: number;
   borrowerName?: string;
-  loanNumber?: string;
+
+  organizationId: number;
+
+  amount: number | string;
+  principalPaid?: number | string;
+  interestPaid?: number | string;
+  penaltyPaid?: number | string;
+
+  outstandingBalance?: number | string;
+
+  totalInterestPaid?: number | string;
+  totalInterestDue?: number | string;
+  remainingInterest?: number | string;
+
+  totalPrincipalPaid?: number | string;
+
+  totalPenalty?: number | string;
+  totalPenaltyPaid?: number | string;
+  remainingPenalty?: number | string;
+
+  currency?: string;
+  paymentMethod?: string;
+  channel?: string;
+
+  transactionId?: string;
+  paymentReference?: string;
+
+  paymentStatus?: string;
+  loanStatus?: string;
+
+  paymentDate?: string;
+  paymentTimestamp?: string;
+
+  title?: string;
   message?: string;
-  createdAt?: string;
 }
+export interface DisplayNotification {
+  id: string;
 
+  type: string;
+
+  title: string;
+
+  message?: string;
+
+  organizationId?: number;
+
+  loanId?: number;
+
+  paymentId?: number;
+
+  loanReference?: string;
+
+  borrowerId?: number;
+
+  borrowerName?: string;
+
+  amount?: number | string;
+
+  principalPaid?: number | string;
+
+  interestPaid?: number | string;
+
+  penaltyPaid?: number | string;
+
+  outstandingBalance?: number | string;
+
+  currency?: string;
+
+  paymentMethod?: string;
+
+  channel?: string;
+
+  transactionId?: string;
+
+  paymentReference?: string;
+
+  paymentStatus?: string;
+
+  loanStatus?: string;
+
+  paymentTimestamp?: string;
+
+  createdAt?: string;
+
+  read: boolean;
+}
 export interface RealtimePaymentCallbacks {
-  onPaymentReceived: (
-    notification: PaymentNotification
-  ) => void;
-
+  onPaymentReceived: (notification: PaymentNotification) => void;
   onConnected?: () => void;
-
   onDisconnected?: () => void;
-
   onError?: (error: unknown) => void;
 }
 
@@ -36,85 +110,85 @@ let organizationSubscription: StompSubscription | null = null;
 
 let activeOrganizationId: number | null = null;
 
-function getApiBaseUrl(): string {
+function getWebSocketUrl(): string {
   const apiUrl =
     process.env.NEXT_PUBLIC_API_URL ||
     process.env.NEXT_PUBLIC_API_BASE_URL;
 
   if (!apiUrl) {
     throw new Error(
-      'NEXT_PUBLIC_API_URL or NEXT_PUBLIC_API_BASE_URL is not configured.'
+      "NEXT_PUBLIC_API_URL or NEXT_PUBLIC_API_BASE_URL is not configured."
     );
   }
 
-  return apiUrl.replace(/\/+$/, '');
-}
+  const normalized = apiUrl.replace(/\/+$/, "");
 
-function getWebSocketUrl(): string {
-  const apiBaseUrl = getApiBaseUrl();
-
-  const parsedUrl = new URL(apiBaseUrl);
+  const url = new URL(normalized);
 
   const protocol =
-    parsedUrl.protocol === 'https:'
-      ? 'wss:'
-      : 'ws:';
+    url.protocol === "https:" ? "wss:" : "ws:";
 
-  /*
-   * IMPORTANT:
-   *
-   * Backend:
-   *
-   * registry.addEndpoint("/ws")
-   *
-   * Therefore this MUST be:
-   *
-   * wss://nobleloan-solutions.onrender.com/ws
-   *
-   * NOT:
-   *
-   * wss://nobleloan-solutions.onrender.com/api/ws
-   */
-  return `${protocol}//${parsedUrl.host}/ws`;
+  return `${protocol}//${url.host}/ws`;
+}
+
+function safelyParseNotification(
+  message: IMessage
+): PaymentNotification {
+  const parsed = JSON.parse(message.body);
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error(
+      "Realtime payment notification is not a valid object."
+    );
+  }
+
+  if (
+    parsed.organizationId === undefined ||
+    parsed.organizationId === null
+  ) {
+    throw new Error(
+      "Realtime payment notification is missing organizationId."
+    );
+  }
+
+  if (
+    parsed.paymentId === undefined ||
+    parsed.paymentId === null
+  ) {
+    throw new Error(
+      "Realtime payment notification is missing paymentId."
+    );
+  }
+
+  if (
+    parsed.loanId === undefined ||
+    parsed.loanId === null
+  ) {
+    throw new Error(
+      "Realtime payment notification is missing loanId."
+    );
+  }
+
+  return parsed as PaymentNotification;
 }
 
 export function connectToPaymentNotifications(
   organizationId: number,
   callbacks: RealtimePaymentCallbacks
 ): () => void {
-  if (
-    !Number.isInteger(organizationId) ||
-    organizationId <= 0
-  ) {
-    const error = new Error(
-      'Cannot connect to payment notifications without a valid organizationId.'
+  if (!organizationId) {
+    throw new Error(
+      "Cannot connect to payment notifications without organizationId."
     );
-
-    callbacks.onError?.(error);
-
-    return () => undefined;
   }
 
   disconnectFromPaymentNotifications();
 
   activeOrganizationId = organizationId;
 
-  let brokerURL: string;
+  const brokerURL = getWebSocketUrl();
 
-  try {
-    brokerURL = getWebSocketUrl();
-  } catch (error) {
-    console.error(
-      '[REALTIME] Failed to construct WebSocket URL.',
-      error
-    );
-
-    callbacks.onError?.(error);
-
-    return () => undefined;
-  }
-
-  console.log(
+  console.info(
     `[REALTIME] Connecting to: ${brokerURL}`
   );
 
@@ -124,36 +198,26 @@ export function connectToPaymentNotifications(
     reconnectDelay: 5000,
 
     heartbeatIncoming: 10000,
-
     heartbeatOutgoing: 10000,
 
-    connectionTimeout: 10000,
+    connectionTimeout: 15000,
 
     debug: (message: string) => {
-      if (
-        process.env.NODE_ENV === 'development'
-      ) {
-        console.debug(
-          '[STOMP]',
-          message
-        );
+      if (process.env.NODE_ENV === "development") {
+        console.debug("[STOMP]", message);
       }
     },
   });
 
-  client.onConnect = () => {
-    if (stompClient !== client) {
-      return;
-    }
-
-    console.log(
+  client.onConnect = (_frame: IFrame) => {
+    console.info(
       `[REALTIME] WebSocket connected. Organization=${organizationId}`
     );
 
     const destination =
       `/topic/organization/${organizationId}/payments`;
 
-    console.log(
+    console.info(
       `[REALTIME] Subscribing to: ${destination}`
     );
 
@@ -163,35 +227,28 @@ export function connectToPaymentNotifications(
           destination,
           (message: IMessage) => {
             try {
-              if (!message.body) {
-                console.warn(
-                  '[REALTIME] Received empty payment notification.'
-                );
-
-                return;
-              }
-
               const notification =
-                JSON.parse(
-                  message.body
-                ) as PaymentNotification;
+                safelyParseNotification(message);
 
-              if (
+              const notificationOrganizationId =
                 Number(
                   notification.organizationId
-                ) !==
-                Number(organizationId)
+                );
+
+              if (
+                notificationOrganizationId !==
+                organizationId
               ) {
                 console.warn(
-                  '[REALTIME] Ignoring notification for another organization.',
+                  "[REALTIME] Ignoring payment notification for another organization.",
                   notification
                 );
 
                 return;
               }
 
-              console.log(
-                '[REALTIME] Payment notification received:',
+              console.info(
+                "[REALTIME] Payment notification received:",
                 notification
               );
 
@@ -200,26 +257,23 @@ export function connectToPaymentNotifications(
               );
             } catch (error) {
               console.error(
-                '[REALTIME] Failed to parse payment notification.',
-                error,
-                message.body
-              );
-
-              callbacks.onError?.(
+                "[REALTIME] Failed to parse payment notification:",
                 error
               );
+
+              callbacks.onError?.(error);
             }
           }
         );
 
-      console.log(
+      console.info(
         `[REALTIME] Successfully subscribed to: ${destination}`
       );
 
       callbacks.onConnected?.();
     } catch (error) {
       console.error(
-        '[REALTIME] Failed to subscribe to payment destination.',
+        "[REALTIME] Failed to subscribe to payment notifications:",
         error
       );
 
@@ -229,48 +283,45 @@ export function connectToPaymentNotifications(
 
   client.onDisconnect = () => {
     console.warn(
-      '[REALTIME] WebSocket disconnected.'
+      "[REALTIME] WebSocket disconnected."
     );
 
-    organizationSubscription =
-      null;
+    organizationSubscription = null;
 
     callbacks.onDisconnected?.();
   };
 
-  client.onStompError = (frame) => {
+  client.onStompError = (frame: IFrame) => {
     console.error(
-      '[REALTIME] STOMP broker error:',
-      frame.headers['message'],
+      "[REALTIME] STOMP broker error:",
+      frame.headers["message"],
       frame.body
     );
 
-    callbacks.onError?.(frame);
-  };
-
-  client.onWebSocketError = (
-    event
-  ) => {
-    console.error(
-      '[REALTIME] WebSocket error:',
-      event
-    );
-
     callbacks.onError?.(
-      event
+      new Error(
+        frame.headers["message"] ||
+          "STOMP broker error."
+      )
     );
   };
 
-  client.onWebSocketClose = (
-    event
-  ) => {
-    console.warn(
-      '[REALTIME] WebSocket closed:',
+  client.onWebSocketError = (event: Event) => {
+    console.error(
+      "[REALTIME] WebSocket error:",
       event
     );
 
-    organizationSubscription =
-      null;
+    callbacks.onError?.(event);
+  };
+
+  client.onWebSocketClose = (event: CloseEvent) => {
+    console.warn(
+      "[REALTIME] WebSocket closed:",
+      event
+    );
+
+    organizationSubscription = null;
 
     callbacks.onDisconnected?.();
   };
@@ -280,36 +331,28 @@ export function connectToPaymentNotifications(
   client.activate();
 
   return () => {
-    if (
-      stompClient === client
-    ) {
-      disconnectFromPaymentNotifications();
-    }
+    disconnectFromPaymentNotifications();
   };
 }
 
 export function disconnectFromPaymentNotifications(): void {
   activeOrganizationId = null;
 
-  if (
-    organizationSubscription
-  ) {
+  if (organizationSubscription) {
     try {
       organizationSubscription.unsubscribe();
     } catch (error) {
       console.error(
-        '[REALTIME] Failed to unsubscribe.',
+        "[REALTIME] Failed to unsubscribe:",
         error
       );
     }
 
-    organizationSubscription =
-      null;
+    organizationSubscription = null;
   }
 
   if (stompClient) {
-    const client =
-      stompClient;
+    const client = stompClient;
 
     stompClient = null;
 
@@ -317,7 +360,7 @@ export function disconnectFromPaymentNotifications(): void {
       void client.deactivate();
     } catch (error) {
       console.error(
-        '[REALTIME] Failed to disconnect WebSocket.',
+        "[REALTIME] Failed to disconnect:",
         error
       );
     }
@@ -325,13 +368,13 @@ export function disconnectFromPaymentNotifications(): void {
 }
 
 export function isPaymentRealtimeConnected(): boolean {
-  return (
-    stompClient !== null &&
-    stompClient.connected
+  return Boolean(
+    stompClient?.connected
   );
 }
 
 export function getActivePaymentOrganizationId():
-  number | null {
+  | number
+  | null {
   return activeOrganizationId;
 }

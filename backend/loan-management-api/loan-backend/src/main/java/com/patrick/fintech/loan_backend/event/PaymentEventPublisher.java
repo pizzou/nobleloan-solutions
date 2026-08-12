@@ -16,6 +16,11 @@ import java.time.LocalDateTime;
  * Converts the persisted payment and loan state into an immutable
  * PaymentReceivedEvent and publishes it through Spring's application
  * event mechanism.
+ *
+ * <p>
+ * Borrower information is obtained from the persisted loan on the
+ * backend. It is never trusted from the frontend notification payload.
+ * </p>
  */
 @Component
 @RequiredArgsConstructor
@@ -66,22 +71,49 @@ public class PaymentEventPublisher {
             return;
         }
 
+        /*
+         * ============================================================
+         * BORROWER
+         * ============================================================
+         */
+
         Long borrowerId =
                 loan.getBorrower() != null
                         ? loan.getBorrower().getId()
                         : null;
 
+        String borrowerName =
+                resolveBorrowerName(loan);
+
+        /*
+         * ============================================================
+         * LOAN REFERENCE
+         * ============================================================
+         */
+
         String loanReference =
                 loan.getReferenceNumber() != null
                         && !loan.getReferenceNumber().isBlank()
-                        ? loan.getReferenceNumber()
+                        ? loan.getReferenceNumber().trim()
                         : "Loan #" + loan.getId();
+
+        /*
+         * ============================================================
+         * CURRENCY
+         * ============================================================
+         */
 
         String currency =
                 loan.getCurrency() != null
                         && !loan.getCurrency().isBlank()
-                        ? loan.getCurrency()
+                        ? loan.getCurrency().trim().toUpperCase()
                         : "RWF";
+
+        /*
+         * ============================================================
+         * PENALTY
+         * ============================================================
+         */
 
         BigDecimal assessedPenalty =
                 normalize(
@@ -98,6 +130,12 @@ public class PaymentEventPublisher {
                         .subtract(collectedPenalty)
                         .max(BigDecimal.ZERO);
 
+        /*
+         * ============================================================
+         * PAYMENT EVENT
+         * ============================================================
+         */
+
         PaymentReceivedEvent event =
                 new PaymentReceivedEvent(
 
@@ -106,6 +144,8 @@ public class PaymentEventPublisher {
                         loan.getId(),
 
                         borrowerId,
+
+                        borrowerName,
 
                         loan.getOrganization().getId(),
 
@@ -166,21 +206,71 @@ public class PaymentEventPublisher {
                         payment.getStatus()
                 );
 
-        applicationEventPublisher.publishEvent(event);
+        /*
+         * ============================================================
+         * PUBLISH AFTER PAYMENT STATE HAS BEEN PREPARED
+         * ============================================================
+         */
+
+        applicationEventPublisher.publishEvent(
+                event
+        );
 
         log.info(
                 "PaymentReceivedEvent published. " +
                         "organizationId={}, loanId={}, paymentId={}, " +
-                        "amount={}, transactionId={}",
+                        "borrowerId={}, borrowerName={}, amount={}, " +
+                        "principalPaid={}, interestPaid={}, penaltyPaid={}, " +
+                        "outstandingBalance={}, transactionId={}",
                 event.organizationId(),
                 event.loanId(),
                 event.paymentId(),
+                event.borrowerId(),
+                event.borrowerName(),
                 event.amount(),
+                event.principalPaid(),
+                event.interestPaid(),
+                event.penaltyPaid(),
+                event.outstandingBalance(),
                 event.transactionId()
         );
     }
 
-    private BigDecimal normalize(BigDecimal value) {
+    /**
+     * Resolves the borrower's display name entirely from the persisted
+     * borrower associated with the loan.
+     */
+    private String resolveBorrowerName(
+            Loan loan
+    ) {
+
+        if (loan.getBorrower() == null) {
+
+            log.warn(
+                    "Loan has no borrower. loanId={}",
+                    loan.getId()
+            );
+
+            return "Unknown Borrower";
+        }
+
+
+
+        String name =
+                loan.getBorrower().getFullName();
+
+        if (name != null
+                && !name.isBlank()) {
+
+            return name.trim();
+        }
+
+        return "Unknown Borrower";
+    }
+
+    private BigDecimal normalize(
+            BigDecimal value
+    ) {
 
         if (value == null) {
 
