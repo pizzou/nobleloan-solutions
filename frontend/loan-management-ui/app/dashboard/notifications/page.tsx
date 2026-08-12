@@ -14,7 +14,7 @@ import {
   PaymentNotification,
 } from "@/services/realtimeNotificationService";
 
-interface NotificationPageProps {
+interface NotificationPage {
   organizationId?: number;
 }
 
@@ -184,7 +184,7 @@ function getPaymentStatusClass(
 
 export default function NotificationPage({
   organizationId = 1,
-}: NotificationPageProps) {
+}: NotificationPage) {
   const [
     notifications,
     setNotifications,
