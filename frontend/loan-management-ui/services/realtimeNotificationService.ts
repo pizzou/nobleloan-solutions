@@ -8,13 +8,16 @@ import {
 export interface PaymentNotification {
   paymentId: number;
   loanId: number;
+
   loanReference?: string;
+
   borrowerId?: number;
   borrowerName?: string;
 
   organizationId: number;
 
   amount: number | string;
+
   principalPaid?: number | string;
   interestPaid?: number | string;
   penaltyPaid?: number | string;
@@ -32,6 +35,7 @@ export interface PaymentNotification {
   remainingPenalty?: number | string;
 
   currency?: string;
+
   paymentMethod?: string;
   channel?: string;
 
@@ -47,68 +51,30 @@ export interface PaymentNotification {
   title?: string;
   message?: string;
 }
-export interface DisplayNotification {
-  id: string;
 
-  type: string;
-
-  title: string;
-
-  message?: string;
-
-  organizationId?: number;
-
-  loanId?: number;
-
-  paymentId?: number;
-
-  loanReference?: string;
-
-  borrowerId?: number;
-
-  borrowerName?: string;
-
-  amount?: number | string;
-
-  principalPaid?: number | string;
-
-  interestPaid?: number | string;
-
-  penaltyPaid?: number | string;
-
-  outstandingBalance?: number | string;
-
-  currency?: string;
-
-  paymentMethod?: string;
-
-  channel?: string;
-
-  transactionId?: string;
-
-  paymentReference?: string;
-
-  paymentStatus?: string;
-
-  loanStatus?: string;
-
-  paymentTimestamp?: string;
-
-  createdAt?: string;
-
-  read: boolean;
-}
 export interface RealtimePaymentCallbacks {
-  onPaymentReceived: (notification: PaymentNotification) => void;
+  onPaymentReceived: (
+    notification: PaymentNotification
+  ) => void;
+
   onConnected?: () => void;
+
   onDisconnected?: () => void;
-  onError?: (error: unknown) => void;
+
+  onError?: (
+    error: unknown
+  ) => void;
 }
 
 let stompClient: Client | null = null;
-let organizationSubscription: StompSubscription | null = null;
 
-let activeOrganizationId: number | null = null;
+let organizationSubscription:
+  StompSubscription | null = null;
+
+let activeOrganizationId:
+  number | null = null;
+
+let connectionGeneration = 0;
 
 function getWebSocketUrl(): string {
   const apiUrl =
@@ -121,12 +87,15 @@ function getWebSocketUrl(): string {
     );
   }
 
-  const normalized = apiUrl.replace(/\/+$/, "");
+  const normalized =
+    apiUrl.replace(/\/+$/, "");
 
   const url = new URL(normalized);
 
   const protocol =
-    url.protocol === "https:" ? "wss:" : "ws:";
+    url.protocol === "https:"
+      ? "wss:"
+      : "ws:";
 
   return `${protocol}//${url.host}/ws`;
 }
@@ -134,16 +103,21 @@ function getWebSocketUrl(): string {
 function safelyParseNotification(
   message: IMessage
 ): PaymentNotification {
-  const parsed = JSON.parse(message.body);
+  const parsed =
+    JSON.parse(message.body);
 
-  if (!parsed || typeof parsed !== "object") {
+  if (
+    !parsed ||
+    typeof parsed !== "object"
+  ) {
     throw new Error(
       "Realtime payment notification is not a valid object."
     );
   }
 
   if (
-    parsed.organizationId === undefined ||
+    parsed.organizationId ===
+      undefined ||
     parsed.organizationId === null
   ) {
     throw new Error(
@@ -152,7 +126,8 @@ function safelyParseNotification(
   }
 
   if (
-    parsed.paymentId === undefined ||
+    parsed.paymentId ===
+      undefined ||
     parsed.paymentId === null
   ) {
     throw new Error(
@@ -161,7 +136,8 @@ function safelyParseNotification(
   }
 
   if (
-    parsed.loanId === undefined ||
+    parsed.loanId ===
+      undefined ||
     parsed.loanId === null
   ) {
     throw new Error(
@@ -169,7 +145,21 @@ function safelyParseNotification(
     );
   }
 
-  return parsed as PaymentNotification;
+  return {
+    ...parsed,
+
+    paymentId: Number(
+      parsed.paymentId
+    ),
+
+    loanId: Number(
+      parsed.loanId
+    ),
+
+    organizationId: Number(
+      parsed.organizationId
+    ),
+  } as PaymentNotification;
 }
 
 export function connectToPaymentNotifications(
@@ -184,9 +174,14 @@ export function connectToPaymentNotifications(
 
   disconnectFromPaymentNotifications();
 
-  activeOrganizationId = organizationId;
+  const generation =
+    ++connectionGeneration;
 
-  const brokerURL = getWebSocketUrl();
+  activeOrganizationId =
+    organizationId;
+
+  const brokerURL =
+    getWebSocketUrl();
 
   console.info(
     `[REALTIME] Connecting to: ${brokerURL}`
@@ -198,18 +193,34 @@ export function connectToPaymentNotifications(
     reconnectDelay: 5000,
 
     heartbeatIncoming: 10000,
+
     heartbeatOutgoing: 10000,
 
     connectionTimeout: 15000,
 
     debug: (message: string) => {
-      if (process.env.NODE_ENV === "development") {
-        console.debug("[STOMP]", message);
+      if (
+        process.env.NODE_ENV ===
+        "development"
+      ) {
+        console.debug(
+          "[STOMP]",
+          message
+        );
       }
     },
   });
 
-  client.onConnect = (_frame: IFrame) => {
+  client.onConnect = (
+    _frame: IFrame
+  ) => {
+    if (
+      generation !==
+      connectionGeneration
+    ) {
+      return;
+    }
+
     console.info(
       `[REALTIME] WebSocket connected. Organization=${organizationId}`
     );
@@ -225,10 +236,21 @@ export function connectToPaymentNotifications(
       organizationSubscription =
         client.subscribe(
           destination,
-          (message: IMessage) => {
+          (
+            message: IMessage
+          ) => {
+            if (
+              generation !==
+              connectionGeneration
+            ) {
+              return;
+            }
+
             try {
               const notification =
-                safelyParseNotification(message);
+                safelyParseNotification(
+                  message
+                );
 
               const notificationOrganizationId =
                 Number(
@@ -261,7 +283,9 @@ export function connectToPaymentNotifications(
                 error
               );
 
-              callbacks.onError?.(error);
+              callbacks.onError?.(
+                error
+              );
             }
           }
         );
@@ -277,21 +301,40 @@ export function connectToPaymentNotifications(
         error
       );
 
-      callbacks.onError?.(error);
+      callbacks.onError?.(
+        error
+      );
     }
   };
 
   client.onDisconnect = () => {
+    if (
+      generation !==
+      connectionGeneration
+    ) {
+      return;
+    }
+
     console.warn(
       "[REALTIME] WebSocket disconnected."
     );
 
-    organizationSubscription = null;
+    organizationSubscription =
+      null;
 
     callbacks.onDisconnected?.();
   };
 
-  client.onStompError = (frame: IFrame) => {
+  client.onStompError = (
+    frame: IFrame
+  ) => {
+    if (
+      generation !==
+      connectionGeneration
+    ) {
+      return;
+    }
+
     console.error(
       "[REALTIME] STOMP broker error:",
       frame.headers["message"],
@@ -306,22 +349,43 @@ export function connectToPaymentNotifications(
     );
   };
 
-  client.onWebSocketError = (event: Event) => {
+  client.onWebSocketError = (
+    event: Event
+  ) => {
+    if (
+      generation !==
+      connectionGeneration
+    ) {
+      return;
+    }
+
     console.error(
       "[REALTIME] WebSocket error:",
       event
     );
 
-    callbacks.onError?.(event);
+    callbacks.onError?.(
+      event
+    );
   };
 
-  client.onWebSocketClose = (event: CloseEvent) => {
+  client.onWebSocketClose = (
+    event: CloseEvent
+  ) => {
+    if (
+      generation !==
+      connectionGeneration
+    ) {
+      return;
+    }
+
     console.warn(
       "[REALTIME] WebSocket closed:",
       event
     );
 
-    organizationSubscription = null;
+    organizationSubscription =
+      null;
 
     callbacks.onDisconnected?.();
   };
@@ -331,14 +395,24 @@ export function connectToPaymentNotifications(
   client.activate();
 
   return () => {
-    disconnectFromPaymentNotifications();
+    if (
+      generation ===
+      connectionGeneration
+    ) {
+      disconnectFromPaymentNotifications();
+    }
   };
 }
 
 export function disconnectFromPaymentNotifications(): void {
-  activeOrganizationId = null;
+  connectionGeneration++;
 
-  if (organizationSubscription) {
+  activeOrganizationId =
+    null;
+
+  if (
+    organizationSubscription
+  ) {
     try {
       organizationSubscription.unsubscribe();
     } catch (error) {
@@ -348,11 +422,13 @@ export function disconnectFromPaymentNotifications(): void {
       );
     }
 
-    organizationSubscription = null;
+    organizationSubscription =
+      null;
   }
 
   if (stompClient) {
-    const client = stompClient;
+    const client =
+      stompClient;
 
     stompClient = null;
 
