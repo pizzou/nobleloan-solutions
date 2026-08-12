@@ -399,7 +399,7 @@ public class PaymentWebhookController {
     // MTN WEBHOOK
     // ================================================================
 
-    @PostMapping("/mtn")
+    @PostMapping("/mtn-momo")
     public ResponseEntity<String> mtn(
             @RequestHeader(
                     value = "X-Webhook-Secret",
@@ -572,7 +572,7 @@ public class PaymentWebhookController {
     // AIRTEL WEBHOOK
     // ================================================================
 
-    @PostMapping("/airtel")
+    @PostMapping("/airtel-momo")
     public ResponseEntity<String> airtel(
             @RequestHeader(
                     value = "X-Webhook-Secret",
