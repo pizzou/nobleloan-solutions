@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Client, IMessage, StompSubscription } from '@stomp/stompjs';
 
 import { getLoans } from '../../../services/loanService';
 import { getOverduePayments } from '../../../services/paymentService';
@@ -22,295 +21,169 @@ import { PageSpinner } from '../../../components/ui/Skeleton';
 
 interface Notif {
   id: string;
-  type: 'danger' | 'warning' | 'success' | 'info';
+
+  type:
+    | 'danger'
+    | 'warning'
+    | 'success'
+    | 'info';
+
   title: string;
   message: string;
+
   link?: string;
+
   time: string;
+
   realId?: number;
+
   read?: boolean;
 
-  /**
-   * Used to identify realtime payment notifications.
-   */
-  realtime?: boolean;
+  createdAt?: string;
 
-  /**
-   * Payment metadata.
-   */
-  paymentId?: number;
-  loanId?: number;
-  transactionId?: string;
-  amount?: number;
+  source?: 'backend' | 'portfolio' | 'realtime-payment';
 }
 
 interface PaymentNotificationPayload {
   organizationId?: number | string | null;
+
   loanId?: number | string | null;
+
   paymentId?: number | string | null;
+
   amount?: number | string | null;
+
   transactionId?: string | null;
+
   paymentMethod?: string | null;
-  paymentStatus?: string | null;
-  currency?: string | null;
-  borrowerName?: string | null;
-  loanNumber?: string | null;
-  createdAt?: string | null;
-  timestamp?: string | null;
+
+  status?: string | null;
+
   message?: string | null;
+
+  createdAt?: string | null;
+
+  timestamp?: string | null;
+}
+
+interface StoredNotification {
+  id: number | string;
+
+  type?: string | null;
+
   title?: string | null;
+
+  message?: string | null;
+
+  link?: string | null;
+
+  read?: boolean | null;
+
+  createdAt?: string | null;
 }
 
-type FilterType =
-  | 'all'
-  | 'danger'
-  | 'warning'
-  | 'success'
-  | 'info';
-
-type ConnectionState =
-  | 'connecting'
-  | 'connected'
-  | 'reconnecting'
-  | 'disconnected';
-
-const ICON: Record<Notif['type'], string> = {
-  danger: '🔴',
-  warning: '⚠️',
-  success: '✅',
-  info: '💡',
-};
-
-const BG: Record<Notif['type'], string> = {
-  danger: 'bg-red-50 border-red-100',
-  warning: 'bg-yellow-50 border-yellow-100',
-  success: 'bg-green-50 border-green-100',
-  info: 'bg-blue-50 border-blue-100',
-};
-
-const TXT: Record<Notif['type'], string> = {
-  danger: 'text-red-700',
-  warning: 'text-yellow-700',
-  success: 'text-green-700',
-  info: 'text-blue-700',
-};
-
-const BTN: Record<Notif['type'], string> = {
-  danger: 'bg-red-100 text-red-700 hover:bg-red-200',
-  warning: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200',
-  success: 'bg-green-100 text-green-700 hover:bg-green-200',
-  info: 'bg-blue-100 text-blue-700 hover:bg-blue-200',
-};
-
-function toNumber(
-  value: number | string | null | undefined,
-): number | null {
-  if (value === null || value === undefined || value === '') {
-    return null;
-  }
-
-  const parsed = Number(value);
-
-  return Number.isFinite(parsed) ? parsed : null;
+interface OrganizationContext {
+  organizationId: number | null;
 }
 
-function formatMoney(
-  amount: number,
-  currency = 'RWF',
-): string {
-  try {
-    return new Intl.NumberFormat('en-RW', {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 2,
-    }).format(amount);
-  } catch {
-    return `${currency} ${amount.toLocaleString()}`;
-  }
-}
+/**
+ * Production WebSocket/STOMP imports.
+ *
+ * Required package:
+ *
+ * npm install @stomp/stompjs sockjs-client
+ *
+ * If your backend endpoint is a normal WebSocket endpoint
+ * exactly as configured in WebSocketConfig (/ws), the native
+ * WebSocket transport is sufficient and avoids requiring SockJS.
+ */
+import { Client, IMessage, StompSubscription } from '@stomp/stompjs';
 
-function formatNotificationTime(
-  value?: string | null,
-): string {
-  if (!value) {
-    return 'Just now';
-  }
 
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return 'Just now';
-  }
-
-  return date.toLocaleString();
-}
-
+/**
+ * --------------------------------------------------------------------------
+ * API BASE URL
+ * --------------------------------------------------------------------------
+ *
+ * The frontend should already have the backend URL configured somewhere
+ * in your project.
+ *
+ * This helper intentionally supports the common NEXT_PUBLIC_API_URL setup.
+ */
 function getApiBaseUrl(): string {
   const configured =
     process.env.NEXT_PUBLIC_API_URL ||
     process.env.NEXT_PUBLIC_API_BASE_URL ||
     '';
 
-  if (configured) {
-    return configured.replace(/\/+$/, '');
-  }
-
-  if (typeof window !== 'undefined') {
-    const origin = window.location.origin;
-
-    return origin.replace(/\/+$/, '');
-  }
-
-  return '';
+  return configured.replace(/\/+$/, '');
 }
 
-function getWebSocketUrl(): string {
-  const apiBaseUrl = getApiBaseUrl();
 
-  if (!apiBaseUrl) {
-    return '';
-  }
-
-  if (apiBaseUrl.startsWith('https://')) {
-    return apiBaseUrl.replace(
-      /^https:\/\//i,
-      'wss://',
-    ) + '/ws';
-  }
-
-  if (apiBaseUrl.startsWith('http://')) {
-    return apiBaseUrl.replace(
-      /^http:\/\//i,
-      'ws://',
-    ) + '/ws';
-  }
-
-  if (apiBaseUrl.startsWith('ws://')) {
-    return apiBaseUrl.replace(/\/+$/, '') + '/ws';
-  }
-
-  if (apiBaseUrl.startsWith('wss://')) {
-    return apiBaseUrl.replace(/\/+$/, '') + '/ws';
-  }
-
-  return `wss://${apiBaseUrl.replace(/^\/+|\/+$/g, '')}/ws`;
-}
-
-function decodeJwtPayload(
-  token: string,
-): Record<string, unknown> | null {
-  try {
-    const parts = token.split('.');
-
-    if (parts.length !== 3) {
-      return null;
-    }
-
-    const base64Url = parts[1];
-
-    const base64 = base64Url
-      .replace(/-/g, '+')
-      .replace(/_/g, '/');
-
-    const padded =
-      base64 +
-      '='.repeat(
-        (4 - (base64.length % 4)) % 4,
-      );
-
-    const decoded = window.atob(padded);
-
-    const bytes = Uint8Array.from(
-      decoded,
-      (character) => character.charCodeAt(0),
-    );
-
-    const json = new TextDecoder().decode(bytes);
-
-    return JSON.parse(json) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-function findOrganizationIdInObject(
-  object: unknown,
-): number | null {
-  if (!object || typeof object !== 'object') {
-    return null;
-  }
-
-  const source = object as Record<string, unknown>;
-
-  const candidates = [
-    source.organizationId,
-    source.organization_id,
-    source.orgId,
-    source.org_id,
-    source.tenantId,
-    source.tenant_id,
-  ];
-
-  for (const candidate of candidates) {
-    const number = toNumber(
-      candidate as number | string | null | undefined,
-    );
-
-    if (number !== null && number > 0) {
-      return number;
-    }
-  }
-
-  return null;
-}
-
-function getOrganizationId(): number | null {
+/**
+ * --------------------------------------------------------------------------
+ * ORGANIZATION ID
+ * --------------------------------------------------------------------------
+ *
+ * Your backend publishes:
+ *
+ * /topic/organization/{organizationId}/payments
+ *
+ * Therefore the frontend MUST know the currently authenticated
+ * organization's ID.
+ *
+ * This function checks several common locations without changing
+ * your authentication architecture.
+ *
+ * IMPORTANT:
+ * If your project already has a tenant/auth helper that exposes
+ * organizationId, replace this function with that helper.
+ */
+function getOrganizationContext(): OrganizationContext {
   if (typeof window === 'undefined') {
-    return null;
+    return {
+      organizationId: null,
+    };
   }
 
-  /**
-   * First check common application storage keys.
-   *
-   * This keeps the notification page compatible with the
-   * existing tenant/authentication implementation without
-   * hard-coding an organization.
-   */
-  const storageKeys = [
+  const possibleKeys = [
     'organizationId',
     'organization_id',
     'orgId',
     'org_id',
-    'tenantId',
-    'tenant_id',
-    'currentOrganizationId',
-    'current_organization_id',
   ];
 
-  for (const key of storageKeys) {
+  for (const key of possibleKeys) {
     const value = window.localStorage.getItem(key);
 
-    const id = toNumber(value);
+    if (value !== null && value.trim() !== '') {
+      const parsed = Number(value);
 
-    if (id !== null && id > 0) {
-      return id;
+      if (
+        Number.isFinite(parsed) &&
+        parsed > 0
+      ) {
+        return {
+          organizationId: parsed,
+        };
+      }
     }
   }
 
   /**
-   * Try common user/session objects.
+   * Try authenticated user objects commonly stored by the frontend.
    */
-  const objectKeys = [
+  const possibleUserKeys = [
     'user',
     'currentUser',
     'authUser',
-    'current_user',
-    'auth_user',
-    'session',
+    'userData',
+    'auth',
   ];
 
-  for (const key of objectKeys) {
-    const raw = window.localStorage.getItem(key);
+  for (const key of possibleUserKeys) {
+    const raw =
+      window.localStorage.getItem(key);
 
     if (!raw) {
       continue;
@@ -319,121 +192,170 @@ function getOrganizationId(): number | null {
     try {
       const parsed = JSON.parse(raw);
 
-      const id = findOrganizationIdInObject(parsed);
+      const candidate =
+        parsed?.organizationId ??
+        parsed?.organization_id ??
+        parsed?.organization?.id ??
+        parsed?.user?.organizationId ??
+        parsed?.user?.organization_id ??
+        parsed?.data?.organizationId ??
+        parsed?.data?.organization_id;
 
-      if (id !== null) {
-        return id;
-      }
+      const organizationId =
+        Number(candidate);
 
       if (
-        parsed &&
-        typeof parsed === 'object' &&
-        'user' in parsed
+        Number.isFinite(organizationId) &&
+        organizationId > 0
       ) {
-        const nestedId = findOrganizationIdInObject(
-          (parsed as Record<string, unknown>).user,
-        );
-
-        if (nestedId !== null) {
-          return nestedId;
-        }
+        return {
+          organizationId,
+        };
       }
     } catch {
-      // Ignore malformed storage values.
+      /**
+       * Ignore invalid localStorage JSON.
+       */
     }
   }
 
-  /**
-   * Finally inspect JWT claims.
-   */
-  const tokenKeys = [
-    'token',
-    'accessToken',
-    'access_token',
-    'jwt',
-    'authToken',
-    'auth_token',
-  ];
-
-  for (const key of tokenKeys) {
-    const token =
-      window.localStorage.getItem(key);
-
-    if (!token) {
-      continue;
-    }
-
-    const payload =
-      decodeJwtPayload(token);
-
-    const id =
-      findOrganizationIdInObject(payload);
-
-    if (id !== null) {
-      return id;
-    }
-
-    if (payload) {
-      const nestedCandidates = [
-        payload.user,
-        payload.organization,
-        payload.organizationContext,
-        payload.tenant,
-      ];
-
-      for (const candidate of nestedCandidates) {
-        const nestedId =
-          findOrganizationIdInObject(candidate);
-
-        if (nestedId !== null) {
-          return nestedId;
-        }
-      }
-    }
-  }
-
-  return null;
+  return {
+    organizationId: null,
+  };
 }
 
-function getAuthToken(): string | null {
-  if (typeof window === 'undefined') {
+
+/**
+ * --------------------------------------------------------------------------
+ * NORMALIZATION HELPERS
+ * --------------------------------------------------------------------------
+ */
+
+function toNumber(
+  value: unknown
+): number | null {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ''
+  ) {
     return null;
   }
 
-  const keys = [
-    'accessToken',
-    'access_token',
-    'token',
-    'jwt',
-    'authToken',
-    'auth_token',
-  ];
+  const parsed = Number(value);
 
-  for (const key of keys) {
-    const value =
-      window.localStorage.getItem(key);
-
-    if (value) {
-      return value;
-    }
-  }
-
-  return null;
+  return Number.isFinite(parsed)
+    ? parsed
+    : null;
 }
 
+
+function formatCurrency(
+  value: unknown
+): string {
+  const amount =
+    toNumber(value);
+
+  if (amount === null) {
+    return 'RWF 0.00';
+  }
+
+  return `RWF ${amount.toLocaleString(
+    'en-RW',
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }
+  )}`;
+}
+
+
+function formatNotificationTime(
+  value?: string | null
+): string {
+  if (!value) {
+    return 'Just now';
+  }
+
+  const date =
+    new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return 'Just now';
+  }
+
+  const diff =
+    Date.now() -
+    date.getTime();
+
+  const seconds =
+    Math.floor(
+      diff / 1000
+    );
+
+  if (seconds < 10) {
+    return 'Just now';
+  }
+
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+
+  const minutes =
+    Math.floor(
+      seconds / 60
+    );
+
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  const hours =
+    Math.floor(
+      minutes / 60
+    );
+
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+
+  const days =
+    Math.floor(
+      hours / 24
+    );
+
+  if (days < 7) {
+    return `${days}d ago`;
+  }
+
+  return date.toLocaleString();
+}
+
+
 function normalizeNotificationType(
-  value?: string | null,
+  type?: string | null
 ): Notif['type'] {
   const normalized =
-    String(value || '')
+    String(type || '')
       .trim()
       .toUpperCase();
 
   if (
+    normalized.includes('PAYMENT') ||
+    normalized.includes('SUCCESS') ||
+    normalized === 'SUCCESS'
+  ) {
+    return 'success';
+  }
+
+  if (
+    normalized.includes('DANGER') ||
     normalized.includes('OVERDUE') ||
-    normalized.includes('PENALTY') ||
-    normalized.includes('FAILED') ||
-    normalized.includes('REJECT')
+    normalized.includes('FAILED')
   ) {
     return 'danger';
   }
@@ -446,30 +368,44 @@ function normalizeNotificationType(
     return 'warning';
   }
 
-  if (
-    normalized.includes('PAYMENT') ||
-    normalized.includes('SUCCESS') ||
-    normalized.includes('APPROVED') ||
-    normalized.includes('COMPLETED')
-  ) {
-    return 'success';
-  }
-
   return 'info';
 }
 
-function buildPaymentNotification(
-  payload: PaymentNotificationPayload,
+
+/**
+ * --------------------------------------------------------------------------
+ * PAYMENT NOTIFICATION NORMALIZATION
+ * --------------------------------------------------------------------------
+ *
+ * Backend PaymentNotification DTO is converted into the same Notif shape
+ * used by this page.
+ */
+function buildRealtimePaymentNotification(
+  payload: PaymentNotificationPayload
 ): Notif | null {
   const loanId =
-    toNumber(payload.loanId);
+    toNumber(
+      payload.loanId
+    );
 
   const paymentId =
-    toNumber(payload.paymentId);
+    toNumber(
+      payload.paymentId
+    );
 
   const amount =
-    toNumber(payload.amount);
+    toNumber(
+      payload.amount
+    );
 
+  const transactionId =
+    payload.transactionId ||
+    '';
+
+  /**
+   * A payment notification without a loan or payment ID is not safe
+   * to display as a production payment event.
+   */
   if (
     loanId === null &&
     paymentId === null
@@ -477,1003 +413,1140 @@ function buildPaymentNotification(
     return null;
   }
 
-  const currency =
-    payload.currency ||
-    'RWF';
-
-  const borrower =
-    payload.borrowerName?.trim();
-
-  const loanNumber =
-    payload.loanNumber?.trim();
-
-  let message =
-    payload.message?.trim();
-
-  if (!message) {
-    const paymentAmount =
-      amount !== null
-        ? formatMoney(amount, currency)
-        : 'a payment';
-
-    if (borrower && loanNumber) {
-      message =
-        `${borrower} paid ${paymentAmount} for loan ${loanNumber}.`;
-    } else if (borrower) {
-      message =
-        `${borrower} paid ${paymentAmount}.`;
-    } else if (loanNumber) {
-      message =
-        `Payment of ${paymentAmount} received for loan ${loanNumber}.`;
-    } else if (loanId !== null) {
-      message =
-        `Payment of ${paymentAmount} received for loan #${loanId}.`;
-    } else {
-      message =
-        `Payment of ${paymentAmount} received.`;
-    }
-  }
-
-  const title =
-    payload.title?.trim() ||
-    'Payment Received';
-
-  const createdAt =
+  const timestamp =
     payload.createdAt ||
     payload.timestamp ||
     new Date().toISOString();
 
-  /**
-   * Payment ID is the strongest deduplication key.
-   * Transaction ID is also included to protect against
-   * duplicate provider events.
-   */
-  const identity =
+  const id =
     paymentId !== null
       ? `payment-${paymentId}`
-      : payload.transactionId
-        ? `payment-tx-${payload.transactionId}`
-        : `payment-loan-${loanId ?? 'unknown'}-${amount ?? 'unknown'}-${createdAt}`;
+      : `payment-${transactionId || loanId}-${timestamp}`;
+
+  const paymentMessage =
+    payload.message ||
+    `Payment of ${formatCurrency(
+      amount
+    )} received successfully for loan #${loanId ?? '—'}.`;
 
   return {
-    id: `realtime-${identity}`,
+    id,
+
     type: 'success',
-    title,
-    message,
+
+    title: 'Payment Received',
+
+    message:
+      paymentMessage,
+
     link:
       loanId !== null
         ? `/dashboard/loans/${loanId}`
         : '/dashboard/payments',
-    time: formatNotificationTime(createdAt),
+
+    time:
+      formatNotificationTime(
+        timestamp
+      ),
+
+    createdAt:
+      timestamp,
+
     read: false,
-    realtime: true,
-    paymentId:
-      paymentId ?? undefined,
-    loanId:
-      loanId ?? undefined,
-    transactionId:
-      payload.transactionId || undefined,
-    amount:
-      amount ?? undefined,
+
+    source:
+      'realtime-payment',
   };
 }
 
+
+/**
+ * --------------------------------------------------------------------------
+ * STORED BACKEND NOTIFICATION
+ * --------------------------------------------------------------------------
+ */
+function buildStoredNotification(
+  notification: StoredNotification
+): Notif {
+  const createdAt =
+    notification.createdAt ||
+    new Date().toISOString();
+
+  return {
+    id:
+      `real-${notification.id}`,
+
+    realId:
+      typeof notification.id === 'number'
+        ? notification.id
+        : Number(notification.id),
+
+    read:
+      notification.read === true,
+
+    type:
+      normalizeNotificationType(
+        notification.type
+      ),
+
+    title:
+      notification.title ||
+      'Notification',
+
+    message:
+      notification.message ||
+      '',
+
+    link:
+      notification.link ||
+      undefined,
+
+    time:
+      formatNotificationTime(
+        createdAt
+      ),
+
+    createdAt,
+
+    source:
+      'backend',
+  };
+}
+
+
+/**
+ * --------------------------------------------------------------------------
+ * PAGE
+ * --------------------------------------------------------------------------
+ */
 export default function NotificationsPage() {
-  const [notifs, setNotifs] =
+  const [
+    notifs,
+    setNotifs,
+  ] =
     useState<Notif[]>([]);
 
-  const [loading, setLoading] =
+  const [
+    loading,
+    setLoading,
+  ] =
     useState(true);
 
-  const [filter, setFilter] =
-    useState<FilterType>('all');
+  const [
+    filter,
+    setFilter,
+  ] =
+    useState<
+      | 'all'
+      | 'danger'
+      | 'warning'
+      | 'success'
+      | 'info'
+    >('all');
 
-  const [connectionState, setConnectionState] =
-    useState<ConnectionState>('disconnected');
+  const [
+    realtimeConnected,
+    setRealtimeConnected,
+  ] =
+    useState(false);
 
-  const [organizationId, setOrganizationId] =
-    useState<number | null>(null);
+  const [
+    realtimeError,
+    setRealtimeError,
+  ] =
+    useState<string | null>(null);
 
   const stompClientRef =
     useRef<Client | null>(null);
 
-  const paymentSubscriptionRef =
+  const organizationSubscriptionRef =
     useRef<StompSubscription | null>(null);
 
   const reconnectTimerRef =
-    useRef<ReturnType<typeof setTimeout> | null>(
-      null,
-    );
+    useRef<ReturnType<
+      typeof setTimeout
+    > | null>(null);
+
+  const reconnectAttemptRef =
+    useRef(0);
 
   const mountedRef =
-    useRef(false);
-
-  const receivedPaymentIdsRef =
-    useRef<Set<string>>(new Set());
+    useRef(true);
 
   /**
-   * ------------------------------------------------------------
-   * LOAD INITIAL NOTIFICATIONS
-   * ------------------------------------------------------------
+   * Prevent duplicate payment events.
    */
-  const loadNotifications =
-    useCallback(async () => {
-      setLoading(true);
+  const paymentIdsRef =
+    useRef<Set<string>>(
+      new Set()
+    );
 
-      try {
-        const [
-          loans,
-          overdue,
-          stats,
-          real,
-        ] = await Promise.all([
-          getLoans().catch((error) => {
-            console.error(
-              'notifications: getLoans failed',
-              error,
-            );
 
-            return [];
-          }),
-
-          getOverduePayments().catch((error) => {
-            console.error(
-              'notifications: getOverduePayments failed',
-              error,
-            );
-
-            return [];
-          }),
-
-          getDashboardStats().catch((error) => {
-            console.error(
-              'notifications: getDashboardStats failed',
-              error,
-            );
-
-            return null;
-          }),
-
-          getMyNotifications().catch((error) => {
-            console.error(
-              'notifications: getMyNotifications failed',
-              error,
-            );
-
-            return [];
-          }),
-        ]);
-
+  /**
+   * ------------------------------------------------------------------------
+   * ADD NOTIFICATION
+   * ------------------------------------------------------------------------
+   */
+  const addNotification =
+    useCallback(
+      (
+        notification: Notif
+      ) => {
         if (!mountedRef.current) {
           return;
         }
 
-        const loanList =
-          Array.isArray(loans)
-            ? (loans as Loan[])
-            : [];
-
-        const overdueList =
-          Array.isArray(overdue)
-            ? (overdue as Payment[])
-            : [];
-
-        const dashboardStats =
-          stats as DashboardStats | null;
-
-        const realList =
-          Array.isArray(real)
-            ? (real as any[])
-            : [];
-
-        const nextNotifications: Notif[] =
-          [];
-
-        /**
-         * --------------------------------------------------------
-         * BACKEND-PERSISTED NOTIFICATIONS
-         * --------------------------------------------------------
-         *
-         * This preserves the notification system that already
-         * works for loan creation and other backend events.
-         */
-        realList.forEach((notification) => {
-          if (
-            notification === null ||
-            notification === undefined
-          ) {
-            return;
-          }
-
-          const realId =
-            toNumber(notification.id);
-
-          if (realId === null) {
-            return;
-          }
-
-          nextNotifications.push({
-            id: `real-${realId}`,
-            realId,
-            read:
-              Boolean(notification.read),
-
-            type:
-              normalizeNotificationType(
-                notification.type,
-              ),
-
-            title:
-              notification.title ||
-              'Notification',
-
-            message:
-              notification.message ||
-              '',
-
-            link:
-              notification.link ||
-              undefined,
-
-            time:
-              formatNotificationTime(
-                notification.createdAt,
-              ),
-          });
-        });
-
-        /**
-         * --------------------------------------------------------
-         * DERIVED PORTFOLIO ALERTS
-         * --------------------------------------------------------
-         */
-        try {
-          if (overdueList.length > 0) {
-            nextNotifications.push({
-              id: 'ov',
-              type: 'danger',
-
-              title:
-                `${overdueList.length} Overdue Payment${
-                  overdueList.length > 1
-                    ? 's'
-                    : ''
-                }`,
-
-              message:
-                `${overdueList.length} payment${
-                  overdueList.length > 1
-                    ? 's are'
-                    : ' is'
-                } past due. Penalties accruing daily.`,
-
-              link:
-                '/dashboard/payments',
-
-              time: 'Now',
-            });
-          }
-
-          const pendingLoans =
-            loanList.filter(
-              (loan) =>
-                loan.status === 'PENDING',
-            );
-
-          if (pendingLoans.length > 0) {
-            nextNotifications.push({
-              id: 'pend',
-              type: 'warning',
-
-              title:
-                `${pendingLoans.length} Loan${
-                  pendingLoans.length > 1
-                    ? 's'
-                    : ''
-                } Awaiting Approval`,
-
-              message:
-                `${pendingLoans.length} application${
-                  pendingLoans.length > 1
-                    ? 's need'
-                    : ' needs'
-                } your review.`,
-
-              link:
-                '/dashboard/approvals',
-
-              time: 'Today',
-            });
-          }
-
-          const highRiskLoans =
-            loanList.filter(
-              (loan) =>
-                loan.riskCategory === 'HIGH' ||
-                loan.riskCategory === 'CRITICAL',
-            );
-
-          if (highRiskLoans.length > 0) {
-            nextNotifications.push({
-              id: 'hr',
-              type: 'warning',
-
-              title:
-                `${highRiskLoans.length} High-Risk Loan${
-                  highRiskLoans.length > 1
-                    ? 's'
-                    : ''
-                }`,
-
-              message:
-                `${highRiskLoans.length} loan${
-                  highRiskLoans.length > 1
-                    ? 's are'
-                    : ' is'
-                } rated HIGH or CRITICAL risk. Review collateral.`,
-
-              link:
-                '/dashboard/loans',
-
-              time: 'Today',
-            });
-          }
-
-          const totalDisbursed =
-            Number(
-              dashboardStats?.totalDisbursed || 0,
-            );
-
-          const totalCollected =
-            Number(
-              dashboardStats?.totalCollected || 0,
-            );
-
-          const collectionRate =
-            totalDisbursed > 0
-              ? (totalCollected /
-                  totalDisbursed) *
-                100
-              : 0;
-
-          if (
-            dashboardStats &&
-            collectionRate >= 80
-          ) {
-            nextNotifications.push({
-              id: 'cr-good',
-              type: 'success',
-
-              title:
-                'Strong Collection Rate',
-
-              message:
-                `Portfolio collection rate is ${collectionRate.toFixed(
-                  0,
-                )}% — excellent performance!`,
-
-              time: 'This week',
-            });
-          } else if (
-            dashboardStats &&
-            collectionRate < 50 &&
-            totalDisbursed > 0
-          ) {
-            nextNotifications.push({
-              id: 'cr-low',
-              type: 'warning',
-
-              title:
-                'Low Collection Rate',
-
-              message:
-                `Collection rate is only ${collectionRate.toFixed(
-                  0,
-                )}%. Consider sending payment reminders.`,
-
-              time: 'This week',
-            });
-          }
-
-          if (
-            dashboardStats &&
-            dashboardStats.completedLoans > 0
-          ) {
-            nextNotifications.push({
-              id: 'closed',
-              type: 'success',
-
-              title:
-                `${dashboardStats.completedLoans} Loan${
-                  dashboardStats.completedLoans > 1
-                    ? 's'
-                    : ''
-                } Fully Repaid`,
-
-              message:
-                `${dashboardStats.completedLoans} loan${
-                  dashboardStats.completedLoans > 1
-                    ? 's have'
-                    : ' has'
-                } been fully repaid. Great portfolio health!`,
-
-              link:
-                '/dashboard/loans',
-
-              time: 'This month',
-            });
-          }
-
-          if (dashboardStats) {
-            nextNotifications.push({
-              id: 'summary',
-              type: 'info',
-
-              title:
-                'Portfolio Summary',
-
-              message:
-                `${dashboardStats.totalBorrowers} borrowers · ` +
-                `${dashboardStats.activeLoans} active loans · ` +
-                `$${Number(
-                  dashboardStats.totalDisbursed || 0,
-                ).toLocaleString()} disbursed.`,
-
-              link:
-                '/dashboard/reports',
-
-              time: 'Today',
-            });
-          }
-        } catch (error) {
-          console.error(
-            'notifications: failed to build portfolio-derived alerts',
-            error,
-          );
-        }
-
-        /**
-         * Newest notifications first.
-         *
-         * Realtime payment notifications are inserted at the top
-         * later without disturbing persisted notifications.
-         */
-        nextNotifications.sort(
-          (a, b) => {
-            const aTime =
-              a.time === 'Now'
-                ? Date.now()
-                : new Date(a.time).getTime();
-
-            const bTime =
-              b.time === 'Now'
-                ? Date.now()
-                : new Date(b.time).getTime();
-
-            return (
-              (Number.isFinite(bTime)
-                ? bTime
-                : 0) -
-              (Number.isFinite(aTime)
-                ? aTime
-                : 0)
-            );
-          },
-        );
-
-        setNotifs(nextNotifications);
-      } catch (error) {
-        console.error(
-          'notifications: unexpected failure loading notifications',
-          error,
-        );
-      } finally {
-        if (mountedRef.current) {
-          setLoading(false);
-        }
-      }
-    }, []);
-
-  /**
-   * ------------------------------------------------------------
-   * HANDLE REALTIME PAYMENT
-   * ------------------------------------------------------------
-   */
-  const handleRealtimePayment =
-    useCallback(
-      (message: IMessage) => {
-        try {
-          const payload =
-            JSON.parse(
-              message.body,
-            ) as PaymentNotificationPayload;
-
-          console.info(
-            '[REALTIME NOTIFICATIONS] Payment received:',
-            payload,
-          );
-
-          const notification =
-            buildPaymentNotification(
-              payload,
-            );
-
-          if (!notification) {
-            console.warn(
-              '[REALTIME NOTIFICATIONS] Ignoring malformed payment notification:',
-              payload,
-            );
-
-            return;
-          }
-
-          /**
-           * Strong duplicate protection.
-           *
-           * The backend can legitimately deliver an event more than
-           * once in distributed/retry scenarios. The UI must not
-           * show duplicate payment notifications.
-           */
-          const dedupeKey =
-            notification.paymentId !==
-            undefined
-              ? `payment-${notification.paymentId}`
-              : notification.transactionId
-                ? `transaction-${notification.transactionId}`
-                : notification.id;
-
-          if (
-            receivedPaymentIdsRef.current.has(
-              dedupeKey,
-            )
-          ) {
-            return;
-          }
-
-          receivedPaymentIdsRef.current.add(
-            dedupeKey,
-          );
-
-          /**
-           * Keep the Set from growing indefinitely during a very
-           * long-running browser session.
-           */
-          if (
-            receivedPaymentIdsRef.current
-              .size > 1000
-          ) {
-            const first =
-              receivedPaymentIdsRef.current
-                .values()
-                .next()
-                .value;
-
-            if (first) {
-              receivedPaymentIdsRef.current.delete(
-                first,
+        setNotifs(
+          current => {
+            /**
+             * Never add the same notification twice.
+             */
+            const alreadyExists =
+              current.some(
+                existing =>
+                  existing.id ===
+                  notification.id
               );
+
+            if (alreadyExists) {
+              return current;
             }
+
+            return [
+              notification,
+              ...current,
+            ];
           }
-
-          setNotifs(
-            (current) => {
-              /**
-               * Protect against duplicates already loaded from
-               * the REST notification history.
-               */
-              const alreadyExists =
-                current.some(
-                  (item) =>
-                    (
-                      notification.paymentId !==
-                        undefined &&
-                      item.paymentId ===
-                        notification.paymentId
-                    ) ||
-                    (
-                      notification.transactionId &&
-                      item.transactionId ===
-                        notification.transactionId
-                    ),
-                );
-
-              if (alreadyExists) {
-                return current;
-              }
-
-              return [
-                notification,
-                ...current,
-              ];
-            },
-          );
-
-          /**
-           * Optional browser notification.
-           *
-           * Only use this if the user has already granted browser
-           * notification permission. We never request permission
-           * automatically because that is bad UX.
-           */
-          if (
-            typeof window !== 'undefined' &&
-            'Notification' in window &&
-            Notification.permission ===
-              'granted'
-          ) {
-            try {
-              new Notification(
-                notification.title,
-                {
-                  body:
-                    notification.message,
-                  tag:
-                    notification.paymentId
-                      ? `payment-${notification.paymentId}`
-                      : notification.id,
-                },
-              );
-            } catch {
-              // Browser notification failure must never affect
-              // the dashboard notification itself.
-            }
-          }
-        } catch (error) {
-          console.error(
-            '[REALTIME NOTIFICATIONS] Failed to process payment message:',
-            error,
-            message.body,
-          );
-        }
+        );
       },
-      [],
+      []
     );
 
+
   /**
-   * ------------------------------------------------------------
-   * CONNECT TO PAYMENT WEBSOCKET
-   * ------------------------------------------------------------
+   * ------------------------------------------------------------------------
+   * LOAD EXISTING NOTIFICATIONS
+   * ------------------------------------------------------------------------
    */
   useEffect(() => {
     mountedRef.current = true;
 
-    const id =
-      getOrganizationId();
+    Promise.all([
+      getLoans().catch(
+        error => {
+          console.error(
+            'notifications: getLoans failed',
+            error
+          );
 
-    setOrganizationId(id);
+          return [];
+        }
+      ),
 
-    if (id === null) {
-      console.warn(
-        '[REALTIME NOTIFICATIONS] Organization ID could not be determined. ' +
-          'Realtime payment subscription will not start.',
-      );
+      getOverduePayments().catch(
+        error => {
+          console.error(
+            'notifications: getOverduePayments failed',
+            error
+          );
 
-      return () => {
-        mountedRef.current = false;
-      };
-    }
+          return [];
+        }
+      ),
 
-    const websocketUrl =
-      getWebSocketUrl();
+      getDashboardStats().catch(
+        error => {
+          console.error(
+            'notifications: getDashboardStats failed',
+            error
+          );
 
-    if (!websocketUrl) {
-      console.error(
-        '[REALTIME NOTIFICATIONS] WebSocket URL could not be determined.',
-      );
+          return null;
+        }
+      ),
 
-      setConnectionState(
-        'disconnected',
-      );
+      getMyNotifications().catch(
+        error => {
+          console.error(
+            'notifications: getMyNotifications failed',
+            error
+          );
 
-      return () => {
-        mountedRef.current = false;
-      };
-    }
+          return [];
+        }
+      ),
+    ])
+      .then(
+        ([
+          loans,
+          overdue,
+          stats,
+          real,
+        ]) => {
+          if (!mountedRef.current) {
+            return;
+          }
 
-    let destroyed = false;
+          const l =
+            Array.isArray(loans)
+              ? loans as Loan[]
+              : [];
 
-    const connect = () => {
-      if (destroyed) {
-        return;
-      }
+          const o =
+            Array.isArray(overdue)
+              ? overdue as Payment[]
+              : [];
 
-      setConnectionState(
-        stompClientRef.current
-          ? 'reconnecting'
-          : 'connecting',
-      );
+          const s =
+            stats as
+              | DashboardStats
+              | null;
 
-      const client =
-        new Client({
-          brokerURL:
-            websocketUrl,
+          const realList =
+            Array.isArray(real)
+              ? real as StoredNotification[]
+              : [];
 
-          reconnectDelay: 5000,
+          const notifications: Notif[] =
+            [];
 
-          connectionTimeout: 10000,
+          /**
+           * --------------------------------------------------------------
+           * REAL BACKEND NOTIFICATIONS
+           * --------------------------------------------------------------
+           */
+          realList.forEach(
+            notification => {
+              notifications.push(
+                buildStoredNotification(
+                  notification
+                )
+              );
+            }
+          );
 
-          heartbeatIncoming: 10000,
 
-          heartbeatOutgoing: 10000,
+          /**
+           * --------------------------------------------------------------
+           * PORTFOLIO ALERTS
+           * --------------------------------------------------------------
+           */
+          try {
+            if (o.length > 0) {
+              notifications.push({
+                id: 'ov',
 
-          debug: (message) => {
-            /**
-             * Keep STOMP debug disabled in production logs.
-             *
-             * Uncomment temporarily when diagnosing a WebSocket
-             * connection:
-             *
-             * console.debug('[STOMP]', message);
-             */
-          },
+                type: 'danger',
 
-          onConnect: () => {
-            if (destroyed) {
-              return;
+                title:
+                  `${o.length} Overdue Payment${
+                    o.length > 1
+                      ? 's'
+                      : ''
+                  }`,
+
+                message:
+                  `${o.length} payment${
+                    o.length > 1
+                      ? 's are'
+                      : ' is'
+                  } past due. Penalties accruing daily.`,
+
+                link:
+                  '/dashboard/payments',
+
+                time:
+                  'Now',
+
+                source:
+                  'portfolio',
+              });
             }
 
-            console.info(
-              '[REALTIME NOTIFICATIONS] WebSocket connected.',
-            );
 
-            setConnectionState(
-              'connected',
-            );
-
-            /**
-             * Remove an old subscription before creating a new one.
-             */
-            try {
-              paymentSubscriptionRef.current?.unsubscribe();
-            } catch {
-              // Ignore stale subscription errors.
-            }
-
-            const destination =
-              `/topic/organization/${id}/payments`;
-
-            paymentSubscriptionRef.current =
-              client.subscribe(
-                destination,
-                handleRealtimePayment,
+            const pending =
+              l.filter(
+                loan =>
+                  loan.status ===
+                  'PENDING'
               );
 
-            console.info(
-              '[REALTIME NOTIFICATIONS] Subscribed to:',
-              destination,
-            );
-          },
+            if (
+              pending.length > 0
+            ) {
+              notifications.push({
+                id: 'pend',
 
-          onDisconnect: () => {
-            if (destroyed) {
-              return;
+                type: 'warning',
+
+                title:
+                  `${pending.length} Loan${
+                    pending.length > 1
+                      ? 's'
+                      : ''
+                  } Awaiting Approval`,
+
+                message:
+                  `${pending.length} application${
+                    pending.length > 1
+                      ? 's need'
+                      : ' needs'
+                  } your review.`,
+
+                link:
+                  '/dashboard/approvals',
+
+                time:
+                  'Today',
+
+                source:
+                  'portfolio',
+              });
             }
 
-            console.warn(
-              '[REALTIME NOTIFICATIONS] WebSocket disconnected.',
-            );
 
-            setConnectionState(
-              'reconnecting',
-            );
-          },
+            const highRisk =
+              l.filter(
+                loan =>
+                  loan.riskCategory ===
+                    'HIGH' ||
+                  loan.riskCategory ===
+                    'CRITICAL'
+              );
 
-          onStompError: (frame) => {
+            if (
+              highRisk.length > 0
+            ) {
+              notifications.push({
+                id: 'hr',
+
+                type: 'warning',
+
+                title:
+                  `${highRisk.length} High-Risk Loan${
+                    highRisk.length > 1
+                      ? 's'
+                      : ''
+                  }`,
+
+                message:
+                  `${highRisk.length} loan${
+                    highRisk.length > 1
+                      ? 's are'
+                      : ' is'
+                  } rated HIGH or CRITICAL risk. Review collateral.`,
+
+                link:
+                  '/dashboard/loans',
+
+                time:
+                  'Today',
+
+                source:
+                  'portfolio',
+              });
+            }
+
+
+            const disbursed =
+              Number(
+                s?.totalDisbursed ||
+                0
+              );
+
+            const collected =
+              Number(
+                s?.totalCollected ||
+                0
+              );
+
+            const rate =
+              disbursed > 0
+                ? (
+                    collected /
+                    disbursed
+                  ) * 100
+                : 0;
+
+            if (
+              s &&
+              rate >= 80
+            ) {
+              notifications.push({
+                id:
+                  'cr-good',
+
+                type:
+                  'success',
+
+                title:
+                  'Strong Collection Rate',
+
+                message:
+                  `Portfolio collection rate is ${rate.toFixed(
+                    0
+                  )}% — excellent performance!`,
+
+                time:
+                  'This week',
+
+                source:
+                  'portfolio',
+              });
+            } else if (
+              s &&
+              rate < 50 &&
+              disbursed > 0
+            ) {
+              notifications.push({
+                id:
+                  'cr-low',
+
+                type:
+                  'warning',
+
+                title:
+                  'Low Collection Rate',
+
+                message:
+                  `Collection rate is only ${rate.toFixed(
+                    0
+                  )}%. Consider sending payment reminders.`,
+
+                time:
+                  'This week',
+
+                source:
+                  'portfolio',
+              });
+            }
+
+
+            if (
+              s &&
+              s.completedLoans > 0
+            ) {
+              notifications.push({
+                id:
+                  'closed',
+
+                type:
+                  'success',
+
+                title:
+                  `${s.completedLoans} Loan${
+                    s.completedLoans > 1
+                      ? 's'
+                      : ''
+                  } Fully Repaid`,
+
+                message:
+                  `${s.completedLoans} loan${
+                    s.completedLoans > 1
+                      ? 's have'
+                      : ' has'
+                  } been fully repaid. Great portfolio health!`,
+
+                link:
+                  '/dashboard/loans',
+
+                time:
+                  'This month',
+
+                source:
+                  'portfolio',
+              });
+            }
+
+
+            if (s) {
+              notifications.push({
+                id:
+                  'summary',
+
+                type:
+                  'info',
+
+                title:
+                  'Portfolio Summary',
+
+                message:
+                  `${s.totalBorrowers} borrowers · ${s.activeLoans} active loans · ${formatCurrency(
+                    s.totalDisbursed
+                  )} disbursed.`,
+
+                link:
+                  '/dashboard/reports',
+
+                time:
+                  'Today',
+
+                source:
+                  'portfolio',
+              });
+            }
+          } catch (error) {
             console.error(
-              '[REALTIME NOTIFICATIONS] STOMP broker error:',
-              frame.headers['message'],
-              frame.body,
+              'notifications: failed to build portfolio-derived alerts',
+              error
             );
+          }
 
-            if (!destroyed) {
-              setConnectionState(
-                'reconnecting',
+
+          /**
+           * Newest notifications first.
+           */
+          notifications.sort(
+            (
+              first,
+              second
+            ) => {
+              const firstTime =
+                first.createdAt
+                  ? new Date(
+                      first.createdAt
+                    ).getTime()
+                  : 0;
+
+              const secondTime =
+                second.createdAt
+                  ? new Date(
+                      second.createdAt
+                    ).getTime()
+                  : 0;
+
+              return (
+                secondTime -
+                firstTime
               );
             }
-          },
+          );
 
-          onWebSocketError: (event) => {
-            console.error(
-              '[REALTIME NOTIFICATIONS] WebSocket error:',
-              event,
+
+          setNotifs(
+            notifications
+          );
+        }
+      )
+      .catch(
+        error => {
+          console.error(
+            'notifications: unexpected failure loading notifications',
+            error
+          );
+        }
+      )
+      .finally(
+        () => {
+          if (
+            mountedRef.current
+          ) {
+            setLoading(
+              false
             );
+          }
+        }
+      );
 
-            if (!destroyed) {
-              setConnectionState(
-                'reconnecting',
-              );
-            }
-          },
-
-          onWebSocketClose: () => {
-            if (destroyed) {
-              return;
-            }
-
-            console.warn(
-              '[REALTIME NOTIFICATIONS] WebSocket connection closed.',
-            );
-
-            setConnectionState(
-              'reconnecting',
-            );
-          },
-        });
-
-      /**
-       * If your backend later requires JWT authentication
-       * headers on the STOMP CONNECT frame, they can be added
-       * here without changing the subscription architecture.
-       */
-      const token =
-        getAuthToken();
-
-      if (token) {
-        client.connectHeaders = {
-          Authorization:
-            token.startsWith('Bearer ')
-              ? token
-              : `Bearer ${token}`,
-        };
-      }
-
-      stompClientRef.current =
-        client;
-
-      try {
-        client.activate();
-      } catch (error) {
-        console.error(
-          '[REALTIME NOTIFICATIONS] Failed to activate WebSocket:',
-          error,
-        );
-
-        setConnectionState(
-          'disconnected',
-        );
-      }
-    };
-
-    connect();
 
     return () => {
-      destroyed = true;
-      mountedRef.current = false;
+      mountedRef.current =
+        false;
+    };
+  }, []);
+
+
+  /**
+   * ------------------------------------------------------------------------
+   * REALTIME PAYMENT WEBSOCKET
+   * ------------------------------------------------------------------------
+   *
+   * Backend:
+   *
+   * registry.addEndpoint("/ws")
+   *
+   * Backend publishes:
+   *
+   * /topic/organization/{organizationId}/payments
+   *
+   * Therefore this client connects to:
+   *
+   * ws(s)://BACKEND/ws
+   *
+   * and subscribes to:
+   *
+   * /topic/organization/1/payments
+   */
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+
+    let cancelled =
+      false;
+
+    const {
+      organizationId,
+    } =
+      getOrganizationContext();
+
+    if (
+      organizationId === null
+    ) {
+      console.warn(
+        'Realtime notifications: organizationId was not found in frontend authentication context.'
+      );
+
+      setRealtimeError(
+        'Organization context unavailable'
+      );
+
+      return;
+    }
+
+
+    const apiBaseUrl =
+      getApiBaseUrl();
+
+    if (!apiBaseUrl) {
+      console.error(
+        'Realtime notifications: NEXT_PUBLIC_API_URL is not configured.'
+      );
+
+      setRealtimeError(
+        'Realtime server URL is not configured'
+      );
+
+      return;
+    }
+
+
+    /**
+     * Convert HTTP backend URL to WebSocket URL.
+     */
+    const websocketUrl =
+      apiBaseUrl
+        .replace(
+          /^https:/i,
+          'wss:'
+        )
+        .replace(
+          /^http:/i,
+          'ws:'
+        ) +
+      '/ws';
+
+
+    console.info(
+      '[REALTIME] Connecting to:',
+      websocketUrl
+    );
+
+
+    const client =
+      new Client({
+        brokerURL:
+          websocketUrl,
+
+        reconnectDelay:
+          0,
+
+        heartbeatIncoming:
+          10000,
+
+        heartbeatOutgoing:
+          10000,
+
+        debug:
+          message => {
+            /**
+             * Keep STOMP debugging available during deployment,
+             * but avoid flooding production logs.
+             */
+            if (
+              process.env.NODE_ENV !==
+              'production'
+            ) {
+              console.debug(
+                '[STOMP]',
+                message
+              );
+            }
+          },
+
+        onConnect:
+          () => {
+            if (
+              cancelled ||
+              !mountedRef.current
+            ) {
+              return;
+            }
+
+            console.info(
+              '[REALTIME] WebSocket/STOMP connected.'
+            );
+
+            setRealtimeConnected(
+              true
+            );
+
+            setRealtimeError(
+              null
+            );
+
+            reconnectAttemptRef.current =
+              0;
+
+
+            const destination =
+              `/topic/organization/${organizationId}/payments`;
+
+            console.info(
+              '[REALTIME] Subscribing to:',
+              destination
+            );
+
+
+            organizationSubscriptionRef.current =
+              client.subscribe(
+                destination,
+                (
+                  message: IMessage
+                ) => {
+                  try {
+                    const payload =
+                      JSON.parse(
+                        message.body
+                      ) as PaymentNotificationPayload;
+
+                    console.info(
+                      '[REALTIME] Payment notification received:',
+                      payload
+                    );
+
+
+                    /**
+                     * Confirm organization routing.
+                     */
+                    const payloadOrganizationId =
+                      toNumber(
+                        payload.organizationId
+                      );
+
+                    if (
+                      payloadOrganizationId !==
+                        null &&
+                      payloadOrganizationId !==
+                        organizationId
+                    ) {
+                      console.warn(
+                        '[REALTIME] Ignoring notification for another organization.',
+                        {
+                          organizationId,
+                          payloadOrganizationId,
+                        }
+                      );
+
+                      return;
+                    }
+
+
+                    const paymentKey =
+                      payload.paymentId !==
+                      undefined &&
+                      payload.paymentId !==
+                        null
+                        ? `payment-${payload.paymentId}`
+                        : `payment-${payload.transactionId || ''}-${payload.loanId || ''}`;
+
+
+                    /**
+                     * Prevent duplicate messages from reconnects
+                     * or repeated provider events.
+                     */
+                    if (
+                      paymentIdsRef.current.has(
+                        paymentKey
+                      )
+                    ) {
+                      return;
+                    }
+
+                    paymentIdsRef.current.add(
+                      paymentKey
+                    );
+
+
+                    const notification =
+                      buildRealtimePaymentNotification(
+                        payload
+                      );
+
+                    if (
+                      notification
+                    ) {
+                      addNotification(
+                        notification
+                      );
+                    }
+                  } catch (
+                    error
+                  ) {
+                    console.error(
+                      '[REALTIME] Failed to process payment notification:',
+                      error,
+                      message.body
+                    );
+                  }
+                }
+              );
+
+
+            console.info(
+              '[REALTIME] Subscription active:',
+              destination
+            );
+          },
+
+
+        onStompError:
+          frame => {
+            console.error(
+              '[REALTIME] STOMP broker error:',
+              frame.headers[
+                'message'
+              ],
+              frame.body
+            );
+
+            if (
+              mountedRef.current
+            ) {
+              setRealtimeConnected(
+                false
+              );
+
+              setRealtimeError(
+                'Realtime notification connection error'
+              );
+            }
+          },
+
+
+        onWebSocketError:
+          event => {
+            console.error(
+              '[REALTIME] WebSocket error:',
+              event
+            );
+
+            if (
+              mountedRef.current
+            ) {
+              setRealtimeConnected(
+                false
+              );
+
+              setRealtimeError(
+                'Realtime notification connection failed'
+              );
+            }
+          },
+
+
+        onWebSocketClose:
+          event => {
+            console.warn(
+              '[REALTIME] WebSocket closed:',
+              event
+            );
+
+            if (
+              mountedRef.current
+            ) {
+              setRealtimeConnected(
+                false
+              );
+            }
+
+
+            /**
+             * Manual exponential reconnect.
+             *
+             * This is intentionally capped.
+             */
+            if (
+              cancelled
+            ) {
+              return;
+            }
+
+
+            const attempt =
+              reconnectAttemptRef.current;
+
+            const delay =
+              Math.min(
+                30000,
+                Math.max(
+                  1000,
+                  1000 *
+                    Math.pow(
+                      2,
+                      attempt
+                    )
+                )
+              );
+
+            reconnectAttemptRef.current =
+              attempt + 1;
+
+
+            if (
+              reconnectTimerRef.current
+            ) {
+              clearTimeout(
+                reconnectTimerRef.current
+              );
+            }
+
+
+            reconnectTimerRef.current =
+              setTimeout(
+                () => {
+                  if (
+                    cancelled
+                  ) {
+                    return;
+                  }
+
+                  console.info(
+                    '[REALTIME] Reconnecting WebSocket...'
+                  );
+
+                  try {
+                    client.activate();
+                  } catch (
+                    error
+                  ) {
+                    console.error(
+                      '[REALTIME] Reconnect failed:',
+                      error
+                    );
+                  }
+                },
+                delay
+              );
+          },
+      });
+
+
+    stompClientRef.current =
+      client;
+
+
+    try {
+      client.activate();
+    } catch (error) {
+      console.error(
+        '[REALTIME] Failed to activate WebSocket:',
+        error
+      );
+
+      setRealtimeError(
+        'Unable to start realtime notifications'
+      );
+    }
+
+
+    return () => {
+      cancelled =
+        true;
 
       if (
         reconnectTimerRef.current
       ) {
         clearTimeout(
-          reconnectTimerRef.current,
+          reconnectTimerRef.current
         );
 
         reconnectTimerRef.current =
           null;
       }
 
-      try {
-        paymentSubscriptionRef.current?.unsubscribe();
-      } catch {
-        // Ignore cleanup errors.
+
+      if (
+        organizationSubscriptionRef.current
+      ) {
+        try {
+          organizationSubscriptionRef.current.unsubscribe();
+        } catch {
+          // Ignore unsubscribe errors during teardown.
+        }
+
+        organizationSubscriptionRef.current =
+          null;
       }
 
-      paymentSubscriptionRef.current =
-        null;
 
-      const client =
-        stompClientRef.current;
+      try {
+        client.deactivate();
+      } catch {
+        // Ignore client teardown errors.
+      }
+
 
       stompClientRef.current =
         null;
 
-      if (client) {
-        try {
-          void client.deactivate();
-        } catch {
-          // Ignore cleanup errors.
-        }
-      }
-
-      setConnectionState(
-        'disconnected',
+      setRealtimeConnected(
+        false
       );
     };
-  }, [handleRealtimePayment]);
+  }, [
+    loading,
+    addNotification,
+  ]);
+
 
   /**
-   * ------------------------------------------------------------
-   * INITIAL DATA
-   * ------------------------------------------------------------
-   */
-  useEffect(() => {
-    mountedRef.current = true;
-
-    void loadNotifications();
-
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [loadNotifications]);
-
-  /**
-   * ------------------------------------------------------------
-   * REFRESH HISTORY WHEN TAB RETURNS TO FOREGROUND
-   * ------------------------------------------------------------
-   *
-   * This protects against notifications received while the
-   * browser was suspended, offline, or temporarily disconnected.
-   */
-  useEffect(() => {
-    const handleVisibility =
-      () => {
-        if (
-          document.visibilityState ===
-          'visible'
-        ) {
-          void loadNotifications();
-        }
-      };
-
-    document.addEventListener(
-      'visibilitychange',
-      handleVisibility,
-    );
-
-    return () => {
-      document.removeEventListener(
-        'visibilitychange',
-        handleVisibility,
-      );
-    };
-  }, [loadNotifications]);
-
-  /**
-   * ------------------------------------------------------------
+   * ------------------------------------------------------------------------
    * FILTERED NOTIFICATIONS
-   * ------------------------------------------------------------
+   * ------------------------------------------------------------------------
    */
   const filtered =
-    useMemo(() => {
-      if (filter === 'all') {
-        return notifs;
-      }
-
-      return notifs.filter(
-        (notification) =>
-          notification.type ===
-          filter,
-      );
-    }, [filter, notifs]);
-
-  const unreadCount =
     useMemo(
-      () =>
-        notifs.filter(
-          (notification) =>
-            notification.read === false,
-        ).length,
-      [notifs],
+      () => {
+        if (
+          filter ===
+          'all'
+        ) {
+          return notifs;
+        }
+
+        return notifs.filter(
+          notification =>
+            notification.type ===
+            filter
+        );
+      },
+      [
+        filter,
+        notifs,
+      ]
     );
 
-  const realtimePaymentCount =
-    useMemo(
-      () =>
-        notifs.filter(
-          (notification) =>
-            notification.realtime === true,
-        ).length,
-      [notifs],
-    );
 
   /**
-   * ------------------------------------------------------------
+   * ------------------------------------------------------------------------
    * MARK READ
-   * ------------------------------------------------------------
+   * ------------------------------------------------------------------------
    */
   const handleMarkRead =
     useCallback(
       async (
-        notification: Notif,
+        notification: Notif
       ) => {
         if (
           !notification.realId ||
@@ -1484,154 +1557,188 @@ export default function NotificationsPage() {
 
         try {
           await markNotificationRead(
-            notification.realId,
+            notification.realId
           );
 
           setNotifs(
-            (current) =>
+            current =>
               current.map(
-                (item) =>
+                item =>
                   item.id ===
                   notification.id
                     ? {
                         ...item,
                         read: true,
                       }
-                    : item,
-              ),
+                    : item
+              )
           );
         } catch (error) {
           console.error(
-            'notifications: failed to mark notification as read',
-            error,
+            'notifications: failed to mark notification read',
+            error
           );
         }
       },
-      [],
+      []
     );
 
+
   /**
-   * ------------------------------------------------------------
+   * ------------------------------------------------------------------------
+   * UI CONFIG
+   * ------------------------------------------------------------------------
+   */
+  const ICON = {
+    danger: '🔴',
+    warning: '⚠️',
+    success: '✅',
+    info: '💡',
+  };
+
+
+  const BG = {
+    danger:
+      'bg-red-50 border-red-100',
+
+    warning:
+      'bg-yellow-50 border-yellow-100',
+
+    success:
+      'bg-green-50 border-green-100',
+
+    info:
+      'bg-blue-50 border-blue-100',
+  };
+
+
+  const TXT = {
+    danger:
+      'text-red-700',
+
+    warning:
+      'text-yellow-700',
+
+    success:
+      'text-green-700',
+
+    info:
+      'text-blue-700',
+  };
+
+
+  const BTN = {
+    danger:
+      'bg-red-100 text-red-700 hover:bg-red-200',
+
+    warning:
+      'bg-yellow-100 text-yellow-700 hover:bg-yellow-200',
+
+    success:
+      'bg-green-100 text-green-700 hover:bg-green-200',
+
+    info:
+      'bg-blue-100 text-blue-700 hover:bg-blue-200',
+  };
+
+
+  /**
+   * ------------------------------------------------------------------------
    * LOADING
-   * ------------------------------------------------------------
+   * ------------------------------------------------------------------------
    */
   if (loading) {
     return <PageSpinner />;
   }
 
+
+  /**
+   * ------------------------------------------------------------------------
+   * RENDER
+   * ------------------------------------------------------------------------
+   */
   return (
-    <div className="space-y-5 max-w-4xl">
-      {/* ======================================================
-          HEADER
-      ======================================================= */}
+    <div className="space-y-5 max-w-3xl">
+
+      {/* --------------------------------------------------------------- */}
+      {/* HEADER                                                          */}
+      {/* --------------------------------------------------------------- */}
+
       <div className="flex items-start justify-between gap-4">
+
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold text-gray-900">
-              Notifications
-            </h1>
+          <h1 className="text-xl font-bold text-gray-900">
+            Notifications
+          </h1>
 
-            {unreadCount > 0 && (
-              <span className="inline-flex items-center justify-center min-w-6 h-6 px-2 rounded-full bg-red-600 text-white text-xs font-bold">
-                {unreadCount}
-              </span>
-            )}
-          </div>
-
-          <p className="text-sm text-gray-500 mt-1">
-            {notifs.length} alerts for your
-            portfolio
+          <p className="text-sm text-gray-500">
+            {notifs.length} alerts for your portfolio
           </p>
         </div>
 
-        {/* ====================================================
-            REALTIME CONNECTION STATUS
-        ===================================================== */}
+
+        {/* Realtime status */}
+
         <div className="flex items-center gap-2">
+
           <span
             className={`h-2.5 w-2.5 rounded-full ${
-              connectionState ===
-              'connected'
-                ? 'bg-green-500'
-                : connectionState ===
-                    'connecting' ||
-                  connectionState ===
-                    'reconnecting'
-                  ? 'bg-yellow-400'
-                  : 'bg-gray-400'
+              realtimeConnected
+                ? 'bg-green-500 animate-pulse'
+                : 'bg-gray-300'
             }`}
           />
 
           <span className="text-xs text-gray-500">
-            {connectionState ===
-            'connected'
+
+            {realtimeConnected
               ? 'Live'
-              : connectionState ===
-                  'connecting'
-                ? 'Connecting'
-                : connectionState ===
-                    'reconnecting'
-                  ? 'Reconnecting'
-                  : 'Offline'}
+              : 'Connecting...'}
           </span>
+
         </div>
+
       </div>
 
-      {/* ======================================================
-          REALTIME PAYMENT STATUS
-      ======================================================= */}
-      {realtimePaymentCount > 0 && (
-        <div className="rounded-2xl border border-green-100 bg-green-50 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <span className="text-xl">
-              ⚡
-            </span>
 
-            <div>
-              <p className="text-sm font-semibold text-green-800">
-                Live payment monitoring
-              </p>
+      {/* --------------------------------------------------------------- */}
+      {/* REALTIME STATUS                                                 */}
+      {/* --------------------------------------------------------------- */}
 
-              <p className="text-xs text-green-700 mt-0.5">
-                Payment notifications are
-                delivered instantly when
-                payments are received.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      {realtimeError && (
+        <div className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3">
 
-      {/* ======================================================
-          WEBSOCKET WARNING
-      ======================================================= */}
-      {organizationId === null && (
-        <div className="rounded-2xl border border-yellow-100 bg-yellow-50 px-4 py-3">
           <div className="flex items-start gap-3">
-            <span className="text-lg">
+
+            <span>
               ⚠️
             </span>
 
             <div>
-              <p className="text-sm font-semibold text-yellow-800">
-                Live notifications unavailable
+
+              <p className="text-sm font-medium text-yellow-800">
+                Realtime notifications unavailable
               </p>
 
               <p className="text-xs text-yellow-700 mt-1">
-                Your organization context
-                could not be determined.
-                Existing notification history
-                remains available.
+                Existing notifications are still available.
+                The system will continue trying to reconnect.
               </p>
+
             </div>
+
           </div>
+
         </div>
       )}
 
-      {/* ======================================================
-          FILTERS
-      ======================================================= */}
+
+      {/* --------------------------------------------------------------- */}
+      {/* FILTERS                                                         */}
+      {/* --------------------------------------------------------------- */}
+
       <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit flex-wrap">
+
         {(
           [
             'all',
@@ -1640,40 +1747,45 @@ export default function NotificationsPage() {
             'success',
             'info',
           ] as const
-        ).map((filterValue) => (
-          <button
-            key={filterValue}
-            type="button"
-            onClick={() =>
-              setFilter(
-                filterValue,
-              )
-            }
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition ${
-              filter ===
-              filterValue
-                ? 'bg-white shadow text-green-600'
-                : 'text-gray-500 hover:text-gray-800'
-            }`}
-          >
-            {filterValue ===
-            'all'
-              ? 'All'
-              : `${ICON[filterValue]} ${filterValue
-                  .charAt(0)
-                  .toUpperCase()}${filterValue.slice(
-                  1,
-                )}`}
-          </button>
-        ))}
+        ).map(
+          type => (
+            <button
+              key={type}
+              onClick={() =>
+                setFilter(type)
+              }
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition ${
+                filter === type
+                  ? 'bg-white shadow text-green-600'
+                  : 'text-gray-500 hover:text-gray-800'
+              }`}
+            >
+
+              {type === 'all'
+                ? 'All'
+                : `${ICON[type]} ${
+                    type
+                      .charAt(0)
+                      .toUpperCase() +
+                    type.slice(1)
+                  }`}
+
+            </button>
+          )
+        )}
+
       </div>
 
-      {/* ======================================================
-          NOTIFICATION LIST
-      ======================================================= */}
+
+      {/* --------------------------------------------------------------- */}
+      {/* NOTIFICATIONS                                                   */}
+      {/* --------------------------------------------------------------- */}
+
       <div className="space-y-3">
+
         {filtered.length === 0 && (
           <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
+
             <p className="text-3xl mb-3">
               🔔
             </p>
@@ -1685,16 +1797,17 @@ export default function NotificationsPage() {
             <p className="text-gray-400 text-sm mt-1">
               All caught up!
             </p>
+
           </div>
         )}
 
+
         {filtered.map(
-          (notification) => (
+          notification => (
+
             <div
-              key={
-                notification.id
-              }
-              className={`relative rounded-2xl border p-5 transition ${
+              key={notification.id}
+              className={`rounded-2xl border p-5 transition ${
                 BG[
                   notification.type
                 ]
@@ -1704,146 +1817,132 @@ export default function NotificationsPage() {
                   ? 'ring-2 ring-offset-1 ring-teal-300'
                   : ''
               } ${
-                notification.realtime
+                notification.source ===
+                'realtime-payment'
                   ? 'shadow-sm'
                   : ''
               }`}
             >
-              {/* ==================================================
-                  NEW REALTIME INDICATOR
-              =================================================== */}
-              {notification.realtime && (
-                <div className="absolute top-3 right-3">
-                  <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-1 text-[10px] font-semibold text-green-700">
-                    <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-                    LIVE
-                  </span>
-                </div>
-              )}
 
               <div className="flex items-start gap-4">
+
+                {/* ICON */}
+
                 <span className="text-2xl flex-shrink-0">
+
                   {
                     ICON[
                       notification.type
                     ]
                   }
+
                 </span>
 
-                <div className="flex-1 min-w-0 pr-12">
+
+                {/* CONTENT */}
+
+                <div className="flex-1 min-w-0">
+
                   <div className="flex items-center justify-between gap-2 mb-1">
-                    <p
-                      className={`font-semibold text-sm ${
-                        TXT[
-                          notification.type
-                        ]
-                      }`}
-                    >
-                      {
-                        notification.title
-                      }
-                    </p>
+
+                    <div className="flex items-center gap-2">
+
+                      <p
+                        className={`font-semibold text-sm ${
+                          TXT[
+                            notification.type
+                          ]
+                        }`}
+                      >
+                        {
+                          notification.title
+                        }
+                      </p>
+
+
+                      {notification.source ===
+                        'realtime-payment' && (
+                        <span className="text-[10px] font-semibold uppercase tracking-wide rounded-full bg-green-100 text-green-700 px-2 py-0.5">
+                          Live
+                        </span>
+                      )}
+
+                    </div>
+
 
                     <span className="text-xs text-gray-400 flex-shrink-0">
+
                       {
                         notification.time
                       }
+
                     </span>
+
                   </div>
 
+
                   <p className="text-sm text-gray-600 leading-relaxed">
+
                     {
                       notification.message
                     }
+
                   </p>
 
-                  {/* =================================================
-                      PAYMENT DETAILS
-                  ================================================== */}
-                  {notification.realtime &&
-                    (notification.paymentId ||
-                      notification.transactionId ||
-                      notification.amount !==
-                        undefined) && (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {notification.amount !==
-                          undefined && (
-                          <span className="inline-flex items-center rounded-lg bg-white/70 border border-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">
-                            {formatMoney(
-                              notification.amount,
-                              'RWF',
-                            )}
-                          </span>
-                        )}
 
-                        {notification.paymentId && (
-                          <span className="inline-flex items-center rounded-lg bg-white/70 border border-gray-100 px-2.5 py-1 text-xs text-gray-600">
-                            Payment #
-                            {
-                              notification.paymentId
-                            }
-                          </span>
-                        )}
+                  {/* ACTION */}
 
-                        {notification.transactionId && (
-                          <span className="inline-flex items-center rounded-lg bg-white/70 border border-gray-100 px-2.5 py-1 text-xs text-gray-600 max-w-full truncate">
-                            TX:
-                            {' '}
-                            {
-                              notification.transactionId
-                            }
-                          </span>
-                        )}
-                      </div>
-                    )}
+                  <div className="flex items-center gap-2 mt-3">
 
-                  {/* =================================================
-                      ACTIONS
-                  ================================================== */}
-                  <div className="flex flex-wrap items-center gap-2 mt-3">
                     {notification.link && (
                       <Link
                         href={
                           notification.link
                         }
-                        onClick={() => {
-                          void handleMarkRead(
-                            notification,
-                          );
-                        }}
+                        onClick={() =>
+                          handleMarkRead(
+                            notification
+                          )
+                        }
                         className={`inline-block text-xs font-semibold px-3 py-1.5 rounded-lg transition ${
                           BTN[
                             notification.type
                           ]
                         }`}
                       >
-                        {notification.realtime
-                          ? 'View Payment →'
-                          : 'Take action →'}
+                        Take action →
                       </Link>
                     )}
+
 
                     {notification.realId &&
                       !notification.read && (
                         <button
                           type="button"
                           onClick={() =>
-                            void handleMarkRead(
-                              notification,
+                            handleMarkRead(
+                              notification
                             )
                           }
-                          className="inline-block text-xs font-medium px-3 py-1.5 rounded-lg bg-white/70 text-gray-600 hover:bg-white transition"
+                          className="text-xs font-medium text-gray-500 hover:text-gray-800 px-2 py-1.5"
                         >
                           Mark as read
                         </button>
                       )}
+
                   </div>
+
                 </div>
+
               </div>
+
             </div>
-          ),
+
+          )
         )}
+
       </div>
+
     </div>
   );
 }
