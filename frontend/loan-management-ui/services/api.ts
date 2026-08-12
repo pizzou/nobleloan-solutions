@@ -1390,9 +1390,9 @@ export const publicApi = {
   API.get(
     `/public/applications/${encodeURIComponent(reference.trim())}/documents/${doc}.pdf?phone=${encodeURIComponent(phone.trim())}`,
     {
-      responseType: 'blob', // 👈 Keeps the file format intact as a raw binary array buffer
+      responseType: 'blob', 
       headers: {
-        'Accept': 'application/pdf, */*' // 👈 Crucial: Overrides global JSON headers to allow PDF streaming
+        'Accept': 'application/pdf, */*' 
       }
     }
   ),

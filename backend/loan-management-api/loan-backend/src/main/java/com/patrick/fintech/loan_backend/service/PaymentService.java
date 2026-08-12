@@ -1,5 +1,6 @@
 package com.patrick.fintech.loan_backend.service;
 
+import com.patrick.fintech.loan_backend.event.PaymentEventPublisher;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.LoanStatus;
 import com.patrick.fintech.loan_backend.model.Organization;
@@ -9,10 +10,8 @@ import com.patrick.fintech.loan_backend.repository.AuditLogRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.repository.UserRepository;
-
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,9 +42,13 @@ public class PaymentService {
     private final SmsService smsService;
     private final WebhookService webhookService;
     private final AccountingService accountingService;
+    private final PaymentEventPublisher paymentEventPublisher;
 
     private static final BigDecimal ZERO =
-            BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            BigDecimal.ZERO.setScale(
+                    2,
+                    RoundingMode.HALF_UP
+            );
 
     private static final BigDecimal ONE_CENT =
             new BigDecimal("0.01");
@@ -59,13 +62,9 @@ public class PaymentService {
     private static final BigDecimal ONE_HUNDRED =
             new BigDecimal("100");
 
-   
     private static final BigDecimal DEFAULT_MONTHLY_PENALTY_RATE =
             new BigDecimal("0.02");
 
-    /**
-     * Account used for borrower overpayments/refunds.
-     */
     private static final String BORROWER_REFUNDS_PAYABLE_ACCOUNT =
             "2100";
 
@@ -85,7 +84,10 @@ public class PaymentService {
     ) {
 
         if (loanId == null) {
-            throw new IllegalArgumentException("Loan ID is required");
+
+            throw new IllegalArgumentException(
+                    "Loan ID is required"
+            );
         }
 
         if (amount == null
@@ -101,10 +103,6 @@ public class PaymentService {
         String normalizedTxnId =
                 normalizeTransactionId(txnId);
 
-        // ============================================================
-        // LOAD LOAN WITH ROW LOCK
-        // ============================================================
-
         Loan loan =
                 loanRepo.findByIdForUpdate(loanId)
                         .orElseThrow(
@@ -112,10 +110,6 @@ public class PaymentService {
                                         "Loan not found: " + loanId
                                 )
                         );
-
-        // ============================================================
-        // ORGANIZATION ACCESS
-        // ============================================================
 
         validateOrganizationAccess(
                 loan,
@@ -343,7 +337,9 @@ public class PaymentService {
                             .cycleInterestRemaining(ZERO)
                             .interestCalculationDate(null)
                             .paid(false)
-                            .status(Payment.PaymentStatus.PENDING)
+                            .status(
+                                    Payment.PaymentStatus.PENDING
+                            )
                             .build();
 
             log.info(
@@ -424,7 +420,6 @@ public class PaymentService {
         // PENALTY STATE
         // ============================================================
 
-       
         BigDecimal existingPenaltyAssessed =
                 roundMoney(
                         safe(
@@ -439,7 +434,6 @@ public class PaymentService {
                         )
                 ).max(ZERO);
 
-       
         if (penaltyAlreadyPaid.compareTo(
                 existingPenaltyAssessed
         ) > 0) {
@@ -486,7 +480,9 @@ public class PaymentService {
                             + currentBalance
                             + " but no valid positive interest rate. "
                             + "Interest rate="
-                            + safe(loan.getInterestRateDecimal())
+                            + safe(
+                                    loan.getInterestRateDecimal()
+                            )
                             + ", rate type="
                             + loan.getInterestRateType()
             );
@@ -647,7 +643,6 @@ public class PaymentService {
                     );
         }
 
-       
         BigDecimal totalPenalty =
                 existingPenaltyAssessed.max(
                         newlyCalculatedPenalty
@@ -657,7 +652,7 @@ public class PaymentService {
                 roundMoney(totalPenalty);
 
         // ============================================================
-        // PENALTY REMAINING BEFORE PAYMENT
+        // PENALTY REMAINING
         // ============================================================
 
         BigDecimal penaltyRemainingBeforePayment =
@@ -696,10 +691,6 @@ public class PaymentService {
                                 .max(ZERO)
                 );
 
-        // ============================================================
-        // NEW TOTAL PENALTY PAID
-        // ============================================================
-
         BigDecimal totalPenaltyPaid =
                 roundMoney(
                         penaltyAlreadyPaid
@@ -708,9 +699,6 @@ public class PaymentService {
                                 )
                 );
 
-        /**
-         * Never allow penaltyPaid to exceed totalPenalty.
-         */
         if (totalPenaltyPaid.compareTo(totalPenalty) > 0) {
 
             totalPenaltyPaid =
@@ -927,16 +915,10 @@ public class PaymentService {
                 totalPrincipalPaid
         );
 
-        /**
-         * penalty = total assessed penalty
-         */
         installment.setPenalty(
                 totalPenalty
         );
 
-        /**
-         * penaltyPaid = cumulative penalty actually collected
-         */
         installment.setPenaltyPaid(
                 totalPenaltyPaid
         );
@@ -986,6 +968,7 @@ public class PaymentService {
         );
 
         if (recordedBy != null) {
+
             installment.setRecordedBy(
                     recordedBy
             );
@@ -995,11 +978,12 @@ public class PaymentService {
                 today
         );
 
-        // ============================================================
-        // CRITICAL INTEREST ANCHOR
-        // ============================================================
-
-       
+        /*
+         * Critical interest anchor.
+         *
+         * The next payment uses this timestamp as the beginning of the
+         * next interest interval.
+         */
         installment.setInterestCalculationDate(
                 now
         );
@@ -1035,7 +1019,6 @@ public class PaymentService {
 
         } catch (DataIntegrityViolationException e) {
 
-           
             if (normalizedTxnId != null) {
 
                 Optional<Payment> concurrentPayment =
@@ -1281,6 +1264,51 @@ public class PaymentService {
         );
 
         // ============================================================
+        // PAYMENT EVENT
+        // ============================================================
+
+        /*
+         * The immutable event is published while the current transaction
+         * is active.
+         *
+         * PaymentReceivedEventListener receives it AFTER_COMMIT.
+         *
+         * Therefore realtime WebSocket notification cannot be sent for
+         * a transaction that subsequently rolls back.
+         */
+        try {
+
+            paymentEventPublisher.publishPaymentReceived(
+                    loan,
+                    installment,
+                    amount,
+                    principalPaidThisPayment,
+                    interestPaidThisPayment,
+                    penaltyPaidThisPayment,
+                    newBalance,
+                    now
+            );
+
+        } catch (Exception e) {
+
+            /*
+             * Event publication should not silently destroy the payment
+             * transaction because realtime notification is a secondary
+             * side effect.
+             */
+            log.error(
+                    "Failed to publish PaymentReceivedEvent. " +
+                            "loanId={}, paymentId={}, transactionId={}",
+                    loan.getId(),
+                    installment.getId(),
+                    normalizedTxnId,
+                    e
+            );
+
+            throw e;
+        }
+
+        // ============================================================
         // EMAIL
         // ============================================================
 
@@ -1402,6 +1430,11 @@ public class PaymentService {
                         loan.getBorrower().getId()
                 );
             }
+
+            paymentWebhook.put(
+                    "organizationId",
+                    organizationId
+            );
 
             paymentWebhook.put(
                     "amount",
@@ -1655,7 +1688,6 @@ public class PaymentService {
     // FIRST INTEREST CALCULATION
     // ================================================================
 
-   
     public boolean isFirstInterestCalculation(
             List<Payment> payments
     ) {
@@ -1929,7 +1961,6 @@ public class PaymentService {
     // FIND LATEST INTEREST TIMESTAMP
     // ================================================================
 
-    
     private LocalDateTime findLatestInterestCalculationTimestamp(
             List<Payment> payments
     ) {
@@ -1969,7 +2000,6 @@ public class PaymentService {
     // ACTUAL INTEREST DAYS
     // ================================================================
 
-   
     private long calculateActualInterestDays(
             LocalDateTime interestStart,
             LocalDateTime now,
@@ -1980,10 +2010,6 @@ public class PaymentService {
         if (now == null) {
             return 0L;
         }
-
-        // ============================================================
-        // FIRST INTEREST CALCULATION
-        // ============================================================
 
         if (firstInterestCalculation) {
 
@@ -1998,10 +2024,6 @@ public class PaymentService {
 
             return 1L;
         }
-
-        // ============================================================
-        // DEFENSIVE CHECK
-        // ============================================================
 
         if (interestStart == null) {
 
@@ -2028,10 +2050,22 @@ public class PaymentService {
             return 0L;
         }
 
-        // ============================================================
-        // CALENDAR-DAY CALCULATION
-        // ============================================================
-
+        /*
+         * Important production rule:
+         *
+         * Interest is based on elapsed calendar dates.
+         *
+         * Example:
+         *
+         * Payment 1:
+         * 09 Aug 2026 10:00 -> 1 interest day on first calculation.
+         *
+         * Payment 2:
+         * 09 Aug 2026 10:05 -> 0 additional calendar days.
+         *
+         * Payment 3:
+         * 10 Aug 2026 09:00 -> 1 additional calendar day.
+         */
         long calendarDays =
                 ChronoUnit.DAYS.between(
                         interestStart.toLocalDate(),
