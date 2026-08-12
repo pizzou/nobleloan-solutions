@@ -14,17 +14,13 @@ import {
   PaymentNotification,
 } from "@/services/realtimeNotificationService";
 
-interface NotificationPage {
-  organizationId?: number;
-}
-
-interface DisplayNotification
-  extends PaymentNotification {
+interface DisplayNotification extends PaymentNotification {
   localId: string;
   receivedAt: string;
   read: boolean;
 }
 
+const ORGANIZATION_ID = 1;
 const MAX_NOTIFICATIONS = 100;
 
 function toNumber(
@@ -61,9 +57,7 @@ function formatCurrency(
   }).format(amount);
 }
 
-function formatDate(
-  value?: string
-): string {
+function formatDate(value?: string): string {
   if (!value) {
     return "—";
   }
@@ -74,28 +68,22 @@ function formatDate(
     return value;
   }
 
-  return new Intl.DateTimeFormat(
-    "en-RW",
-    {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }
-  ).format(date);
+  return new Intl.DateTimeFormat("en-RW", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
 }
 
-function formatRelativeTime(
-  value: string
-): string {
+function formatRelativeTime(value: string): string {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
     return "";
   }
 
-  const seconds =
-    Math.floor(
-      (Date.now() - date.getTime()) / 1000
-    );
+  const seconds = Math.floor(
+    (Date.now() - date.getTime()) / 1000
+  );
 
   if (seconds < 10) {
     return "Just now";
@@ -105,22 +93,19 @@ function formatRelativeTime(
     return `${seconds}s ago`;
   }
 
-  const minutes =
-    Math.floor(seconds / 60);
+  const minutes = Math.floor(seconds / 60);
 
   if (minutes < 60) {
     return `${minutes}m ago`;
   }
 
-  const hours =
-    Math.floor(minutes / 60);
+  const hours = Math.floor(minutes / 60);
 
   if (hours < 24) {
     return `${hours}h ago`;
   }
 
-  const days =
-    Math.floor(hours / 24);
+  const days = Math.floor(hours / 24);
 
   return `${days}d ago`;
 }
@@ -156,16 +141,29 @@ function getBorrowerDisplayName(
   return "Borrower";
 }
 
+function getLoanDisplayName(
+  notification: PaymentNotification
+): string {
+  if (notification.loanReference) {
+    return notification.loanReference;
+  }
+
+  if (notification.loanId) {
+    return `Loan #${notification.loanId}`;
+  }
+
+  return "Loan";
+}
+
 function getPaymentStatusClass(
   status?: string
 ): string {
-  switch (
-    status?.toUpperCase()
-  ) {
+  switch (status?.toUpperCase()) {
     case "PAID":
     case "COMPLETED":
     case "SUCCESS":
     case "FULLY_PAID":
+    case "RECEIVED":
       return "status-success";
 
     case "PARTIALLY_PAID":
@@ -182,15 +180,13 @@ function getPaymentStatusClass(
   }
 }
 
-export default function NotificationPage({
-  organizationId = 1,
-}: NotificationPage) {
+export default function NotificationPage() {
+  const organizationId = ORGANIZATION_ID;
+
   const [
     notifications,
     setNotifications,
-  ] = useState<DisplayNotification[]>(
-    []
-  );
+  ] = useState<DisplayNotification[]>([]);
 
   const [
     realtimeConnected,
@@ -200,9 +196,7 @@ export default function NotificationPage({
   const [
     realtimeError,
     setRealtimeError,
-  ] = useState<string | null>(
-    null
-  );
+  ] = useState<string | null>(null);
 
   const [
     connecting,
@@ -217,234 +211,211 @@ export default function NotificationPage({
   const [
     selectedNotification,
     setSelectedNotification,
-  ] =
-    useState<DisplayNotification | null>(
-      null
-    );
+  ] = useState<DisplayNotification | null>(
+    null
+  );
 
-  const reconnectTimer =
-    useRef<ReturnType<
-      typeof setTimeout
-    > | null>(null);
+  const reconnectTimer = useRef<
+    ReturnType<typeof setTimeout> | null
+  >(null);
 
-  const connectionAttempt =
-    useRef(0);
+  const connectionAttempt = useRef(0);
 
-  const mountedRef =
-    useRef(true);
+  const mountedRef = useRef(true);
 
   const audioRef =
-    useRef<HTMLAudioElement | null>(
-      null
-    );
+    useRef<HTMLAudioElement | null>(null);
 
   const playNotificationSound =
     useCallback(() => {
       try {
         if (!audioRef.current) {
-          audioRef.current =
-            new Audio(
-              "/sounds/notification.mp3"
-            );
+          audioRef.current = new Audio(
+            "/sounds/notification.mp3"
+          );
 
-          audioRef.current.volume =
-            0.35;
+          audioRef.current.volume = 0.35;
         }
 
-        void audioRef.current.play();
+        void audioRef.current.play().catch(() => {
+          // Browser autoplay may block notification audio.
+        });
       } catch {
-        // Browser may block autoplay.
+        // Ignore browser audio errors.
       }
     }, []);
 
-  const addNotification =
-    useCallback(
-      (
-        notification: PaymentNotification
-      ) => {
-        if (!mountedRef.current) {
-          return;
-        }
+  const addNotification = useCallback(
+    (notification: PaymentNotification) => {
+      if (!mountedRef.current) {
+        return;
+      }
 
-        const now =
-          new Date().toISOString();
+      console.info(
+        "[REALTIME] Payment notification received:",
+        notification
+      );
 
-        const displayNotification:
-          DisplayNotification = {
+      const now =
+        new Date().toISOString();
+
+      const displayNotification: DisplayNotification =
+        {
           ...notification,
 
           localId:
-            `${notification.paymentId}-${notification.transactionId || now}-${Date.now()}`,
+            `${notification.paymentId}-${notification.transactionId || notification.paymentReference || now}-${Date.now()}`,
 
           receivedAt: now,
 
           read: false,
         };
 
-        setNotifications(
-          (current) => {
-            const exists =
-              current.some(
-                (item) =>
-                  item.paymentId ===
-                    notification.paymentId &&
-                  item.transactionId ===
-                    notification.transactionId
-              );
+      setNotifications((current) => {
+        const exists = current.some(
+          (item) =>
+            item.paymentId ===
+              notification.paymentId &&
+            item.transactionId ===
+              notification.transactionId
+        );
 
-            if (exists) {
-              return current;
+        if (exists) {
+          return current;
+        }
+
+        return [
+          displayNotification,
+          ...current,
+        ].slice(0, MAX_NOTIFICATIONS);
+      });
+
+      playNotificationSound();
+    },
+    [playNotificationSound]
+  );
+
+  const connect = useCallback(() => {
+    if (!organizationId) {
+      setRealtimeError(
+        "Organization ID is missing."
+      );
+
+      setConnecting(false);
+
+      return;
+    }
+
+    connectionAttempt.current += 1;
+
+    const attempt =
+      connectionAttempt.current;
+
+    setConnecting(true);
+    setRealtimeError(null);
+
+    try {
+      disconnectFromPaymentNotifications();
+
+      console.info(
+        `[REALTIME] Starting payment notification connection. Organization=${organizationId}`
+      );
+
+      connectToPaymentNotifications(
+        organizationId,
+        {
+          onPaymentReceived:
+            addNotification,
+
+          onConnected: () => {
+            if (
+              !mountedRef.current ||
+              attempt !==
+                connectionAttempt.current
+            ) {
+              return;
             }
 
-            return [
-              displayNotification,
-              ...current,
-            ].slice(
-              0,
-              MAX_NOTIFICATIONS
+            console.info(
+              `[REALTIME] Payment notification connection established. Organization=${organizationId}`
             );
-          }
-        );
 
-        playNotificationSound();
-      },
-      [playNotificationSound]
-    );
+            setRealtimeConnected(true);
+            setConnecting(false);
+            setRealtimeError(null);
+          },
 
-  const connect =
-    useCallback(() => {
-      if (!organizationId) {
-        setRealtimeError(
-          "Organization ID is missing."
-        );
+          onDisconnected: () => {
+            if (
+              !mountedRef.current ||
+              attempt !==
+                connectionAttempt.current
+            ) {
+              return;
+            }
 
-        setConnecting(false);
+            console.warn(
+              "[REALTIME] Payment notification connection disconnected."
+            );
 
+            setRealtimeConnected(false);
+            setConnecting(false);
+
+            setRealtimeError(
+              "Realtime connection temporarily unavailable."
+            );
+          },
+
+          onError: (error) => {
+            if (
+              !mountedRef.current ||
+              attempt !==
+                connectionAttempt.current
+            ) {
+              return;
+            }
+
+            console.error(
+              "[REALTIME] Payment notification connection error:",
+              error
+            );
+
+            setRealtimeConnected(false);
+            setConnecting(false);
+
+            setRealtimeError(
+              "Realtime connection temporarily unavailable."
+            );
+          },
+        }
+      );
+    } catch (error) {
+      console.error(
+        "[REALTIME] Failed to start payment notification connection:",
+        error
+      );
+
+      if (
+        !mountedRef.current ||
+        attempt !==
+          connectionAttempt.current
+      ) {
         return;
       }
 
-      connectionAttempt.current += 1;
+      setRealtimeConnected(false);
+      setConnecting(false);
 
-      const attempt =
-        connectionAttempt.current;
-
-      setConnecting(true);
-
-      setRealtimeError(null);
-
-      try {
-        disconnectFromPaymentNotifications();
-
-        connectToPaymentNotifications(
-          organizationId,
-          {
-            onPaymentReceived:
-              addNotification,
-
-            onConnected: () => {
-              if (
-                !mountedRef.current ||
-                attempt !==
-                  connectionAttempt.current
-              ) {
-                return;
-              }
-
-              console.info(
-                "[REALTIME] Payment notification connection established."
-              );
-
-              setRealtimeConnected(
-                true
-              );
-
-              setConnecting(false);
-
-              setRealtimeError(
-                null
-              );
-            },
-
-            onDisconnected: () => {
-              if (
-                !mountedRef.current ||
-                attempt !==
-                  connectionAttempt.current
-              ) {
-                return;
-              }
-
-              console.warn(
-                "[REALTIME] Payment notification connection disconnected."
-              );
-
-              setRealtimeConnected(
-                false
-              );
-
-              setConnecting(false);
-
-              setRealtimeError(
-                "Realtime connection temporarily unavailable."
-              );
-            },
-
-            onError: (error) => {
-              if (
-                !mountedRef.current ||
-                attempt !==
-                  connectionAttempt.current
-              ) {
-                return;
-              }
-
-              console.error(
-                "[REALTIME] Payment notification connection error:",
-                error
-              );
-
-              setRealtimeConnected(
-                false
-              );
-
-              setConnecting(false);
-
-              setRealtimeError(
-                "Realtime connection temporarily unavailable."
-              );
-            },
-          }
-        );
-      } catch (error) {
-        console.error(
-          "[REALTIME] Failed to start payment notification connection:",
-          error
-        );
-
-        if (
-          !mountedRef.current ||
-          attempt !==
-            connectionAttempt.current
-        ) {
-          return;
-        }
-
-        setRealtimeConnected(
-          false
-        );
-
-        setConnecting(false);
-
-        setRealtimeError(
-          error instanceof Error
-            ? error.message
-            : "Unable to connect to realtime notifications."
-        );
-      }
-    }, [
-      organizationId,
-      addNotification,
-    ]);
+      setRealtimeError(
+        error instanceof Error
+          ? error.message
+          : "Unable to connect to realtime notifications."
+      );
+    }
+  }, [
+    organizationId,
+    addNotification,
+  ]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -456,15 +427,12 @@ export default function NotificationPage({
 
       connectionAttempt.current += 1;
 
-      if (
-        reconnectTimer.current
-      ) {
+      if (reconnectTimer.current) {
         clearTimeout(
           reconnectTimer.current
         );
 
-        reconnectTimer.current =
-          null;
+        reconnectTimer.current = null;
       }
 
       disconnectFromPaymentNotifications();
@@ -476,49 +444,45 @@ export default function NotificationPage({
       return;
     }
 
-    if (
-      reconnectTimer.current
-    ) {
+    if (connecting) {
+      return;
+    }
+
+    if (reconnectTimer.current) {
       return;
     }
 
     reconnectTimer.current =
       setTimeout(() => {
-        reconnectTimer.current =
-          null;
+        reconnectTimer.current = null;
 
-        if (
-          mountedRef.current
-        ) {
+        if (mountedRef.current) {
           connect();
         }
       }, 5000);
 
     return () => {
-      if (
-        reconnectTimer.current
-      ) {
+      if (reconnectTimer.current) {
         clearTimeout(
           reconnectTimer.current
         );
 
-        reconnectTimer.current =
-          null;
+        reconnectTimer.current = null;
       }
     };
   }, [
     realtimeConnected,
+    connecting,
     connect,
   ]);
 
-  const unreadCount =
-    useMemo(
-      () =>
-        notifications.filter(
-          (item) => !item.read
-        ).length,
-      [notifications]
-    );
+  const unreadCount = useMemo(
+    () =>
+      notifications.filter(
+        (item) => !item.read
+      ).length,
+    [notifications]
+  );
 
   const visibleNotifications =
     useMemo(() => {
@@ -534,45 +498,35 @@ export default function NotificationPage({
       showUnreadOnly,
     ]);
 
-  const markAsRead =
-    useCallback(
-      (localId: string) => {
-        setNotifications(
-          (current) =>
-            current.map(
-              (item) =>
-                item.localId ===
-                localId
-                  ? {
-                      ...item,
-                      read: true,
-                    }
-                  : item
-            )
-        );
-      },
-      []
-    );
-
-  const markAllAsRead =
-    useCallback(() => {
-      setNotifications(
-        (current) =>
-          current.map(
-            (item) => ({
-              ...item,
-              read: true,
-            })
-          )
+  const markAsRead = useCallback(
+    (localId: string) => {
+      setNotifications((current) =>
+        current.map((item) =>
+          item.localId === localId
+            ? {
+                ...item,
+                read: true,
+              }
+            : item
+        )
       );
-    }, []);
+    },
+    []
+  );
+
+  const markAllAsRead = useCallback(() => {
+    setNotifications((current) =>
+      current.map((item) => ({
+        ...item,
+        read: true,
+      }))
+    );
+  }, []);
 
   const clearNotifications =
     useCallback(() => {
       setNotifications([]);
-      setSelectedNotification(
-        null
-      );
+      setSelectedNotification(null);
     }, []);
 
   return (
@@ -968,6 +922,15 @@ export default function NotificationPage({
           font-size: 18px;
         }
 
+        .message-box {
+          padding: 14px;
+          background: #f7f8fa;
+          border-radius: 10px;
+          font-size: 14px;
+          line-height: 1.6;
+          color: #3f4a5d;
+        }
+
         @media (max-width: 900px) {
           .notification-page {
             padding: 20px;
@@ -1019,8 +982,8 @@ export default function NotificationPage({
             </h1>
 
             <p>
-              Real-time payment activity
-              for organization{" "}
+              Real-time payment activity for
+              organization{" "}
               <strong>
                 #{organizationId}
               </strong>
@@ -1076,6 +1039,7 @@ export default function NotificationPage({
         <div className="toolbar">
           <div className="toolbar-left">
             <button
+              type="button"
               className="button"
               onClick={() =>
                 setShowUnreadOnly(
@@ -1100,6 +1064,7 @@ export default function NotificationPage({
           <div className="toolbar-right">
             {unreadCount > 0 && (
               <button
+                type="button"
                 className="button"
                 onClick={
                   markAllAsRead
@@ -1109,9 +1074,9 @@ export default function NotificationPage({
               </button>
             )}
 
-            {notifications.length >
-              0 && (
+            {notifications.length > 0 && (
               <button
+                type="button"
                 className="button danger"
                 onClick={
                   clearNotifications
@@ -1121,14 +1086,16 @@ export default function NotificationPage({
               </button>
             )}
 
-            {!realtimeConnected && (
-              <button
-                className="button primary"
-                onClick={connect}
-              >
-                Reconnect
-              </button>
-            )}
+            {!realtimeConnected &&
+              !connecting && (
+                <button
+                  type="button"
+                  className="button primary"
+                  onClick={connect}
+                >
+                  Reconnect
+                </button>
+              )}
           </div>
         </div>
 
@@ -1189,8 +1156,9 @@ export default function NotificationPage({
                             notification
                           )}
                           {" • "}
-                          {notification.loanReference ||
-                            `Loan #${notification.loanId}`}
+                          {getLoanDisplayName(
+                            notification
+                          )}
                         </p>
                       </div>
                     </div>
@@ -1222,8 +1190,9 @@ export default function NotificationPage({
                       </div>
 
                       <div className="detail-value">
-                        {notification.loanReference ||
-                          `Loan #${notification.loanId}`}
+                        {getLoanDisplayName(
+                          notification
+                        )}
                       </div>
                     </div>
 
@@ -1242,7 +1211,7 @@ export default function NotificationPage({
 
                     <div className="detail">
                       <div className="detail-label">
-                        Principal
+                        Principal Paid
                       </div>
 
                       <div className="detail-value">
@@ -1255,7 +1224,7 @@ export default function NotificationPage({
 
                     <div className="detail">
                       <div className="detail-label">
-                        Interest
+                        Interest Paid
                       </div>
 
                       <div className="detail-value">
@@ -1268,7 +1237,7 @@ export default function NotificationPage({
 
                     <div className="detail">
                       <div className="detail-label">
-                        Penalty
+                        Penalty Paid
                       </div>
 
                       <div className="detail-value">
@@ -1294,7 +1263,7 @@ export default function NotificationPage({
 
                     <div className="detail">
                       <div className="detail-label">
-                        Status
+                        Payment Status
                       </div>
 
                       <div className="detail-value">
@@ -1379,9 +1348,7 @@ export default function NotificationPage({
         <div
           className="modal-backdrop"
           onClick={() =>
-            setSelectedNotification(
-              null
-            )
+            setSelectedNotification(null)
           }
         >
           <div
@@ -1398,22 +1365,19 @@ export default function NotificationPage({
 
                 <p
                   style={{
-                    margin:
-                      "6px 0 0",
-                    color:
-                      "#707b8c",
-                    fontSize:
-                      "13px",
+                    margin: "6px 0 0",
+                    color: "#707b8c",
+                    fontSize: "13px",
                   }}
                 >
-                  {
+                  {getLoanDisplayName(
                     selectedNotification
-                      .loanReference
-                  }
+                  )}
                 </p>
               </div>
 
               <button
+                type="button"
                 className="close"
                 onClick={() =>
                   setSelectedNotification(
@@ -1452,9 +1416,8 @@ export default function NotificationPage({
                     </span>
 
                     <strong>
-                      {
-                        selectedNotification.paymentStatus
-                      }
+                      {selectedNotification.paymentStatus ||
+                        "RECEIVED"}
                     </strong>
                   </div>
 
@@ -1536,7 +1499,7 @@ export default function NotificationPage({
                     </span>
 
                     <strong>
-                      {selectedNotification.borrowerId ||
+                      {selectedNotification.borrowerId ??
                         "—"}
                     </strong>
                   </div>
@@ -1547,8 +1510,9 @@ export default function NotificationPage({
                     </span>
 
                     <strong>
-                      {selectedNotification.loanReference ||
-                        `Loan #${selectedNotification.loanId}`}
+                      {getLoanDisplayName(
+                        selectedNotification
+                      )}
                     </strong>
                   </div>
 
@@ -1645,22 +1609,7 @@ export default function NotificationPage({
                   Message
                 </h4>
 
-                <div
-                  style={{
-                    padding:
-                      "14px",
-                    background:
-                      "#f7f8fa",
-                    borderRadius:
-                      "10px",
-                    fontSize:
-                      "14px",
-                    lineHeight:
-                      1.6,
-                    color:
-                      "#3f4a5d",
-                  }}
-                >
+                <div className="message-box">
                   {selectedNotification.message ||
                     "Payment received successfully."}
                 </div>
