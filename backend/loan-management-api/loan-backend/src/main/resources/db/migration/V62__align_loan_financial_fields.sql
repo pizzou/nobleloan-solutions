@@ -1,0 +1,2 @@
+ALTER TABLE loans
+    ADD COLUMN IF NOT EXISTS management_fee NUMERIC(19, 2);
