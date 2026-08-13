@@ -1,302 +1,317 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 
-import { regulatoryApi } from "@/services/regulatoryService";
-import { PageSpinner } from "@/components/ui/Skeleton";
-import { Button } from "@/components/ui/Button";
+import {
+  regulatoryApi,
+  type CreditRecord,
+  type ExportFormat,
+} from "@/services/regulatoryService";
 
-type CreditBureauRecord = {
-  borrowerId?: number;
-  nationalId?: string;
-  fullName?: string;
-  dateOfBirth?: string;
-  gender?: string;
-  phone?: string;
-
-  loanNumber?: string;
-  loanType?: string;
-  loanStatus?: string;
-  repaymentClassification?: string;
-
-  loanAmount?: number;
-  outstandingBalance?: number;
-  daysPastDue?: number;
-  creditScore?: number;
-
-  dateOpened?: string;
-  lastPayment?: string;
-  maturityDate?: string;
-  dateClosed?: string;
-
-  branchName?: string;
-  currency?: string;
-};
-
-const fmtMoney = (value?: number, currency = "RWF") =>
-  value == null
-    ? "—"
-    : `${new Intl.NumberFormat("en-US", {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 2,
-      }).format(Number(value))} ${currency}`;
-
-const label = (value?: string) =>
-  value
-    ? value
-        .replace(/_/g, " ")
-        .toLowerCase()
-        .replace(/\b\w/g, (c) => c.toUpperCase())
-    : "—";
-
-export default function CreditBureauReportPage() {
-  const [records, setRecords] = useState<CreditBureauRecord[]>([]);
+export default function CreditBureauPage() {
+  const [borrowerId, setBorrowerId] = useState("");
 
   const [from, setFrom] = useState("");
 
   const [to, setTo] = useState("");
 
-  const [loading, setLoading] = useState(true);
+  const [records, setRecords] = useState<CreditRecord[]>([]);
 
-  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const load = async () => {
-    setLoading(true);
-    setError("");
+  const [exporting, setExporting] = useState<ExportFormat | null>(null);
 
+  // ==========================================================
+  // PREVIEW
+  // ==========================================================
+
+  const loadPreview = useCallback(async () => {
     try {
-      const response = await regulatoryApi.creditBureauPreview({
-        from: from || undefined,
-        to: to || undefined,
+      setLoading(true);
+      setError(null);
+
+      const result = await regulatoryApi.creditBureauPreview({
+        ...(borrowerId
+          ? {
+              borrowerId: Number(borrowerId),
+            }
+          : {}),
+        ...(from ? { from } : {}),
+        ...(to ? { to } : {}),
       });
 
-      setRecords(response as CreditBureauRecord[]);
-    } catch (err: any) {
-      console.error(err);
+      setRecords(Array.isArray(result) ? result : []);
+    } catch (err) {
+      console.error("Credit Bureau preview error:", err);
 
       setError(
-        err?.response?.data?.error ||
-          err?.message ||
-          "Unable to load credit bureau records.",
+        regulatoryApi.getErrorMessage(
+          err,
+          "Unable to load Credit Bureau records.",
+        ),
       );
     } finally {
       setLoading(false);
     }
-  };
+  }, [borrowerId, from, to]);
 
-  useEffect(() => {
-    void load();
-  }, []);
+  // ==========================================================
+  // EXPORT (FIXED: Safely invokes pipeline without extra logic)
+  // ==========================================================
 
-  const exportReport = async (format: "xlsx" | "csv" | "pdf") => {
-    setExporting(true);
-
+  const exportRecords = async (format: ExportFormat) => {
     try {
+      setExporting(format);
+      setError(null);
+
       await regulatoryApi.creditBureauExport(format, {
-        from: from || undefined,
-        to: to || undefined,
+        ...(borrowerId
+          ? {
+              borrowerId: Number(borrowerId),
+            }
+          : {}),
+        ...(from ? { from } : {}),
+        ...(to ? { to } : {}),
       });
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Export failed.");
+      setError(
+        regulatoryApi.getErrorMessage(
+          err,
+          `Unable to export Credit Bureau ${format.toUpperCase()} report.`,
+        ),
+      );
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   };
 
-  if (loading) {
-    return <PageSpinner />;
-  }
+  useEffect(() => {
+    void loadPreview();
+  }, [loadPreview]);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-gray-900">
-          Credit Bureau Report
-        </h1>
+    <main className="min-h-screen bg-slate-50">
+      <div className="mx-auto max-w-[1600px] space-y-6 p-4 md:p-6 lg:p-8">
+        <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-950 p-6 text-white shadow-xl md:p-8">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="mb-3 inline-flex rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-medium">
+                Credit Information
+              </div>
 
-        <p className="mt-1 text-sm text-gray-500">
-          Authorized borrower and credit-performance reporting.
-        </p>
-      </div>
+              <h1 className="text-3xl font-bold md:text-4xl">Credit Bureau</h1>
 
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-800">
-        This report contains sensitive borrower and credit information. Use only
-        for authorized credit-reporting purposes.
-      </div>
+              <p className="mt-2 max-w-2xl text-sm text-indigo-200 md:text-base">
+                Review borrower credit information, loan history, repayment
+                performance and credit reporting records.
+              </p>
+            </div>
 
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-gray-500">
-              From
-            </label>
+            <div className="flex flex-wrap gap-2">
+              {(["pdf", "xlsx", "csv"] as ExportFormat[]).map((format) => (
+                <button
+                  key={format}
+                  type="button"
+                  onClick={() => void exportRecords(format)}
+                  disabled={exporting !== null}
+                  className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold backdrop-blur hover:bg-white/20 disabled:opacity-50"
+                >
+                  {exporting === format
+                    ? "Exporting..."
+                    : `Export ${format.toUpperCase()}`}
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
 
-            <input
-              type="date"
-              value={from}
-              onChange={(event) => setFrom(event.target.value)}
-              className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
-            />
+        {error && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+          <div className="mb-5">
+            <h2 className="text-xl font-bold text-slate-900">
+              Credit Bureau Search
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Filter the credit records you want to review.
+            </p>
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-gray-500">
-              To
-            </label>
-
-            <input
-              type="date"
-              value={to}
-              onChange={(event) => setTo(event.target.value)}
-              className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          <div className="grid gap-4 md:grid-cols-4">
+            <Field
+              label="Borrower ID"
+              value={borrowerId}
+              onChange={setBorrowerId}
+              placeholder="e.g. 1024"
             />
-          </div>
 
-          <Button size="sm" variant="secondary" onClick={() => void load()}>
-            Apply
-          </Button>
-        </div>
+            <Field label="From" type="date" value={from} onChange={setFrom} />
 
-        <div className="flex gap-2">
-          {(["xlsx", "csv", "pdf"] as const).map((format) => (
-            <Button
-              key={format}
-              size="sm"
-              variant="outline"
-              loading={exporting}
-              onClick={() => void exportReport(format)}
-            >
-              ↓ {format.toUpperCase()}
-            </Button>
-          ))}
-        </div>
-      </div>
+            <Field label="To" type="date" value={to} onChange={setTo} />
 
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-        <table className="w-full min-w-[1500px] text-sm">
-          <thead>
-            <tr className="bg-gray-50 text-left text-[10px] uppercase tracking-wide text-gray-500">
-              <th className="px-4 py-3">Borrower</th>
-
-              <th className="px-4 py-3">National ID</th>
-
-              <th className="px-4 py-3">Loan #</th>
-
-              <th className="px-4 py-3">Loan Type</th>
-
-              <th className="px-4 py-3">Status</th>
-
-              <th className="px-4 py-3">Classification</th>
-
-              <th className="px-4 py-3 text-right">Loan Amount</th>
-
-              <th className="px-4 py-3 text-right">Outstanding</th>
-
-              <th className="px-4 py-3 text-right">Days Past Due</th>
-
-              <th className="px-4 py-3 text-right">Credit Score</th>
-
-              <th className="px-4 py-3">Date Opened</th>
-
-              <th className="px-4 py-3">Last Payment</th>
-
-              <th className="px-4 py-3">Maturity</th>
-
-              <th className="px-4 py-3">Branch</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {records.slice(0, 200).map((record, index) => (
-              <tr
-                key={`${record.loanNumber ?? "loan"}-${index}`}
-                className="border-t border-gray-50"
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() => void loadPreview()}
+                disabled={loading}
+                className="w-full rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
               >
-                <td className="px-4 py-3 font-medium text-gray-800">
-                  {record.fullName || "—"}
-                </td>
-
-                <td className="px-4 py-3 text-gray-500">
-                  {record.nationalId || "—"}
-                </td>
-
-                <td className="px-4 py-3 text-gray-600">
-                  {record.loanNumber || "—"}
-                </td>
-
-                <td className="px-4 py-3 text-gray-600">
-                  {label(record.loanType)}
-                </td>
-
-                <td className="px-4 py-3">
-                  <span className="rounded-full bg-gray-100 px-2 py-1 text-[10px] font-semibold text-gray-700">
-                    {label(record.loanStatus)}
-                  </span>
-                </td>
-
-                <td className="px-4 py-3">
-                  <span className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700">
-                    {label(record.repaymentClassification)}
-                  </span>
-                </td>
-
-                <td className="px-4 py-3 text-right">
-                  {fmtMoney(record.loanAmount, record.currency)}
-                </td>
-
-                <td className="px-4 py-3 text-right font-medium">
-                  {fmtMoney(record.outstandingBalance, record.currency)}
-                </td>
-
-                <td className="px-4 py-3 text-right">
-                  {record.daysPastDue ?? 0}
-                </td>
-
-                <td className="px-4 py-3 text-right">
-                  {record.creditScore ?? "—"}
-                </td>
-
-                <td className="px-4 py-3 text-gray-500">
-                  {record.dateOpened || "—"}
-                </td>
-
-                <td className="px-4 py-3 text-gray-500">
-                  {record.lastPayment || "—"}
-                </td>
-
-                <td className="px-4 py-3 text-gray-500">
-                  {record.maturityDate || "—"}
-                </td>
-
-                <td className="px-4 py-3 text-gray-500">
-                  {record.branchName || "—"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {records.length === 0 && (
-          <div className="py-12 text-center text-sm text-gray-400">
-            No credit bureau records found.
+                {loading ? "Searching..." : "Search Records"}
+              </button>
+            </div>
           </div>
-        )}
+        </section>
 
-        {records.length > 200 && (
-          <div className="border-t border-gray-100 px-4 py-3 text-center text-xs text-gray-400">
-            Showing the first 200 records. The complete report is available
-            through export.
+        <div className="grid gap-4 sm:grid-cols-3">
+          <SummaryCard label="Records" value={records.length} />
+
+          <SummaryCard
+            label="Borrowers"
+            value={new Set(records.map((record) => record.borrowerId)).size}
+          />
+
+          <SummaryCard
+            label="Default / Delinquent"
+            value={
+              records.filter((record) => Number(record.daysPastDue ?? 0) > 0)
+                .length
+            }
+          />
+        </div>
+
+        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 p-5">
+            <h2 className="text-xl font-bold text-slate-900">Credit Records</h2>
           </div>
-        )}
+
+          {records.length === 0 ? (
+            <div className="p-12 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-2xl">
+                🧾
+              </div>
+
+              <h3 className="mt-4 font-semibold text-slate-900">
+                No credit records found
+              </h3>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Try changing your search criteria.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-[1200px] w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <Header>Borrower</Header>
+                    <Header>National ID</Header>
+                    <Header>Loan Number</Header>
+                    <Header>Loan Type</Header>
+                    <Header>Status</Header>
+                    <Header>Classification</Header>
+                    <Header>Outstanding Balance</Header>
+                    <Header>Days Past Due</Header>
+                    <Header>Credit Score</Header>
+                    <Header>Last Payment</Header>
+                    <Header>Maturity</Header>
+                    <Header>Branch</Header>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-200 bg-white">
+                  {records.map((record, index) => (
+                    <tr key={index} className="hover:bg-slate-50">
+                      <td className="px-6 py-4 whitespace-nowrap font-medium text-slate-900">
+                        {record.fullName || "N/A"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
+                        {record.nationalId || "N/A"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
+                        {record.loanNumber || "N/A"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
+                        {record.loanType || "N/A"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
+                        {record.loanStatus || "N/A"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
+                        {record.repaymentClassification || "N/A"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-slate-900 font-semibold">
+                        {record.outstandingBalance != null
+                          ? Number(record.outstandingBalance).toFixed(2)
+                          : "0.00"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
+                        {record.daysPastDue ?? 0}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
+                        {record.creditScore ?? "N/A"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
+                        {record.lastPaymentDate || "N/A"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
+                        {record.maturityDate || "N/A"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
+                        {record.branchName || "N/A"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
+    </main>
+  );
+}
+
+// ============================================================
+// LOCAL COMPONENT UI DUMMIES
+// ============================================================
+
+function Field({ label, value, onChange, placeholder, type = "text" }: any) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-xs font-semibold text-slate-700">{label}</label>
+      <input
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+      />
     </div>
+  );
+}
+
+function SummaryCard({ label, value }: any) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+        {label}
+      </p>
+      <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
+    </div>
+  );
+}
+
+function Header({ children }: { children: React.ReactNode }) {
+  return (
+    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+      {children}
+    </th>
   );
 }

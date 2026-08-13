@@ -1,24 +1,11 @@
-
-import api from '@/services/api';
-
-
+import api from "@/services/api";
 
 export type RegulatoryPeriod =
-  | 'DAILY'
-  | 'WEEKLY'
-  | 'MONTHLY'
-  | 'QUARTERLY'
-  | 'YEARLY'
-  | 'CUSTOM';
+  "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY" | "CUSTOM";
 
-export type ExportFormat =
-  | 'pdf'
-  | 'xlsx'
-  | 'csv';
+export type ExportFormat = "pdf" | "xlsx" | "csv";
 
-export type RegulatoryApiClientType =
-  | 'BNR'
-  | 'CREDIT_BUREAU';
+export type RegulatoryApiClientType = "BNR" | "CREDIT_BUREAU";
 
 /**
  * ============================================================
@@ -40,8 +27,7 @@ export interface CreditBureauReportParams {
   to?: string;
 }
 
-type QueryParams =
-  Record<string, unknown>;
+type QueryParams = Record<string, unknown>;
 
 /**
  * ============================================================
@@ -55,8 +41,7 @@ export interface BreakdownRow {
   amount: number;
 }
 
-export type BnrBreakdownRow =
-  BreakdownRow;
+export type BnrBreakdownRow = BreakdownRow;
 
 /**
  * ============================================================
@@ -65,7 +50,6 @@ export type BnrBreakdownRow =
  */
 
 export interface BnrSummary {
-
   organizationId?: number;
   organizationName?: string;
 
@@ -183,14 +167,11 @@ export interface BnrSummary {
 
   totalExternalDebt?: number;
 
-  loanTypeBreakdown?:
-    BreakdownRow[];
+  loanTypeBreakdown?: BreakdownRow[];
 
-  branchBreakdown?:
-    BreakdownRow[];
+  branchBreakdown?: BreakdownRow[];
 
-  genderBreakdown?:
-    BreakdownRow[];
+  genderBreakdown?: BreakdownRow[];
 
   loansMissingBorrower?: number;
   borrowersMissingNationalId?: number;
@@ -202,8 +183,7 @@ export interface BnrSummary {
 
   reportStatus?: string;
 
-  submissionReference?:
-    string | null;
+  submissionReference?: string | null;
 }
 
 /**
@@ -225,7 +205,6 @@ export interface FinancialStatementRow {
 }
 
 export interface BnrFinancialStatementReport {
-
   organizationId?: number;
   organizationName?: string;
 
@@ -242,14 +221,11 @@ export interface BnrFinancialStatementReport {
 
   generatedAt?: string;
 
-  assets?:
-    FinancialStatementRow[];
+  assets?: FinancialStatementRow[];
 
-  liabilities?:
-    FinancialStatementRow[];
+  liabilities?: FinancialStatementRow[];
 
-  equity?:
-    FinancialStatementRow[];
+  equity?: FinancialStatementRow[];
 
   totalAssets?: number;
   totalLiabilities?: number;
@@ -259,11 +235,9 @@ export interface BnrFinancialStatementReport {
 
   balanceSheetBalanced?: boolean;
 
-  income?:
-    FinancialStatementRow[];
+  income?: FinancialStatementRow[];
 
-  expenses?:
-    FinancialStatementRow[];
+  expenses?: FinancialStatementRow[];
 
   totalIncome?: number;
   totalExpenses?: number;
@@ -283,12 +257,9 @@ export interface BnrFinancialStatementReport {
   trialBalanceBalanced?: boolean;
 }
 
-export type BnrFinancialStatement =
-  BnrFinancialStatementReport;
-
+export type BnrFinancialStatement = BnrFinancialStatementReport;
 
 export interface CreditRecord {
-
   borrowerId?: number;
 
   fullName?: string;
@@ -301,6 +272,7 @@ export interface CreditRecord {
   loanNumber?: string;
   loanType?: string;
   loanStatus?: string;
+  repaymentClassification?: string;
 
   loanAmount?: number;
   outstandingBalance?: number;
@@ -318,8 +290,7 @@ export interface CreditRecord {
   currency?: string;
 }
 
-export type CreditBureauRecord =
-  CreditRecord;
+export type CreditBureauRecord = CreditRecord;
 
 /**
  * ============================================================
@@ -328,14 +299,11 @@ export type CreditBureauRecord =
  */
 
 export interface RegulatoryApiClient {
-
   id: number;
 
   name: string;
 
-  clientType:
-    | RegulatoryApiClientType
-    | string;
+  clientType: RegulatoryApiClientType | string;
 
   contactEmail?: string;
 
@@ -349,17 +317,13 @@ export interface RegulatoryApiClient {
 
   createdAt?: string;
 
-  expiresAt?:
-    string | null;
+  expiresAt?: string | null;
 
-  revokedAt?:
-    string | null;
+  revokedAt?: string | null;
 
-  revokedReason?:
-    string | null;
+  revokedReason?: string | null;
 
-  lastUsedAt?:
-    string | null;
+  lastUsedAt?: string | null;
 }
 
 /**
@@ -369,7 +333,6 @@ export interface RegulatoryApiClient {
  */
 
 interface ApiEnvelope<T = unknown> {
-
   success?: boolean;
 
   message?: string;
@@ -385,12 +348,8 @@ interface ApiEnvelope<T = unknown> {
  * ============================================================
  */
 
-function unwrap<T>(
-  response: unknown
-): T {
-
-  let current =
-    response;
+function unwrap<T>(response: unknown): T {
+  let current = response;
 
   /**
    * Axios response:
@@ -400,21 +359,13 @@ function unwrap<T>(
    * }
    */
 
-  if (
-    current &&
-    typeof current === 'object'
-  ) {
+  if (current && typeof current === "object") {
+    const value = current as {
+      data?: unknown;
+    };
 
-    const value =
-      current as {
-        data?: unknown;
-      };
-
-    if (
-      value.data !== undefined
-    ) {
-      current =
-        value.data;
+    if (value.data !== undefined) {
+      current = value.data;
     }
   }
 
@@ -432,23 +383,14 @@ function unwrap<T>(
    * }
    */
 
-  if (
-    current &&
-    typeof current === 'object'
-  ) {
+  if (current && typeof current === "object") {
+    const envelope = current as ApiEnvelope<T>;
 
-    const envelope =
-      current as ApiEnvelope<T>;
-
-    if (
-      envelope.data !== undefined
-    ) {
+    if (envelope.data !== undefined) {
       return envelope.data as T;
     }
 
-    if (
-      envelope.content !== undefined
-    ) {
+    if (envelope.content !== undefined) {
       return envelope.content as T;
     }
   }
@@ -462,32 +404,20 @@ function unwrap<T>(
  * ============================================================
  */
 
-function unwrapArray<T>(
-  response: unknown
-): T[] {
-
-  let current =
-    response;
+function unwrapArray<T>(response: unknown): T[] {
+  let current = response;
 
   /**
    * First remove Axios response.data.
    */
 
-  if (
-    current &&
-    typeof current === 'object'
-  ) {
+  if (current && typeof current === "object") {
+    const value = current as {
+      data?: unknown;
+    };
 
-    const value =
-      current as {
-        data?: unknown;
-      };
-
-    if (
-      value.data !== undefined
-    ) {
-      current =
-        value.data;
+    if (value.data !== undefined) {
+      current = value.data;
     }
   }
 
@@ -496,125 +426,69 @@ function unwrapArray<T>(
    * backend wrappers.
    */
 
-  for (
-    let depth = 0;
-    depth < 8;
-    depth++
-  ) {
-
-    if (
-      Array.isArray(current)
-    ) {
+  for (let depth = 0; depth < 8; depth++) {
+    if (Array.isArray(current)) {
       return current as T[];
     }
 
-    if (
-      !current ||
-      typeof current !== 'object'
-    ) {
+    if (!current || typeof current !== "object") {
       return [];
     }
 
-    const value =
-      current as {
-        data?: unknown;
-        content?: unknown;
-        items?: unknown;
-        results?: unknown;
-        records?: unknown;
-      };
+    const value = current as {
+      data?: unknown;
+      content?: unknown;
+      items?: unknown;
+      results?: unknown;
+      records?: unknown;
+    };
 
-    if (
-      Array.isArray(
-        value.data
-      )
-    ) {
+    if (Array.isArray(value.data)) {
       return value.data as T[];
     }
 
-    if (
-      Array.isArray(
-        value.content
-      )
-    ) {
+    if (Array.isArray(value.content)) {
       return value.content as T[];
     }
 
-    if (
-      Array.isArray(
-        value.items
-      )
-    ) {
+    if (Array.isArray(value.items)) {
       return value.items as T[];
     }
 
-    if (
-      Array.isArray(
-        value.results
-      )
-    ) {
+    if (Array.isArray(value.results)) {
       return value.results as T[];
     }
 
-    if (
-      Array.isArray(
-        value.records
-      )
-    ) {
+    if (Array.isArray(value.records)) {
       return value.records as T[];
     }
 
-    if (
-      value.data &&
-      typeof value.data ===
-        'object'
-    ) {
-      current =
-        value.data;
+    if (value.data && typeof value.data === "object") {
+      current = value.data;
 
       continue;
     }
 
-    if (
-      value.content &&
-      typeof value.content ===
-        'object'
-    ) {
-      current =
-        value.content;
+    if (value.content && typeof value.content === "object") {
+      current = value.content;
 
       continue;
     }
 
-    if (
-      value.items &&
-      typeof value.items ===
-        'object'
-    ) {
-      current =
-        value.items;
+    if (value.items && typeof value.items === "object") {
+      current = value.items;
 
       continue;
     }
 
-    if (
-      value.results &&
-      typeof value.results ===
-        'object'
-    ) {
-      current =
-        value.results;
+    if (value.results && typeof value.results === "object") {
+      current = value.results;
 
       continue;
     }
 
-    if (
-      value.records &&
-      typeof value.records ===
-        'object'
-    ) {
-      current =
-        value.records;
+    if (value.records && typeof value.records === "object") {
+      current = value.records;
 
       continue;
     }
@@ -631,80 +505,47 @@ function unwrapArray<T>(
  * ============================================================
  */
 
-function toQueryParams(
-  params?: BnrReportParams
-): QueryParams {
+function toQueryParams(params?: BnrReportParams): QueryParams {
+  const query: QueryParams = {};
 
-  const query:
-    QueryParams = {};
-
-  if (
-    params?.branchId !==
-      undefined
-  ) {
-    query.branchId =
-      params.branchId;
+  if (params?.branchId !== undefined) {
+    query.branchId = params.branchId;
   }
 
-  if (
-    params?.period
-  ) {
-    query.period =
-      params.period;
+  if (params?.period) {
+    query.period = params.period;
   }
 
-  if (
-    params?.from
-  ) {
-    query.from =
-      params.from;
+  if (params?.from) {
+    query.from = params.from;
   }
 
-  if (
-    params?.to
-  ) {
-    query.to =
-      params.to;
+  if (params?.to) {
+    query.to = params.to;
   }
 
   return query;
 }
 
 function toCreditBureauQueryParams(
-  params?: CreditBureauReportParams
+  params?: CreditBureauReportParams,
 ): QueryParams {
+  const query: QueryParams = {};
 
-  const query:
-    QueryParams = {};
-
-  if (
-    params?.borrowerId !==
-      undefined
-  ) {
-    query.borrowerId =
-      params.borrowerId;
+  if (params?.borrowerId !== undefined) {
+    query.borrowerId = params.borrowerId;
   }
 
-  if (
-    params?.branchId !==
-      undefined
-  ) {
-    query.branchId =
-      params.branchId;
+  if (params?.branchId !== undefined) {
+    query.branchId = params.branchId;
   }
 
-  if (
-    params?.from
-  ) {
-    query.from =
-      params.from;
+  if (params?.from) {
+    query.from = params.from;
   }
 
-  if (
-    params?.to
-  ) {
-    query.to =
-      params.to;
+  if (params?.to) {
+    query.to = params.to;
   }
 
   return query;
@@ -716,47 +557,35 @@ function toCreditBureauQueryParams(
  * ============================================================
  */
 
-function getExportContentType(
-  format: ExportFormat
-): string {
+function getExportContentType(format: ExportFormat): string {
+  switch (format.toLowerCase()) {
+    case "pdf":
+      return "application/pdf";
 
-  switch (
-    format.toLowerCase()
-  ) {
+    case "csv":
+      return "text/csv;charset=utf-8";
 
-    case 'pdf':
-      return 'application/pdf';
-
-    case 'csv':
-      return 'text/csv;charset=utf-8';
-
-    case 'xlsx':
-      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    case "xlsx":
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
     default:
-      return 'application/octet-stream';
+      return "application/octet-stream";
   }
 }
 
-function getExportAcceptHeader(
-  format: ExportFormat
-): string {
+function getExportAcceptHeader(format: ExportFormat): string {
+  switch (format.toLowerCase()) {
+    case "pdf":
+      return "application/pdf";
 
-  switch (
-    format.toLowerCase()
-  ) {
+    case "csv":
+      return "text/csv";
 
-    case 'pdf':
-      return 'application/pdf';
-
-    case 'csv':
-      return 'text/csv';
-
-    case 'xlsx':
-      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    case "xlsx":
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
     default:
-      return '*/*';
+      return "*/*";
   }
 }
 
@@ -766,50 +595,28 @@ function getExportAcceptHeader(
  * ============================================================
  */
 
-function triggerDownload(
-  blob: Blob,
-  filename: string
-): void {
-
-  if (
-    typeof window ===
-      'undefined'
-  ) {
+function triggerDownload(blob: Blob, filename: string): void {
+  if (typeof window === "undefined") {
     return;
   }
 
-  const url =
-    window.URL.createObjectURL(
-      blob
-    );
+  const url = window.URL.createObjectURL(blob);
 
-  const anchor =
-    document.createElement(
-      'a'
-    );
+  const anchor = document.createElement("a");
 
-  anchor.href =
-    url;
+  anchor.href = url;
 
-  anchor.download =
-    filename;
+  anchor.download = filename;
 
-  document.body.appendChild(
-    anchor
-  );
+  document.body.appendChild(anchor);
 
   anchor.click();
 
   anchor.remove();
 
-  window.setTimeout(
-    () => {
-      window.URL.revokeObjectURL(
-        url
-      );
-    },
-    1000
-  );
+  window.setTimeout(() => {
+    window.URL.revokeObjectURL(url);
+  }, 1000);
 }
 
 /**
@@ -818,34 +625,26 @@ function triggerDownload(
  * ============================================================
  */
 
-async function getBlobErrorMessage(
-  error: unknown
-): Promise<string | null> {
-
-  if (
-    !error ||
-    typeof error !== 'object'
-  ) {
+async function getBlobErrorMessage(error: unknown): Promise<string | null> {
+  if (!error || typeof error !== "object") {
     return null;
   }
 
-  const value =
-    error as {
-      response?: {
-        status?: number;
-        data?: unknown;
-        headers?: unknown;
-      };
-
+  const value = error as {
+    response?: {
       status?: number;
-
       data?: unknown;
-
-      message?: string;
+      headers?: unknown;
     };
 
-  const response =
-    value.response;
+    status?: number;
+
+    data?: unknown;
+
+    message?: string;
+  };
+
+  const response = value.response;
 
   /**
    * If Axios response is preserved,
@@ -853,80 +652,44 @@ async function getBlobErrorMessage(
    */
 
   if (response) {
+    const responseData = response.data;
 
-    const responseData =
-      response.data;
-
-    if (
-      responseData instanceof
-      Blob
-    ) {
-
+    if (responseData instanceof Blob) {
       try {
-
-        const text =
-          await responseData.text();
+        const text = await responseData.text();
 
         if (!text) {
           return null;
         }
 
         try {
+          const json = JSON.parse(text) as {
+            message?: string;
+            error?: string;
+            detail?: string;
+          };
 
-          const json =
-            JSON.parse(text) as {
-              message?: string;
-              error?: string;
-              detail?: string;
-            };
-
-          return (
-            json.message ||
-            json.error ||
-            json.detail ||
-            null
-          );
-
+          return json.message || json.error || json.detail || null;
         } catch {
-
           return text;
         }
-
       } catch {
-
         return null;
       }
     }
 
-    if (
-      typeof responseData ===
-        'string'
-    ) {
-      return (
-        responseData ||
-        null
-      );
+    if (typeof responseData === "string") {
+      return responseData || null;
     }
 
-    if (
-      responseData &&
-      typeof responseData ===
-        'object'
-    ) {
+    if (responseData && typeof responseData === "object") {
+      const data = responseData as {
+        message?: string;
+        error?: string;
+        detail?: string;
+      };
 
-      const data =
-        responseData as {
-          message?: string;
-          error?: string;
-          detail?: string;
-        };
-
-      return (
-        data.message ||
-        data.error ||
-        data.detail ||
-        null
-      );
+      return data.message || data.error || data.detail || null;
     }
   }
 
@@ -934,72 +697,41 @@ async function getBlobErrorMessage(
    * Fallback to enhanced error data.
    */
 
-  if (
-    value.data instanceof
-    Blob
-  ) {
-
+  if (value.data instanceof Blob) {
     try {
-
-      const text =
-        await value.data.text();
+      const text = await value.data.text();
 
       if (!text) {
         return null;
       }
 
       try {
+        const json = JSON.parse(text) as {
+          message?: string;
+          error?: string;
+          detail?: string;
+        };
 
-        const json =
-          JSON.parse(text) as {
-            message?: string;
-            error?: string;
-            detail?: string;
-          };
-
-        return (
-          json.message ||
-          json.error ||
-          json.detail ||
-          null
-        );
-
+        return json.message || json.error || json.detail || null;
       } catch {
-
         return text;
       }
-
     } catch {
-
       return null;
     }
   }
 
-  if (
-    value.data &&
-    typeof value.data ===
-      'object'
-  ) {
+  if (value.data && typeof value.data === "object") {
+    const data = value.data as {
+      message?: string;
+      error?: string;
+      detail?: string;
+    };
 
-    const data =
-      value.data as {
-        message?: string;
-        error?: string;
-        detail?: string;
-      };
-
-    return (
-      data.message ||
-      data.error ||
-      data.detail ||
-      null
-    );
+    return data.message || data.error || data.detail || null;
   }
 
-  return (
-    value.message ||
-    null
-  );
+  return value.message || null;
 }
 
 /**
@@ -1009,31 +741,18 @@ async function getBlobErrorMessage(
  */
 
 export const regulatoryApi = {
-
   /**
    * ==========================================================
    * BNR SUMMARY
    * ==========================================================
    */
 
-  async bnrSummary(
-    params?: BnrReportParams
-  ): Promise<BnrSummary> {
+  async bnrSummary(params?: BnrReportParams): Promise<BnrSummary> {
+    const response = await api.get("/regulatory/bnr/summary", {
+      params: toQueryParams(params),
+    });
 
-    const response =
-      await api.get(
-        '/regulatory/bnr/summary',
-        {
-          params:
-            toQueryParams(
-              params
-            ),
-        }
-      );
-
-    return unwrap<BnrSummary>(
-      response
-    );
+    return unwrap<BnrSummary>(response);
   },
 
   /**
@@ -1043,62 +762,26 @@ export const regulatoryApi = {
    */
 
   async bnrFinancialStatement(
-    params?: BnrReportParams
+    params?: BnrReportParams,
   ): Promise<BnrFinancialStatementReport> {
+    const response = await api.get("/regulatory/bnr/financial-statement", {
+      params: toQueryParams(params),
+    });
 
-    const response =
-      await api.get(
-        '/regulatory/bnr/financial-statement',
-        {
-          params:
-            toQueryParams(
-              params
-            ),
-        }
-      );
-
-    const report =
-      unwrap<BnrFinancialStatementReport>(
-        response
-      );
+    const report = unwrap<BnrFinancialStatementReport>(response);
 
     return {
       ...report,
 
-      assets:
-        Array.isArray(
-          report?.assets
-        )
-          ? report.assets
-          : [],
+      assets: Array.isArray(report?.assets) ? report.assets : [],
 
-      liabilities:
-        Array.isArray(
-          report?.liabilities
-        )
-          ? report.liabilities
-          : [],
+      liabilities: Array.isArray(report?.liabilities) ? report.liabilities : [],
 
-      equity:
-        Array.isArray(
-          report?.equity
-        )
-          ? report.equity
-          : [],
+      equity: Array.isArray(report?.equity) ? report.equity : [],
 
-      income:
-        Array.isArray(
-          report?.income
-        )
-          ? report.income
-          : [],
+      income: Array.isArray(report?.income) ? report.income : [],
 
-      expenses:
-        Array.isArray(
-          report?.expenses
-        )
-          ? report.expenses
-          : [],
+      expenses: Array.isArray(report?.expenses) ? report.expenses : [],
     };
   },
 
@@ -1108,24 +791,12 @@ export const regulatoryApi = {
    * ==========================================================
    */
 
-  async bnrByLoanType(
-    params?: BnrReportParams
-  ): Promise<BreakdownRow[]> {
+  async bnrByLoanType(params?: BnrReportParams): Promise<BreakdownRow[]> {
+    const response = await api.get("/regulatory/bnr/breakdown/loan-type", {
+      params: toQueryParams(params),
+    });
 
-    const response =
-      await api.get(
-        '/regulatory/bnr/breakdown/loan-type',
-        {
-          params:
-            toQueryParams(
-              params
-            ),
-        }
-      );
-
-    return unwrapArray<
-      BreakdownRow
-    >(response);
+    return unwrapArray<BreakdownRow>(response);
   },
 
   /**
@@ -1134,24 +805,12 @@ export const regulatoryApi = {
    * ==========================================================
    */
 
-  async bnrByBranch(
-    params?: BnrReportParams
-  ): Promise<BreakdownRow[]> {
+  async bnrByBranch(params?: BnrReportParams): Promise<BreakdownRow[]> {
+    const response = await api.get("/regulatory/bnr/breakdown/branch", {
+      params: toQueryParams(params),
+    });
 
-    const response =
-      await api.get(
-        '/regulatory/bnr/breakdown/branch',
-        {
-          params:
-            toQueryParams(
-              params
-            ),
-        }
-      );
-
-    return unwrapArray<
-      BreakdownRow
-    >(response);
+    return unwrapArray<BreakdownRow>(response);
   },
 
   /**
@@ -1160,24 +819,12 @@ export const regulatoryApi = {
    * ==========================================================
    */
 
-  async bnrByGender(
-    params?: BnrReportParams
-  ): Promise<BreakdownRow[]> {
+  async bnrByGender(params?: BnrReportParams): Promise<BreakdownRow[]> {
+    const response = await api.get("/regulatory/bnr/breakdown/gender", {
+      params: toQueryParams(params),
+    });
 
-    const response =
-      await api.get(
-        '/regulatory/bnr/breakdown/gender',
-        {
-          params:
-            toQueryParams(
-              params
-            ),
-        }
-      );
-
-    return unwrapArray<
-      BreakdownRow
-    >(response);
+    return unwrapArray<BreakdownRow>(response);
   },
 
   /**
@@ -1188,59 +835,32 @@ export const regulatoryApi = {
 
   async bnrExport(
     format: ExportFormat,
-    params?: BnrReportParams
+    params?: BnrReportParams,
   ): Promise<void> {
-
     try {
+      const response = await api.get("/regulatory/bnr/export", {
+        params: {
+          ...toQueryParams(params),
+          format,
+        },
 
-      const response =
-        await api.get(
-          '/regulatory/bnr/export',
-          {
-            params: {
-              ...toQueryParams(
-                params
-              ),
-              format,
-            },
+        responseType: "blob",
 
-            responseType:
-              'blob',
-
-            headers: {
-              Accept:
-                getExportAcceptHeader(
-                  format
-                ),
-            },
-          }
-        );
+        headers: {
+          Accept: getExportAcceptHeader(format),
+        },
+      });
 
       const blob =
-        response.data instanceof
-        Blob
+        response.data instanceof Blob
           ? response.data
-          : new Blob(
-              [response.data],
-              {
-                type:
-                  getExportContentType(
-                    format
-                  ),
-              }
-            );
+          : new Blob([response.data], {
+              type: getExportContentType(format),
+            });
 
-      triggerDownload(
-        blob,
-        `bnr-summary.${format}`
-      );
-
+      triggerDownload(blob, `bnr-summary.${format}`);
     } catch (error) {
-
-      console.error(
-        'BNR export failed:',
-        error
-      );
+      console.error("BNR export failed:", error);
 
       throw error;
     }
@@ -1253,23 +873,13 @@ export const regulatoryApi = {
    */
 
   async creditBureauPreview(
-    params?: CreditBureauReportParams
+    params?: CreditBureauReportParams,
   ): Promise<CreditRecord[]> {
+    const response = await api.get("/regulatory/credit-bureau/preview", {
+      params: toCreditBureauQueryParams(params),
+    });
 
-    const response =
-      await api.get(
-        '/regulatory/credit-bureau/preview',
-        {
-          params:
-            toCreditBureauQueryParams(
-              params
-            ),
-        }
-      );
-
-    return unwrapArray<
-      CreditRecord
-    >(response);
+    return unwrapArray<CreditRecord>(response);
   },
 
   /**
@@ -1292,37 +902,22 @@ export const regulatoryApi = {
 
   async creditBureauExport(
     format: ExportFormat,
-    params?: CreditBureauReportParams
+    params?: CreditBureauReportParams,
   ): Promise<void> {
+    const queryParams = toCreditBureauQueryParams(params);
 
-    const queryParams =
-      toCreditBureauQueryParams(
-        params
-      );
+    console.log("Credit Bureau export request:", {
+      url: "/regulatory/credit-bureau/download",
 
-    console.log(
-      'Credit Bureau export request:',
-      {
-        url:
-          '/regulatory/credit-bureau/download',
+      format,
 
-        format,
+      queryParams,
 
-        queryParams,
-
-        hasToken:
-          typeof window !==
-            'undefined' &&
-          Boolean(
-            localStorage.getItem(
-              'token'
-            )
-          ),
-      }
-    );
+      hasToken:
+        typeof window !== "undefined" && Boolean(localStorage.getItem("token")),
+    });
 
     try {
-
       /**
        * ------------------------------------------------------
        * IMPORTANT
@@ -1337,70 +932,37 @@ export const regulatoryApi = {
        * ------------------------------------------------------
        */
 
-      const response =
-        await api.get(
-          '/regulatory/credit-bureau/download',
-          {
-            params: {
-              ...queryParams,
-              format,
-            },
+      const response = await api.get("/regulatory/credit-bureau/download", {
+        params: {
+          ...queryParams,
+          format,
+        },
 
-            responseType:
-              'blob',
+        responseType: "blob",
 
-            headers: {
-              Accept:
-                getExportAcceptHeader(
-                  format
-                ),
-            },
-          }
-        );
+        headers: {
+          Accept: getExportAcceptHeader(format),
+        },
+      });
 
-      console.log(
-        'Credit Bureau export response:',
-        {
-          status:
-            response.status,
+      console.log("Credit Bureau export response:", {
+        status: response.status,
 
-          contentType:
-            response.headers?.[
-              'content-type'
-            ],
+        contentType: response.headers?.["content-type"],
 
-          contentDisposition:
-            response.headers?.[
-              'content-disposition'
-            ],
-        }
-      );
+        contentDisposition: response.headers?.["content-disposition"],
+      });
 
       const blob =
-        response.data instanceof
-        Blob
+        response.data instanceof Blob
           ? response.data
-          : new Blob(
-              [response.data],
-              {
-                type:
-                  getExportContentType(
-                    format
-                  ),
-              }
-            );
+          : new Blob([response.data], {
+              type: getExportContentType(format),
+            });
 
-      triggerDownload(
-        blob,
-        `credit-bureau-export.${format}`
-      );
-
+      triggerDownload(blob, `credit-bureau-export.${format}`);
     } catch (error) {
-
-      console.error(
-        'Credit Bureau export failed:',
-        error
-      );
+      console.error("Credit Bureau export failed:", error);
 
       /**
        * IMPORTANT:
@@ -1412,24 +974,13 @@ export const regulatoryApi = {
        * error.response.data
        */
 
-      const blobMessage =
-        await getBlobErrorMessage(
-          error
-        );
+      const blobMessage = await getBlobErrorMessage(error);
 
-      if (
-        blobMessage
-      ) {
-
+      if (blobMessage) {
         const enhancedError =
-          error instanceof Error
-            ? error
-            : new Error(
-                blobMessage
-              );
+          error instanceof Error ? error : new Error(blobMessage);
 
-        enhancedError.message =
-          blobMessage;
+        enhancedError.message = blobMessage;
 
         throw enhancedError;
       }
@@ -1444,18 +995,12 @@ export const regulatoryApi = {
    * ==========================================================
    */
 
-  async creditBureauHistory(
-    borrowerId: number
-  ): Promise<unknown[]> {
-
-    const response =
-      await api.get(
-        `/credit-bureau/borrowers/${borrowerId}/history`
-      );
-
-    return unwrapArray<unknown>(
-      response
+  async creditBureauHistory(borrowerId: number): Promise<unknown[]> {
+    const response = await api.get(
+      `/credit-bureau/borrowers/${borrowerId}/history`,
     );
+
+    return unwrapArray<unknown>(response);
   },
 
   /**
@@ -1464,25 +1009,14 @@ export const regulatoryApi = {
    * ==========================================================
    */
 
-  async creditBureauLatest(
-    borrowerId: number
-  ): Promise<unknown | null> {
-
+  async creditBureauLatest(borrowerId: number): Promise<unknown | null> {
     try {
-
-      const response =
-        await api.get(
-          `/credit-bureau/borrowers/${borrowerId}/latest`
-        );
-
-      return (
-        unwrap<unknown>(
-          response
-        ) ?? null
+      const response = await api.get(
+        `/credit-bureau/borrowers/${borrowerId}/latest`,
       );
 
+      return unwrap<unknown>(response) ?? null;
     } catch {
-
       return null;
     }
   },
@@ -1493,19 +1027,13 @@ export const regulatoryApi = {
    * ==========================================================
    */
 
-  async runCreditBureauCheck(
-    borrowerId: number
-  ): Promise<unknown> {
-
-    const response =
-      await api.post(
-        `/credit-bureau/borrowers/${borrowerId}/check`,
-        undefined
-      );
-
-    return unwrap<unknown>(
-      response
+  async runCreditBureauCheck(borrowerId: number): Promise<unknown> {
+    const response = await api.post(
+      `/credit-bureau/borrowers/${borrowerId}/check`,
+      undefined,
     );
+
+    return unwrap<unknown>(response);
   },
 
   /**
@@ -1514,19 +1042,10 @@ export const regulatoryApi = {
    * ==========================================================
    */
 
-  async listApiClients():
-    Promise<
-      RegulatoryApiClient[]
-    > {
+  async listApiClients(): Promise<RegulatoryApiClient[]> {
+    const response = await api.get("/regulatory/api-clients");
 
-    const response =
-      await api.get(
-        '/regulatory/api-clients'
-      );
-
-    return unwrapArray<
-      RegulatoryApiClient
-    >(response);
+    return unwrapArray<RegulatoryApiClient>(response);
   },
 
   /**
@@ -1535,32 +1054,20 @@ export const regulatoryApi = {
    * ==========================================================
    */
 
-  async createApiClient(
-    data: {
-      name: string;
+  async createApiClient(data: {
+    name: string;
 
-      clientType:
-        | 'BNR'
-        | 'CREDIT_BUREAU';
+    clientType: "BNR" | "CREDIT_BUREAU";
 
-      contactEmail?: string;
+    contactEmail?: string;
 
-      description?: string;
+    description?: string;
 
-      expiresAt?:
-        string | null;
-    }
-  ): Promise<RegulatoryApiClient> {
+    expiresAt?: string | null;
+  }): Promise<RegulatoryApiClient> {
+    const response = await api.post("/regulatory/api-clients", data);
 
-    const response =
-      await api.post(
-        '/regulatory/api-clients',
-        data
-      );
-
-    return unwrap<
-      RegulatoryApiClient
-    >(response);
+    return unwrap<RegulatoryApiClient>(response);
   },
 
   /**
@@ -1571,20 +1078,13 @@ export const regulatoryApi = {
 
   async revokeApiClient(
     id: number,
-    reason?: string
+    reason?: string,
   ): Promise<RegulatoryApiClient> {
+    const response = await api.post(`/regulatory/api-clients/${id}/revoke`, {
+      reason,
+    });
 
-    const response =
-      await api.post(
-        `/regulatory/api-clients/${id}/revoke`,
-        {
-          reason,
-        }
-      );
-
-    return unwrap<
-      RegulatoryApiClient
-    >(response);
+    return unwrap<RegulatoryApiClient>(response);
   },
 
   /**
@@ -1595,29 +1095,21 @@ export const regulatoryApi = {
 
   getErrorMessage(
     error: unknown,
-    fallback =
-      'An error occurred while loading the regulatory report.'
+    fallback = "An error occurred while loading the regulatory report.",
   ): string {
-
-    if (
-      error &&
-      typeof error ===
-        'object'
-    ) {
-
-      const value =
-        error as {
-          response?: {
-            status?: number;
-            data?: unknown;
-          };
-
+    if (error && typeof error === "object") {
+      const value = error as {
+        response?: {
           status?: number;
-
           data?: unknown;
-
-          message?: string;
         };
+
+        status?: number;
+
+        data?: unknown;
+
+        message?: string;
+      };
 
       /**
        * ------------------------------------------------------
@@ -1625,20 +1117,14 @@ export const regulatoryApi = {
        * ------------------------------------------------------
        */
 
-      const response =
-        value.response;
+      const response = value.response;
 
       if (response) {
-
         /**
          * Blob response
          */
 
-        if (
-          response.data instanceof
-          Blob
-        ) {
-
+        if (response.data instanceof Blob) {
           /**
            * We cannot synchronously read
            * Blob here, so use the status
@@ -1650,40 +1136,22 @@ export const regulatoryApi = {
          * JSON response
          */
 
-        if (
-          response.data &&
-          typeof response.data ===
-            'object'
-        ) {
+        if (response.data && typeof response.data === "object") {
+          const data = response.data as {
+            message?: string;
+            error?: string;
+            detail?: string;
+          };
 
-          const data =
-            response.data as {
-              message?: string;
-              error?: string;
-              detail?: string;
-            };
-
-          if (
-            typeof data.message ===
-              'string' &&
-            data.message
-          ) {
+          if (typeof data.message === "string" && data.message) {
             return data.message;
           }
 
-          if (
-            typeof data.error ===
-              'string' &&
-            data.error
-          ) {
+          if (typeof data.error === "string" && data.error) {
             return data.error;
           }
 
-          if (
-            typeof data.detail ===
-              'string' &&
-            data.detail
-          ) {
+          if (typeof data.detail === "string" && data.detail) {
             return data.detail;
           }
         }
@@ -1692,11 +1160,7 @@ export const regulatoryApi = {
          * String response
          */
 
-        if (
-          typeof response.data ===
-            'string' &&
-          response.data
-        ) {
+        if (typeof response.data === "string" && response.data) {
           return response.data;
         }
 
@@ -1704,22 +1168,12 @@ export const regulatoryApi = {
          * HTTP status
          */
 
-        if (
-          response.status ===
-            403
-        ) {
-          return (
-            'Access denied (403). The server rejected the Credit Bureau export request.'
-          );
+        if (response.status === 403) {
+          return "Access denied (403). The server rejected the Credit Bureau export request.";
         }
 
-        if (
-          response.status ===
-            401
-        ) {
-          return (
-            'Authentication failed (401). Please sign in again.'
-          );
+        if (response.status === 401) {
+          return "Authentication failed (401). Please sign in again.";
         }
       }
 
@@ -1727,33 +1181,19 @@ export const regulatoryApi = {
        * Enhanced Axios error status
        */
 
-      if (
-        value.status ===
-          403
-      ) {
-        return (
-          'Access denied (403). The server rejected the Credit Bureau export request.'
-        );
+      if (value.status === 403) {
+        return "Access denied (403). The server rejected the Credit Bureau export request.";
       }
 
-      if (
-        value.status ===
-          401
-      ) {
-        return (
-          'Authentication failed (401). Please sign in again.'
-        );
+      if (value.status === 401) {
+        return "Authentication failed (401). Please sign in again.";
       }
 
       /**
        * Normal Error message
        */
 
-      if (
-        typeof value.message ===
-          'string' &&
-        value.message
-      ) {
+      if (typeof value.message === "string" && value.message) {
         return value.message;
       }
     }

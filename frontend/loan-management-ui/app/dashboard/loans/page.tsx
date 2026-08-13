@@ -1,852 +1,499 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { loanApi } from "@/services/api";
+import { Loan, LoanStatus } from "@/types";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { StatusBadge, RiskBadge } from "@/components/ui/Badge";
+import {
+  Table,
+  Thead,
+  Th,
+  Tbody,
+  Tr,
+  Td,
+  EmptyRow,
+} from "@/components/ui/Table";
+import { Select, Input } from "@/components/ui/Form";
+import {
+  formatCurrency,
+  formatDate,
+  formatNumber,
+  LOAN_TYPE_META,
+} from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
 
-import { getLoans } from "@/services/loanService";
-import { PageSpinner } from "@/components/ui/Skeleton";
+const STATUSES: LoanStatus[] = [
+  "PENDING",
+  "UNDER_REVIEW",
+  "APPROVED",
+  "ACTIVE",
+  "OVERDUE",
+  "DEFAULTED",
+  "PAID",
+  "CLOSED",
+  "REJECTED",
+];
 
-type Loan = {
-  id?: number;
-  referenceNumber?: string;
+const TYPES = [
+  "PERSONAL",
+  "MORTGAGE",
+  "AUTO",
+  "BUSINESS",
+  "STUDENT",
+  "EMERGENCY",
+  "ASSET_FINANCE",
+  "SALARY_ADVANCE",
+  "MICROFINANCE",
+  "AGRICULTURAL",
+  "TRADE_FINANCE",
+  "GROUP",
+];
 
-  borrower?: {
-    id?: number;
-    firstName?: string;
-    lastName?: string;
-    fullName?: string;
-    name?: string;
-  };
-
-  loanType?: string;
-  status?: string;
-
-  creditQuality?: string;
-  arrearsStatus?: string;
-  collectionsStage?: string;
-  classifiedAt?: string;
-
-  daysOverdue?: number;
-  missedInstallments?: number;
-
-  amount?: number;
-  disbursedAmount?: number;
-  netDisbursedAmount?: number;
-
-  interestRate?: number;
-  interestRateType?: string;
-
-  managementFeeRate?: number;
-  managementFee?: number;
-  managementFeePaid?: number;
-
-  processingFeeRate?: number;
-  processingFee?: number;
-  processingFeePaid?: number;
-
-  totalInterest?: number;
-  interestPaid?: number;
-
-  totalRepayable?: number;
-  totalPaid?: number;
-  outstandingBalance?: number;
-
-  currency?: string;
-
-  riskScore?: number;
-  riskCategory?: string;
-  debtToIncomeRatio?: number;
-  creditScoreSnapshot?: number;
-
-  startDate?: string;
-  approvedAt?: string;
-  disbursedAt?: string;
-  maturityDate?: string;
-  nextPaymentDate?: string;
-  nextDueDate?: string;
-  lastPaymentDate?: string;
-
-  loanOfficer?: {
-    firstName?: string;
-    lastName?: string;
-    name?: string;
-  };
+const safeNumber = (value: unknown): number => {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : 0;
 };
 
-const money = (value?: number, currency = "RWF") =>
-  value == null
-    ? "—"
-    : `${new Intl.NumberFormat("en-US", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(Number(value))} ${currency}`;
+const label = (value?: string | null): string =>
+  value ? value.replace(/_/g, " ") : "—";
 
-const number = (value?: number) =>
-  value == null ? "—" : new Intl.NumberFormat("en-US").format(Number(value));
-
-const date = (value?: string) => {
-  if (!value) return "—";
-
-  const parsed = new Date(value);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  }).format(parsed);
-};
-
-const text = (value?: string) =>
-  value
-    ? value
-        .replace(/_/g, " ")
-        .toLowerCase()
-        .replace(/\b\w/g, (char) => char.toUpperCase())
-    : "—";
-
-const borrowerName = (loan: Loan) => {
-  const borrower = loan.borrower;
-
-  if (!borrower) return "—";
-
-  if (borrower.fullName) {
-    return borrower.fullName;
-  }
-
-  if (borrower.name) {
-    return borrower.name;
-  }
-
-  return (
-    [borrower.firstName, borrower.lastName].filter(Boolean).join(" ") || "—"
-  );
-};
-
-const officerName = (loan: Loan) => {
-  const officer = loan.loanOfficer;
-
-  if (!officer) return "—";
-
-  if (officer.name) return officer.name;
-
-  return [officer.firstName, officer.lastName].filter(Boolean).join(" ") || "—";
-};
-
-function Badge({
-  value,
-  tone = "gray",
-}: {
-  value?: string;
-  tone?: "gray" | "green" | "yellow" | "orange" | "red" | "blue";
-}) {
-  const colors = {
-    gray: "bg-gray-100 text-gray-700",
-    green: "bg-emerald-100 text-emerald-700",
-    yellow: "bg-yellow-100 text-yellow-700",
-    orange: "bg-orange-100 text-orange-700",
-    red: "bg-red-100 text-red-700",
-    blue: "bg-blue-100 text-blue-700",
-  };
-
-  return (
-    <span
-      className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${colors[tone]}`}
-    >
-      {text(value)}
-    </span>
-  );
-}
-
-function qualityTone(
-  quality?: string,
-): "green" | "yellow" | "orange" | "red" | "gray" {
-  switch (quality) {
+const classificationClass = (value?: string | null): string => {
+  switch (value) {
     case "CURRENT":
-      return "green";
-
+    case "NOT_DUE":
+    case "NORMAL":
+      return "bg-emerald-50 text-emerald-700";
     case "WATCH":
-      return "yellow";
-
+    case "REMINDER":
+      return "bg-amber-50 text-amber-700";
     case "SUBSTANDARD":
-      return "orange";
-
+    case "COLLECTION":
+      return "bg-orange-50 text-orange-700";
     case "DOUBTFUL":
+    case "LEGAL":
+      return "bg-red-50 text-red-700";
     case "WRITTEN_OFF":
-    case "LOSS":
-      return "red";
-
+    case "RECOVERY":
+      return "bg-slate-900 text-white";
+    case "PAST_DUE":
+      return "bg-red-50 text-red-700";
     default:
-      return "gray";
+      return "bg-gray-100 text-gray-600";
   }
-}
-
-function statusTone(
-  status?: string,
-): "green" | "yellow" | "orange" | "red" | "blue" | "gray" {
-  switch (status) {
-    case "ACTIVE":
-      return "green";
-
-    case "PENDING":
-      return "yellow";
-
-    case "UNDER_REVIEW":
-      return "blue";
-
-    case "OVERDUE":
-    case "DEFAULTED":
-      return "red";
-
-    case "PAID":
-    case "CLOSED":
-      return "green";
-
-    case "REJECTED":
-    case "WRITTEN_OFF":
-      return "red";
-
-    default:
-      return "gray";
-  }
-}
-
-function Field({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-      <p className="text-[9px] font-semibold uppercase tracking-wide text-gray-400">
-        {label}
-      </p>
-
-      <p className="mt-1 text-sm font-semibold text-gray-800">{value}</p>
-    </div>
-  );
-}
+};
 
 export default function LoansPage() {
   const [loans, setLoans] = useState<Loan[]>([]);
-
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
-
-  const [error, setError] = useState("");
-
-  const [search, setSearch] = useState("");
-
   const [status, setStatus] = useState("");
-
   const [type, setType] = useState("");
+  const [actionId, setActionId] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
+  const { currency, locale, isOfficer } = useAuth();
+  const router = useRouter();
+  const fc = (n?: number) => formatCurrency(safeNumber(n), currency, locale);
 
-  const [selected, setSelected] = useState<Loan | null>(null);
-
-  const load = async () => {
+  const load = useCallback(() => {
     setLoading(true);
-    setError("");
+
+    loanApi
+      .list(page, 20, status, type)
+      .then((r: any) => {
+        const content = Array.isArray(r?.content)
+          ? r.content
+          : Array.isArray(r)
+            ? r
+            : [];
+
+        setLoans(content);
+        setTotal(safeNumber(r?.totalElements ?? content.length));
+      })
+      .catch((error) => {
+        console.error("Failed to load loans:", error);
+        setLoans([]);
+        setTotal(0);
+      })
+      .finally(() => setLoading(false));
+  }, [page, status, type]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const quickAction = async (
+    e: React.MouseEvent,
+    loanId: number,
+    action: string,
+  ) => {
+    e.stopPropagation();
+    setActionId(loanId);
 
     try {
-      const response = await getLoans();
-
-      const raw: any = response;
-
-      const rows = Array.isArray(raw)
-        ? raw
-        : Array.isArray(raw?.content)
-          ? raw.content
-          : Array.isArray(raw?.data)
-            ? raw.data
-            : Array.isArray(raw?.data?.content)
-              ? raw.data.content
-              : [];
-
-      setLoans(rows as Loan[]);
-    } catch (err) {
-      console.error(err);
-
-      setError(err instanceof Error ? err.message : "Unable to load loans.");
+      if (action === "approve") await loanApi.approve(loanId);
+      if (action === "disburse")
+        await loanApi.disburse(loanId, "BANK_TRANSFER");
+      load();
+    } catch (err: any) {
+      alert(err?.message ?? "Unable to complete the loan action.");
     } finally {
-      setLoading(false);
+      setActionId(null);
     }
   };
 
-  useEffect(() => {
-    void load();
-  }, []);
+  const totalPages = Math.ceil(total / 20);
 
-  const loanTypes = useMemo(
-    () =>
-      Array.from(
-        new Set(loans.map((loan) => loan.loanType).filter(Boolean)),
-      ) as string[],
-    [loans],
-  );
-
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-
-    return loans.filter((loan) => {
-      const matchesStatus =
-        !status || String(loan.status).toUpperCase() === status;
-
-      const matchesType = !type || String(loan.loanType).toUpperCase() === type;
-
-      if (!matchesStatus || !matchesType) {
-        return false;
-      }
-
-      if (!query) {
-        return true;
-      }
-
-      const haystack = [
-        loan.referenceNumber,
-        borrowerName(loan),
-        loan.borrower?.id,
-        loan.loanType,
-        loan.status,
-        loan.creditQuality,
-        loan.arrearsStatus,
-        loan.collectionsStage,
-        loan.riskCategory,
-        loan.creditScoreSnapshot,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      return haystack.includes(query);
-    });
-  }, [loans, search, status, type]);
-
-  if (loading) {
-    return <PageSpinner />;
-  }
-
-  if (error) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="max-w-md rounded-2xl border border-red-200 bg-white p-8 text-center shadow-sm">
-          <div className="text-3xl">⚠️</div>
-
-          <h2 className="mt-4 text-lg font-bold text-gray-900">
-            Unable to load loans
-          </h2>
-
-          <p className="mt-2 text-sm text-gray-500">{error}</p>
-
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="mt-6 rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white"
-          >
-            Try Again
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const filteredLoans = search.trim()
+    ? loans.filter((loan) => {
+        const query = search.trim().toLowerCase();
+        const borrower =
+          `${loan.borrower?.firstName ?? ""} ${loan.borrower?.lastName ?? ""}`.toLowerCase();
+        return (
+          String(loan.referenceNumber ?? "")
+            .toLowerCase()
+            .includes(query) ||
+          borrower.includes(query) ||
+          String(loan.borrower?.nationalId ?? "")
+            .toLowerCase()
+            .includes(query)
+        );
+      })
+    : loans;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <div>
+      <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Loans</h1>
-
-          <p className="mt-1 text-sm text-gray-500">
-            Loan portfolio, balances, repayment status and credit-risk
-            classification.
+          <h1 className="text-2xl font-extrabold text-gray-900">
+            Loan Portfolio
+          </h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {formatNumber(total)} loans total
           </p>
         </div>
-
-        <div className="text-sm text-gray-500">
-          {filtered.length} of {loans.length} loans
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px_180px_auto]">
-        <input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search reference, borrower, classification..."
-          className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-        />
-
-        <select
-          value={status}
-          onChange={(event) => setStatus(event.target.value)}
-          className="rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm"
-        >
-          <option value="">All statuses</option>
-
-          {[
-            "PENDING",
-            "UNDER_REVIEW",
-            "ACTIVE",
-            "OVERDUE",
-            "DEFAULTED",
-            "PAID",
-            "CLOSED",
-            "REJECTED",
-            "WRITTEN_OFF",
-          ].map((item) => (
-            <option key={item} value={item}>
-              {text(item)}
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={type}
-          onChange={(event) => setType(event.target.value)}
-          className="rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm"
-        >
-          <option value="">All loan types</option>
-
-          {loanTypes.map((item) => (
-            <option key={item} value={item}>
-              {text(item)}
-            </option>
-          ))}
-        </select>
-
-        <button
-          type="button"
-          onClick={() => {
-            setSearch("");
-            setStatus("");
-            setType("");
-          }}
-          className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-50"
-        >
-          Clear
-        </button>
-      </div>
-
-      <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
-        <table className="w-full min-w-[1500px] text-sm">
-          <thead>
-            <tr className="bg-gray-50 text-left text-[10px] uppercase tracking-wide text-gray-500">
-              <th className="px-4 py-3">Loan</th>
-
-              <th className="px-4 py-3">Borrower</th>
-
-              <th className="px-4 py-3">Type</th>
-
-              <th className="px-4 py-3">Status</th>
-
-              <th className="px-4 py-3">Credit Quality</th>
-
-              <th className="px-4 py-3">Arrears</th>
-
-              <th className="px-4 py-3">Collection Stage</th>
-
-              <th className="px-4 py-3 text-right">Days Overdue</th>
-
-              <th className="px-4 py-3 text-right">Principal</th>
-
-              <th className="px-4 py-3 text-right">Outstanding</th>
-
-              <th className="px-4 py-3">Risk</th>
-
-              <th className="px-4 py-3">Classified</th>
-
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-
-          <tbody>
-            {filtered.map((loan) => (
-              <tr
-                key={loan.id}
-                className="border-t border-gray-100 hover:bg-gray-50"
-              >
-                <td className="px-4 py-3">
-                  <div className="font-semibold text-gray-900">
-                    {loan.referenceNumber || `Loan #${loan.id ?? "—"}`}
-                  </div>
-
-                  <div className="mt-1 text-[10px] text-gray-400">
-                    ID {loan.id ?? "—"}
-                  </div>
-                </td>
-
-                <td className="px-4 py-3">
-                  <div className="font-medium text-gray-800">
-                    {borrowerName(loan)}
-                  </div>
-
-                  <div className="mt-1 text-[10px] text-gray-400">
-                    Borrower #{loan.borrower?.id ?? "—"}
-                  </div>
-                </td>
-
-                <td className="px-4 py-3 text-gray-600">
-                  {text(loan.loanType)}
-                </td>
-
-                <td className="px-4 py-3">
-                  <Badge value={loan.status} tone={statusTone(loan.status)} />
-                </td>
-
-                <td className="px-4 py-3">
-                  <Badge
-                    value={loan.creditQuality}
-                    tone={qualityTone(loan.creditQuality)}
-                  />
-                </td>
-
-                <td className="px-4 py-3">
-                  <Badge
-                    value={loan.arrearsStatus}
-                    tone={loan.arrearsStatus === "PAST_DUE" ? "red" : "green"}
-                  />
-                </td>
-
-                <td className="px-4 py-3">
-                  <Badge
-                    value={loan.collectionsStage}
-                    tone={
-                      loan.collectionsStage === "NORMAL"
-                        ? "green"
-                        : loan.collectionsStage === "REMINDER"
-                          ? "yellow"
-                          : loan.collectionsStage === "RECOVERY"
-                            ? "red"
-                            : "orange"
-                    }
-                  />
-                </td>
-
-                <td className="px-4 py-3 text-right font-semibold">
-                  {number(loan.daysOverdue)}
-                </td>
-
-                <td className="px-4 py-3 text-right">
-                  {money(loan.amount, loan.currency)}
-                </td>
-
-                <td className="px-4 py-3 text-right font-semibold text-gray-900">
-                  {money(loan.outstandingBalance, loan.currency)}
-                </td>
-
-                <td className="px-4 py-3">
-                  <div className="font-semibold text-gray-800">
-                    {text(loan.riskCategory)}
-                  </div>
-
-                  <div className="mt-1 text-[10px] text-gray-400">
-                    Score: {loan.riskScore ?? "—"}
-                  </div>
-                </td>
-
-                <td className="px-4 py-3 text-xs text-gray-500">
-                  {date(loan.classifiedAt)}
-                </td>
-
-                <td className="px-4 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() => setSelected(loan)}
-                    className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                  >
-                    View
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {filtered.length === 0 && (
-          <div className="py-12 text-center text-sm text-gray-400">
-            No loans match the selected filters.
-          </div>
+        {isOfficer && (
+          <Button icon="+" onClick={() => router.push("/dashboard/loans/new")}>
+            New Loan
+          </Button>
         )}
       </div>
 
-      {selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-100 bg-white px-6 py-4">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">
-                  {selected.referenceNumber || `Loan #${selected.id}`}
-                </h2>
+      <div className="flex gap-3 mb-4 flex-wrap items-center">
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+            🔍
+          </span>
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search loans…"
+            className="pl-9 w-52"
+          />
+        </div>
 
-                <p className="mt-1 text-xs text-gray-500">
-                  {borrowerName(selected)}
-                </p>
-              </div>
+        <Select
+          value={status}
+          onChange={(e) => {
+            setStatus(e.target.value);
+            setPage(0);
+          }}
+          className="w-40"
+        >
+          <option value="">All Statuses</option>
+          {STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {label(s)}
+            </option>
+          ))}
+        </Select>
 
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200"
+        <Select
+          value={type}
+          onChange={(e) => {
+            setType(e.target.value);
+            setPage(0);
+          }}
+          className="w-44"
+        >
+          <option value="">All Types</option>
+          {TYPES.map((t) => (
+            <option key={t} value={t}>
+              {LOAN_TYPE_META[t]?.label ?? label(t)}
+            </option>
+          ))}
+        </Select>
+
+        {(status || type || search) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setStatus("");
+              setType("");
+              setSearch("");
+              setPage(0);
+            }}
+          >
+            ✕ Clear
+          </Button>
+        )}
+      </div>
+
+      <Card>
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <Thead>
+                <tr>
+                  <Th>Reference</Th>
+                  <Th>Borrower</Th>
+                  <Th>Type</Th>
+                  <Th>Principal</Th>
+                  <Th>Rate</Th>
+                  <Th>Fees</Th>
+                  <Th>Outstanding</Th>
+                  <Th>Term</Th>
+                  <Th>Credit Quality</Th>
+                  <Th>Arrears</Th>
+                  <Th>Days Overdue</Th>
+                  <Th>Collection Stage</Th>
+                  <Th>Risk</Th>
+                  <Th>Status</Th>
+                  <Th>Classified</Th>
+                  {isOfficer && <Th>Actions</Th>}
+                </tr>
+              </Thead>
+
+              <Tbody>
+                {filteredLoans.length === 0 ? (
+                  <EmptyRow
+                    cols={isOfficer ? 16 : 15}
+                    message="No loans match your filters"
+                  />
+                ) : (
+                  filteredLoans.map((loan) => {
+                    const totalRepayable = safeNumber(loan.totalRepayable);
+                    const totalPaid = safeNumber(loan.totalPaid);
+                    const prog =
+                      totalRepayable > 0
+                        ? Math.min(
+                            100,
+                            Math.round((totalPaid / totalRepayable) * 100),
+                          )
+                        : 0;
+
+                    const totalFees =
+                      safeNumber(loan.processingFee) +
+                      safeNumber(loan.managementFee);
+
+                    return (
+                      <Tr
+                        key={loan.id}
+                        onClick={() =>
+                          router.push(`/dashboard/loans/${loan.id}`)
+                        }
+                      >
+                        <Td>
+                          <code className="text-xs bg-gray-100 px-2 py-0.5 rounded font-mono">
+                            {loan.referenceNumber}
+                          </code>
+                        </Td>
+
+                        <Td>
+                          <div className="font-semibold text-sm text-gray-900">
+                            {loan.borrower?.firstName} {loan.borrower?.lastName}
+                          </div>
+                          <div className="text-xs text-gray-400">
+                            Score: {loan.creditScoreSnapshot ?? "—"}
+                          </div>
+                        </Td>
+
+                        <Td className="text-sm whitespace-nowrap">
+                          {LOAN_TYPE_META[loan.loanType]?.icon}{" "}
+                          {LOAN_TYPE_META[loan.loanType]?.label ??
+                            label(loan.loanType)}
+                        </Td>
+
+                        <Td className="font-bold text-gray-900 whitespace-nowrap">
+                          {fc(loan.amount)}
+                        </Td>
+
+                        <Td className="text-gray-500 whitespace-nowrap">
+                          {safeNumber(loan.interestRate).toFixed(2)}%{" "}
+                          {loan.interestRateType === "MONTHLY" ? "mo" : ""}
+                        </Td>
+
+                        <Td className="whitespace-nowrap">
+                          <div className="font-semibold text-gray-700">
+                            {fc(totalFees)}
+                          </div>
+                          <div className="text-[10px] text-gray-400">
+                            Processing {fc(loan.processingFee)} · Mgmt{" "}
+                            {fc(loan.managementFee)}
+                          </div>
+                        </Td>
+
+                        <Td className="whitespace-nowrap">
+                          <div className="font-bold text-gray-900">
+                            {fc(loan.outstandingBalance)}
+                          </div>
+                          <div className="text-[10px] text-gray-400">
+                            Paid {fc(loan.totalPaid)}
+                          </div>
+                        </Td>
+
+                        <Td className="text-gray-500 whitespace-nowrap">
+                          {loan.durationMonths}mo
+                        </Td>
+
+                        <Td>
+                          <span
+                            className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${classificationClass(loan.creditQuality)}`}
+                          >
+                            {label(loan.creditQuality)}
+                          </span>
+                        </Td>
+
+                        <Td>
+                          <span
+                            className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${classificationClass(loan.arrearsStatus)}`}
+                          >
+                            {label(loan.arrearsStatus)}
+                          </span>
+                        </Td>
+
+                        <Td className="text-center font-semibold text-gray-700">
+                          {safeNumber(loan.daysOverdue)}
+                        </Td>
+
+                        <Td>
+                          <span
+                            className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${classificationClass(loan.collectionsStage)}`}
+                          >
+                            {label(loan.collectionsStage)}
+                          </span>
+                        </Td>
+
+                        <Td>
+                          {loan.riskCategory ? (
+                            <RiskBadge
+                              category={loan.riskCategory}
+                              score={loan.riskScore}
+                            />
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
+                        </Td>
+
+                        <Td>
+                          <StatusBadge status={loan.status} />
+                        </Td>
+
+                        <Td className="text-xs text-gray-400 whitespace-nowrap">
+                          {formatDate(
+                            loan.classifiedAt ?? loan.startDate,
+                            locale,
+                          )}
+                        </Td>
+
+                        {isOfficer && (
+                          <Td onClick={(e) => e.stopPropagation()}>
+                            <div className="flex gap-1.5">
+                              {loan.status === "PENDING" && (
+                                <Button
+                                  size="xs"
+                                  loading={actionId === loan.id}
+                                  onClick={(e) =>
+                                    quickAction(e, loan.id, "approve")
+                                  }
+                                >
+                                  Approve
+                                </Button>
+                              )}
+
+                              {loan.status === "APPROVED" && (
+                                <Button
+                                  size="xs"
+                                  variant="secondary"
+                                  loading={actionId === loan.id}
+                                  onClick={(e) =>
+                                    quickAction(e, loan.id, "disburse")
+                                  }
+                                >
+                                  Disburse
+                                </Button>
+                              )}
+
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  router.push(`/dashboard/loans/${loan.id}`);
+                                }}
+                              >
+                                →
+                              </Button>
+                            </div>
+                          </Td>
+                        )}
+                      </Tr>
+                    );
+                  })
+                )}
+              </Tbody>
+            </Table>
+          </div>
+        )}
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-xl">
+            <span className="text-xs text-gray-500">
+              Showing {page * 20 + 1}–{Math.min((page + 1) * 20, total)} of{" "}
+              {formatNumber(total)}
+            </span>
+
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                size="xs"
+                disabled={page === 0}
+                onClick={() => setPage((p) => p - 1)}
               >
-                ×
-              </button>
-            </div>
+                ← Prev
+              </Button>
 
-            <div className="space-y-6 p-6">
-              <section>
-                <h3 className="mb-3 text-sm font-semibold text-gray-900">
-                  Credit &amp; Collections Classification
-                </h3>
+              {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => (
+                <Button
+                  key={i}
+                  size="xs"
+                  variant={i === page ? "primary" : "secondary"}
+                  onClick={() => setPage(i)}
+                >
+                  {i + 1}
+                </Button>
+              ))}
 
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-                  <Field
-                    label="Credit Quality"
-                    value={
-                      <Badge
-                        value={selected.creditQuality}
-                        tone={qualityTone(selected.creditQuality)}
-                      />
-                    }
-                  />
-
-                  <Field
-                    label="Arrears Status"
-                    value={
-                      <Badge
-                        value={selected.arrearsStatus}
-                        tone={
-                          selected.arrearsStatus === "PAST_DUE"
-                            ? "red"
-                            : "green"
-                        }
-                      />
-                    }
-                  />
-
-                  <Field
-                    label="Collection Stage"
-                    value={
-                      <Badge
-                        value={selected.collectionsStage}
-                        tone={
-                          selected.collectionsStage === "NORMAL"
-                            ? "green"
-                            : selected.collectionsStage === "REMINDER"
-                              ? "yellow"
-                              : selected.collectionsStage === "RECOVERY"
-                                ? "red"
-                                : "orange"
-                        }
-                      />
-                    }
-                  />
-
-                  <Field
-                    label="Days Overdue"
-                    value={number(selected.daysOverdue)}
-                  />
-
-                  <Field
-                    label="Classified At"
-                    value={date(selected.classifiedAt)}
-                  />
-                </div>
-              </section>
-
-              <section>
-                <h3 className="mb-3 text-sm font-semibold text-gray-900">
-                  Loan Financial Position
-                </h3>
-
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                  <Field
-                    label="Original Principal"
-                    value={money(selected.amount, selected.currency)}
-                  />
-
-                  <Field
-                    label="Gross Disbursed"
-                    value={money(selected.disbursedAmount, selected.currency)}
-                  />
-
-                  <Field
-                    label="Net Disbursed"
-                    value={money(
-                      selected.netDisbursedAmount,
-                      selected.currency,
-                    )}
-                  />
-
-                  <Field
-                    label="Outstanding Balance"
-                    value={money(
-                      selected.outstandingBalance,
-                      selected.currency,
-                    )}
-                  />
-
-                  <Field
-                    label="Total Repayable"
-                    value={money(selected.totalRepayable, selected.currency)}
-                  />
-
-                  <Field
-                    label="Total Paid"
-                    value={money(selected.totalPaid, selected.currency)}
-                  />
-
-                  <Field
-                    label="Total Interest"
-                    value={money(selected.totalInterest, selected.currency)}
-                  />
-
-                  <Field
-                    label="Interest Paid"
-                    value={money(selected.interestPaid, selected.currency)}
-                  />
-                </div>
-              </section>
-
-              <section>
-                <h3 className="mb-3 text-sm font-semibold text-gray-900">
-                  Interest &amp; Fees
-                </h3>
-
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                  <Field
-                    label="Interest Rate"
-                    value={
-                      selected.interestRate != null
-                        ? `${selected.interestRate}%`
-                        : "—"
-                    }
-                  />
-
-                  <Field
-                    label="Rate Type"
-                    value={text(selected.interestRateType)}
-                  />
-
-                  <Field
-                    label="Management Fee Rate"
-                    value={
-                      selected.managementFeeRate != null
-                        ? `${selected.managementFeeRate}%`
-                        : "—"
-                    }
-                  />
-
-                  <Field
-                    label="Management Fee"
-                    value={money(selected.managementFee, selected.currency)}
-                  />
-
-                  <Field
-                    label="Management Fee Paid"
-                    value={money(selected.managementFeePaid, selected.currency)}
-                  />
-
-                  <Field
-                    label="Processing Fee Rate"
-                    value={
-                      selected.processingFeeRate != null
-                        ? `${selected.processingFeeRate}%`
-                        : "—"
-                    }
-                  />
-
-                  <Field
-                    label="Processing Fee"
-                    value={money(selected.processingFee, selected.currency)}
-                  />
-
-                  <Field
-                    label="Processing Fee Paid"
-                    value={money(selected.processingFeePaid, selected.currency)}
-                  />
-                </div>
-              </section>
-
-              <section>
-                <h3 className="mb-3 text-sm font-semibold text-gray-900">
-                  Risk Profile
-                </h3>
-
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                  <Field label="Risk Score" value={selected.riskScore ?? "—"} />
-
-                  <Field
-                    label="Risk Category"
-                    value={text(selected.riskCategory)}
-                  />
-
-                  <Field
-                    label="Debt-to-Income Ratio"
-                    value={
-                      selected.debtToIncomeRatio != null
-                        ? `${selected.debtToIncomeRatio}%`
-                        : "—"
-                    }
-                  />
-
-                  <Field
-                    label="Credit Score Snapshot"
-                    value={selected.creditScoreSnapshot ?? "—"}
-                  />
-                </div>
-              </section>
-
-              <section>
-                <h3 className="mb-3 text-sm font-semibold text-gray-900">
-                  Loan Dates
-                </h3>
-
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                  <Field label="Start Date" value={date(selected.startDate)} />
-
-                  <Field
-                    label="Approved At"
-                    value={date(selected.approvedAt)}
-                  />
-
-                  <Field
-                    label="Disbursed At"
-                    value={date(selected.disbursedAt)}
-                  />
-
-                  <Field
-                    label="Maturity Date"
-                    value={date(selected.maturityDate)}
-                  />
-
-                  <Field
-                    label="Next Payment"
-                    value={date(selected.nextPaymentDate)}
-                  />
-
-                  <Field
-                    label="Next Due Date"
-                    value={date(selected.nextDueDate)}
-                  />
-
-                  <Field
-                    label="Last Payment"
-                    value={date(selected.lastPaymentDate)}
-                  />
-
-                  <Field
-                    label="Missed Installments"
-                    value={number(selected.missedInstallments)}
-                  />
-                </div>
-              </section>
-
-              <section>
-                <h3 className="mb-3 text-sm font-semibold text-gray-900">
-                  Responsible Officer
-                </h3>
-
-                <Field label="Loan Officer" value={officerName(selected)} />
-              </section>
+              <Button
+                variant="secondary"
+                size="xs"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Next →
+              </Button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </Card>
     </div>
   );
 }

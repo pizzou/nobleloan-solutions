@@ -1,84 +1,49 @@
-
-
-
-
 export type LoanStatus =
-  | 'PENDING'
-  | 'UNDER_REVIEW'
-  | 'APPROVED'
-  | 'REJECTED'
-  | 'DISBURSED'
-  | 'ACTIVE'
-  | 'OVERDUE'
-  | 'DEFAULTED'
-  | 'RESTRUCTURED'
-  | 'WRITTEN_OFF'
-  | 'PAID'
-  | 'CLOSED'
-  | 'CANCELLED';
+  | "PENDING"
+  | "UNDER_REVIEW"
+  | "APPROVED"
+  | "REJECTED"
+  | "DISBURSED"
+  | "ACTIVE"
+  | "OVERDUE"
+  | "DEFAULTED"
+  | "RESTRUCTURED"
+  | "WRITTEN_OFF"
+  | "PAID"
+  | "CLOSED"
+  | "CANCELLED";
 
 export type LoanType =
-  | 'PERSONAL'
-  | 'MORTGAGE'
-  | 'AUTO'
-  | 'BUSINESS'
-  | 'STUDENT'
-  | 'EMERGENCY'
-  | 'ASSET_FINANCE'
-  | 'SALARY_ADVANCE'
-  | 'MICROFINANCE'
-  | 'AGRICULTURAL'
-  | 'TRADE_FINANCE'
-  | 'GROUP';
+  | "PERSONAL"
+  | "MORTGAGE"
+  | "AUTO"
+  | "BUSINESS"
+  | "STUDENT"
+  | "EMERGENCY"
+  | "ASSET_FINANCE"
+  | "SALARY_ADVANCE"
+  | "MICROFINANCE"
+  | "AGRICULTURAL"
+  | "TRADE_FINANCE"
+  | "GROUP";
 
 export type RepaymentFrequency =
-  | 'WEEKLY'
-  | 'BIWEEKLY'
-  | 'MONTHLY'
-  | 'QUARTERLY'
-  | 'BULLET';
+  "WEEKLY" | "BIWEEKLY" | "MONTHLY" | "QUARTERLY" | "BULLET";
 
-export type RiskCategory =
-  | 'LOW'
-  | 'MEDIUM'
-  | 'HIGH'
-  | 'CRITICAL';
-
-  
+export type RiskCategory = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
 export type OrgStatus =
-  | 'ACTIVE'
-  | 'SUSPENDED'
-  | 'TRIAL'
-  | 'EXPIRED'
-  | 'PENDING_SETUP';
+  "ACTIVE" | "SUSPENDED" | "TRIAL" | "EXPIRED" | "PENDING_SETUP";
 
 export type SubscriptionTier =
-  | 'TRIAL'
-  | 'STARTER'
-  | 'PROFESSIONAL'
-  | 'ENTERPRISE'
-  | 'UNLIMITED';
+  "TRIAL" | "STARTER" | "PROFESSIONAL" | "ENTERPRISE" | "UNLIMITED";
 
-export type BorrowerStatus =
-  | 'ACTIVE'
-  | 'INACTIVE'
-  | 'BLACKLISTED'
-  | 'DECEASED';
+export type BorrowerStatus = "ACTIVE" | "INACTIVE" | "BLACKLISTED" | "DECEASED";
 
-export type UserStatus =
-  | 'ACTIVE'
-  | 'INACTIVE'
-  | 'SUSPENDED'
-  | 'PENDING_INVITE';
+export type UserStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED" | "PENDING_INVITE";
 
 export type PaymentStatus =
-  | 'PENDING'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'REVERSED'
-  | 'PARTIALLY_PAID';
-
+  "PENDING" | "COMPLETED" | "FAILED" | "REVERSED" | "PARTIALLY_PAID";
 
 // ============================================================
 // ORGANIZATION
@@ -118,7 +83,6 @@ export interface Organization {
   createdAt?: string;
 }
 
-
 // ============================================================
 // ROLE
 // ============================================================
@@ -128,7 +92,6 @@ export interface Role {
   name: string;
   description?: string;
 }
-
 
 // ============================================================
 // USER
@@ -151,7 +114,6 @@ export interface User {
   lastLoginAt?: string;
   createdAt?: string;
 }
-
 
 // ============================================================
 // BORROWER
@@ -213,10 +175,7 @@ export interface Borrower {
 
   status: BorrowerStatus;
 
-  kycStatus:
-    | 'PENDING'
-    | 'VERIFIED'
-    | 'REJECTED';
+  kycStatus: "PENDING" | "VERIFIED" | "REJECTED";
 
   bankName?: string;
   bankAccountNumber?: string;
@@ -224,7 +183,6 @@ export interface Borrower {
 
   createdAt?: string;
 }
-
 
 // ============================================================
 // LOAN
@@ -271,9 +229,25 @@ export interface Loan {
 
   processingFee?: number;
 
+  processingFeeRate?: number;
+
+  processingFeePaid?: number;
+
   disbursedAmount?: number;
 
+  netDisbursedAmount?: number;
+
   totalRepayable?: number;
+
+  managementFeeRate?: number;
+
+  managementFee?: number;
+
+  managementFeePaid?: number;
+
+  totalInterest?: number;
+
+  interestPaid?: number;
 
   totalPaid?: number;
 
@@ -315,11 +289,28 @@ export interface Loan {
 
   daysOverdue?: number;
 
+  creditQuality?: string;
+
+  arrearsStatus?: string;
+
+  collectionsStage?: string;
+
+  classifiedAt?: string;
+
+  nextInstallmentAmount?: number;
+
+  nextPaymentDate?: string;
+
+  imported?: boolean;
+
+  importBatchId?: number;
+
+  termsAcceptedAt?: string;
+
   createdAt?: string;
 
   repaymentProgressPct?: number;
 }
-
 
 // ============================================================
 // PAYMENT
@@ -375,7 +366,6 @@ export interface Payment {
   status: PaymentStatus;
 }
 
-
 // ============================================================
 // BORROWER LOAN SUMMARY
 //
@@ -427,7 +417,6 @@ export interface BorrowerLoanSummary {
 
   currency?: string | null;
 }
-
 
 // ============================================================
 // BORROWER PAYMENT
@@ -521,7 +510,6 @@ export interface BorrowerPayment {
   notes?: string | null;
 }
 
-
 // ============================================================
 // BORROWER DETAILS
 //
@@ -565,7 +553,6 @@ export interface BorrowerDetails {
 
   address?: string | null;
 
-
   // ============================================================
   // EMPLOYMENT / FINANCIAL PROFILE
   // ============================================================
@@ -588,7 +575,6 @@ export interface BorrowerDetails {
 
   creditReportDate?: string | null;
 
-
   // ============================================================
   // BORROWER STATUS
   // ============================================================
@@ -596,7 +582,6 @@ export interface BorrowerDetails {
   status?: BorrowerStatus | string | null;
 
   createdAt?: string | null;
-
 
   // ============================================================
   // LOAN SUMMARY
@@ -628,7 +613,6 @@ export interface BorrowerDetails {
 
   totalPaid: number;
 
-
   // ============================================================
   // REPAYMENT PERFORMANCE
   // ============================================================
@@ -649,7 +633,6 @@ export interface BorrowerDetails {
 
   maximumDaysPastDue: number;
 
-
   // ============================================================
   // RISK
   // ============================================================
@@ -666,13 +649,11 @@ export interface BorrowerDetails {
 
   hasMultipleActiveLoans: boolean;
 
-
   // ============================================================
   // LOANS
   // ============================================================
 
   loans: BorrowerLoanSummary[];
-
 
   // ============================================================
   // PAYMENTS
@@ -680,7 +661,6 @@ export interface BorrowerDetails {
 
   payments: BorrowerPayment[];
 }
-
 
 // ============================================================
 // ALIAS
@@ -690,7 +670,6 @@ export interface BorrowerDetails {
 // ============================================================
 
 export type BorrowerDetailsResponse = BorrowerDetails;
-
 
 // ============================================================
 // DASHBOARD STATS
@@ -732,7 +711,6 @@ export interface DashboardStats {
   }[];
 }
 
-
 // ============================================================
 // CHART
 // ============================================================
@@ -741,7 +719,6 @@ export interface ChartPoint {
   month: string;
   amount: number;
 }
-
 
 // ============================================================
 // RISK SCORE
@@ -754,7 +731,6 @@ export interface RiskScore {
 
   factors?: string[];
 }
-
 
 // ============================================================
 // AUTH
@@ -784,7 +760,6 @@ export interface AuthResponse {
   mustChangePassword?: boolean;
 }
 
-
 // ============================================================
 // WEBHOOK
 // ============================================================
@@ -809,7 +784,6 @@ export interface WebhookEndpoint {
   lastDeliveryStatus?: string;
 }
 
-
 // ============================================================
 // CURRENCY
 // ============================================================
@@ -823,7 +797,6 @@ export interface CurrencyRate {
 
   fetchedAt: string;
 }
-
 
 // ============================================================
 // PAGINATION
@@ -842,7 +815,6 @@ export interface PageResponse<T> {
 
   last: boolean;
 }
-
 
 // ============================================================
 // BORROWER FILE
@@ -864,10 +836,7 @@ export interface BorrowerFile {
   uploadedAt?: string;
 
   verificationStatus?:
-    | 'PENDING_VERIFICATION'
-    | 'VERIFIED'
-    | 'REJECTED'
-    | 'REPLACEMENT_REQUESTED';
+    "PENDING_VERIFICATION" | "VERIFIED" | "REJECTED" | "REPLACEMENT_REQUESTED";
 
   officerComment?: string;
 
