@@ -1,4 +1,4 @@
--- V52__add_loan_collections_fields.sql
+-- V56__add_loan_collections_fields.sql
 
 ALTER TABLE loans
     ADD COLUMN IF NOT EXISTS arrears_status VARCHAR(20);
