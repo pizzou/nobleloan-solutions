@@ -2579,7 +2579,7 @@ public class LoanService {
                         }
 
                         loan.setRiskScore(
-                                        risk.getScore());
+                                        BigDecimal.valueOf(risk.getScore()));
 
                         loan.setRiskCategory(
                                         risk.getCategory());
