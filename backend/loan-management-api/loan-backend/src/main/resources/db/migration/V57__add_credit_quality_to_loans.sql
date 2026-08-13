@@ -1,9 +1,8 @@
--- V57__add_credit_quality_to_loans.sql
 
 ALTER TABLE loans
     ADD COLUMN IF NOT EXISTS credit_quality VARCHAR(20);
 
--- Backfill existing loans using days_overdue.
+
 UPDATE loans
 SET credit_quality =
     CASE
@@ -23,15 +22,17 @@ SET credit_quality =
     END
 WHERE credit_quality IS NULL;
 
--- Set the database default.
+
+
 ALTER TABLE loans
     ALTER COLUMN credit_quality SET DEFAULT 'CURRENT';
 
--- Hibernate expects this field to be non-null.
+
+
 ALTER TABLE loans
     ALTER COLUMN credit_quality SET NOT NULL;
 
--- Protect the allowed enum values.
+
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -54,6 +55,7 @@ BEGIN
 END
 $$;
 
--- Index for credit-quality queries.
+
 CREATE INDEX IF NOT EXISTS idx_loans_credit_quality
     ON loans (credit_quality);
+
