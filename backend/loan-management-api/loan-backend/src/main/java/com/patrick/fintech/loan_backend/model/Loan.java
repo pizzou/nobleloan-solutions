@@ -423,16 +423,6 @@ public class Loan {
         @JsonProperty("interestPaid")
         private BigDecimal interestPaid = BigDecimal.ZERO;
 
-        // ================================================================
-        // LOAN DURATION
-        // ================================================================
-
-        /**
-         * Loan term in months.
-         *
-         * Valid range:
-         * 1 through 6 months.
-         */
         @Column(name = "duration_months", nullable = false)
         private Integer durationMonths;
 
@@ -444,15 +434,6 @@ public class Loan {
         @Builder.Default
         private String currency = "RWF";
 
-        // ================================================================
-        // PROCESSING FEE
-        // ================================================================
-
-        /**
-         * One-time processing fee percentage.
-         *
-         * ALL loan types = 2%.
-         */
         @Column(name = "processing_fee_rate", precision = 19, scale = 9)
         @Builder.Default
         @JsonProperty("processingFeeRate")
@@ -534,12 +515,6 @@ public class Loan {
         @Column(name = "approved_at")
         private LocalDate approvedAt;
 
-        /**
-         * Exact disbursement timestamp.
-         *
-         * PaymentService uses this for elapsed calendar-day interest
-         * calculations.
-         */
         @Column(name = "disbursed_at")
         private LocalDateTime disbursedAt;
 
@@ -803,21 +778,6 @@ public class Loan {
                 recalculateClassification();
         }
 
-        // ================================================================
-        // CLASSIFICATION LOGIC
-        // ================================================================
-
-        /**
-         * Calculates the credit quality from days overdue.
-         *
-         * Rules:
-         *
-         * 0 -> CURRENT
-         * 1-89 -> WATCH
-         * 90-179 -> SUBSTANDARD
-         * 180-359 -> DOUBTFUL
-         * 360+ -> WRITTEN_OFF
-         */
         public static CreditQuality classifyCreditQuality(
                         Integer daysOverdue) {
 
@@ -865,22 +825,6 @@ public class Loan {
                                 : ArrearsStatus.NOT_DUE;
         }
 
-        /**
-         * Calculates the loan-level collection stage.
-         *
-         * This is intentionally separate from CollectionCase.
-         *
-         * Loan.collectionsStage tells us the broad stage of the loan.
-         *
-         * CollectionCase handles:
-         * - assigned agent
-         * - contact history
-         * - promise to pay
-         * - next action
-         * - escalation
-         * - legal case
-         * - recovery actions
-         */
         public static CollectionsStage classifyCollectionsStage(
                         Integer daysOverdue) {
 
@@ -907,19 +851,6 @@ public class Loan {
                 return CollectionsStage.RECOVERY;
         }
 
-        /**
-         * Recalculates all loan-level classifications from daysOverdue.
-         *
-         * This keeps the three classifications synchronized:
-         *
-         * daysOverdue
-         * |
-         * +---- creditQuality
-         * |
-         * +---- arrearsStatus
-         * |
-         * +---- collectionsStage
-         */
         public void recalculateClassification() {
 
                 int days = daysOverdue == null
@@ -1006,13 +937,6 @@ public class Loan {
                                 MIN_LOAN_AMOUNT) >= 0;
         }
 
-        /**
-         * Returns true when the supplied term is valid.
-         *
-         * Valid:
-         *
-         * 1 month through 6 months.
-         */
         public static boolean isValidLoanDuration(
                         Integer months) {
 
@@ -1518,12 +1442,6 @@ public class Loan {
                 PAST_DUE
         }
 
-        /**
-         * Broad loan-level collection stage.
-         *
-         * Operational collection activities remain in
-         * CollectionCase and CollectionAction.
-         */
         public enum CollectionsStage {
 
                 NORMAL,
