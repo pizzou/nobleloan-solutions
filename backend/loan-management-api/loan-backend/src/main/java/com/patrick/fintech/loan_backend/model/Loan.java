@@ -373,15 +373,6 @@ public class Loan {
         @Builder.Default
         private String interestRateType = "MONTHLY";
 
-        // ================================================================
-        // MANAGEMENT FEE
-        // ================================================================
-
-        /**
-         * Monthly management fee rate.
-         *
-         * ALL loan types = 5% monthly.
-         */
         @Column(name = "management_fee_rate", precision = 19, scale = 9)
         @Builder.Default
         @JsonProperty("managementFeeRate")
@@ -492,8 +483,8 @@ public class Loan {
         // CREDIT / RISK
         // ================================================================
 
-        @Column(name = "risk_score")
-        private Double riskScore;
+        @Column(name = "risk_score", precision = 19, scale = 2)
+        private BigDecimal riskScore;
 
         @Column(name = "risk_category", length = 30)
         private String riskCategory;
