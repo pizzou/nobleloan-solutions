@@ -29,8 +29,8 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     // ============================================================
 
     /**
-     * Find loan by ID and eagerly load the relationships that are
-     * commonly required after the repository call.
+     * Find loan by ID and eagerly load commonly required
+     * relationships.
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -39,12 +39,12 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     @Override
     Optional<Loan> findById(Long id);
 
-
     /**
-     * Locks the loan row for the duration of the payment transaction.
+     * Find a loan by ID using a pessimistic write lock.
      *
-     * This is important for payment concurrency and does not
-     * modify or reinterpret Loan.disbursedAt.
+     * This is important for payment concurrency so that two
+     * simultaneous payment transactions cannot modify the same
+     * loan balance at the same time.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @EntityGraph(attributePaths = {
@@ -61,17 +61,15 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("id") Long id
     );
 
-
     /**
-     * Find loan using its public reference number.
+     * Find loan by public reference number.
      */
     Optional<Loan> findByReferenceNumber(
             String referenceNumber
     );
 
-
     /**
-     * Find a loan using reference number + hashed borrower phone.
+     * Find a loan using reference number and hashed borrower phone.
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -82,9 +80,8 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             String phoneHash
     );
 
-
     /**
-     * Public dashboard lookup.
+     * Public borrower dashboard lookup.
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -102,7 +99,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("phoneHash") String phoneHash
     );
 
-
     /**
      * Find all loans belonging to an organization.
      */
@@ -113,7 +109,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     List<Loan> findByOrganization_Id(
             Long organizationId
     );
-
 
     /**
      * Find all loans belonging to a borrower within an organization.
@@ -127,14 +122,12 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             Long organizationId
     );
 
-
     /**
      * Find loans whose status is one of the supplied statuses.
      */
     List<Loan> findByStatusIn(
             List<LoanStatus> statuses
     );
-
 
     /**
      * Find all loans by borrower's hashed phone number.
@@ -143,6 +136,100 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             String phoneHash
     );
 
+    // ============================================================
+    // COLLECTION / OVERDUE
+    // ============================================================
+
+    /**
+     * Find loans whose status is one of the supplied statuses OR
+     * whose number of overdue days is greater than or equal to
+     * the supplied value.
+     *
+     * This method is required by CollectionService.
+     *
+     * Example:
+     *
+     * findByStatusInOrDaysOverdueGreaterThanEqual(
+     *     List.of(
+     *         LoanStatus.ACTIVE,
+     *         LoanStatus.OVERDUE
+     *     ),
+     *     1
+     * );
+     *
+     * IMPORTANT:
+     * The Loan entity must contain a field named:
+     *
+     *     daysOverdue
+     *
+     * with a numeric type compatible with the int parameter.
+     */
+    @EntityGraph(attributePaths = {
+            "borrower",
+            "organization",
+            "loanOfficer"
+    })
+    List<Loan> findByStatusInOrDaysOverdueGreaterThanEqual(
+            List<LoanStatus> statuses,
+            int daysOverdue
+    );
+
+    /**
+     * Find loans by organization and status.
+     */
+    @EntityGraph(attributePaths = {
+            "borrower",
+            "organization",
+            "loanOfficer"
+    })
+    List<Loan> findByOrganization_IdAndStatus(
+            Long organizationId,
+            LoanStatus status
+    );
+
+    /**
+     * Find loans by organization and any of the supplied statuses.
+     */
+    @EntityGraph(attributePaths = {
+            "borrower",
+            "organization",
+            "loanOfficer"
+    })
+    List<Loan> findByOrganization_IdAndStatusIn(
+            Long organizationId,
+            List<LoanStatus> statuses
+    );
+
+    /**
+     * Find organization loans whose status matches or whose overdue
+     * days reach the specified threshold.
+     *
+     * This is the organization-scoped version and is preferable for
+     * tenant-aware collection processing.
+     */
+    @EntityGraph(attributePaths = {
+            "borrower",
+            "organization",
+            "loanOfficer"
+    })
+    @Query("""
+        SELECT l
+        FROM Loan l
+        WHERE l.organization.id = :organizationId
+          AND (
+              l.status IN :statuses
+              OR l.daysOverdue >= :daysOverdue
+          )
+        """)
+    List<Loan> findByOrganizationIdAndStatusInOrDaysOverdueGreaterThanEqual(
+            @Param("organizationId") Long organizationId,
+            @Param("statuses") List<LoanStatus> statuses,
+            @Param("daysOverdue") int daysOverdue
+    );
+
+    // ============================================================
+    // COUNT
+    // ============================================================
 
     /**
      * Count all loans belonging to an organization.
@@ -151,14 +238,12 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             Organization organization
     );
 
-
     /**
      * Count loans by organization ID.
      */
     long countByOrganization_Id(
             Long organizationId
     );
-
 
     /**
      * Count loans by organization and status.
@@ -168,7 +253,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             LoanStatus status
     );
 
-
     /**
      * Count loans by organization ID and status.
      */
@@ -176,7 +260,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             Long organizationId,
             LoanStatus status
     );
-
 
     // ============================================================
     // FILTERING
@@ -201,7 +284,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             Pageable pageable
     );
 
-
     // ============================================================
     // DASHBOARD
     // ============================================================
@@ -220,7 +302,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("org") Organization org
     );
 
-
     @Query("""
         SELECT COALESCE(SUM(l.totalPaid), 0)
         FROM Loan l
@@ -229,7 +310,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     BigDecimal sumTotalCollected(
             @Param("org") Organization org
     );
-
 
     @Query("""
         SELECT COALESCE(SUM(l.outstandingBalance), 0)
@@ -244,7 +324,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     BigDecimal sumOutstandingBalance(
             @Param("org") Organization org
     );
-
 
     // ============================================================
     // LOAN TYPE BREAKDOWN
@@ -261,7 +340,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     List<Object[]> getLoanTypeBreakdown(
             @Param("org") Organization org
     );
-
 
     // ============================================================
     // RECENT
@@ -282,31 +360,17 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             Pageable pageable
     );
 
-
     // ============================================================
     // REGULATORY
     // ============================================================
 
     /**
-     * IMPORTANT:
+     * Find loans disbursed during a date/time period.
      *
-     * Loan.disbursedAt is LocalDateTime.
+     * disbursedAt is LocalDateTime, therefore both from and to
+     * are LocalDateTime.
      *
-     * Therefore this repository method MUST also receive
-     * LocalDateTime values.
-     *
-     * The service should convert:
-     *
-     * from date -> from.atStartOfDay()
-     *
-     * to date -> next day atStartOfDay()
-     *
-     * and use:
-     *
-     * disbursedAt >= fromDateTime
-     * disbursedAt < toDateTime
-     *
-     * This preserves the exact time of disbursement.
+     * The upper bound is exclusive.
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -330,12 +394,10 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("to") LocalDateTime to
     );
 
-
     /**
      * Find portfolio as of a particular date/time.
      *
-     * The service should pass the exclusive beginning of the
-     * following day when it wants a complete LocalDate.
+     * The asOf parameter is exclusive.
      *
      * Example:
      *
@@ -343,12 +405,8 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
      *
      * asOfDateTime = 2026-09-01T00:00:00
      *
-     * Query:
-     *
-     * l.disbursedAt < asOf
-     *
      * This includes every loan disbursed on 2026-08-31,
-     * regardless of its exact time.
+     * regardless of the exact disbursement time.
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -371,12 +429,11 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("asOf") LocalDateTime asOf
     );
 
-
     /**
      * Find loans for regulatory reporting.
      *
-     * createdAt is also LocalDateTime, so the parameters correctly
-     * remain LocalDateTime.
+     * createdAt is LocalDateTime, therefore from/to are also
+     * LocalDateTime.
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -400,7 +457,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("to") LocalDateTime to
     );
 
-
     /**
      * Find loans created during a period.
      */
@@ -419,7 +475,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to
     );
-
 
     // ============================================================
     // EXISTS

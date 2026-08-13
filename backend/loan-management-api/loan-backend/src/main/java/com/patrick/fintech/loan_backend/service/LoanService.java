@@ -1,11 +1,25 @@
 package com.patrick.fintech.loan_backend.service;
 
-import com.patrick.fintech.loan_backend.dto.LoanRequest;
 import com.patrick.fintech.loan_backend.dto.DashboardStats;
+import com.patrick.fintech.loan_backend.dto.LoanRequest;
 import com.patrick.fintech.loan_backend.dto.publicportal.BorrowerDashboardResponse;
 import com.patrick.fintech.loan_backend.dto.publicportal.DashboardSummaryResponse;
-import com.patrick.fintech.loan_backend.model.*;
-import com.patrick.fintech.loan_backend.repository.*;
+import com.patrick.fintech.loan_backend.model.Borrower;
+import com.patrick.fintech.loan_backend.model.DocumentType;
+import com.patrick.fintech.loan_backend.model.Loan;
+import com.patrick.fintech.loan_backend.model.Loan.LoanType;
+import com.patrick.fintech.loan_backend.model.LoanProduct;
+import com.patrick.fintech.loan_backend.model.LoanStatus;
+import com.patrick.fintech.loan_backend.model.Organization;
+import com.patrick.fintech.loan_backend.model.Payment;
+import com.patrick.fintech.loan_backend.model.PaymentSchedule;
+import com.patrick.fintech.loan_backend.model.User;
+import com.patrick.fintech.loan_backend.repository.AuditLogRepository;
+import com.patrick.fintech.loan_backend.repository.BorrowerRepository;
+import com.patrick.fintech.loan_backend.repository.LoanProductRepository;
+import com.patrick.fintech.loan_backend.repository.LoanRepository;
+import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
+import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.security.HmacIndexer;
 
 import lombok.RequiredArgsConstructor;
@@ -22,6 +36,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,2950 +49,3034 @@ import java.util.stream.Collectors;
 @Slf4j
 public class LoanService {
 
-    private final LoanRepository loanRepo;
-    private final OrganizationRepository orgRepo;
-    private final PaymentRepository paymentRepo;
-    private final BorrowerRepository borrowerRepo;
-    private final RiskScoringService riskService;
-    private final NotificationService notifService;
-    private final MailService mailService;
-    private final SmsService smsService;
-    private final AuditLogRepository auditRepo;
-    private final WebhookService webhookService;
-    private final AuditService auditService;
-    private final LoanProductRepository loanProductRepo;
-    private final AccountingService accountingService;
-    private final BorrowerFileService fileService;
-    private final HolidayService holidayService;
-    private final CreditBureauService creditBureauService;
-    private final PaymentScheduleService paymentScheduleService;
+        private final LoanRepository loanRepo;
+        private final OrganizationRepository orgRepo;
+        private final PaymentRepository paymentRepo;
+        private final BorrowerRepository borrowerRepo;
+        private final RiskScoringService riskService;
+        private final NotificationService notifService;
+        private final MailService mailService;
+        private final SmsService smsService;
+        private final AuditLogRepository auditRepo;
+        private final WebhookService webhookService;
+        private final AuditService auditService;
+        private final LoanProductRepository loanProductRepo;
+        private final AccountingService accountingService;
+        private final BorrowerFileService fileService;
+        private final HolidayService holidayService;
+        private final CreditBureauService creditBureauService;
+        private final PaymentScheduleService paymentScheduleService;
 
-    private static final List<DocumentType> DEFAULT_REQUIRED_DOCS =
-            List.of(
-                    DocumentType.NATIONAL_ID,
-                    DocumentType.SELFIE,
-                    DocumentType.PROOF_OF_ADDRESS
-            );
+        private static final int MAX_LOAN_DURATION_MONTHS = 6;
 
-    // ================================================================
-    // BASE RATES
-    // ================================================================
+        private static final int DEFAULT_LOAN_DURATION_MONTHS = 1;
 
-    private static final Map<Loan.LoanType, BigDecimal> BASE_RATES =
-            Map.ofEntries(
-                    Map.entry(Loan.LoanType.PERSONAL, bd("10.0")),
-                    Map.entry(Loan.LoanType.MORTGAGE, bd("8.5")),
-                    Map.entry(Loan.LoanType.AUTO, bd("10.0")),
-                    Map.entry(Loan.LoanType.BUSINESS, bd("12.0")),
-                    Map.entry(Loan.LoanType.STUDENT, bd("10.0")),
-                    Map.entry(Loan.LoanType.EMERGENCY, bd("10.0")),
-                    Map.entry(Loan.LoanType.ASSET_FINANCE, bd("11.0")),
-                    Map.entry(Loan.LoanType.SALARY_ADVANCE, bd("10.0")),
-                    Map.entry(Loan.LoanType.MICROFINANCE, bd("20.0")),
-                    Map.entry(Loan.LoanType.AGRICULTURAL, bd("9.0")),
-                    Map.entry(Loan.LoanType.TRADE_FINANCE, bd("13.0")),
-                    Map.entry(Loan.LoanType.GROUP, bd("14.0"))
-            );
+        private static final BigDecimal MIN_LOAN_AMOUNT = bd("500000");
 
-    // ================================================================
-    // REQUIRED DOCUMENTS
-    // ================================================================
+        private static final BigDecimal MONTHLY_INTEREST_RATE = bd("5.0");
 
-    private List<DocumentType> requiredDocsFor(Loan loan) {
+        private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = bd("5.0");
 
-        if (loan == null || loan.getOrganization() == null) {
-            return DEFAULT_REQUIRED_DOCS;
+        private static final BigDecimal TOTAL_MONTHLY_CHARGE_RATE = MONTHLY_INTEREST_RATE
+                        .add(MONTHLY_MANAGEMENT_FEE_RATE);
+
+        private static final BigDecimal PROCESSING_FEE_RATE = bd("2.0");
+
+        private static final BigDecimal ZERO = BigDecimal.ZERO;
+
+        private static final BigDecimal ONE_HUNDRED = bd("100");
+
+        private static final BigDecimal TWELVE = bd("12");
+
+        private static final BigDecimal MIN_MONEY_UNIT = bd("0.01");
+
+        private static final List<DocumentType> DEFAULT_REQUIRED_DOCS = List.of(
+                        DocumentType.NATIONAL_ID,
+                        DocumentType.SELFIE,
+                        DocumentType.PROOF_OF_ADDRESS);
+
+        private static final int WATCH_MAX_DAYS = 89;
+
+        private static final int SUBSTANDARD_MAX_DAYS = 179;
+
+        private static final int DOUBTFUL_MAX_DAYS = 359;
+
+        private static final int WRITTEN_OFF_MIN_DAYS = 360;
+
+        // ================================================================
+        // CREDIT QUALITY RESULT
+        // ================================================================
+
+        private record CreditQualityResult(
+                        Loan.CreditQuality quality,
+                        int daysOverdue) {
         }
 
-        Long organizationId = loan.getOrganization().getId();
+        // ================================================================
+        // REQUIRED DOCUMENTS
+        // ================================================================
 
-        if (organizationId == null || loan.getLoanType() == null) {
-            return DEFAULT_REQUIRED_DOCS;
-        }
+        private List<DocumentType> requiredDocsFor(Loan loan) {
 
-        LoanProduct product =
-                loanProductRepo
-                        .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
-                                organizationId,
-                                loan.getLoanType()
-                        )
-                        .orElse(null);
-
-        if (product == null) {
-            return DEFAULT_REQUIRED_DOCS;
-        }
-
-        List<String> configured =
-                product.getRequiredDocumentTypesList();
-
-        if (configured == null || configured.isEmpty()) {
-            return DEFAULT_REQUIRED_DOCS;
-        }
-
-        List<DocumentType> documentTypes = new ArrayList<>();
-
-        for (String type : configured) {
-
-            if (type == null || type.isBlank()) {
-                continue;
-            }
-
-            try {
-
-                documentTypes.add(
-                        DocumentType.valueOf(
-                                type.trim().toUpperCase()
-                        )
-                );
-
-            } catch (IllegalArgumentException ex) {
-
-                throw new RuntimeException(
-                        "Invalid document type configured for Loan Product: "
-                                + type,
-                        ex
-                );
-            }
-        }
-
-        return documentTypes.isEmpty()
-                ? DEFAULT_REQUIRED_DOCS
-                : documentTypes;
-    }
-
-    // ================================================================
-    // BORROWER DASHBOARD
-    // ================================================================
-
-    public BorrowerDashboardResponse getBorrowerDashboard(
-            String reference,
-            String phone
-    ) {
-
-        if (reference == null || reference.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Loan reference is required"
-            );
-        }
-
-        if (phone == null || phone.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Phone number is required"
-            );
-        }
-
-        String phoneHash = HmacIndexer.index(phone);
-
-        Loan loan =
-                loanRepo
-                        .findByReferenceNumberAndBorrower_PhoneHash(
-                                reference,
-                                phoneHash
-                        )
-                        .orElseThrow(
-                                () -> new RuntimeException(
-                                        "Loan not found"
-                                )
-                        );
-
-        return BorrowerDashboardResponse.builder()
-                .loanId(loan.getId())
-                .referenceNumber(loan.getReferenceNumber())
-                .borrowerName(
-                        loan.getBorrower() != null
-                                ? loan.getBorrower().getFullName()
-                                : null
-                )
-                .loanOfficer(
-                        loan.getLoanOfficer() != null
-                                ? loan.getLoanOfficer().getFullName()
-                                : null
-                )
-                .status(
-                        loan.getStatus() != null
-                                ? loan.getStatus().name()
-                                : null
-                )
-                .loanType(
-                        loan.getLoanType() != null
-                                ? loan.getLoanType().name()
-                                : null
-                )
-                .principal(
-                        loan.getAmountDecimal()
-                )
-                .outstandingBalance(
-                        loan.getOutstandingBalanceDecimal()
-                )
-                .totalPaid(
-                        loan.getTotalPaidDecimal()
-                )
-                .totalRepayable(
-                        loan.getTotalRepayableDecimal()
-                )
-                .nextInstallmentAmount(
-                        loan.getNextInstallmentAmountDecimal()
-                )
-                .nextPaymentDate(
-                        loan.getNextPaymentDate()
-                )
-                .maturityDate(
-                        loan.getMaturityDate()
-                )
-                .missedInstallments(
-                        loan.getMissedInstallments()
-                )
-                .daysOverdue(
-                        loan.getDaysOverdue()
-                )
-                .currency(
-                        loan.getCurrency()
-                )
-                .build();
-    }
-
-    // ================================================================
-    // BORROWER SUMMARY
-    // ================================================================
-
-    public DashboardSummaryResponse getBorrowerSummary(
-            String phone
-    ) {
-
-        if (phone == null || phone.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Phone number is required"
-            );
-        }
-
-        String phoneHash = HmacIndexer.index(phone);
-
-        List<Loan> loans =
-                loanRepo.findByBorrower_PhoneHash(phoneHash);
-
-        if (loans == null || loans.isEmpty()) {
-            throw new RuntimeException(
-                    "Borrower not found"
-            );
-        }
-
-        int activeLoans = 0;
-        int overdueLoans = 0;
-
-        BigDecimal totalBorrowed = BigDecimal.ZERO;
-        BigDecimal outstanding = BigDecimal.ZERO;
-        BigDecimal totalPaid = BigDecimal.ZERO;
-
-        Loan nextLoan = null;
-
-        for (Loan loan : loans) {
-
-            if (loan == null) {
-                continue;
-            }
-
-            totalBorrowed =
-                    money(
-                            totalBorrowed.add(
-                                    moneyValue(
-                                            loan.getAmountDecimal()
-                                    )
-                            )
-                    );
-
-            outstanding =
-                    money(
-                            outstanding.add(
-                                    moneyValue(
-                                            loan.getOutstandingBalanceDecimal()
-                                    )
-                            )
-                    );
-
-            totalPaid =
-                    money(
-                            totalPaid.add(
-                                    moneyValue(
-                                            loan.getTotalPaidDecimal()
-                                    )
-                            )
-                    );
-
-            if (loan.getStatus() == LoanStatus.ACTIVE) {
-                activeLoans++;
-            }
-
-            if (loan.getStatus() == LoanStatus.OVERDUE) {
-                overdueLoans++;
-            }
-
-            if (loan.getNextPaymentDate() != null) {
-
-                if (
-                        nextLoan == null
-                                || loan.getNextPaymentDate()
-                                .isBefore(
-                                        nextLoan.getNextPaymentDate()
-                                )
-                ) {
-                    nextLoan = loan;
+                if (loan == null || loan.getOrganization() == null) {
+                        return DEFAULT_REQUIRED_DOCS;
                 }
-            }
+
+                Long organizationId = loan.getOrganization().getId();
+
+                if (organizationId == null || loan.getLoanType() == null) {
+                        return DEFAULT_REQUIRED_DOCS;
+                }
+
+                LoanProduct product = loanProductRepo
+                                .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
+                                                organizationId,
+                                                loan.getLoanType())
+                                .orElse(null);
+
+                if (product == null) {
+                        return DEFAULT_REQUIRED_DOCS;
+                }
+
+                List<String> configured = product.getRequiredDocumentTypesList();
+
+                if (configured == null || configured.isEmpty()) {
+                        return DEFAULT_REQUIRED_DOCS;
+                }
+
+                List<DocumentType> documentTypes = new ArrayList<>();
+
+                for (String type : configured) {
+
+                        if (type == null || type.isBlank()) {
+                                continue;
+                        }
+
+                        try {
+
+                                documentTypes.add(
+                                                DocumentType.valueOf(
+                                                                type.trim().toUpperCase()));
+
+                        } catch (IllegalArgumentException ex) {
+
+                                throw new IllegalArgumentException(
+                                                "Invalid document type configured for Loan Product: "
+                                                                + type,
+                                                ex);
+                        }
+                }
+
+                return documentTypes.isEmpty()
+                                ? DEFAULT_REQUIRED_DOCS
+                                : documentTypes;
         }
 
-        return DashboardSummaryResponse.builder()
-                .totalLoans(loans.size())
-                .activeLoans(activeLoans)
-                .totalBorrowed(totalBorrowed)
-                .outstandingBalance(outstanding)
-                .totalPaid(totalPaid)
-                .overdueLoans(overdueLoans)
-                .nextPaymentAmount(
-                        nextLoan == null
-                                ? null
-                                : nextLoan.getNextInstallmentAmountDecimal()
-                )
-                .nextPaymentDate(
-                        nextLoan == null
-                                ? null
-                                : nextLoan.getNextPaymentDate()
-                )
-                .build();
-    }
+        // ================================================================
+        // BORROWER DASHBOARD
+        // ================================================================
 
-    // ================================================================
-    // CREATE LOAN
-    // ================================================================
+        public BorrowerDashboardResponse getBorrowerDashboard(
+                        String reference,
+                        String phone) {
 
-    @Transactional
-    public Loan createLoan(
-            LoanRequest req,
-            Long organizationId,
-            User createdBy
-    ) {
+                if (reference == null || reference.isBlank()) {
+                        throw new IllegalArgumentException(
+                                        "Loan reference is required");
+                }
 
-        if (req == null) {
-            throw new IllegalArgumentException(
-                    "Loan request cannot be null"
-            );
+                if (phone == null || phone.isBlank()) {
+                        throw new IllegalArgumentException(
+                                        "Phone number is required");
+                }
+
+                String phoneHash = HmacIndexer.index(phone);
+
+                Loan loan = loanRepo
+                                .findByReferenceNumberAndBorrower_PhoneHash(
+                                                reference,
+                                                phoneHash)
+                                .orElseThrow(
+                                                () -> new RuntimeException(
+                                                                "Loan not found"));
+
+                return BorrowerDashboardResponse.builder()
+                                .loanId(loan.getId())
+                                .referenceNumber(loan.getReferenceNumber())
+                                .borrowerName(
+                                                loan.getBorrower() != null
+                                                                ? loan.getBorrower().getFullName()
+                                                                : null)
+                                .loanOfficer(
+                                                loan.getLoanOfficer() != null
+                                                                ? loan.getLoanOfficer().getFullName()
+                                                                : null)
+                                .status(
+                                                loan.getStatus() != null
+                                                                ? loan.getStatus().name()
+                                                                : null)
+                                .loanType(
+                                                loan.getLoanType() != null
+                                                                ? loan.getLoanType().name()
+                                                                : null)
+                                .principal(
+                                                loan.getAmountDecimal())
+                                .outstandingBalance(
+                                                loan.getOutstandingBalanceDecimal())
+                                .totalPaid(
+                                                loan.getTotalPaidDecimal())
+                                .totalRepayable(
+                                                loan.getTotalRepayableDecimal())
+                                .nextInstallmentAmount(
+                                                loan.getNextInstallmentAmountDecimal())
+                                .nextPaymentDate(
+                                                loan.getNextPaymentDate())
+                                .maturityDate(
+                                                loan.getMaturityDate())
+                                .missedInstallments(
+                                                loan.getMissedInstallments())
+                                .daysOverdue(
+                                                loan.getDaysOverdue())
+                                .currency(
+                                                loan.getCurrency())
+                                .build();
         }
 
-        if (organizationId == null) {
-            throw new IllegalArgumentException(
-                    "Organization ID cannot be null"
-            );
+        // ================================================================
+        // BORROWER SUMMARY
+        // ================================================================
+
+        public DashboardSummaryResponse getBorrowerSummary(
+                        String phone) {
+
+                if (phone == null || phone.isBlank()) {
+                        throw new IllegalArgumentException(
+                                        "Phone number is required");
+                }
+
+                String phoneHash = HmacIndexer.index(phone);
+
+                List<Loan> loans = loanRepo.findByBorrower_PhoneHash(
+                                phoneHash);
+
+                if (loans == null || loans.isEmpty()) {
+                        throw new RuntimeException(
+                                        "Borrower not found");
+                }
+
+                int activeLoans = 0;
+                int overdueLoans = 0;
+
+                BigDecimal totalBorrowed = ZERO;
+                BigDecimal outstanding = ZERO;
+                BigDecimal totalPaid = ZERO;
+
+                Loan nextLoan = null;
+
+                for (Loan loan : loans) {
+
+                        if (loan == null) {
+                                continue;
+                        }
+
+                        totalBorrowed = money(
+                                        totalBorrowed.add(
+                                                        moneyValue(
+                                                                        loan.getAmountDecimal())));
+
+                        outstanding = money(
+                                        outstanding.add(
+                                                        moneyValue(
+                                                                        loan.getOutstandingBalanceDecimal())));
+
+                        totalPaid = money(
+                                        totalPaid.add(
+                                                        moneyValue(
+                                                                        loan.getTotalPaidDecimal())));
+
+                        if (loan.getStatus() == LoanStatus.ACTIVE) {
+                                activeLoans++;
+                        }
+
+                        if (loan.getStatus() == LoanStatus.OVERDUE) {
+                                overdueLoans++;
+                        }
+
+                        if (loan.getNextPaymentDate() != null) {
+
+                                if (nextLoan == null
+                                                || nextLoan.getNextPaymentDate() == null
+                                                || loan.getNextPaymentDate()
+                                                                .isBefore(
+                                                                                nextLoan.getNextPaymentDate())) {
+                                        nextLoan = loan;
+                                }
+                        }
+                }
+
+                return DashboardSummaryResponse.builder()
+                                .totalLoans(loans.size())
+                                .activeLoans(activeLoans)
+                                .totalBorrowed(totalBorrowed)
+                                .outstandingBalance(outstanding)
+                                .totalPaid(totalPaid)
+                                .overdueLoans(overdueLoans)
+                                .nextPaymentAmount(
+                                                nextLoan == null
+                                                                ? null
+                                                                : nextLoan
+                                                                                .getNextInstallmentAmountDecimal())
+                                .nextPaymentDate(
+                                                nextLoan == null
+                                                                ? null
+                                                                : nextLoan.getNextPaymentDate())
+                                .build();
         }
 
-        Organization org =
-                orgRepo.findById(organizationId)
-                        .orElseThrow(
-                                () -> new RuntimeException(
-                                        "Organization not found: "
-                                                + organizationId
-                                )
-                        );
+        // ================================================================
+        // CREATE LOAN
+        // ================================================================
 
+        @Transactional
+        public Loan createLoan(
+                        LoanRequest req,
+                        Long organizationId,
+                        User createdBy) {
 
-        if (createdBy != null) {
+                if (req == null) {
+                        throw new IllegalArgumentException(
+                                        "Loan request cannot be null");
+                }
 
-            if (
-                    createdBy.getOrganization() == null
-                            || createdBy.getOrganization().getId() == null
-                            || !createdBy.getOrganization()
-                            .getId()
-                            .equals(organizationId)
-            ) {
+                if (organizationId == null) {
+                        throw new IllegalArgumentException(
+                                        "Organization ID cannot be null");
+                }
 
-                throw new RuntimeException(
-                        "Creating user does not belong to this organization"
-                );
-            }
-        }
+                Organization org = orgRepo.findById(
+                                organizationId).orElseThrow(
+                                                () -> new RuntimeException(
+                                                                "Organization not found: "
+                                                                                + organizationId));
 
-        if (req.getBorrowerId() == null) {
-            throw new IllegalArgumentException(
-                    "Borrower ID is required"
-            );
-        }
+                if (createdBy != null) {
 
-        Borrower borrower =
-                borrowerRepo.findById(
-                                req.getBorrowerId()
-                        )
-                        .orElseThrow(
-                                () -> new RuntimeException(
-                                        "Borrower not found: "
-                                                + req.getBorrowerId()
-                                )
-                        );
+                        if (createdBy.getOrganization() == null
+                                        || createdBy.getOrganization().getId() == null
+                                        || !createdBy
+                                                        .getOrganization()
+                                                        .getId()
+                                                        .equals(organizationId)) {
 
-        if (
-                borrower.getOrganization() == null
-                        || borrower.getOrganization().getId() == null
-                        || !borrower.getOrganization()
-                        .getId()
-                        .equals(organizationId)
-        ) {
+                                throw new RuntimeException(
+                                                "Creating user does not belong to this organization");
+                        }
+                }
 
-            throw new RuntimeException(
-                    "Borrower does not belong to this organization"
-            );
-        }
+                // ============================================================
+                // BORROWER
+                // ============================================================
 
-        if (
-                borrower.getStatus()
-                        == Borrower.BorrowerStatus.BLACKLISTED
-        ) {
+                if (req.getBorrowerId() == null) {
+                        throw new IllegalArgumentException(
+                                        "Borrower ID is required");
+                }
 
-            throw new RuntimeException(
-                    "This borrower is blacklisted and cannot be issued a new loan. Reason on file: "
-                            + (
-                            borrower.getBlacklistReason() != null
-                                    ? borrower.getBlacklistReason()
-                                    : "not specified"
-                    )
-            );
-        }
+                Borrower borrower = borrowerRepo.findById(
+                                req.getBorrowerId()).orElseThrow(
+                                                () -> new RuntimeException(
+                                                                "Borrower not found: "
+                                                                                + req.getBorrowerId()));
 
-        // ============================================================
-        // LOAN TYPE
-        // ============================================================
+                if (borrower.getOrganization() == null
+                                || borrower.getOrganization().getId() == null
+                                || !borrower
+                                                .getOrganization()
+                                                .getId()
+                                                .equals(organizationId)) {
 
-        Loan.LoanType requestedType =
-                req.getLoanType() != null
-                        ? req.getLoanType()
-                        : Loan.LoanType.PERSONAL;
+                        throw new RuntimeException(
+                                        "Borrower does not belong to this organization");
+                }
 
-        LoanProduct product =
-                loanProductRepo
-                        .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
+                if (borrower.getStatus() == Borrower.BorrowerStatus.BLACKLISTED) {
+
+                        throw new RuntimeException(
+                                        "This borrower is blacklisted and cannot be issued a new loan. "
+                                                        + "Reason on file: "
+                                                        + (borrower.getBlacklistReason() != null
+                                                                        ? borrower.getBlacklistReason()
+                                                                        : "not specified"));
+                }
+
+                // ============================================================
+                // LOAN TYPE
+                // ============================================================
+
+                LoanType requestedType = req.getLoanType() != null
+                                ? req.getLoanType()
+                                : LoanType.PERSONAL;
+
+                LoanProduct product = loanProductRepo
+                                .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
+                                                organizationId,
+                                                requestedType)
+                                .orElse(null);
+
+                // ============================================================
+                // DURATION
+                // ============================================================
+
+                Integer requestedDuration = req.getDurationMonths();
+
+                if (requestedDuration == null) {
+                        throw new IllegalArgumentException(
+                                        "Loan duration is required");
+                }
+
+                validateLoanDuration(requestedDuration);
+
+                int months = requestedDuration;
+
+                // ============================================================
+                // PRINCIPAL
+                // ============================================================
+
+                BigDecimal requestedAmount = toBigDecimal(req.getAmount());
+
+                if (requestedAmount == null
+                                || requestedAmount.compareTo(ZERO) <= 0) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan amount must be greater than zero");
+                }
+
+                BigDecimal principal = normalizePrincipal(requestedAmount);
+
+                if (principal.compareTo(MIN_LOAN_AMOUNT) < 0) {
+
+                        throw new IllegalArgumentException(
+                                        "Minimum loan amount is "
+                                                        + formatMoney(MIN_LOAN_AMOUNT)
+                                                        + " "
+                                                        + org.getDefaultCurrency());
+                }
+
+                // ============================================================
+                // NO MAXIMUM LOAN AMOUNT
+                // ============================================================
+
+                if (product != null) {
+
+                        Integer productMinTerm = product.getMinTermMonths();
+
+                        Integer productMaxTerm = product.getMaxTermMonths();
+
+                        if (productMinTerm != null
+                                        && months < productMinTerm) {
+
+                                throw new IllegalArgumentException(
+                                                String.format(
+                                                                "%s term must be at least %d months",
+                                                                product.getName(),
+                                                                productMinTerm));
+                        }
+
+                        if (productMaxTerm != null
+                                        && productMaxTerm < months) {
+
+                                throw new IllegalArgumentException(
+                                                String.format(
+                                                                "%s term must not exceed %d months",
+                                                                product.getName(),
+                                                                productMaxTerm));
+                        }
+                }
+
+                validateLoanDuration(months);
+
+                // ============================================================
+                // FIXED MONTHLY RATES
+                // ============================================================
+
+                BigDecimal interestRate = MONTHLY_INTEREST_RATE;
+
+                BigDecimal managementFeeRate = MONTHLY_MANAGEMENT_FEE_RATE;
+
+                BigDecimal totalMonthlyRate = TOTAL_MONTHLY_CHARGE_RATE;
+
+                String rateType = "MONTHLY";
+
+                validateInterestRate(interestRate);
+                validateInterestRate(managementFeeRate);
+                validateInterestRate(totalMonthlyRate);
+
+                // ============================================================
+                // LOAN CALCULATION
+                // ============================================================
+
+                BigDecimal[] calc = calcLoan(
+                                principal,
+                                totalMonthlyRate,
+                                months,
+                                "MONTHLY");
+
+                BigDecimal monthlyInstallment = calc[0];
+                BigDecimal totalRepayable = calc[1];
+
+                // ============================================================
+                // PROCESSING FEE
+                // ============================================================
+
+                BigDecimal processingFeeRate = PROCESSING_FEE_RATE;
+
+                BigDecimal processingFee = money(
+                                principal
+                                                .multiply(processingFeeRate)
+                                                .divide(
+                                                                ONE_HUNDRED,
+                                                                16,
+                                                                RoundingMode.HALF_UP));
+
+                // ============================================================
+                // DTI
+                // ============================================================
+
+                BigDecimal monthlyIncome = moneyValue(
+                                borrower.getMonthlyIncome());
+
+                BigDecimal dti = monthlyIncome.compareTo(ZERO) > 0
+                                ? money(
+                                                monthlyInstallment
+                                                                .divide(
+                                                                                monthlyIncome,
+                                                                                16,
+                                                                                RoundingMode.HALF_UP)
+                                                                .multiply(ONE_HUNDRED))
+                                : ZERO.setScale(2);
+
+                // ============================================================
+                // COLLATERAL
+                // ============================================================
+
+                BigDecimal collateralValue = null;
+
+                if (req.getCollateralValue() != null) {
+
+                        collateralValue = money(
+                                        toBigDecimal(
+                                                        req.getCollateralValue()));
+
+                        if (collateralValue.compareTo(ZERO) < 0) {
+
+                                throw new IllegalArgumentException(
+                                                "Collateral value cannot be negative");
+                        }
+                }
+
+                // ============================================================
+                // START DATE
+                // ============================================================
+
+                LocalDate startDate = req.getStartDate() != null
+                                && !req.getStartDate().isBlank()
+                                                ? LocalDate.parse(req.getStartDate())
+                                                : LocalDate.now();
+
+                // ============================================================
+                // REPAYMENT FREQUENCY
+                // ============================================================
+
+                Loan.RepaymentFrequency repaymentFrequency = req.getRepaymentFrequency() != null
+                                ? req.getRepaymentFrequency()
+                                : Loan.RepaymentFrequency.MONTHLY;
+
+                if (repaymentFrequency != Loan.RepaymentFrequency.MONTHLY) {
+
+                        throw new IllegalArgumentException(
+                                        "This loan system currently supports monthly repayment only");
+                }
+
+                // ============================================================
+                // NEXT DUE DATE
+                // ============================================================
+
+                LocalDate nextDueDate = holidayService.adjustToBusinessDay(
                                 organizationId,
-                                requestedType
-                        )
-                        .orElse(null);
+                                startDate.plusMonths(1));
 
-        // ============================================================
-        // PRINCIPAL
-        // ============================================================
+                // ============================================================
+                // CURRENCY
+                // ============================================================
 
-        BigDecimal requestedAmount =
-                toBigDecimal(req.getAmount());
+                String currency = req.getCurrency() != null
+                                && !req.getCurrency().isBlank()
+                                                ? req.getCurrency()
+                                                                .trim()
+                                                                .toUpperCase()
+                                                : org.getDefaultCurrency();
 
-        if (
-                requestedAmount == null
-                        || requestedAmount.compareTo(
-                        BigDecimal.ZERO
-                ) <= 0
-        ) {
+                // ============================================================
+                // BUILD LOAN
+                // ============================================================
 
-            throw new RuntimeException(
-                    "Loan amount must be greater than zero"
-            );
-        }
+                Loan loan = Loan.builder()
+                                .referenceNumber(
+                                                generateRef(org))
+                                .organization(org)
+                                .borrower(borrower)
+                                .createdBy(createdBy)
+                                .loanOfficer(createdBy)
+                                .loanType(requestedType)
+                                .repaymentFrequency(
+                                                repaymentFrequency)
+                                .status(
+                                                LoanStatus.PENDING)
+                                .creditQuality(
+                                                Loan.CreditQuality.CURRENT)
+                                .daysOverdue(0)
+                                .amount(principal)
+                                .interestRate(interestRate)
+                                .managementFeeRate(
+                                                managementFeeRate)
+                                .processingFeeRate(
+                                                processingFeeRate)
+                                .interestRateType(rateType)
+                                .durationMonths(months)
+                                .currency(currency)
+                                .processingFee(processingFee)
+                                .managementFee(ZERO)
+                                .managementFeePaid(ZERO)
+                                .totalInterest(ZERO)
+                                .interestPaid(ZERO)
+                                .processingFeePaid(ZERO)
+                                .totalRepayable(totalRepayable)
+                                .outstandingBalance(principal)
+                                .totalPaid(ZERO)
+                                .purpose(req.getPurpose())
+                                .notes(req.getNotes())
+                                .collateralDescription(
+                                                req.getCollateralDescription())
+                                .collateralValue(
+                                                collateralValue)
+                                .startDate(startDate)
+                                .debtToIncomeRatio(dti)
+                                .creditScoreSnapshot(
+                                                borrower.getCreditScore())
+                                .nextDueDate(nextDueDate)
+                                .build();
 
-        BigDecimal principal =
-                normalizePrincipal(
-                        requestedAmount
-                );
+                Loan saved = loanRepo.save(loan);
 
-        // ============================================================
-        // PRODUCT LIMITS
-        // ============================================================
+                // ============================================================
+                // PRINCIPAL SAFETY CHECK
+                // ============================================================
 
-        if (product != null) {
+                BigDecimal savedPrincipal = normalizePrincipal(
+                                moneyValue(
+                                                saved.getAmountDecimal()));
 
-            BigDecimal minimumAmount =
-                    toBigDecimal(
-                            product.getMinAmount()
-                    );
+                if (savedPrincipal.compareTo(principal) != 0) {
 
-            BigDecimal maximumAmount =
-                    toBigDecimal(
-                            product.getMaxAmount()
-                    );
+                        log.error(
+                                        "PRINCIPAL MISMATCH AFTER SAVE. Expected={}, saved={}, loanId={}",
+                                        principal,
+                                        savedPrincipal,
+                                        saved.getId());
 
-            boolean tooLow =
-                    minimumAmount != null
-                            && principal.compareTo(
-                            minimumAmount
-                    ) < 0;
+                        throw new IllegalStateException(
+                                        "Loan principal changed during save. Expected "
+                                                        + principal
+                                                        + " but saved "
+                                                        + savedPrincipal);
+                }
 
-            boolean tooHigh =
-                    maximumAmount != null
-                            && principal.compareTo(
-                            maximumAmount
-                    ) > 0;
+                // ============================================================
+                // DURATION SAFETY CHECK
+                // ============================================================
 
-            if (tooLow || tooHigh) {
+                validateLoanDuration(
+                                saved.getDurationMonths());
 
-                String range;
+                // ============================================================
+                // RISK SCORING
+                // ============================================================
 
-                if (
-                        minimumAmount != null
-                                && maximumAmount != null
-                ) {
+                scoreAsync(saved);
 
-                    range =
-                            String.format(
-                                    "between %,.0f and %,.0f",
-                                    minimumAmount.doubleValue(),
-                                    maximumAmount.doubleValue()
-                            );
+                // ============================================================
+                // AUDIT
+                // ============================================================
 
-                } else if (minimumAmount != null) {
+                String creatorDescription;
 
-                    range =
-                            String.format(
-                                    "at least %,.0f",
-                                    minimumAmount.doubleValue()
-                            );
+                if (createdBy != null) {
+
+                        creatorDescription = "Loan "
+                                        + saved.getReferenceNumber()
+                                        + " created by "
+                                        + createdBy.getName()
+                                        + " for "
+                                        + borrower.getFullName()
+                                        + " — principal "
+                                        + principal
+                                        + " — monthly interest 5%"
+                                        + " — monthly management fee 5%"
+                                        + " — processing fee 2%"
+                                        + " — duration "
+                                        + months
+                                        + " months"
+                                        + " — credit quality CURRENT";
 
                 } else {
 
-                    range =
-                            String.format(
-                                    "up to %,.0f",
-                                    maximumAmount != null
-                                            ? maximumAmount.doubleValue()
-                                            : 0.0
-                            );
+                        creatorDescription = "Public borrower loan application "
+                                        + saved.getReferenceNumber()
+                                        + " created for "
+                                        + borrower.getFullName()
+                                        + " — principal "
+                                        + principal
+                                        + " — monthly interest 5%"
+                                        + " — monthly management fee 5%"
+                                        + " — processing fee 2%"
+                                        + " — duration "
+                                        + months
+                                        + " months"
+                                        + " — credit quality CURRENT";
                 }
 
-                throw new RuntimeException(
-                        String.format(
-                                "%s amount must be %s %s",
-                                product.getName(),
-                                range,
-                                org.getDefaultCurrency()
-                        )
-                );
-            }
+                audit(
+                                org,
+                                createdBy,
+                                "LOAN_CREATED",
+                                "LOAN",
+                                saved.getId().toString(),
+                                creatorDescription);
 
-            Integer requestedMonths =
-                    req.getDurationMonths();
-
-            if (requestedMonths == null) {
-
-                throw new RuntimeException(
-                        "Loan duration is required"
-                );
-            }
-
-            if (
-                    requestedMonths < product.getMinTermMonths()
-                            || requestedMonths > product.getMaxTermMonths()
-            ) {
-
-                throw new RuntimeException(
-                        String.format(
-                                "%s term must be between %d and %d months",
-                                product.getName(),
-                                product.getMinTermMonths(),
-                                product.getMaxTermMonths()
-                        )
-                );
-            }
+                return saved;
         }
 
-        // ============================================================
-        // RATE
-        // ============================================================
+        // ================================================================
+        // APPROVE LOAN
+        // ================================================================
 
-        BigDecimal rate;
+        public Loan approveLoan(
+                        Long loanId,
+                        User approvedBy,
+                        String notes) {
 
-        if (req.getInterestRate() != null) {
-
-            rate =
-                    toBigDecimal(
-                            req.getInterestRate()
-                    );
-
-        } else if (product != null) {
-
-            rate =
-                    toBigDecimal(
-                            product.getInterestRate()
-                    );
-
-            if (rate == null) {
-
-                rate =
-                        BASE_RATES.getOrDefault(
-                                requestedType,
-                                bd("15.0")
-                        );
-            }
-
-        } else {
-
-            rate =
-                    BASE_RATES.getOrDefault(
-                            requestedType,
-                            bd("15.0")
-                    );
+                return approveLoan(
+                                loanId,
+                                approvedBy,
+                                notes,
+                                null);
         }
 
-        if (rate == null) {
-            rate = bd("15.0");
-        }
-
-        rate =
-                rate.setScale(
-                        8,
-                        RoundingMode.HALF_UP
-                );
-
-        if (
-                rate.compareTo(
-                        BigDecimal.ZERO
-                ) < 0
-        ) {
-
-            throw new RuntimeException(
-                    "Interest rate cannot be negative"
-            );
-        }
-
-        String rateType;
-
-        if (
-                req.getInterestRate() != null
-                        && req.getInterestRateType() != null
-                        && !req.getInterestRateType().isBlank()
-        ) {
-
-            rateType =
-                    req.getInterestRateType()
-                            .trim()
-                            .toUpperCase();
-
-        } else if (
-                product != null
-                        && product.getInterestRateType() != null
-                        && !product.getInterestRateType().isBlank()
-        ) {
-
-            rateType =
-                    product.getInterestRateType()
-                            .trim()
-                            .toUpperCase();
-
-        } else {
-
-            rateType = "ANNUAL";
-        }
-
-        validateRateType(rateType);
-
-        if (borrower.getCreditScore() != null) {
-
-            rate =
-                    adjustRate(
-                            rate,
-                            borrower.getCreditScore(),
-                            rateType
-                    );
-        }
-
-        // ============================================================
-        // LOAN CALCULATION
-        // ============================================================
-
-        Integer requestedDuration =
-                req.getDurationMonths();
-
-        if (requestedDuration == null) {
-
-            throw new RuntimeException(
-                    "Loan duration is required"
-            );
-        }
-
-        int months =
-                requestedDuration;
-
-        if (months <= 0) {
-
-            throw new RuntimeException(
-                    "Loan duration must be greater than zero"
-            );
-        }
-
-        BigDecimal[] calc =
-                calcLoan(
-                        principal,
-                        rate,
-                        months,
-                        rateType
-                );
-
-        BigDecimal monthlyInstallment =
-                calc[0];
-
-        BigDecimal totalRepayable =
-                calc[1];
-
-        // ============================================================
-        // PROCESSING FEE
-        // ============================================================
-
-        BigDecimal feePct =
-                product != null
-                        ? toBigDecimal(
-                        product.getProcessingFeePercent()
-                )
-                        : null;
-
-        if (feePct == null) {
-            feePct = bd("2.0");
-        }
-
-        BigDecimal processingFee =
-                money(
-                        principal
-                                .multiply(feePct)
-                                .divide(
-                                        bd("100"),
-                                        8,
-                                        RoundingMode.HALF_UP
-                                )
-                );
-
-        // ============================================================
-        // DTI
-        // ============================================================
-
-        BigDecimal monthlyIncome =
-                moneyValue(
-                        borrower.getMonthlyIncome()
-                );
-
-        BigDecimal dti =
-                monthlyIncome.compareTo(
-                        BigDecimal.ZERO
-                ) > 0
-                        ? money(
-                        monthlyInstallment
-                                .divide(
-                                        monthlyIncome,
-                                        8,
-                                        RoundingMode.HALF_UP
-                                )
-                                .multiply(
-                                        bd("100")
-                                )
-                )
-                        : BigDecimal.ZERO;
-
-        // ============================================================
-        // COLLATERAL
-        // ============================================================
-
-        BigDecimal collateralValue =
-                req.getCollateralValue() != null
-                        ? money(
-                        toBigDecimal(
-                                req.getCollateralValue()
-                        )
-                )
-                        : null;
-
-        // ============================================================
-        // BUILD LOAN
-        // ============================================================
-
-        LocalDate startDate =
-                req.getStartDate() != null
-                        && !req.getStartDate().isBlank()
-                        ? LocalDate.parse(
-                        req.getStartDate()
-                )
-                        : LocalDate.now();
-
-        Loan loan =
-                Loan.builder()
-                        .referenceNumber(
-                                generateRef(org)
-                        )
-                        .organization(org)
-                        .borrower(borrower)
-                        .createdBy(createdBy)
-
-                       
-                        .loanOfficer(createdBy)
-
-                        .loanType(requestedType)
-                        .repaymentFrequency(
-                                req.getRepaymentFrequency() != null
-                                        ? req.getRepaymentFrequency()
-                                        : Loan.RepaymentFrequency.MONTHLY
-                        )
-                        .status(LoanStatus.PENDING)
-                        .amount(principal)
-                        .interestRate(rate)
-                        .interestRateType(rateType)
-                        .durationMonths(months)
-                        .currency(
-                                req.getCurrency() != null
-                                        && !req.getCurrency().isBlank()
-                                        ? req.getCurrency()
-                                        : org.getDefaultCurrency()
-                        )
-                        .processingFee(processingFee)
-                        .totalRepayable(totalRepayable)
-                        .outstandingBalance(principal)
-                        .totalPaid(BigDecimal.ZERO)
-                        .purpose(req.getPurpose())
-                        .notes(req.getNotes())
-                        .collateralDescription(
-                                req.getCollateralDescription()
-                        )
-                        .collateralValue(collateralValue)
-                        .startDate(startDate)
-                        .debtToIncomeRatio(dti)
-                        .creditScoreSnapshot(
-                                borrower.getCreditScore()
-                        )
-                        .nextDueDate(
-                                holidayService.adjustToBusinessDay(
-                                        organizationId,
-                                        startDate.plusMonths(1)
-                                )
-                        )
-                        .build();
-
-        Loan saved =
-                loanRepo.save(loan);
-
-        // ============================================================
-        // PRINCIPAL SAFETY CHECK
-        // ============================================================
-
-        BigDecimal savedPrincipal =
-                moneyValue(
-                        saved.getAmountDecimal()
-                );
-
-        if (
-                savedPrincipal.compareTo(
-                        principal
-                ) != 0
-        ) {
-
-            log.error(
-                    "PRINCIPAL MISMATCH AFTER SAVE. Expected={}, saved={}, loanId={}",
-                    principal,
-                    savedPrincipal,
-                    saved.getId()
-            );
-
-            throw new IllegalStateException(
-                    "Loan principal changed during save. Expected "
-                            + principal
-                            + " but saved "
-                            + savedPrincipal
-            );
-        }
-
-        // ============================================================
-        // RISK SCORING
-        // ============================================================
-
-        scoreAsync(saved);
-
-        // ============================================================
-        // AUDIT
-        // ============================================================
-
-        String creatorDescription;
-
-        if (createdBy != null) {
-
-            creatorDescription =
-                    "Loan "
-                            + saved.getReferenceNumber()
-                            + " created by "
-                            + createdBy.getName()
-                            + " for "
-                            + borrower.getFullName()
-                            + " — principal "
-                            + principal;
-
-        } else {
-
-            creatorDescription =
-                    "Public borrower loan application "
-                            + saved.getReferenceNumber()
-                            + " created for "
-                            + borrower.getFullName()
-                            + " — principal "
-                            + principal;
-        }
-
-        audit(
-                org,
-                createdBy,
-                "LOAN_CREATED",
-                "LOAN",
-                saved.getId().toString(),
-                creatorDescription
-        );
-
-        return saved;
-    }
-
-    // ================================================================
-    // APPROVE LOAN
-    // ================================================================
-
-    public Loan approveLoan(
-            Long loanId,
-            User approvedBy,
-            String notes
-    ) {
-
-        return approveLoan(
-                loanId,
-                approvedBy,
-                notes,
-                null
-        );
-    }
-
-    @Transactional
-    public Loan approveLoan(
-            Long loanId,
-            User approvedBy,
-            String notes,
-            Double newInterestRate
-    ) {
-
-        if (
-                approvedBy == null
-                        || approvedBy.getOrganization() == null
-                        || approvedBy.getOrganization().getId() == null
-        ) {
-
-            throw new RuntimeException(
-                    "Approving user must belong to an organization"
-            );
-        }
-
-        Loan loan =
-                getLoanForOrg(
-                        loanId,
-                        approvedBy.getOrganization().getId()
-                );
-
-        if (
-                loan.getStatus() != LoanStatus.PENDING
-                        && loan.getStatus() != LoanStatus.UNDER_REVIEW
-        ) {
-
-            throw new RuntimeException(
-                    "Cannot approve a loan that is "
-                            + loan.getStatus()
-                            + " — only loans that are Pending or Under Review can be approved."
-            );
-        }
-
-        if (loan.getBorrower() == null) {
-
-            throw new RuntimeException(
-                    "Cannot approve loan "
-                            + loan.getReferenceNumber()
-                            + " — it has no borrower record linked."
-            );
-        }
-
-        List<DocumentType> missingDocs =
-                fileService.getMissingDocumentTypes(
-                        loan.getBorrower().getId(),
-                        requiredDocsFor(loan)
-                );
-
-        if (!missingDocs.isEmpty()) {
-
-            throw new RuntimeException(
-                    "Cannot approve this loan — the borrower hasn't uploaded: "
-                            + missingDocs.stream()
-                            .map(DocumentType::name)
-                            .collect(Collectors.joining(", "))
-            );
-        }
-
-        BigDecimal previousRate =
-                moneyValue(
-                        loan.getInterestRateDecimal()
-                );
-
-        if (newInterestRate != null) {
-
-            BigDecimal requestedRate =
-                    bd(newInterestRate);
-
-            if (
-                    requestedRate.compareTo(
-                            BigDecimal.ZERO
-                    ) < 0
-            ) {
-
-                throw new IllegalArgumentException(
-                        "Interest rate cannot be negative"
-                );
-            }
-
-            if (
-                    previousRate.compareTo(
-                            requestedRate
-                    ) != 0
-            ) {
-
-                BigDecimal principal =
-                        normalizePrincipal(
+        @Transactional
+        public Loan approveLoan(
+                        Long loanId,
+                        User approvedBy,
+                        String notes,
+                        Double newInterestRate) {
+
+                if (approvedBy == null
+                                || approvedBy.getOrganization() == null
+                                || approvedBy.getOrganization().getId() == null) {
+
+                        throw new RuntimeException(
+                                        "Approving user must belong to an organization");
+                }
+
+                Loan loan = getLoanForOrg(
+                                loanId,
+                                approvedBy.getOrganization().getId());
+
+                if (loan.getStatus() != LoanStatus.PENDING
+                                && loan.getStatus() != LoanStatus.UNDER_REVIEW) {
+
+                        throw new RuntimeException(
+                                        "Cannot approve a loan that is "
+                                                        + loan.getStatus()
+                                                        + " — only loans that are Pending or Under Review can be approved.");
+                }
+
+                if (loan.getBorrower() == null) {
+
+                        throw new RuntimeException(
+                                        "Cannot approve loan "
+                                                        + loan.getReferenceNumber()
+                                                        + " — it has no borrower record linked.");
+                }
+
+                validateLoanDuration(
+                                loan.getDurationMonths());
+
+                BigDecimal principal = normalizePrincipal(
                                 moneyValue(
-                                        loan.getAmountDecimal()
-                                )
-                        );
+                                                loan.getAmountDecimal()));
 
-                int durationMonths =
-                        loan.getDurationMonths() != null
+                if (principal.compareTo(MIN_LOAN_AMOUNT) < 0) {
+
+                        throw new IllegalArgumentException(
+                                        "Cannot approve loan below minimum amount of "
+                                                        + MIN_LOAN_AMOUNT);
+                }
+
+                List<DocumentType> missingDocs = fileService.getMissingDocumentTypes(
+                                loan.getBorrower().getId(),
+                                requiredDocsFor(loan));
+
+                if (!missingDocs.isEmpty()) {
+
+                        throw new RuntimeException(
+                                        "Cannot approve this loan — the borrower hasn't uploaded: "
+                                                        + missingDocs.stream()
+                                                                        .map(DocumentType::name)
+                                                                        .collect(Collectors.joining(", ")));
+                }
+
+                // ============================================================
+                // RATE LOCK
+                // ============================================================
+
+                if (newInterestRate != null) {
+
+                        BigDecimal requestedRate = bd(newInterestRate);
+
+                        if (requestedRate.compareTo(
+                                        MONTHLY_INTEREST_RATE) != 0) {
+
+                                throw new IllegalArgumentException(
+                                                "Loan interest rate is fixed at "
+                                                                + MONTHLY_INTEREST_RATE
+                                                                + "% per month");
+                        }
+                }
+
+                loan.setInterestRate(
+                                MONTHLY_INTEREST_RATE);
+
+                loan.setManagementFeeRate(
+                                MONTHLY_MANAGEMENT_FEE_RATE);
+
+                loan.setProcessingFeeRate(
+                                PROCESSING_FEE_RATE);
+
+                loan.setInterestRateType("MONTHLY");
+
+                // ============================================================
+                // CREDIT QUALITY
+                // ============================================================
+
+                loan.setCreditQuality(
+                                Loan.CreditQuality.CURRENT);
+
+                loan.setDaysOverdue(0);
+
+                // ============================================================
+                // PROCESSING FEE
+                // ============================================================
+
+                BigDecimal processingFee = money(
+                                principal
+                                                .multiply(
+                                                                PROCESSING_FEE_RATE)
+                                                .divide(
+                                                                ONE_HUNDRED,
+                                                                16,
+                                                                RoundingMode.HALF_UP));
+
+                loan.setProcessingFee(
+                                processingFee);
+
+                // ============================================================
+                // TOTAL REPAYABLE
+                // ============================================================
+
+                int durationMonths = loan.getDurationMonths() != null
                                 ? loan.getDurationMonths()
-                                : 1;
+                                : DEFAULT_LOAN_DURATION_MONTHS;
 
-                String rateType =
-                        loan.getInterestRateType() != null
-                                ? loan.getInterestRateType()
-                                : "ANNUAL";
+                validateLoanDuration(durationMonths);
+
+                BigDecimal[] calc = calcLoan(
+                                principal,
+                                TOTAL_MONTHLY_CHARGE_RATE,
+                                durationMonths,
+                                "MONTHLY");
+
+                loan.setTotalRepayable(
+                                calc[1]);
+
+                loan.setAmount(principal);
+
+                if (loan.getOutstandingBalanceDecimal() == null
+                                || moneyValue(
+                                                loan.getOutstandingBalanceDecimal()).compareTo(ZERO) <= 0) {
+
+                        loan.setOutstandingBalance(
+                                        principal);
+                }
+
+                loan.setStatus(
+                                LoanStatus.APPROVED);
+
+                loan.setApprovedBy(
+                                approvedBy);
+
+                loan.setApprovedAt(
+                                LocalDate.now());
+
+                if (notes != null
+                                && !notes.isBlank()) {
+
+                        loan.setInternalNotes(
+                                        notes.trim());
+                }
+
+                Loan saved = loanRepo.save(loan);
+
+                if (paymentRepo
+                                .findByLoanId(
+                                                saved.getId())
+                                .isEmpty()) {
+
+                        generateRepaymentSchedule(saved);
+
+                } else {
+
+                        log.warn(
+                                        "Repayment schedule already exists for loan {}, skipping regeneration",
+                                        saved.getId());
+                }
+
+                audit(
+                                saved.getOrganization(),
+                                approvedBy,
+                                "LOAN_APPROVED",
+                                "LOAN",
+                                loanId.toString(),
+                                "Loan "
+                                                + saved.getReferenceNumber()
+                                                + " approved — fixed monthly interest 5%"
+                                                + " — fixed monthly management fee 5%"
+                                                + " — one-time processing fee 2%"
+                                                + " — credit quality CURRENT");
+
+                try {
+
+                        mailService.sendLoanApproved(saved);
+
+                } catch (Exception e) {
+
+                        log.warn(
+                                        "Loan approval email failed",
+                                        e);
+                }
+
+                try {
+
+                        smsService.sendLoanApproved(saved);
+
+                } catch (Exception e) {
+
+                        log.warn(
+                                        "Loan approval SMS failed",
+                                        e);
+                }
+
+                notifyOfficer(
+                                saved,
+                                approvedBy,
+                                "Loan Approved",
+                                "Loan "
+                                                + saved.getReferenceNumber()
+                                                + " has been approved by "
+                                                + approvedBy.getName()
+                                                + ". Monthly interest is 5% and monthly management fee is 5%."
+                                                + " Credit quality is CURRENT.",
+                                "success");
+
+                webhookService.dispatch(
+                                saved.getOrganization(),
+                                "LOAN_APPROVED",
+                                saved);
+
+                return saved;
+        }
+
+        // ================================================================
+        // AMORTIZE
+        // ================================================================
+
+        public double[] amortize(
+                        double principal,
+                        double rate,
+                        int months,
+                        String rateType) {
+
+                validateLoanDuration(months);
+
+                BigDecimal principalDecimal = normalizePrincipal(
+                                bd(principal));
+
+                BigDecimal rateDecimal = bd(rate);
+
+                validateInterestRate(rateDecimal);
+                validateRateType(rateType);
+
+                BigDecimal[] result = calcLoan(
+                                principalDecimal,
+                                rateDecimal,
+                                months,
+                                rateType);
+
+                return new double[] {
+                                result[0].doubleValue(),
+                                result[1].doubleValue()
+                };
+        }
+
+        // ================================================================
+        // NEW REFERENCE
+        // ================================================================
+
+        public String newReferenceNumber(
+                        Organization org) {
+
+                return generateRef(org);
+        }
+
+        // ================================================================
+        // REJECT LOAN
+        // ================================================================
+
+        @Transactional
+        public Loan rejectLoan(
+                        Long loanId,
+                        User rejectedBy,
+                        String reason) {
+
+                if (rejectedBy == null
+                                || rejectedBy.getOrganization() == null
+                                || rejectedBy.getOrganization().getId() == null) {
+
+                        throw new RuntimeException(
+                                        "Rejecting user must belong to an organization");
+                }
+
+                Loan loan = getLoanForOrg(
+                                loanId,
+                                rejectedBy.getOrganization().getId());
+
+                if (loan.getStatus() != LoanStatus.PENDING
+                                && loan.getStatus() != LoanStatus.UNDER_REVIEW) {
+
+                        throw new RuntimeException(
+                                        "Cannot reject a loan that is "
+                                                        + loan.getStatus());
+                }
+
+                if (reason == null
+                                || reason.isBlank()) {
+
+                        throw new IllegalArgumentException(
+                                        "Rejection reason is required");
+                }
+
+                loan.setStatus(
+                                LoanStatus.REJECTED);
+
+                loan.setCreditQuality(
+                                Loan.CreditQuality.CURRENT);
+
+                loan.setDaysOverdue(0);
+
+                loan.setRejectionReason(
+                                reason.trim());
+
+                Loan saved = loanRepo.save(loan);
+
+                audit(
+                                loan.getOrganization(),
+                                rejectedBy,
+                                "LOAN_REJECTED",
+                                "LOAN",
+                                loanId.toString(),
+                                "Reason: " + reason.trim());
+
+                try {
+
+                        mailService.sendLoanRejected(saved);
+
+                } catch (Exception e) {
+
+                        log.warn(
+                                        "Loan rejection email failed",
+                                        e);
+                }
+
+                try {
+
+                        smsService.sendLoanRejected(saved);
+
+                } catch (Exception e) {
+
+                        log.warn(
+                                        "Loan rejection SMS failed",
+                                        e);
+                }
+
+                notifyOfficer(
+                                saved,
+                                rejectedBy,
+                                "Loan Rejected",
+                                "Loan "
+                                                + saved.getReferenceNumber()
+                                                + " has been rejected by "
+                                                + rejectedBy.getName()
+                                                + ". Reason: "
+                                                + reason.trim(),
+                                "warning");
+
+                webhookService.dispatch(
+                                saved.getOrganization(),
+                                "LOAN_REJECTED",
+                                saved);
+
+                return saved;
+        }
+
+        // ================================================================
+        // DISBURSE LOAN
+        // ================================================================
+
+        @Transactional
+        public Loan disburseLoan(
+                        Long loanId,
+                        User officer,
+                        String disbursementMethod) {
+
+                if (officer == null
+                                || officer.getOrganization() == null
+                                || officer.getOrganization().getId() == null) {
+
+                        throw new RuntimeException(
+                                        "Disbursing officer must belong to an organization");
+                }
+
+                Loan loan = getLoanForOrg(
+                                loanId,
+                                officer.getOrganization().getId());
+
+                if (loan.getStatus() != LoanStatus.APPROVED) {
+
+                        throw new RuntimeException(
+                                        "Loan must be APPROVED before disbursement");
+                }
+
+                if (loan.getBorrower() == null) {
+
+                        throw new RuntimeException(
+                                        "Cannot disburse loan "
+                                                        + loan.getReferenceNumber()
+                                                        + " — it has no borrower record linked.");
+                }
+
+                validateLoanDuration(
+                                loan.getDurationMonths());
+
+                BigDecimal exactPrincipal = normalizePrincipal(
+                                moneyValue(
+                                                loan.getAmountDecimal()));
+
+                if (exactPrincipal.compareTo(
+                                MIN_LOAN_AMOUNT) < 0) {
+
+                        throw new IllegalStateException(
+                                        "Cannot disburse a loan below minimum principal of "
+                                                        + MIN_LOAN_AMOUNT);
+                }
+
+                if (exactPrincipal.compareTo(ZERO) <= 0) {
+
+                        throw new IllegalStateException(
+                                        "Cannot disburse a loan with zero or negative principal");
+                }
+
+                List<DocumentType> unverifiedDocs = fileService.getUnverifiedDocumentTypes(
+                                loan.getBorrower().getId(),
+                                requiredDocsFor(loan));
+
+                if (!unverifiedDocs.isEmpty()) {
+
+                        throw new RuntimeException(
+                                        "Cannot disburse this loan — staff still needs to verify: "
+                                                        + unverifiedDocs.stream()
+                                                                        .map(DocumentType::name)
+                                                                        .collect(Collectors.joining(", ")));
+                }
+
+                // ============================================================
+                // ENFORCE FIXED BUSINESS RATES
+                // ============================================================
+
+                loan.setInterestRate(
+                                MONTHLY_INTEREST_RATE);
+
+                loan.setManagementFeeRate(
+                                MONTHLY_MANAGEMENT_FEE_RATE);
+
+                loan.setProcessingFeeRate(
+                                PROCESSING_FEE_RATE);
+
+                loan.setInterestRateType("MONTHLY");
+
+                BigDecimal processingFee = money(
+                                exactPrincipal
+                                                .multiply(
+                                                                PROCESSING_FEE_RATE)
+                                                .divide(
+                                                                ONE_HUNDRED,
+                                                                16,
+                                                                RoundingMode.HALF_UP));
+
+                loan.setProcessingFee(
+                                processingFee);
+
+                loan.setAmount(
+                                exactPrincipal);
+
+                loan.setOutstandingBalance(
+                                exactPrincipal);
+
+                loan.setStatus(
+                                LoanStatus.ACTIVE);
+
+                // ============================================================
+                // CREDIT QUALITY
+                // ============================================================
+
+                loan.setCreditQuality(
+                                Loan.CreditQuality.CURRENT);
+
+                loan.setDaysOverdue(0);
+
+                // ============================================================
+                // EXACT DISBURSEMENT TIMESTAMP
+                // ============================================================
+
+                LocalDateTime exactDisbursementTimestamp = LocalDateTime.now();
+
+                loan.setDisbursedAt(
+                                exactDisbursementTimestamp);
+
+                loan.setDisbursedAmount(
+                                exactPrincipal);
+
+                LocalDate disbursementDate = exactDisbursementTimestamp.toLocalDate();
+
+                Integer duration = loan.getDurationMonths() != null
+                                ? loan.getDurationMonths()
+                                : DEFAULT_LOAN_DURATION_MONTHS;
+
+                validateLoanDuration(duration);
+
+                loan.setMaturityDate(
+                                disbursementDate.plusMonths(duration));
+
+                loan.setNextDueDate(
+                                holidayService.adjustToBusinessDay(
+                                                loan.getOrganization().getId(),
+                                                disbursementDate.plusMonths(1)));
+
+                Loan saved = loanRepo.save(loan);
+
+                log.info(
+                                "Loan {} disbursed at exact timestamp {}",
+                                saved.getReferenceNumber(),
+                                saved.getDisbursedAt());
+
+                paymentScheduleService.generateSchedule(
+                                saved);
+
+                PaymentSchedule first = paymentScheduleService.getNextInstallment(
+                                saved.getId());
+
+                if (first != null) {
+
+                        saved.setNextPaymentDate(
+                                        first.getDueDate());
+
+                        saved.setNextInstallmentAmount(
+                                        first.getInstallmentAmount());
+
+                        saved.setNextDueDate(
+                                        first.getDueDate());
+                }
+
+                saved = loanRepo.save(saved);
+
+                // ============================================================
+                // CREDIT BUREAU
+                // ============================================================
+
+                if (creditBureauService
+                                .isReportingRequiredForDisbursement()) {
+
+                        try {
+
+                                creditBureauService.reportDisbursedLoan(
+                                                saved,
+                                                officer.getName());
+
+                                log.info(
+                                                "Loan {} successfully reported to Credit Bureau.",
+                                                saved.getReferenceNumber());
+
+                        } catch (Exception e) {
+
+                                log.error(
+                                                "Credit Bureau reporting failed for loan {}",
+                                                saved.getReferenceNumber(),
+                                                e);
+
+                                throw e;
+                        }
+
+                } else {
+
+                        log.warn(
+                                        "Credit Bureau reporting is explicitly disabled for disbursement. loan={}",
+                                        saved.getReferenceNumber());
+                }
+
+                // ============================================================
+                // AUDIT
+                // ============================================================
+
+                audit(
+                                saved.getOrganization(),
+                                officer,
+                                "LOAN_DISBURSED",
+                                "LOAN",
+                                loanId.toString(),
+                                "Disbursed via "
+                                                + (disbursementMethod != null
+                                                                && !disbursementMethod.isBlank()
+                                                                                ? disbursementMethod
+                                                                                : "unspecified")
+                                                + " — monthly interest 5%"
+                                                + " — monthly management fee 5%"
+                                                + " — processing fee 2% one time"
+                                                + " — credit quality CURRENT");
+
+                // ============================================================
+                // ACCOUNTING
+                // ============================================================
+
+                accountingService.postDisbursement(
+                                saved);
+
+                // ============================================================
+                // EMAIL
+                // ============================================================
+
+                try {
+
+                        mailService.sendLoanDisbursed(
+                                        saved,
+                                        disbursementMethod);
+
+                } catch (Exception e) {
+
+                        log.warn(
+                                        "Loan disbursement email failed.",
+                                        e);
+                }
+
+                // ============================================================
+                // SMS
+                // ============================================================
+
+                try {
+
+                        smsService.sendLoanDisbursed(
+                                        saved,
+                                        disbursementMethod);
+
+                } catch (Exception e) {
+
+                        log.warn(
+                                        "Loan disbursement SMS failed.",
+                                        e);
+                }
+
+                // ============================================================
+                // NOTIFICATION
+                // ============================================================
+
+                notifyOfficer(
+                                saved,
+                                officer,
+                                "Loan Disbursed",
+                                "Loan "
+                                                + saved.getReferenceNumber()
+                                                + " ("
+                                                + saved.getCurrency()
+                                                + " "
+                                                + saved.getDisbursedAmountDecimal()
+                                                + ") has been disbursed via "
+                                                + (disbursementMethod != null
+                                                                && !disbursementMethod.isBlank()
+                                                                                ? disbursementMethod
+                                                                                : "unspecified")
+                                                + ". Monthly interest is 5% and monthly management fee is 5%."
+                                                + " Credit quality is CURRENT.",
+                                "success");
+
+                // ============================================================
+                // WEBHOOK
+                // ============================================================
+
+                webhookService.dispatch(
+                                saved.getOrganization(),
+                                "LOAN_DISBURSED",
+                                saved);
+
+                return saved;
+        }
+
+        // ================================================================
+        // NOTIFY OFFICER
+        // ================================================================
+
+        private void notifyOfficer(
+                        Loan loan,
+                        User actor,
+                        String title,
+                        String message,
+                        String type) {
+
+                if (loan == null) {
+                        return;
+                }
+
+                User officer = loan.getLoanOfficer();
+
+                if (officer == null) {
+                        return;
+                }
+
+                if (actor != null
+                                && officer.getId() != null
+                                && officer.getId().equals(
+                                                actor.getId())) {
+
+                        return;
+                }
+
+                try {
+
+                        notifService.notifyUsers(
+                                        List.of(officer),
+                                        title,
+                                        message,
+                                        type,
+                                        "/dashboard/loans/"
+                                                        + loan.getId());
+
+                } catch (Exception e) {
+
+                        log.warn(
+                                        "In-app notification failed",
+                                        e);
+                }
+        }
+
+        // ================================================================
+        // CREDIT QUALITY
+        // ================================================================
+
+        /**
+         * Updates the credit quality of a loan using the exact delinquency
+         * bands defined by the business:
+         *
+         * 0 days -> CURRENT
+         * 1 - 89 -> WATCH
+         * 90 - 179 -> SUBSTANDARD
+         * 180 - 359 -> DOUBTFUL
+         * 360+ -> WRITTEN_OFF
+         *
+         * This method uses the loan's organization for tenant isolation.
+         */
+        @Transactional
+        public Loan updateCreditQuality(
+                        Long loanId,
+                        Long organizationId) {
+
+                Loan loan = getLoanForOrg(
+                                loanId,
+                                organizationId);
+
+                Loan.CreditQuality oldQuality = loan.getCreditQuality();
+
+                CreditQualityResult result = determineCreditQuality(loan);
+
+                loan.setDaysOverdue(
+                                result.daysOverdue());
+
+                loan.setCreditQuality(
+                                result.quality());
+
+                Loan saved = loanRepo.save(loan);
+
+                if (oldQuality != result.quality()) {
+
+                        log.info(
+                                        "Loan {} credit quality changed from {} to {}. daysOverdue={}",
+                                        saved.getReferenceNumber(),
+                                        oldQuality,
+                                        result.quality(),
+                                        result.daysOverdue());
+
+                        audit(
+                                        saved.getOrganization(),
+                                        null,
+                                        "LOAN_CREDIT_QUALITY_CHANGED",
+                                        "LOAN",
+                                        saved.getId().toString(),
+                                        "Credit quality changed from "
+                                                        + (oldQuality != null
+                                                                        ? oldQuality.name()
+                                                                        : "null")
+                                                        + " to "
+                                                        + result.quality().name()
+                                                        + " — days overdue "
+                                                        + result.daysOverdue());
+                }
+
+                return saved;
+        }
+
+        /**
+         * Refreshes credit quality for an already-loaded loan.
+         *
+         * This method is intended for collection services, scheduled jobs,
+         * or other internal processes that already have the Loan entity.
+         */
+        @Transactional
+        public Loan refreshCreditQuality(
+                        Loan loan) {
+
+                if (loan == null
+                                || loan.getId() == null) {
+
+                        return loan;
+                }
+
+                Loan.CreditQuality oldQuality = loan.getCreditQuality();
+
+                CreditQualityResult result = determineCreditQuality(loan);
+
+                loan.setDaysOverdue(
+                                result.daysOverdue());
+
+                loan.setCreditQuality(
+                                result.quality());
+
+                if (oldQuality != result.quality()) {
+
+                        log.info(
+                                        "Loan {} credit quality refreshed from {} to {}. daysOverdue={}",
+                                        loan.getReferenceNumber(),
+                                        oldQuality,
+                                        result.quality(),
+                                        result.daysOverdue());
+
+                        return loanRepo.save(loan);
+                }
+
+                return loan;
+        }
+
+        /**
+         * Determines the credit quality from the current loan state.
+         *
+         * Important:
+         * CreditQuality is separate from LoanStatus.
+         *
+         * DEFAULTED does not automatically mean WRITTEN_OFF.
+         * The actual overdue days determine the credit quality unless the
+         * loan has formally been written off.
+         */
+        private CreditQualityResult determineCreditQuality(
+                        Loan loan) {
+
+                if (loan == null) {
+
+                        return new CreditQualityResult(
+                                        Loan.CreditQuality.CURRENT,
+                                        0);
+                }
+
+                // ------------------------------------------------------------
+                // FORMALLY WRITTEN OFF
+                // ------------------------------------------------------------
+
+                if (loan.getStatus() == LoanStatus.WRITTEN_OFF) {
+
+                        int storedDays = loan.getDaysOverdue() != null
+                                        ? Math.max(
+                                                        loan.getDaysOverdue(),
+                                                        0)
+                                        : 0;
+
+                        return new CreditQualityResult(
+                                        Loan.CreditQuality.WRITTEN_OFF,
+                                        storedDays);
+                }
+
+                // ------------------------------------------------------------
+                // NON-DELINQUENT LOAN STATES
+                // ------------------------------------------------------------
+
+                if (loan.getStatus() == LoanStatus.PENDING
+                                || loan.getStatus() == LoanStatus.UNDER_REVIEW
+                                || loan.getStatus() == LoanStatus.APPROVED
+                                || loan.getStatus() == LoanStatus.REJECTED
+                                || loan.getStatus() == LoanStatus.PAID
+                                || loan.getStatus() == LoanStatus.CLOSED) {
+
+                        return new CreditQualityResult(
+                                        Loan.CreditQuality.CURRENT,
+                                        0);
+                }
+
+                // ------------------------------------------------------------
+                // ACTIVE / OVERDUE / DEFAULTED
+                // ------------------------------------------------------------
+
+                int daysOverdue = calculateLoanDaysOverdue(loan);
+
+                // ------------------------------------------------------------
+                // CURRENT
+                // 0 days
+                // ------------------------------------------------------------
+
+                if (daysOverdue == 0) {
+
+                        return new CreditQualityResult(
+                                        Loan.CreditQuality.CURRENT,
+                                        0);
+                }
+
+                // ------------------------------------------------------------
+                // WATCH
+                // 1 - 89 days
+                // ------------------------------------------------------------
+
+                if (daysOverdue <= WATCH_MAX_DAYS) {
+
+                        return new CreditQualityResult(
+                                        Loan.CreditQuality.WATCH,
+                                        daysOverdue);
+                }
+
+                // ------------------------------------------------------------
+                // SUBSTANDARD
+                // 90 - 179 days
+                // ------------------------------------------------------------
+
+                if (daysOverdue <= SUBSTANDARD_MAX_DAYS) {
+
+                        return new CreditQualityResult(
+                                        Loan.CreditQuality.SUBSTANDARD,
+                                        daysOverdue);
+                }
+
+                // ------------------------------------------------------------
+                // DOUBTFUL
+                // 180 - 359 days
+                // ------------------------------------------------------------
+
+                if (daysOverdue <= DOUBTFUL_MAX_DAYS) {
+
+                        return new CreditQualityResult(
+                                        Loan.CreditQuality.DOUBTFUL,
+                                        daysOverdue);
+                }
+
+                // ------------------------------------------------------------
+                // WRITTEN OFF
+                // 360+ days
+                // ------------------------------------------------------------
+
+                return new CreditQualityResult(
+                                Loan.CreditQuality.WRITTEN_OFF,
+                                daysOverdue);
+        }
+
+        /**
+         * Calculates actual delinquency from the loan's next due date.
+         *
+         * The stored daysOverdue value is only used as a fallback when
+         * there is no due date available.
+         */
+        private int calculateLoanDaysOverdue(
+                        Loan loan) {
+
+                if (loan == null) {
+                        return 0;
+                }
+
+                if (loan.getStatus() != LoanStatus.ACTIVE
+                                && loan.getStatus() != LoanStatus.OVERDUE
+                                && loan.getStatus() != LoanStatus.DEFAULTED) {
+
+                        return 0;
+                }
+
+                LocalDate dueDate = loan.getNextDueDate();
+
+                if (dueDate == null) {
+
+                        dueDate = loan.getNextPaymentDate();
+                }
+
+                if (dueDate == null) {
+
+                        return Math.max(
+                                        loan.getDaysOverdue() != null
+                                                        ? loan.getDaysOverdue()
+                                                        : 0,
+                                        0);
+                }
+
+                LocalDate today = LocalDate.now();
+
+                if (!today.isAfter(dueDate)) {
+
+                        return 0;
+                }
+
+                return Math.max(
+                                (int) ChronoUnit.DAYS.between(
+                                                dueDate,
+                                                today),
+                                0);
+        }
+
+        // ================================================================
+        // UPDATE STATUS
+        // ================================================================
+
+        @Transactional
+        public Loan updateStatus(
+                        Long loanId,
+                        User user,
+                        LoanStatus newStatus,
+                        String notes) {
+
+                if (user == null
+                                || user.getOrganization() == null
+                                || user.getOrganization().getId() == null) {
+
+                        throw new RuntimeException(
+                                        "User must belong to an organization");
+                }
+
+                if (newStatus == null) {
+
+                        throw new IllegalArgumentException(
+                                        "New loan status cannot be null");
+                }
+
+                Loan loan = getLoanForOrg(
+                                loanId,
+                                user.getOrganization().getId());
+
+                LoanStatus current = loan.getStatus();
+
+                if (current == null) {
+
+                        throw new IllegalStateException(
+                                        "Loan "
+                                                        + loanId
+                                                        + " has no current status");
+                }
+
+                switch (newStatus) {
+
+                        case UNDER_REVIEW -> {
+
+                                if (current != LoanStatus.PENDING) {
+
+                                        throw new RuntimeException(
+                                                        "Only a Pending loan can be moved to Under Review (currently "
+                                                                        + current
+                                                                        + ")");
+                                }
+                        }
+
+                        case DEFAULTED -> {
+
+                                if (current != LoanStatus.ACTIVE
+                                                && current != LoanStatus.OVERDUE) {
+
+                                        throw new RuntimeException(
+                                                        "Only an Active or Overdue loan can be marked Defaulted (currently "
+                                                                        + current
+                                                                        + ")");
+                                }
+                        }
+
+                        case WRITTEN_OFF -> {
+
+                                if (current != LoanStatus.DEFAULTED
+                                                && current != LoanStatus.OVERDUE
+                                                && current != LoanStatus.ACTIVE) {
+
+                                        throw new RuntimeException(
+                                                        "Only an Active, Overdue, or Defaulted loan can be written off (currently "
+                                                                        + current
+                                                                        + ")");
+                                }
+                        }
+
+                        case CLOSED -> {
+
+                                if (current != LoanStatus.PAID
+                                                && current != LoanStatus.WRITTEN_OFF) {
+
+                                        throw new RuntimeException(
+                                                        "Only a fully Paid or Written-off loan can be Closed (currently "
+                                                                        + current
+                                                                        + ")");
+                                }
+                        }
+
+                        case RESTRUCTURED ->
+
+                                throw new RuntimeException(
+                                                "Use the Restructure Loan action instead.");
+
+                        default ->
+
+                                throw new RuntimeException(
+                                                "Use the dedicated Approve / Reject / Disburse actions.");
+                }
+
+                // ============================================================
+                // STATUS
+                // ============================================================
+
+                loan.setStatus(
+                                newStatus);
+
+                // ============================================================
+                // CREDIT QUALITY
+                // ============================================================
+
+                Loan.CreditQuality oldQuality = loan.getCreditQuality();
+
+                if (newStatus == LoanStatus.WRITTEN_OFF) {
+
+                        loan.setCreditQuality(
+                                        Loan.CreditQuality.WRITTEN_OFF);
+
+                } else if (newStatus == LoanStatus.PAID
+                                || newStatus == LoanStatus.CLOSED
+                                || newStatus == LoanStatus.REJECTED
+                                || newStatus == LoanStatus.PENDING
+                                || newStatus == LoanStatus.UNDER_REVIEW
+                                || newStatus == LoanStatus.APPROVED) {
+
+                        loan.setCreditQuality(
+                                        Loan.CreditQuality.CURRENT);
+
+                        loan.setDaysOverdue(0);
+
+                } else {
+
+                        CreditQualityResult result = determineCreditQuality(loan);
+
+                        loan.setDaysOverdue(
+                                        result.daysOverdue());
+
+                        loan.setCreditQuality(
+                                        result.quality());
+                }
+
+                if (notes != null
+                                && !notes.isBlank()) {
+
+                        loan.setInternalNotes(
+                                        notes.trim());
+                }
+
+                Loan saved = loanRepo.save(loan);
+
+                audit(
+                                loan.getOrganization(),
+                                user,
+                                "LOAN_STATUS_CHANGED",
+                                "LOAN",
+                                loanId.toString(),
+                                current
+                                                + " -> "
+                                                + newStatus
+                                                + " — credit quality "
+                                                + oldQuality
+                                                + " -> "
+                                                + saved.getCreditQuality()
+                                                + " — days overdue "
+                                                + saved.getDaysOverdue()
+                                                + (notes != null
+                                                                && !notes.isBlank()
+                                                                                ? ": " + notes.trim()
+                                                                                : ""));
+
+                if (oldQuality != saved.getCreditQuality()) {
+
+                        audit(
+                                        loan.getOrganization(),
+                                        user,
+                                        "LOAN_CREDIT_QUALITY_CHANGED",
+                                        "LOAN",
+                                        loanId.toString(),
+                                        oldQuality
+                                                        + " -> "
+                                                        + saved.getCreditQuality()
+                                                        + " — days overdue "
+                                                        + saved.getDaysOverdue());
+                }
+
+                webhookService.dispatch(
+                                loan.getOrganization(),
+                                "LOAN_STATUS_CHANGED",
+                                saved);
+
+                return saved;
+        }
+
+        // ================================================================
+        // GET LOANS
+        // ================================================================
+
+        public Page<Loan> getLoans(
+                        Organization org,
+                        int page,
+                        int size,
+                        String status,
+                        String type) {
+
+                if (org == null
+                                || org.getId() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Organization is required");
+                }
+
+                if (page < 0) {
+                        page = 0;
+                }
+
+                if (size <= 0) {
+                        size = 20;
+                }
+
+                LoanStatus ls = null;
+
+                if (status != null
+                                && !status.isBlank()) {
+
+                        try {
+
+                                ls = LoanStatus.valueOf(
+                                                status.trim().toUpperCase());
+
+                        } catch (IllegalArgumentException e) {
+
+                                throw new IllegalArgumentException(
+                                                "Invalid loan status: "
+                                                                + status);
+                        }
+                }
+
+                LoanType lt = null;
+
+                if (type != null
+                                && !type.isBlank()) {
+
+                        try {
+
+                                lt = LoanType.valueOf(
+                                                type.trim().toUpperCase());
+
+                        } catch (IllegalArgumentException e) {
+
+                                throw new IllegalArgumentException(
+                                                "Invalid loan type: "
+                                                                + type);
+                        }
+                }
+
+                return loanRepo.findByFilters(
+                                org,
+                                ls,
+                                lt,
+                                PageRequest.of(
+                                                page,
+                                                size));
+        }
+
+        // ================================================================
+        // GET LOAN
+        // ================================================================
+
+        public Loan getLoanForOrg(
+                        Long loanId,
+                        Long orgId) {
+
+                if (loanId == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan ID cannot be null");
+                }
+
+                if (orgId == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Organization ID cannot be null");
+                }
+
+                Loan loan = loanRepo.findById(
+                                loanId).orElseThrow(
+                                                () -> new RuntimeException(
+                                                                "Loan not found: "
+                                                                                + loanId));
+
+                if (loan.getOrganization() == null
+                                || loan.getOrganization().getId() == null
+                                || !loan
+                                                .getOrganization()
+                                                .getId()
+                                                .equals(orgId)) {
+
+                        throw new RuntimeException(
+                                        "Access denied to loan: "
+                                                        + loanId);
+                }
+
+                return loan;
+        }
+
+        // ================================================================
+        // DOCUMENT REQUIREMENTS
+        // ================================================================
+
+        public Map<String, Object> getDocumentRequirements(
+                        Long loanId,
+                        Long orgId) {
+
+                Loan loan = getLoanForOrg(
+                                loanId,
+                                orgId);
+
+                Map<String, Object> result = new LinkedHashMap<>();
+
+                if (loan.getBorrower() == null) {
+
+                        result.put(
+                                        "required",
+                                        List.of());
+
+                        result.put(
+                                        "missing",
+                                        List.of());
+
+                        result.put(
+                                        "unverified",
+                                        List.of());
+
+                        result.put(
+                                        "readyToApprove",
+                                        false);
+
+                        result.put(
+                                        "readyToDisburse",
+                                        false);
+
+                        result.put(
+                                        "noBorrowerLinked",
+                                        true);
+
+                        return result;
+                }
+
+                List<DocumentType> required = requiredDocsFor(loan);
+
+                List<DocumentType> missing = fileService.getMissingDocumentTypes(
+                                loan.getBorrower().getId(),
+                                required);
+
+                List<DocumentType> unverified = fileService.getUnverifiedDocumentTypes(
+                                loan.getBorrower().getId(),
+                                required);
+
+                result.put(
+                                "required",
+                                required.stream()
+                                                .map(DocumentType::name)
+                                                .toList());
+
+                result.put(
+                                "missing",
+                                missing.stream()
+                                                .map(DocumentType::name)
+                                                .toList());
+
+                result.put(
+                                "unverified",
+                                unverified.stream()
+                                                .map(DocumentType::name)
+                                                .toList());
+
+                result.put(
+                                "readyToApprove",
+                                missing.isEmpty());
+
+                result.put(
+                                "readyToDisburse",
+                                missing.isEmpty()
+                                                && unverified.isEmpty());
+
+                result.put(
+                                "noBorrowerLinked",
+                                false);
+
+                return result;
+        }
+
+        // ================================================================
+        // DASHBOARD
+        // ================================================================
+
+        public DashboardStats getDashboard(
+                        Organization org) {
+
+                if (org == null
+                                || org.getId() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Organization is required");
+                }
+
+                LocalDate today = LocalDate.now();
+
+                LocalDate firstOfMonth = today.withDayOfMonth(1);
+
+                long overdueCount = paymentRepo
+                                .findByOrganization_IdAndPaidFalseAndDueDateBefore(
+                                                org.getId(),
+                                                today)
+                                .size();
+
+                List<Map<String, Object>> typeBreakdown = loanRepo
+                                .getLoanTypeBreakdown(org)
+                                .stream()
+                                .map(
+                                                r -> {
+
+                                                        Map<String, Object> m = new LinkedHashMap<>();
+
+                                                        m.put(
+                                                                        "type",
+                                                                        r[0]);
+
+                                                        m.put(
+                                                                        "count",
+                                                                        r[1]);
+
+                                                        m.put(
+                                                                        "amount",
+                                                                        r[2]);
+
+                                                        return m;
+                                                })
+                                .collect(
+                                                Collectors.toList());
+
+                List<Loan> recent = loanRepo.findRecentByOrg(
+                                org,
+                                PageRequest.of(
+                                                0,
+                                                8));
+
+                return DashboardStats.builder()
+                                .totalLoans(
+                                                loanRepo.countByOrganization(org))
+                                .pendingLoans(
+                                                loanRepo.countByOrganizationAndStatus(
+                                                                org,
+                                                                LoanStatus.PENDING))
+                                .activeLoans(
+                                                loanRepo.countByOrganizationAndStatus(
+                                                                org,
+                                                                LoanStatus.ACTIVE))
+                                .overdueLoans(
+                                                overdueCount)
+                                .completedLoans(
+                                                loanRepo.countByOrganizationAndStatus(
+                                                                org,
+                                                                LoanStatus.PAID))
+                                .defaultedLoans(
+                                                loanRepo.countByOrganizationAndStatus(
+                                                                org,
+                                                                LoanStatus.DEFAULTED))
+                                .totalDisbursed(
+                                                Optional.ofNullable(
+                                                                loanRepo.sumActivePrincipal(org))
+                                                                .map(this::toDouble)
+                                                                .orElse(0.0))
+                                .totalCollected(
+                                                Optional.ofNullable(
+                                                                loanRepo.sumTotalCollected(org))
+                                                                .map(this::toDouble)
+                                                                .orElse(0.0))
+                                .outstandingBalance(
+                                                Optional.ofNullable(
+                                                                loanRepo.sumOutstandingBalance(org))
+                                                                .map(this::toDouble)
+                                                                .orElse(0.0))
+                                .collectedThisMonth(
+                                                Optional.ofNullable(
+                                                                paymentRepo.sumCollectedSince(
+                                                                                org,
+                                                                                firstOfMonth))
+                                                                .map(this::toDouble)
+                                                                .orElse(0.0))
+                                .totalBorrowers(
+                                                borrowerRepo.countByOrganization(org))
+                                .latePaymentsCount(
+                                                Optional.ofNullable(
+                                                                paymentRepo.countLatePayments(org))
+                                                                .orElse(0L))
+                                .loanTypeBreakdown(typeBreakdown)
+                                .recentLoans(recent)
+                                .build();
+        }
+
+        // ================================================================
+        // GENERATE REPAYMENT SCHEDULE
+        // ================================================================
+
+        private void generateRepaymentSchedule(
+                        Loan loan) {
+
+                if (loan == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan cannot be null");
+                }
+
+                if (loan.getId() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan ID is required before generating repayment schedule");
+                }
+
+                if (loan.getOrganization() == null
+                                || loan.getOrganization().getId() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan organization is required");
+                }
+
+                // ============================================================
+                // DUPLICATE PROTECTION
+                // ============================================================
+
+                if (!paymentRepo
+                                .findByLoanId(
+                                                loan.getId())
+                                .isEmpty()) {
+
+                        log.warn(
+                                        "Payment schedule already exists for loan {}, skipping generation",
+                                        loan.getId());
+
+                        return;
+                }
+
+                int months = loan.getDurationMonths() != null
+                                ? loan.getDurationMonths()
+                                : DEFAULT_LOAN_DURATION_MONTHS;
+
+                validateLoanDuration(months);
+
+                BigDecimal principal = normalizePrincipal(
+                                moneyValue(
+                                                loan.getAmountDecimal()));
+
+                if (principal.compareTo(MIN_LOAN_AMOUNT) < 0) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan principal cannot be below "
+                                                        + MIN_LOAN_AMOUNT);
+                }
+
+                // ============================================================
+                // FIXED BUSINESS RATES
+                // ============================================================
+
+                BigDecimal interestRate = MONTHLY_INTEREST_RATE;
+
+                BigDecimal managementRate = MONTHLY_MANAGEMENT_FEE_RATE;
+
+                BigDecimal combinedMonthlyRate = TOTAL_MONTHLY_CHARGE_RATE;
+
+                loan.setInterestRate(
+                                interestRate);
+
+                loan.setManagementFeeRate(
+                                managementRate);
+
+                loan.setProcessingFeeRate(
+                                PROCESSING_FEE_RATE);
+
+                loan.setInterestRateType(
+                                "MONTHLY");
+
+                // ============================================================
+                // PROCESSING FEE
+                // ============================================================
+
+                BigDecimal processingFee = money(
+                                principal
+                                                .multiply(
+                                                                PROCESSING_FEE_RATE)
+                                                .divide(
+                                                                ONE_HUNDRED,
+                                                                16,
+                                                                RoundingMode.HALF_UP));
+
+                loan.setProcessingFee(
+                                processingFee);
+
+                // ============================================================
+                // MONTHLY PAYMENT
+                // ============================================================
+
+                BigDecimal monthlyPayment = calcLoan(
+                                principal,
+                                combinedMonthlyRate,
+                                months,
+                                "MONTHLY")[0];
+
+                BigDecimal balance = principal;
+
+                BigDecimal monthlyInterestRate = calculateMonthlyRate(
+                                interestRate,
+                                "MONTHLY");
+
+                BigDecimal monthlyManagementRate = calculateMonthlyRate(
+                                managementRate,
+                                "MONTHLY");
+
+                Long orgId = loan.getOrganization().getId();
+
+                LocalDate startDate = loan.getStartDate() != null
+                                ? loan.getStartDate()
+                                : LocalDate.now();
+
+                LocalDate due = holidayService.adjustToBusinessDay(
+                                orgId,
+                                startDate.plusMonths(1));
+
+                BigDecimal accumulatedInterest = ZERO;
+
+                BigDecimal accumulatedManagementFee = ZERO;
+
+                for (int i = 1; i <= months; i++) {
+
+                        balance = money(balance);
+
+                        // ========================================================
+                        // MONTHLY 5% INTEREST
+                        // ========================================================
+
+                        BigDecimal interest = money(
+                                        balance.multiply(
+                                                        monthlyInterestRate));
+
+                        // ========================================================
+                        // MONTHLY 5% MANAGEMENT FEE
+                        // ========================================================
+
+                        BigDecimal managementFee = money(
+                                        balance.multiply(
+                                                        monthlyManagementRate));
+
+                        BigDecimal monthlyCharges = money(
+                                        interest.add(
+                                                        managementFee));
+
+                        accumulatedInterest = money(
+                                        accumulatedInterest.add(
+                                                        interest));
+
+                        accumulatedManagementFee = money(
+                                        accumulatedManagementFee.add(
+                                                        managementFee));
+
+                        BigDecimal principalComponent;
+
+                        BigDecimal installmentAmount;
+
+                        if (i == months) {
+
+                                principalComponent = balance;
+
+                                installmentAmount = money(
+                                                principalComponent.add(
+                                                                monthlyCharges));
+
+                                balance = ZERO;
+
+                        } else {
+
+                                installmentAmount = monthlyPayment;
+
+                                principalComponent = money(
+                                                installmentAmount.subtract(
+                                                                monthlyCharges));
+
+                                if (principalComponent.compareTo(
+                                                ZERO) < 0) {
+
+                                        principalComponent = ZERO;
+                                }
+
+                                if (principalComponent.compareTo(
+                                                balance) > 0) {
+
+                                        principalComponent = balance;
+                                }
+
+                                balance = money(
+                                                balance.subtract(
+                                                                principalComponent));
+
+                                if (balance.compareTo(
+                                                MIN_MONEY_UNIT) < 0) {
+
+                                        balance = ZERO;
+                                }
+                        }
+
+                        Payment payment = Payment.builder()
+                                        .paymentReference(
+                                                        generatePayRef(
+                                                                        loan,
+                                                                        i))
+                                        .loan(loan)
+                                        .organization(
+                                                        loan.getOrganization())
+                                        .installmentNumber(i)
+                                        .amount(
+                                                        installmentAmount)
+                                        .principalComponent(
+                                                        money(
+                                                                        principalComponent))
+                                        .interestComponent(
+                                                        monthlyCharges)
+                                        .dueDate(due)
+                                        .paid(false)
+                                        .amountPaid(ZERO)
+                                        .penalty(ZERO)
+                                        .outstandingAfter(balance)
+                                        .status(
+                                                        Payment.PaymentStatus.PENDING)
+                                        .build();
+
+                        paymentRepo.save(payment);
+
+                        due = holidayService.adjustToBusinessDay(
+                                        orgId,
+                                        due.plusMonths(1));
+                }
+
+                // ============================================================
+                // STORE LOAN TOTALS
+                // ============================================================
+
+                loan.setAmount(
+                                principal);
+
+                loan.setOutstandingBalance(
+                                principal);
+
+                loan.setTotalInterest(
+                                accumulatedInterest);
+
+                loan.setManagementFee(
+                                accumulatedManagementFee);
+
+                loan.setManagementFeePaid(
+                                ZERO);
+
+                loan.setInterestPaid(
+                                ZERO);
+
+                loan.setProcessingFeePaid(
+                                ZERO);
+
+                loan.setProcessingFee(
+                                processingFee);
+
+                loan.setNextDueDate(
+                                holidayService.adjustToBusinessDay(
+                                                orgId,
+                                                startDate.plusMonths(1)));
+
+                loan.setCreditQuality(
+                                Loan.CreditQuality.CURRENT);
+
+                loan.setDaysOverdue(0);
+
+                BigDecimal[] totalCalculation = calcLoan(
+                                principal,
+                                TOTAL_MONTHLY_CHARGE_RATE,
+                                months,
+                                "MONTHLY");
+
+                loan.setTotalRepayable(
+                                totalCalculation[1]);
+
+                loanRepo.save(loan);
+        }
+
+        // ================================================================
+        // RISK SCORING
+        // ================================================================
+
+        @Async
+        public void scoreAsync(
+                        Loan loan) {
+
+                try {
+
+                        if (loan == null) {
+                                return;
+                        }
+
+                        RiskScoringService.RiskResult risk = riskService.score(loan);
+
+                        if (risk == null) {
+                                return;
+                        }
+
+                        loan.setRiskScore(
+                                        risk.getScore());
+
+                        loan.setRiskCategory(
+                                        risk.getCategory());
+
+                        loanRepo.save(loan);
+
+                } catch (Exception e) {
+
+                        log.warn(
+                                        "Risk scoring skipped: {}",
+                                        e.getMessage(),
+                                        e);
+                }
+        }
+
+        // ================================================================
+        // LOAN CALCULATION
+        // ================================================================
+
+        private BigDecimal[] calcLoan(
+                        BigDecimal principal,
+                        BigDecimal rate,
+                        int months,
+                        String rateType) {
+
+                principal = normalizePrincipal(principal);
+
+                validateLoanDuration(months);
+
+                if (principal.compareTo(
+                                MIN_LOAN_AMOUNT) < 0) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan principal must be at least "
+                                                        + MIN_LOAN_AMOUNT);
+                }
+
+                if (rate == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan rate is required");
+                }
+
+                validateInterestRate(rate);
 
                 validateRateType(rateType);
 
-                BigDecimal[] calc =
-                        calcLoan(
-                                principal,
-                                requestedRate,
-                                durationMonths,
-                                rateType
-                        );
-
-                loan.setInterestRate(
-                        requestedRate
-                );
-
-                loan.setTotalRepayable(
-                        calc[1]
-                );
-            }
-        }
-
-        BigDecimal exactPrincipal =
-                normalizePrincipal(
-                        moneyValue(
-                                loan.getAmountDecimal()
-                        )
-                );
-
-        loan.setAmount(exactPrincipal);
-
-        if (loan.getOutstandingBalanceDecimal() == null) {
-            loan.setOutstandingBalance(
-                    exactPrincipal
-            );
-        }
-
-        loan.setStatus(
-                LoanStatus.APPROVED
-        );
-
-        loan.setApprovedBy(
-                approvedBy
-        );
-
-        loan.setApprovedAt(
-                LocalDate.now()
-        );
-
-        if (notes != null && !notes.isBlank()) {
-            loan.setInternalNotes(notes);
-        }
-
-        Loan saved =
-                loanRepo.save(loan);
-
-        if (
-                paymentRepo
-                        .findByLoanId(
-                                saved.getId()
-                        )
-                        .isEmpty()
-        ) {
-
-            generateRepaymentSchedule(
-                    saved
-            );
-
-        } else {
-
-            log.warn(
-                    "Repayment schedule already exists for loan {}, skipping regeneration",
-                    saved.getId()
-            );
-        }
-
-        audit(
-                saved.getOrganization(),
-                approvedBy,
-                "LOAN_APPROVED",
-                "LOAN",
-                loanId.toString(),
-                "Loan "
-                        + saved.getReferenceNumber()
-                        + " approved"
-                        + (
-                        newInterestRate != null
-                                ? " — rate changed from "
-                                + previousRate
-                                + " to "
-                                + newInterestRate
-                                + "%"
-                                : ""
-                )
-        );
-
-        try {
-
-            mailService.sendLoanApproved(
-                    saved
-            );
-
-        } catch (Exception e) {
-
-            log.warn(
-                    "Loan approval email failed",
-                    e
-            );
-        }
-
-        try {
-
-            smsService.sendLoanApproved(
-                    saved
-            );
-
-        } catch (Exception e) {
-
-            log.warn(
-                    "Loan approval SMS failed",
-                    e
-            );
-        }
-
-        notifyOfficer(
-                saved,
-                approvedBy,
-                "Loan Approved",
-                "Loan "
-                        + saved.getReferenceNumber()
-                        + " has been approved by "
-                        + approvedBy.getName()
-                        + ".",
-                "success"
-        );
-
-        webhookService.dispatch(
-                saved.getOrganization(),
-                "LOAN_APPROVED",
-                saved
-        );
-
-        return saved;
-    }
-
-    // ================================================================
-    // AMORTIZE
-    // ================================================================
-
-    public double[] amortize(
-            double principal,
-            double rate,
-            int months,
-            String rateType
-    ) {
-
-        BigDecimal[] result =
-                calcLoan(
-                        bd(principal),
-                        bd(rate),
-                        months,
-                        rateType
-                );
-
-        return new double[]{
-                result[0].doubleValue(),
-                result[1].doubleValue()
-        };
-    }
-
-    // ================================================================
-    // NEW REFERENCE
-    // ================================================================
-
-    public String newReferenceNumber(
-            Organization org
-    ) {
-
-        return generateRef(org);
-    }
-
-    // ================================================================
-    // REJECT LOAN
-    // ================================================================
-
-    @Transactional
-    public Loan rejectLoan(
-            Long loanId,
-            User rejectedBy,
-            String reason
-    ) {
-
-        if (
-                rejectedBy == null
-                        || rejectedBy.getOrganization() == null
-                        || rejectedBy.getOrganization().getId() == null
-        ) {
-
-            throw new RuntimeException(
-                    "Rejecting user must belong to an organization"
-            );
-        }
-
-        Loan loan =
-                getLoanForOrg(
-                        loanId,
-                        rejectedBy
-                                .getOrganization()
-                                .getId()
-                );
-
-        if (
-                loan.getStatus() != LoanStatus.PENDING
-                        && loan.getStatus() != LoanStatus.UNDER_REVIEW
-        ) {
-
-            throw new RuntimeException(
-                    "Cannot reject a loan that is "
-                            + loan.getStatus()
-            );
-        }
-
-        if (reason == null || reason.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Rejection reason is required"
-            );
-        }
-
-        loan.setStatus(
-                LoanStatus.REJECTED
-        );
-
-        loan.setRejectionReason(
-                reason
-        );
-
-        Loan saved =
-                loanRepo.save(loan);
-
-        audit(
-                loan.getOrganization(),
-                rejectedBy,
-                "LOAN_REJECTED",
-                "LOAN",
-                loanId.toString(),
-                "Reason: " + reason
-        );
-
-        try {
-
-            mailService.sendLoanRejected(
-                    saved
-            );
-
-        } catch (Exception e) {
-
-            log.warn(
-                    "Loan rejection email failed",
-                    e
-            );
-        }
-
-        try {
-
-            smsService.sendLoanRejected(
-                    saved
-            );
-
-        } catch (Exception e) {
-
-            log.warn(
-                    "Loan rejection SMS failed",
-                    e
-            );
-        }
-
-        notifyOfficer(
-                saved,
-                rejectedBy,
-                "Loan Rejected",
-                "Loan "
-                        + saved.getReferenceNumber()
-                        + " has been rejected by "
-                        + rejectedBy.getName()
-                        + (
-                        reason != null
-                                && !reason.isBlank()
-                                ? ". Reason: " + reason
-                                : "."
-                ),
-                "warning"
-        );
-
-        webhookService.dispatch(
-                saved.getOrganization(),
-                "LOAN_REJECTED",
-                saved
-        );
-
-        return saved;
-    }
-
-    // ================================================================
-    // DISBURSE LOAN
-    // ================================================================
-
-    @Transactional
-    public Loan disburseLoan(
-            Long loanId,
-            User officer,
-            String disbursementMethod
-    ) {
-
-        if (
-                officer == null
-                        || officer.getOrganization() == null
-                        || officer.getOrganization().getId() == null
-        ) {
-
-            throw new RuntimeException(
-                    "Disbursing officer must belong to an organization"
-            );
-        }
-
-        Loan loan =
-                getLoanForOrg(
-                        loanId,
-                        officer
-                                .getOrganization()
-                                .getId()
-                );
-
-        if (loan.getStatus() != LoanStatus.APPROVED) {
-
-            throw new RuntimeException(
-                    "Loan must be APPROVED before disbursement"
-            );
-        }
-
-        if (loan.getBorrower() == null) {
-
-            throw new RuntimeException(
-                    "Cannot disburse loan "
-                            + loan.getReferenceNumber()
-                            + " — it has no borrower record linked."
-            );
-        }
-
-        List<DocumentType> unverifiedDocs =
-                fileService.getUnverifiedDocumentTypes(
-                        loan.getBorrower().getId(),
-                        requiredDocsFor(loan)
-                );
-
-        if (!unverifiedDocs.isEmpty()) {
-
-            throw new RuntimeException(
-                    "Cannot disburse this loan — staff still needs to verify: "
-                            + unverifiedDocs.stream()
-                            .map(DocumentType::name)
-                            .collect(Collectors.joining(", "))
-            );
-        }
-
-        BigDecimal exactPrincipal =
-                normalizePrincipal(
-                        moneyValue(
-                                loan.getAmountDecimal()
-                        )
-                );
-
-        loan.setAmount(
-                exactPrincipal
-        );
-
-        loan.setOutstandingBalance(
-                exactPrincipal
-        );
-
-        loan.setStatus(
-                LoanStatus.ACTIVE
-        );
-
-        LocalDateTime exactDisbursementTimestamp =
-                LocalDateTime.now();
-
-        loan.setDisbursedAt(
-                exactDisbursementTimestamp
-        );
-
-        loan.setDisbursedAmount(
-                exactPrincipal
-        );
-
-        LocalDate disbursementDate =
-                exactDisbursementTimestamp.toLocalDate();
-
-        Integer duration =
-                loan.getDurationMonths() != null
-                        ? loan.getDurationMonths()
-                        : 1;
-
-        loan.setMaturityDate(
-                disbursementDate.plusMonths(
-                        duration
-                )
-        );
-
-        loan.setNextDueDate(
-                holidayService.adjustToBusinessDay(
-                        loan.getOrganization().getId(),
-                        disbursementDate.plusMonths(1)
-                )
-        );
-
-        Loan saved =
-                loanRepo.save(loan);
-
-        log.info(
-                "Loan {} disbursed at exact timestamp {}",
-                saved.getReferenceNumber(),
-                saved.getDisbursedAt()
-        );
-
-        paymentScheduleService.generateSchedule(
-                saved
-        );
-
-        PaymentSchedule first =
-                paymentScheduleService.getNextInstallment(
-                        saved.getId()
-                );
-
-        if (first != null) {
-
-            saved.setNextPaymentDate(
-                    first.getDueDate()
-            );
-
-            saved.setNextInstallmentAmount(
-                    first.getInstallmentAmount()
-            );
-
-            saved.setNextDueDate(
-                    first.getDueDate()
-            );
-        }
-
-        saved =
-                loanRepo.save(saved);
-
-        if (creditBureauService.isReportingRequiredForDisbursement()) {
-
-           
-            creditBureauService.reportDisbursedLoan(
-                    saved,
-                    officer.getName()
-            );
-
-            log.info(
-                    "Loan {} successfully reported to Credit Bureau.",
-                    saved.getReferenceNumber()
-            );
-
-        } else {
-
-            log.warn(
-                    "Credit Bureau reporting is explicitly disabled for disbursement. "
-                            + "loan={}",
-                    saved.getReferenceNumber()
-            );
-        }
-
-        audit(
-                saved.getOrganization(),
-                officer,
-                "LOAN_DISBURSED",
-                "LOAN",
-                loanId.toString(),
-                "Disbursed via "
-                        + (
-                        disbursementMethod != null
-                                ? disbursementMethod
-                                : "unspecified"
-                )
-        );
-
-        accountingService.postDisbursement(
-                saved
-        );
-
-        try {
-
-            mailService.sendLoanDisbursed(
-                    saved,
-                    disbursementMethod
-            );
-
-        } catch (Exception e) {
-
-            log.warn(
-                    "Loan disbursement email failed.",
-                    e
-            );
-        }
-
-        try {
-
-            smsService.sendLoanDisbursed(
-                    saved,
-                    disbursementMethod
-            );
-
-        } catch (Exception e) {
-
-            log.warn(
-                    "Loan disbursement SMS failed.",
-                    e
-            );
-        }
-
-        notifyOfficer(
-                saved,
-                officer,
-                "Loan Disbursed",
-                "Loan "
-                        + saved.getReferenceNumber()
-                        + " ("
-                        + saved.getCurrency()
-                        + " "
-                        + saved.getDisbursedAmountDecimal()
-                        + ") has been disbursed via "
-                        + disbursementMethod
-                        + ".",
-                "success"
-        );
-
-        webhookService.dispatch(
-                saved.getOrganization(),
-                "LOAN_DISBURSED",
-                saved
-        );
-
-        return saved;
-    }
-
-    // ================================================================
-    // NOTIFY OFFICER
-    // ================================================================
-
-    private void notifyOfficer(
-            Loan loan,
-            User actor,
-            String title,
-            String message,
-            String type
-    ) {
-
-        if (loan == null) {
-            return;
-        }
-
-        User officer =
-                loan.getLoanOfficer();
-
-        if (officer == null) {
-            return;
-        }
-
-        if (
-                actor != null
-                        && officer.getId() != null
-                        && officer.getId().equals(
-                        actor.getId()
-                )
-        ) {
-
-            return;
-        }
-
-        try {
-
-            notifService.notifyUsers(
-                    List.of(officer),
-                    title,
-                    message,
-                    type,
-                    "/dashboard/loans/"
-                            + loan.getId()
-            );
-
-        } catch (Exception e) {
-
-            log.warn(
-                    "In-app notification failed",
-                    e
-            );
-        }
-    }
-
-    // ================================================================
-    // UPDATE STATUS
-    // ================================================================
-
-    @Transactional
-    public Loan updateStatus(
-            Long loanId,
-            User user,
-            LoanStatus newStatus,
-            String notes
-    ) {
-
-        if (
-                user == null
-                        || user.getOrganization() == null
-                        || user.getOrganization().getId() == null
-        ) {
-
-            throw new RuntimeException(
-                    "User must belong to an organization"
-            );
-        }
-
-        if (newStatus == null) {
-
-            throw new IllegalArgumentException(
-                    "New loan status cannot be null"
-            );
-        }
-
-        Loan loan =
-                getLoanForOrg(
-                        loanId,
-                        user.getOrganization().getId()
-                );
-
-        LoanStatus current =
-                loan.getStatus();
-
-        switch (newStatus) {
-
-            case UNDER_REVIEW -> {
-
-                if (current != LoanStatus.PENDING) {
-
-                    throw new RuntimeException(
-                            "Only a Pending loan can be moved to Under Review (currently "
-                                    + current
-                                    + ")"
-                    );
+                BigDecimal monthlyRate = calculateMonthlyRate(
+                                rate,
+                                rateType);
+
+                if (monthlyRate.compareTo(
+                                ZERO) == 0) {
+
+                        BigDecimal monthly = money(
+                                        principal.divide(
+                                                        BigDecimal.valueOf(months),
+                                                        16,
+                                                        RoundingMode.HALF_UP));
+
+                        return new BigDecimal[] {
+                                        monthly,
+                                        money(
+                                                        monthly.multiply(
+                                                                        BigDecimal.valueOf(months)))
+                        };
                 }
-            }
 
-            case DEFAULTED -> {
+                BigDecimal onePlusMonthlyRate = BigDecimal.ONE.add(
+                                monthlyRate);
 
-                if (
-                        current != LoanStatus.ACTIVE
-                                && current != LoanStatus.OVERDUE
-                ) {
+                BigDecimal factor = onePlusMonthlyRate.pow(
+                                months,
+                                java.math.MathContext.DECIMAL128);
 
-                    throw new RuntimeException(
-                            "Only an Active or Overdue loan can be marked Defaulted (currently "
-                                    + current
-                                    + ")"
-                    );
+                BigDecimal numerator = principal
+                                .multiply(monthlyRate)
+                                .multiply(factor);
+
+                BigDecimal denominator = factor.subtract(
+                                BigDecimal.ONE);
+
+                if (denominator.compareTo(
+                                ZERO) == 0) {
+
+                        throw new IllegalArgumentException(
+                                        "Invalid interest calculation");
                 }
-            }
 
-            case CLOSED -> {
+                BigDecimal monthly = money(
+                                numerator.divide(
+                                                denominator,
+                                                16,
+                                                RoundingMode.HALF_UP));
 
-                if (
-                        current != LoanStatus.PAID
-                                && current != LoanStatus.WRITTEN_OFF
-                ) {
+                BigDecimal total = money(
+                                monthly.multiply(
+                                                BigDecimal.valueOf(months)));
 
-                    throw new RuntimeException(
-                            "Only a fully Paid or Written-off loan can be Closed (currently "
-                                    + current
-                                    + ")"
-                    );
+                return new BigDecimal[] {
+                                monthly,
+                                total
+                };
+        }
+
+        // ================================================================
+        // MONTHLY RATE
+        // ================================================================
+
+        private BigDecimal calculateMonthlyRate(
+                        BigDecimal rate,
+                        String rateType) {
+
+                if (rate == null) {
+                        return ZERO;
                 }
-            }
 
-            case RESTRUCTURED ->
+                validateInterestRate(rate);
 
-                    throw new RuntimeException(
-                            "Use the Restructure Loan action instead."
-                    );
+                validateRateType(rateType);
 
-            default ->
+                if ("MONTHLY".equalsIgnoreCase(
+                                rateType)) {
 
-                    throw new RuntimeException(
-                            "Use the dedicated Approve / Reject / Disburse actions."
-                    );
+                        return rate.divide(
+                                        ONE_HUNDRED,
+                                        16,
+                                        RoundingMode.HALF_UP);
+                }
+
+                return rate
+                                .divide(
+                                                ONE_HUNDRED,
+                                                16,
+                                                RoundingMode.HALF_UP)
+                                .divide(
+                                                TWELVE,
+                                                16,
+                                                RoundingMode.HALF_UP);
         }
 
-        loan.setStatus(
-                newStatus
-        );
+        // ================================================================
+        // LOAN DURATION VALIDATION
+        // ================================================================
 
-        if (notes != null && !notes.isBlank()) {
-            loan.setInternalNotes(notes);
+        private void validateLoanDuration(
+                        Integer months) {
+
+                if (months == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan duration is required");
+                }
+
+                if (months <= 0) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan duration must be greater than zero");
+                }
+
+                if (months > MAX_LOAN_DURATION_MONTHS) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan duration cannot exceed "
+                                                        + MAX_LOAN_DURATION_MONTHS
+                                                        + " months");
+                }
         }
 
-        Loan saved =
-                loanRepo.save(loan);
+        // ================================================================
+        // INTEREST RATE VALIDATION
+        // ================================================================
 
-        audit(
-                loan.getOrganization(),
-                user,
-                "LOAN_STATUS_CHANGED",
-                "LOAN",
-                loanId.toString(),
-                current
-                        + " -> "
-                        + newStatus
-                        + (
-                        notes != null
-                                && !notes.isBlank()
-                                ? ": " + notes
-                                : ""
-                )
-        );
+        private void validateInterestRate(
+                        BigDecimal rate) {
 
-        webhookService.dispatch(
-                loan.getOrganization(),
-                "LOAN_STATUS_CHANGED",
-                saved
-        );
+                if (rate == null) {
 
-        return saved;
-    }
+                        throw new IllegalArgumentException(
+                                        "Interest rate is required");
+                }
 
-    // ================================================================
-    // GET LOANS
-    // ================================================================
+                if (rate.compareTo(ZERO) < 0) {
 
-    public Page<Loan> getLoans(
-            Organization org,
-            int page,
-            int size,
-            String status,
-            String type
-    ) {
+                        throw new IllegalArgumentException(
+                                        "Interest rate cannot be negative");
+                }
 
-        if (org == null || org.getId() == null) {
-            throw new IllegalArgumentException(
-                    "Organization is required"
-            );
+                BigDecimal maximumReasonableRate = bd("1000.0");
+
+                if (rate.compareTo(
+                                maximumReasonableRate) > 0) {
+
+                        throw new IllegalArgumentException(
+                                        "Interest rate is unreasonably high");
+                }
         }
 
-        if (page < 0) {
-            page = 0;
+        // ================================================================
+        // BIG DECIMAL HELPERS
+        // ================================================================
+
+        private static BigDecimal bd(
+                        String value) {
+
+                return new BigDecimal(value);
         }
 
-        if (size <= 0) {
-            size = 20;
+        private static BigDecimal bd(
+                        double value) {
+
+                if (Double.isNaN(value)
+                                || Double.isInfinite(value)) {
+
+                        throw new IllegalArgumentException(
+                                        "Invalid numeric value: "
+                                                        + value);
+                }
+
+                return BigDecimal.valueOf(value);
         }
 
-        LoanStatus ls = null;
+        private BigDecimal toBigDecimal(
+                        Object value) {
 
-        if (status != null && !status.isBlank()) {
+                if (value == null) {
+                        return null;
+                }
 
-            try {
+                if (value instanceof BigDecimal decimal) {
+                        return decimal;
+                }
 
-                ls =
-                        LoanStatus.valueOf(
-                                status.trim().toUpperCase()
-                        );
+                if (value instanceof Integer integer) {
+                        return BigDecimal.valueOf(
+                                        integer.longValue());
+                }
 
-            } catch (IllegalArgumentException e) {
+                if (value instanceof Long longValue) {
+                        return BigDecimal.valueOf(
+                                        longValue);
+                }
+
+                if (value instanceof Double doubleValue) {
+
+                        if (doubleValue.isNaN()
+                                        || doubleValue.isInfinite()) {
+
+                                throw new IllegalArgumentException(
+                                                "Invalid numeric value: "
+                                                                + doubleValue);
+                        }
+
+                        return BigDecimal.valueOf(
+                                        doubleValue);
+                }
+
+                if (value instanceof Float floatValue) {
+
+                        if (floatValue.isNaN()
+                                        || floatValue.isInfinite()) {
+
+                                throw new IllegalArgumentException(
+                                                "Invalid numeric value: "
+                                                                + floatValue);
+                        }
+
+                        return BigDecimal.valueOf(
+                                        floatValue.doubleValue());
+                }
+
+                if (value instanceof Short shortValue) {
+
+                        return BigDecimal.valueOf(
+                                        shortValue.longValue());
+                }
+
+                if (value instanceof Byte byteValue) {
+
+                        return BigDecimal.valueOf(
+                                        byteValue.longValue());
+                }
+
+                if (value instanceof Number number) {
+
+                        try {
+
+                                return new BigDecimal(
+                                                number.toString());
+
+                        } catch (NumberFormatException e) {
+
+                                throw new IllegalArgumentException(
+                                                "Invalid numeric value: "
+                                                                + value,
+                                                e);
+                        }
+                }
+
+                if (value instanceof String string) {
+
+                        if (string.isBlank()) {
+                                return null;
+                        }
+
+                        try {
+
+                                return new BigDecimal(
+                                                string.trim());
+
+                        } catch (NumberFormatException e) {
+
+                                throw new IllegalArgumentException(
+                                                "Invalid numeric value: "
+                                                                + string,
+                                                e);
+                        }
+                }
 
                 throw new IllegalArgumentException(
-                        "Invalid loan status: " + status
-                );
-            }
+                                "Unsupported numeric type: "
+                                                + value.getClass().getName());
         }
 
-        Loan.LoanType lt = null;
+        private BigDecimal moneyValue(
+                        Object value) {
 
-        if (type != null && !type.isBlank()) {
+                BigDecimal result = toBigDecimal(value);
 
-            try {
-
-                lt =
-                        Loan.LoanType.valueOf(
-                                type.trim().toUpperCase()
-                        );
-
-            } catch (IllegalArgumentException e) {
-
-                throw new IllegalArgumentException(
-                        "Invalid loan type: " + type
-                );
-            }
+                return result != null
+                                ? result
+                                : ZERO;
         }
 
-        return loanRepo.findByFilters(
-                org,
-                ls,
-                lt,
-                PageRequest.of(
-                        page,
-                        size
-                )
-        );
-    }
+        private BigDecimal money(
+                        BigDecimal value) {
 
-    // ================================================================
-    // GET LOAN
-    // ================================================================
+                if (value == null) {
 
-    public Loan getLoanForOrg(
-            Long loanId,
-            Long orgId
-    ) {
+                        return ZERO.setScale(
+                                        2,
+                                        RoundingMode.HALF_UP);
+                }
 
-        if (loanId == null) {
-
-            throw new IllegalArgumentException(
-                    "Loan ID cannot be null"
-            );
+                return value.setScale(
+                                2,
+                                RoundingMode.HALF_UP);
         }
 
-        if (orgId == null) {
+        private BigDecimal normalizePrincipal(
+                        BigDecimal value) {
 
-            throw new IllegalArgumentException(
-                    "Organization ID cannot be null"
-            );
-        }
+                if (value == null) {
 
-        Loan loan =
-                loanRepo.findById(
-                                loanId
-                        )
-                        .orElseThrow(
-                                () -> new RuntimeException(
-                                        "Loan not found: "
-                                                + loanId
-                                )
-                        );
+                        throw new IllegalArgumentException(
+                                        "Invalid loan principal: null");
+                }
 
-        if (
-                loan.getOrganization() == null
-                        || loan.getOrganization().getId() == null
-                        || !loan.getOrganization()
-                        .getId()
-                        .equals(orgId)
-        ) {
+                if (value.compareTo(ZERO) < 0) {
 
-            throw new RuntimeException(
-                    "Access denied to loan: "
-                            + loanId
-            );
-        }
+                        throw new IllegalArgumentException(
+                                        "Invalid loan principal: "
+                                                        + value);
+                }
 
-        return loan;
-    }
-
-    // ================================================================
-    // DOCUMENT REQUIREMENTS
-    // ================================================================
-
-    public Map<String, Object> getDocumentRequirements(
-            Long loanId,
-            Long orgId
-    ) {
-
-        Loan loan =
-                getLoanForOrg(
-                        loanId,
-                        orgId
-                );
-
-        Map<String, Object> result =
-                new LinkedHashMap<>();
-
-        if (loan.getBorrower() == null) {
-
-            result.put(
-                    "required",
-                    List.of()
-            );
-
-            result.put(
-                    "missing",
-                    List.of()
-            );
-
-            result.put(
-                    "unverified",
-                    List.of()
-            );
-
-            result.put(
-                    "readyToApprove",
-                    false
-            );
-
-            result.put(
-                    "readyToDisburse",
-                    false
-            );
-
-            result.put(
-                    "noBorrowerLinked",
-                    true
-            );
-
-            return result;
-        }
-
-        List<DocumentType> required =
-                requiredDocsFor(loan);
-
-        List<DocumentType> missing =
-                fileService.getMissingDocumentTypes(
-                        loan.getBorrower().getId(),
-                        required
-                );
-
-        List<DocumentType> unverified =
-                fileService.getUnverifiedDocumentTypes(
-                        loan.getBorrower().getId(),
-                        required
-                );
-
-        result.put(
-                "required",
-                required.stream()
-                        .map(DocumentType::name)
-                        .toList()
-        );
-
-        result.put(
-                "missing",
-                missing.stream()
-                        .map(DocumentType::name)
-                        .toList()
-        );
-
-        result.put(
-                "unverified",
-                unverified.stream()
-                        .map(DocumentType::name)
-                        .toList()
-        );
-
-        result.put(
-                "readyToApprove",
-                missing.isEmpty()
-        );
-
-        result.put(
-                "readyToDisburse",
-                missing.isEmpty()
-                        && unverified.isEmpty()
-        );
-
-        result.put(
-                "noBorrowerLinked",
-                false
-        );
-
-        return result;
-    }
-
-    // ================================================================
-    // DASHBOARD
-    // ================================================================
-
-    public DashboardStats getDashboard(
-            Organization org
-    ) {
-
-        if (org == null || org.getId() == null) {
-
-            throw new IllegalArgumentException(
-                    "Organization is required"
-            );
-        }
-
-        LocalDate today =
-                LocalDate.now();
-
-        LocalDate firstOfMonth =
-                today.withDayOfMonth(1);
-
-        long overdueCount =
-                paymentRepo
-                        .findByOrganization_IdAndPaidFalseAndDueDateBefore(
-                                org.getId(),
-                                today
-                        )
-                        .size();
-
-        List<Map<String, Object>> typeBreakdown =
-                loanRepo
-                        .getLoanTypeBreakdown(org)
-                        .stream()
-                        .map(
-                                r -> {
-
-                                    Map<String, Object> m =
-                                            new LinkedHashMap<>();
-
-                                    m.put(
-                                            "type",
-                                            r[0]
-                                    );
-
-                                    m.put(
-                                            "count",
-                                            r[1]
-                                    );
-
-                                    m.put(
-                                            "amount",
-                                            r[2]
-                                    );
-
-                                    return m;
-                                }
-                        )
-                        .collect(Collectors.toList());
-
-        List<Loan> recent =
-                loanRepo.findRecentByOrg(
-                        org,
-                        PageRequest.of(
+                /*
+                 * Principal is stored as a whole currency unit.
+                 */
+                return value.setScale(
                                 0,
-                                8
-                        )
-                );
-
-        return DashboardStats.builder()
-                .totalLoans(
-                        loanRepo.countByOrganization(
-                                org
-                        )
-                )
-                .pendingLoans(
-                        loanRepo.countByOrganizationAndStatus(
-                                org,
-                                LoanStatus.PENDING
-                        )
-                )
-                .activeLoans(
-                        loanRepo.countByOrganizationAndStatus(
-                                org,
-                                LoanStatus.ACTIVE
-                        )
-                )
-                .overdueLoans(
-                        overdueCount
-                )
-                .completedLoans(
-                        loanRepo.countByOrganizationAndStatus(
-                                org,
-                                LoanStatus.PAID
-                        )
-                )
-                .defaultedLoans(
-                        loanRepo.countByOrganizationAndStatus(
-                                org,
-                                LoanStatus.DEFAULTED
-                        )
-                )
-                .totalDisbursed(
-                        Optional.ofNullable(
-                                        loanRepo.sumActivePrincipal(
-                                                org
-                                        )
-                                )
-                                .map(
-                                        this::toDouble
-                                )
-                                .orElse(0.0)
-                )
-                .totalCollected(
-                        Optional.ofNullable(
-                                        loanRepo.sumTotalCollected(
-                                                org
-                                        )
-                                )
-                                .map(
-                                        this::toDouble
-                                )
-                                .orElse(0.0)
-                )
-                .outstandingBalance(
-                        Optional.ofNullable(
-                                        loanRepo.sumOutstandingBalance(
-                                                org
-                                        )
-                                )
-                                .map(
-                                        this::toDouble
-                                )
-                                .orElse(0.0)
-                )
-                .collectedThisMonth(
-                        Optional.ofNullable(
-                                        paymentRepo.sumCollectedSince(
-                                                org,
-                                                firstOfMonth
-                                        )
-                                )
-                                .map(
-                                        this::toDouble
-                                )
-                                .orElse(0.0)
-                )
-                .totalBorrowers(
-                        borrowerRepo.countByOrganization(
-                                org
-                        )
-                )
-                .latePaymentsCount(
-                        Optional.ofNullable(
-                                        paymentRepo.countLatePayments(
-                                                org
-                                        )
-                                )
-                                .orElse(0L)
-                )
-                .loanTypeBreakdown(
-                        typeBreakdown
-                )
-                .recentLoans(
-                        recent
-                )
-                .build();
-    }
-
-    // ================================================================
-    // GENERATE REPAYMENT SCHEDULE
-    // ================================================================
-
-    private void generateRepaymentSchedule(
-            Loan loan
-    ) {
-
-        if (loan == null) {
-            throw new IllegalArgumentException(
-                    "Loan cannot be null"
-            );
+                                RoundingMode.HALF_UP);
         }
 
-        if (
-                loan.getOrganization() == null
-                        || loan.getOrganization().getId() == null
-        ) {
+        private double toDouble(
+                        Object value) {
 
-            throw new IllegalArgumentException(
-                    "Loan organization is required"
-            );
+                return moneyValue(value).doubleValue();
         }
 
-        BigDecimal principal =
-                normalizePrincipal(
-                        moneyValue(
-                                loan.getAmountDecimal()
-                        )
-                );
+        private String formatMoney(
+                        BigDecimal value) {
 
-        BigDecimal rate =
-                moneyValue(
-                        loan.getInterestRateDecimal()
-                );
-
-        String rateType =
-                loan.getInterestRateType() != null
-                        ? loan.getInterestRateType()
-                        : "ANNUAL";
-
-        validateRateType(rateType);
-
-        int months =
-                loan.getDurationMonths() != null
-                        ? loan.getDurationMonths()
-                        : 1;
-
-        if (months <= 0) {
-            months = 1;
-        }
-
-        BigDecimal monthlyPayment =
-                calcLoan(
-                        principal,
-                        rate,
-                        months,
-                        rateType
-                )[0];
-
-        BigDecimal balance =
-                principal;
-
-        BigDecimal monthlyRate;
-
-        if (
-                "MONTHLY"
-                        .equalsIgnoreCase(rateType)
-        ) {
-
-            monthlyRate =
-                    rate.divide(
-                            bd("100"),
-                            16,
-                            RoundingMode.HALF_UP
-                    );
-
-        } else {
-
-            monthlyRate =
-                    rate.divide(
-                            bd("100"),
-                            16,
-                            RoundingMode.HALF_UP
-                    )
-                    .divide(
-                            bd("12"),
-                            16,
-                            RoundingMode.HALF_UP
-                    );
-        }
-
-        Long orgId =
-                loan.getOrganization()
-                        .getId();
-
-        LocalDate startDate =
-                loan.getStartDate() != null
-                        ? loan.getStartDate()
-                        : LocalDate.now();
-
-        LocalDate due =
-                holidayService.adjustToBusinessDay(
-                        orgId,
-                        startDate.plusMonths(1)
-                );
-
-        for (
-                int i = 1;
-                i <= months;
-                i++
-        ) {
-
-            balance =
-                    money(balance);
-
-            BigDecimal interest =
-                    money(
-                            balance.multiply(
-                                    monthlyRate
-                            )
-                    );
-
-            BigDecimal principalComponent;
-            BigDecimal installmentAmount;
-
-            if (i == months) {
-
-                principalComponent =
-                        balance;
-
-                installmentAmount =
-                        money(
-                                principalComponent.add(
-                                        interest
-                                )
-                        );
-
-                balance =
-                        BigDecimal.ZERO;
-
-            } else {
-
-                installmentAmount =
-                        monthlyPayment;
-
-                principalComponent =
-                        money(
-                                installmentAmount.subtract(
-                                        interest
-                                )
-                        );
-
-                if (
-                        principalComponent.compareTo(
-                                BigDecimal.ZERO
-                        ) < 0
-                ) {
-
-                    principalComponent =
-                            BigDecimal.ZERO;
+                if (value == null) {
+                        return "0";
                 }
 
-                if (
-                        principalComponent.compareTo(
-                                balance
-                        ) > 0
-                ) {
+                return value
+                                .setScale(
+                                                0,
+                                                RoundingMode.HALF_UP)
+                                .toPlainString();
+        }
 
-                    principalComponent =
-                            balance;
+        // ================================================================
+        // RATE TYPE VALIDATION
+        // ================================================================
+
+        private void validateRateType(
+                        String rateType) {
+
+                if (rateType == null
+                                || rateType.isBlank()) {
+
+                        throw new IllegalArgumentException(
+                                        "Interest rate type is required");
                 }
 
-                balance =
-                        money(
-                                balance.subtract(
-                                        principalComponent
-                                )
-                        );
+                if (!"ANNUAL".equalsIgnoreCase(rateType)
+                                && !"MONTHLY".equalsIgnoreCase(rateType)) {
 
-                if (
-                        balance.compareTo(
-                                bd("0.01")
-                        ) < 0
-                ) {
-
-                    balance =
-                            BigDecimal.ZERO;
+                        throw new IllegalArgumentException(
+                                        "Interest rate type must be MONTHLY or ANNUAL");
                 }
-            }
-
-            Payment payment =
-                    Payment.builder()
-                            .paymentReference(
-                                    generatePayRef(
-                                            loan,
-                                            i
-                                    )
-                            )
-                            .loan(loan)
-                            .organization(
-                                    loan.getOrganization()
-                            )
-                            .installmentNumber(i)
-                            .amount(
-                                    installmentAmount
-                            )
-                            .principalComponent(
-                                    money(
-                                            principalComponent
-                                    )
-                            )
-                            .interestComponent(
-                                    money(
-                                            interest
-                                    )
-                            )
-                            .dueDate(due)
-                            .paid(false)
-                            .amountPaid(
-                                    BigDecimal.ZERO
-                            )
-                            .penalty(
-                                    BigDecimal.ZERO
-                            )
-                            .outstandingAfter(
-                                    balance
-                            )
-                            .status(
-                                    Payment.PaymentStatus.PENDING
-                            )
-                            .build();
-
-            paymentRepo.save(payment);
-
-            due =
-                    holidayService.adjustToBusinessDay(
-                            orgId,
-                            due.plusMonths(1)
-                    );
         }
 
-        loan.setAmount(
-                principal
-        );
+        // ================================================================
+        // REFERENCE NUMBER
+        // ================================================================
 
-        loan.setOutstandingBalance(
-                principal
-        );
+        private String generateRef(
+                        Organization org) {
 
-        loan.setNextDueDate(
-                holidayService.adjustToBusinessDay(
-                        orgId,
-                        startDate.plusMonths(1)
-                )
-        );
+                String prefix = "RW";
 
-        loanRepo.save(loan);
-    }
+                if (org != null
+                                && org.getCountry() != null
+                                && !org.getCountry().trim().isEmpty()) {
 
-    // ================================================================
-    // RISK SCORING
-    // ================================================================
+                        prefix = org.getCountry()
+                                        .trim()
+                                        .toUpperCase();
+                }
 
-    @Async
-    public void scoreAsync(
-            Loan loan
-    ) {
+                String timestamp = LocalDateTime.now()
+                                .format(
+                                                DateTimeFormatter.ofPattern(
+                                                                "yyyyMMddHHmmssSSS"));
 
-        try {
-
-            if (loan == null) {
-                return;
-            }
-
-            RiskScoringService.RiskResult risk =
-                    riskService.score(loan);
-
-            if (risk == null) {
-                return;
-            }
-
-            loan.setRiskScore(
-                    risk.getScore()
-            );
-
-            loan.setRiskCategory(
-                    risk.getCategory()
-            );
-
-            loanRepo.save(loan);
-
-        } catch (Exception e) {
-
-            log.warn(
-                    "Risk scoring skipped: {}",
-                    e.getMessage()
-            );
-        }
-    }
-
-    // ================================================================
-    // RATE ADJUSTMENT
-    // ================================================================
-
-    private BigDecimal adjustRate(
-            BigDecimal base,
-            int creditScore,
-            String rateType
-    ) {
-
-        if (base == null) {
-            base = bd("15.0");
+                return prefix + timestamp;
         }
 
-        if (
-                "MONTHLY"
-                        .equalsIgnoreCase(rateType)
-        ) {
+        // ================================================================
+        // PAYMENT REFERENCE
+        // ================================================================
 
-            if (creditScore >= 750) {
+        private String generatePayRef(
+                        Loan loan,
+                        int installment) {
 
-                return base
-                        .subtract(
-                                bd("2.0")
-                        )
-                        .max(
-                                bd("6.0")
-                        );
-            }
+                if (loan == null) {
 
-            if (creditScore >= 650) {
-                return base;
-            }
+                        throw new IllegalArgumentException(
+                                        "Loan is required to generate payment reference");
+                }
 
-            return base
-                    .add(
-                            bd("2.0")
-                    )
-                    .min(
-                            bd("10.0")
-                    );
+                if (loan.getReferenceNumber() == null
+                                || loan.getReferenceNumber().isBlank()) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan reference number is required");
+                }
+
+                return "PAY-"
+                                + loan.getReferenceNumber()
+                                + "-"
+                                + String.format(
+                                                "%03d",
+                                                installment);
         }
 
-        if (creditScore >= 800) {
+        // ================================================================
+        // AUDIT
+        // ================================================================
 
-            return base.subtract(
-                    bd("2.0")
-            );
+        private void audit(
+                        Organization org,
+                        User user,
+                        String action,
+                        String entityType,
+                        String entityId,
+                        String desc) {
+
+                auditService.log(
+                                org,
+                                user,
+                                action,
+                                entityType,
+                                entityId,
+                                desc);
         }
 
-        if (creditScore >= 750) {
+        // ================================================================
+        // REPOSITORY ACCESS
+        // ================================================================
 
-            return base.subtract(
-                    bd("1.0")
-            );
+        public LoanRepository getLoanRepository() {
+
+                return loanRepo;
         }
-
-        if (creditScore >= 700) {
-            return base;
-        }
-
-        if (creditScore >= 650) {
-
-            return base.add(
-                    bd("1.0")
-            );
-        }
-
-        return base.add(
-                bd("3.0")
-        );
-    }
-
-    // ================================================================
-    // LOAN CALCULATION
-    // ================================================================
-
-    private BigDecimal[] calcLoan(
-            BigDecimal principal,
-            BigDecimal rate,
-            int months,
-            String rateType
-    ) {
-
-        principal =
-                normalizePrincipal(
-                        principal
-                );
-
-        if (months <= 0) {
-
-            throw new IllegalArgumentException(
-                    "Loan duration must be greater than zero"
-            );
-        }
-
-        if (rate == null) {
-            rate = BigDecimal.ZERO;
-        }
-
-        if (
-                rate.compareTo(
-                        BigDecimal.ZERO
-                ) < 0
-        ) {
-
-            throw new IllegalArgumentException(
-                    "Interest rate cannot be negative"
-            );
-        }
-
-        BigDecimal monthlyRate;
-
-        if (
-                "MONTHLY"
-                        .equalsIgnoreCase(rateType)
-        ) {
-
-            monthlyRate =
-                    rate.divide(
-                            bd("100"),
-                            16,
-                            RoundingMode.HALF_UP
-                    );
-
-        } else {
-
-            monthlyRate =
-                    rate.divide(
-                            bd("100"),
-                            16,
-                            RoundingMode.HALF_UP
-                    )
-                    .divide(
-                            bd("12"),
-                            16,
-                            RoundingMode.HALF_UP
-                    );
-        }
-
-        if (
-                monthlyRate.compareTo(
-                        BigDecimal.ZERO
-                ) == 0
-        ) {
-
-            BigDecimal monthly =
-                    money(
-                            principal.divide(
-                                    BigDecimal.valueOf(
-                                            months
-                                    ),
-                                    16,
-                                    RoundingMode.HALF_UP
-                            )
-                    );
-
-            return new BigDecimal[]{
-                    monthly,
-                    money(
-                            monthly.multiply(
-                                    BigDecimal.valueOf(
-                                            months
-                                    )
-                            )
-                    )
-            };
-        }
-
-        double monthlyRateDouble =
-                monthlyRate.doubleValue();
-
-        double factorDouble =
-                Math.pow(
-                        1.0 + monthlyRateDouble,
-                        months
-                );
-
-        if (
-                Double.isInfinite(
-                        factorDouble
-                )
-                        || Double.isNaN(
-                        factorDouble
-                )
-        ) {
-
-            throw new IllegalArgumentException(
-                    "Unable to calculate loan repayment schedule"
-            );
-        }
-
-        BigDecimal factor =
-                BigDecimal.valueOf(
-                        factorDouble
-                );
-
-        BigDecimal numerator =
-                principal
-                        .multiply(
-                                monthlyRate
-                        )
-                        .multiply(
-                                factor
-                        );
-
-        BigDecimal denominator =
-                factor.subtract(
-                        BigDecimal.ONE
-                );
-
-        if (
-                denominator.compareTo(
-                        BigDecimal.ZERO
-                ) == 0
-        ) {
-
-            throw new IllegalArgumentException(
-                    "Invalid interest calculation"
-            );
-        }
-
-        BigDecimal monthly =
-                money(
-                        numerator.divide(
-                                denominator,
-                                16,
-                                RoundingMode.HALF_UP
-                        )
-                );
-
-        BigDecimal total =
-                money(
-                        monthly.multiply(
-                                BigDecimal.valueOf(
-                                        months
-                                )
-                        )
-                );
-
-        return new BigDecimal[]{
-                monthly,
-                total
-        };
-    }
-
-    // ================================================================
-    // MONEY HELPERS
-    // ================================================================
-
-    private static BigDecimal bd(
-            String value
-    ) {
-
-        return new BigDecimal(
-                value
-        );
-    }
-
-    private static BigDecimal bd(
-            double value
-    ) {
-
-        if (
-                Double.isNaN(value)
-                        || Double.isInfinite(value)
-        ) {
-
-            throw new IllegalArgumentException(
-                    "Invalid numeric value: "
-                            + value
-            );
-        }
-
-        return BigDecimal.valueOf(
-                value
-        );
-    }
-
-    private BigDecimal toBigDecimal(
-            Object value
-    ) {
-
-        if (value == null) {
-            return null;
-        }
-
-        if (value instanceof BigDecimal decimal) {
-            return decimal;
-        }
-
-        if (value instanceof Number number) {
-
-            return BigDecimal.valueOf(
-                    number.doubleValue()
-            );
-        }
-
-        if (value instanceof String string) {
-
-            if (string.isBlank()) {
-                return null;
-            }
-
-            return new BigDecimal(
-                    string.trim()
-            );
-        }
-
-        throw new IllegalArgumentException(
-                "Unsupported numeric type: "
-                        + value.getClass().getName()
-        );
-    }
-
-    private BigDecimal moneyValue(
-            Object value
-    ) {
-
-        BigDecimal result =
-                toBigDecimal(value);
-
-        return result != null
-                ? result
-                : BigDecimal.ZERO;
-    }
-
-    private BigDecimal money(
-            BigDecimal value
-    ) {
-
-        if (value == null) {
-
-            return BigDecimal.ZERO.setScale(
-                    2,
-                    RoundingMode.HALF_UP
-            );
-        }
-
-        return value.setScale(
-                2,
-                RoundingMode.HALF_UP
-        );
-    }
-
-    private BigDecimal normalizePrincipal(
-            BigDecimal value
-    ) {
-
-        if (value == null) {
-
-            throw new IllegalArgumentException(
-                    "Invalid loan principal: null"
-            );
-        }
-
-        if (
-                value.compareTo(
-                        BigDecimal.ZERO
-                ) < 0
-        ) {
-
-            throw new IllegalArgumentException(
-                    "Invalid loan principal: "
-                            + value
-            );
-        }
-
-        return value.setScale(
-                0,
-                RoundingMode.HALF_UP
-        );
-    }
-
-    private double toDouble(
-            Object value
-    ) {
-
-        return moneyValue(
-                value
-        ).doubleValue();
-    }
-
-    private void validateRateType(
-            String rateType
-    ) {
-
-        if (
-                !"ANNUAL".equalsIgnoreCase(
-                        rateType
-                )
-                        && !"MONTHLY".equalsIgnoreCase(
-                        rateType
-                )
-        ) {
-
-            throw new IllegalArgumentException(
-                    "Interest rate type must be MONTHLY or ANNUAL"
-            );
-        }
-    }
-
-    // ================================================================
-    // REFERENCES
-    // ================================================================
-
-    private String generateRef(
-            Organization org
-    ) {
-
-        String prefix = "RW";
-
-        if (
-                org != null
-                        && org.getCountry() != null
-                        && !org.getCountry()
-                        .trim()
-                        .isEmpty()
-        ) {
-
-            prefix =
-                    org.getCountry()
-                            .trim()
-                            .toUpperCase();
-        }
-
-        String timestamp =
-                LocalDateTime.now()
-                        .format(
-                                DateTimeFormatter.ofPattern(
-                                        "yyyyMMddHHmmssSSS"
-                                )
-                        );
-
-        return prefix
-                + timestamp;
-    }
-
-    private String generatePayRef(
-            Loan loan,
-            int installment
-    ) {
-
-        return "PAY-"
-                + loan.getReferenceNumber()
-                + "-"
-                + String.format(
-                "%03d",
-                installment
-        );
-    }
-
-    // ================================================================
-    // AUDIT
-    // ================================================================
-
-    private void audit(
-            Organization org,
-            User user,
-            String action,
-            String entityType,
-            String entityId,
-            String desc
-    ) {
-
-        /*
-         * user is intentionally allowed to be null.
-         *
-         * Public website:
-         *     user == null
-         *
-         * Organization dashboard:
-         *     user != null
-         *
-         * AuditService is responsible for safely recording
-         * the public/unauthenticated action.
-         */
-        auditService.log(
-                org,
-                user,
-                action,
-                entityType,
-                entityId,
-                desc
-        );
-    }
-
-    // ================================================================
-    // CONTROLLER ACCESS
-    // ================================================================
-
-    public LoanRepository getLoanRepository() {
-
-        return loanRepo;
-    }
 }

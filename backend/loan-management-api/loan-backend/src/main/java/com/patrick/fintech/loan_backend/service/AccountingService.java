@@ -1,4 +1,3 @@
-
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.model.Branch;
@@ -35,3952 +34,3240 @@ import java.util.Set;
 @Slf4j
 public class AccountingService {
 
-    private final ChartOfAccountRepository coaRepo;
-    private final JournalEntryRepository journalRepo;
-    private final JournalLineRepository lineRepo;
+        private final ChartOfAccountRepository coaRepo;
+        private final JournalEntryRepository journalRepo;
+        private final JournalLineRepository lineRepo;
 
-    /*
-     * ============================================================
-     * MONEY CONFIGURATION
-     * ============================================================
-     */
+        // ============================================================
+        // MONEY CONFIGURATION
+        // ============================================================
 
-    private static final int MONEY_SCALE = 6;
+        private static final int MONEY_SCALE = 2;
 
-    private static final RoundingMode MONEY_ROUNDING =
-            RoundingMode.HALF_UP;
+        private static final RoundingMode MONEY_ROUNDING = RoundingMode.HALF_UP;
 
-    private static final BigDecimal ZERO =
-            BigDecimal.ZERO.setScale(
-                    MONEY_SCALE,
-                    MONEY_ROUNDING
-            );
-
-    /*
-     * ============================================================
-     * DEFAULT CHART OF ACCOUNTS
-     * ============================================================
-     */
-
-    private static final String[][] DEFAULT_ACCOUNTS = {
-
-            // ASSETS
-            {"1000", "Cash and Bank", "ASSET", "DEBIT"},
-            {"1100", "Loans Receivable", "ASSET", "DEBIT"},
-            {"1150", "Interest Receivable", "ASSET", "DEBIT"},
-
-            // CONTRA ASSET
-            {"1200", "Loan Loss Reserve", "ASSET", "CREDIT"},
-
-            // LIABILITIES
-            {"2000", "Customer Deposits Payable", "LIABILITY", "CREDIT"},
-            {"2100", "Borrower Refunds Payable", "LIABILITY", "CREDIT"},
-
-            // EQUITY
-            {"3000", "Owner's Equity", "EQUITY", "CREDIT"},
-
-            // INCOME
-            {"4000", "Interest Income", "INCOME", "CREDIT"},
-            {"4100", "Fee and Penalty Income", "INCOME", "CREDIT"},
-
-            // EXPENSES
-            {"5000", "Loan Loss Expense", "EXPENSE", "DEBIT"},
-            {"5100", "Operating Expenses", "EXPENSE", "DEBIT"},
-            {"5200", "Salaries and Wages", "EXPENSE", "DEBIT"},
-            {"5201", "Rent", "EXPENSE", "DEBIT"},
-            {"5202", "Utilities", "EXPENSE", "DEBIT"},
-            {"5203", "Internet", "EXPENSE", "DEBIT"},
-            {"5204", "Transport", "EXPENSE", "DEBIT"},
-            {"5205", "Fuel", "EXPENSE", "DEBIT"},
-            {"5206", "Office Supplies", "EXPENSE", "DEBIT"},
-            {"5207", "Bank Charges", "EXPENSE", "DEBIT"},
-            {"5208", "Insurance", "EXPENSE", "DEBIT"},
-            {"5209", "Marketing", "EXPENSE", "DEBIT"},
-            {"5210", "Legal Fees", "EXPENSE", "DEBIT"},
-            {"5211", "Audit Fees", "EXPENSE", "DEBIT"},
-            {"5212", "Depreciation", "EXPENSE", "DEBIT"},
-            {"5213", "Loan Recovery Expenses", "EXPENSE", "DEBIT"},
-            {"5214", "IT Expenses", "EXPENSE", "DEBIT"},
-            {"5215", "Other Operating Expenses", "EXPENSE", "DEBIT"}
-    };
-
-    /*
-     * ============================================================
-     * MONEY HELPERS
-     * ============================================================
-     */
-
-    private BigDecimal money(BigDecimal value) {
-
-        if (value == null) {
-            return ZERO;
-        }
-
-        return value.setScale(
-                MONEY_SCALE,
-                MONEY_ROUNDING
-        );
-    }
-
-    private BigDecimal money(Double value) {
-
-        if (value == null) {
-            return ZERO;
-        }
-
-        return BigDecimal.valueOf(value)
-                .setScale(
+        private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(
                         MONEY_SCALE,
-                        MONEY_ROUNDING
-                );
-    }
+                        MONEY_ROUNDING);
 
-    private BigDecimal money(double value) {
+        // ============================================================
+        // DEFAULT CHART OF ACCOUNTS
+        // ============================================================
 
-        return BigDecimal.valueOf(value)
-                .setScale(
-                        MONEY_SCALE,
-                        MONEY_ROUNDING
-                );
-    }
+        private static final String[][] DEFAULT_ACCOUNTS = {
 
-    private BigDecimal money(Number value) {
+                        // ASSETS
+                        { "1000", "Cash and Bank", "ASSET", "DEBIT" },
+                        { "1100", "Loans Receivable", "ASSET", "DEBIT" },
+                        { "1150", "Interest Receivable", "ASSET", "DEBIT" },
+                        { "1160", "Management Fees Receivable", "ASSET", "DEBIT" },
 
-        if (value == null) {
-            return ZERO;
-        }
+                        // CONTRA ASSET
+                        { "1200", "Loan Loss Reserve", "ASSET", "CREDIT" },
 
-        if (value instanceof BigDecimal) {
-            return money((BigDecimal) value);
-        }
+                        // LIABILITIES
+                        { "2000", "Customer Deposits Payable", "LIABILITY", "CREDIT" },
+                        { "2100", "Borrower Refunds Payable", "LIABILITY", "CREDIT" },
 
-        return BigDecimal.valueOf(value.doubleValue())
-                .setScale(
-                        MONEY_SCALE,
-                        MONEY_ROUNDING
-                );
-    }
+                        // EQUITY
+                        { "3000", "Owner's Equity", "EQUITY", "CREDIT" },
 
-    private BigDecimal maxZero(BigDecimal value) {
+                        // INCOME
+                        { "4000", "Interest Income", "INCOME", "CREDIT" },
+                        { "4100", "Fee and Penalty Income", "INCOME", "CREDIT" },
 
-        BigDecimal normalized = money(value);
+                        // EXPENSES
+                        { "5000", "Loan Loss Expense", "EXPENSE", "DEBIT" },
+                        { "5100", "Operating Expenses", "EXPENSE", "DEBIT" },
+                        { "5200", "Salaries and Wages", "EXPENSE", "DEBIT" },
+                        { "5201", "Rent", "EXPENSE", "DEBIT" },
+                        { "5202", "Utilities", "EXPENSE", "DEBIT" },
+                        { "5203", "Internet", "EXPENSE", "DEBIT" },
+                        { "5204", "Transport", "EXPENSE", "DEBIT" },
+                        { "5205", "Fuel", "EXPENSE", "DEBIT" },
+                        { "5206", "Office Supplies", "EXPENSE", "DEBIT" },
+                        { "5207", "Bank Charges", "EXPENSE", "DEBIT" },
+                        { "5208", "Insurance", "EXPENSE", "DEBIT" },
+                        { "5209", "Marketing", "EXPENSE", "DEBIT" },
+                        { "5210", "Legal Fees", "EXPENSE", "DEBIT" },
+                        { "5211", "Audit Fees", "EXPENSE", "DEBIT" },
+                        { "5212", "Depreciation", "EXPENSE", "DEBIT" },
+                        { "5213", "Loan Recovery Expenses", "EXPENSE", "DEBIT" },
+                        { "5214", "IT Expenses", "EXPENSE", "DEBIT" },
+                        { "5215", "Other Operating Expenses", "EXPENSE", "DEBIT" }
+        };
 
-        return normalized.compareTo(ZERO) < 0
-                ? ZERO
-                : normalized;
-    }
+        // ============================================================
+        // MONEY HELPERS
+        // ============================================================
 
-    private boolean isPositive(BigDecimal value) {
+        private BigDecimal money(
+                        BigDecimal value) {
 
-        return money(value).compareTo(ZERO) > 0;
-    }
-
-    private BigDecimal normalize(BigDecimal value) {
-
-        return money(value);
-    }
-
-    /*
-     * ============================================================
-     * VALIDATION
-     * ============================================================
-     */
-
-    private void requireOrganization(Organization org) {
-
-        if (org == null || org.getId() == null) {
-            throw new IllegalArgumentException(
-                    "Organization is required"
-            );
-        }
-    }
-
-    private void requireOrganizationId(Long orgId) {
-
-        if (orgId == null) {
-            throw new IllegalArgumentException(
-                    "Organization ID is required"
-            );
-        }
-    }
-
-    private void requireAccountId(Long accountId) {
-
-        if (accountId == null) {
-            throw new IllegalArgumentException(
-                    "Account ID is required"
-            );
-        }
-    }
-
-    private void validateDateRange(
-            LocalDate from,
-            LocalDate to
-    ) {
-
-        if (from == null) {
-            throw new IllegalArgumentException(
-                    "Start date is required"
-            );
-        }
-
-        if (to == null) {
-            throw new IllegalArgumentException(
-                    "End date is required"
-            );
-        }
-
-        if (to.isBefore(from)) {
-            throw new IllegalArgumentException(
-                    "End date cannot be before start date"
-            );
-        }
-    }
-
-    /*
-     * ============================================================
-     * CHART OF ACCOUNTS
-     * ============================================================
-     */
-
-    @Transactional
-    public void ensureChartOfAccounts(
-            Organization org
-    ) {
-
-        requireOrganization(org);
-
-        List<ChartOfAccount> existing =
-                coaRepo.findByOrganization_IdOrderByCodeAsc(
-                        org.getId()
-                );
-
-        Set<String> existingCodes =
-                new HashSet<>();
-
-        if (existing != null) {
-
-            for (ChartOfAccount account : existing) {
-
-                if (
-                        account != null
-                        && account.getCode() != null
-                ) {
-
-                    existingCodes.add(
-                            account.getCode().trim()
-                    );
+                if (value == null) {
+                        return ZERO;
                 }
-            }
-        }
-
-        for (String[] definition : DEFAULT_ACCOUNTS) {
-
-            String code = definition[0];
-
-            if (existingCodes.contains(code)) {
-                continue;
-            }
-
-            coaRepo.save(
-                    ChartOfAccount.builder()
-                            .organization(org)
-                            .code(code)
-                            .name(definition[1])
-                            .type(
-                                    ChartOfAccount.AccountType
-                                            .valueOf(definition[2])
-                            )
-                            .normalBalance(
-                                    ChartOfAccount.NormalBalance
-                                            .valueOf(definition[3])
-                            )
-                            .active(true)
-                            .build()
-            );
-        }
-
-        log.info(
-                "Chart of accounts verified for organization {}",
-                org.getId()
-        );
-    }
-
-    private ChartOfAccount account(
-            Organization org,
-            String code
-    ) {
-
-        requireOrganization(org);
-
-        if (code == null || code.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Account code is required"
-            );
-        }
-
-        String normalizedCode = code.trim();
-
-        ChartOfAccount account =
-                coaRepo
-                        .findByOrganization_IdAndCode(
-                                org.getId(),
-                                normalizedCode
-                        )
-                        .orElseThrow(
-                                () -> new IllegalStateException(
-                                        "Chart of accounts is not configured " +
-                                        "for organization " +
-                                        org.getId() +
-                                        " (missing account " +
-                                        normalizedCode +
-                                        ")"
-                                )
-                        );
-
-        if (!Boolean.TRUE.equals(account.getActive())) {
-            throw new IllegalStateException(
-                    "GL account " +
-                    normalizedCode +
-                    " is inactive"
-            );
-        }
-
-        return account;
-    }
-
-    private void validateAccountOwnership(
-            Organization org,
-            ChartOfAccount account
-    ) {
-
-        requireOrganization(org);
-
-        if (account == null || account.getId() == null) {
-            throw new IllegalArgumentException(
-                    "Journal line account is required"
-            );
-        }
-
-        if (
-                account.getOrganization() == null
-                || account.getOrganization().getId() == null
-        ) {
-            throw new IllegalStateException(
-                    "GL account has no organization"
-            );
-        }
-
-        if (
-                !org.getId().equals(
-                        account.getOrganization().getId()
-                )
-        ) {
-            throw new IllegalStateException(
-                    "GL account " +
-                    account.getId() +
-                    " does not belong to organization " +
-                    org.getId()
-            );
-        }
-
-        if (!Boolean.TRUE.equals(account.getActive())) {
-            throw new IllegalStateException(
-                    "GL account " +
-                    account.getCode() +
-                    " is inactive"
-            );
-        }
-    }
-
-    private void validateBranchOwnership(
-            Organization org,
-            Branch branch
-    ) {
-
-        if (branch == null) {
-            return;
-        }
-
-        requireOrganization(org);
-
-        if (
-                branch.getId() == null
-                || branch.getOrganization() == null
-                || branch.getOrganization().getId() == null
-        ) {
-            throw new IllegalStateException(
-                    "Branch must belong to an organization"
-            );
-        }
-
-        if (
-                !org.getId().equals(
-                        branch.getOrganization().getId()
-                )
-        ) {
-            throw new IllegalStateException(
-                    "Branch " +
-                    branch.getId() +
-                    " does not belong to organization " +
-                    org.getId()
-            );
-        }
-    }
-
-    @Transactional
-    public ChartOfAccount getEquityAccount(
-            Organization org
-    ) {
-
-        ensureChartOfAccounts(org);
-
-        return account(
-                org,
-                "3000"
-        );
-    }
-
-    @Transactional
-    public ChartOfAccount createAccount(
-            Organization org,
-            String code,
-            String name,
-            ChartOfAccount.AccountType type,
-            ChartOfAccount.NormalBalance normalBalance
-    ) {
-
-        requireOrganization(org);
-
-        if (code == null || code.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Account code is required"
-            );
-        }
-
-        if (name == null || name.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Account name is required"
-            );
-        }
-
-        if (type == null) {
-            throw new IllegalArgumentException(
-                    "Account type is required"
-            );
-        }
-
-        if (normalBalance == null) {
-            throw new IllegalArgumentException(
-                    "Normal balance is required"
-            );
-        }
 
-        String normalizedCode = code.trim();
-
-        if (
-                coaRepo.existsByOrganization_IdAndCode(
-                        org.getId(),
-                        normalizedCode
-                )
-        ) {
-            throw new IllegalArgumentException(
-                    "Account code " +
-                    normalizedCode +
-                    " already exists"
-            );
+                return value.setScale(
+                                MONEY_SCALE,
+                                MONEY_ROUNDING);
         }
 
-        return coaRepo.save(
-                ChartOfAccount.builder()
-                        .organization(org)
-                        .code(normalizedCode)
-                        .name(name.trim())
-                        .type(type)
-                        .normalBalance(normalBalance)
-                        .active(true)
-                        .build()
-        );
-    }
-
-    @Transactional
-    public ChartOfAccount updateAccount(
-            Long orgId,
-            Long accountId,
-            String name,
-            Boolean active
-    ) {
-
-        requireOrganizationId(orgId);
-        requireAccountId(accountId);
-
-        ChartOfAccount account =
-                coaRepo.findByIdAndOrganization_Id(
-                        accountId,
-                        orgId
-                ).orElseThrow(
-                        () -> new IllegalArgumentException(
-                                "Account not found: " +
-                                accountId
-                        )
-                );
-
-        if (name != null && !name.isBlank()) {
-            account.setName(name.trim());
-        }
-
-        if (active != null) {
-            account.setActive(active);
-        }
-
-        return coaRepo.save(account);
-    }
-
-    /*
-     * ============================================================
-     * GENERIC JOURNAL POSTING
-     * ============================================================
-     */
-
-    @Transactional
-    public JournalEntry post(
-            Organization org,
-            String sourceType,
-            String sourceId,
-            String reference,
-            String description,
-            List<JournalLine> lines
-    ) {
-
-        return post(
-                org,
-                null,
-                sourceType,
-                sourceId,
-                reference,
-                description,
-                lines
-        );
-    }
-
-    @Transactional
-    public JournalEntry post(
-            Organization org,
-            Branch branch,
-            String sourceType,
-            String sourceId,
-            String reference,
-            String description,
-            List<JournalLine> lines
-    ) {
-
-        requireOrganization(org);
-
-        validateBranchOwnership(
-                org,
-                branch
-        );
-
-        if (sourceType == null || sourceType.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Journal source type is required"
-            );
-        }
-
-        if (sourceId == null || sourceId.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Journal source ID is required"
-            );
-        }
-
-        if (reference == null || reference.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Journal reference is required"
-            );
-        }
-
-        if (description == null || description.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Journal description is required"
-            );
-        }
-
-        if (lines == null || lines.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Journal entry must contain at least one line"
-            );
-        }
-
-        String normalizedSourceType =
-                sourceType.trim();
-
-        String normalizedSourceId =
-                sourceId.trim();
-
-        if (!"REVERSAL".equals(normalizedSourceType)) {
-
-            JournalEntry existing =
-                    journalRepo
-                            .findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                                    org.getId(),
-                                    normalizedSourceType,
-                                    normalizedSourceId
-                            )
-                            .orElse(null);
-
-            if (existing != null) {
-
-                log.warn(
-                        "Accounting event already posted. " +
-                        "Returning existing journal entry {} for {}:{}",
-                        existing.getId(),
-                        normalizedSourceType,
-                        normalizedSourceId
-                );
-
-                return existing;
-            }
-        }
+        private BigDecimal money(
+                        Double value) {
 
-        BigDecimal totalDebit = ZERO;
-        BigDecimal totalCredit = ZERO;
-
-        for (JournalLine line : lines) {
-
-            if (line == null) {
-                throw new IllegalArgumentException(
-                        "Journal entry contains a null line"
-                );
-            }
-
-            ChartOfAccount lineAccount =
-                    line.getAccount();
-
-            validateAccountOwnership(
-                    org,
-                    lineAccount
-            );
-
-            BigDecimal debit =
-                    money(
-                            line.getDebitDecimal()
-                    );
-
-            BigDecimal credit =
-                    money(
-                            line.getCreditDecimal()
-                    );
-
-            if (
-                    debit.compareTo(ZERO) < 0
-                    || credit.compareTo(ZERO) < 0
-            ) {
-                throw new IllegalArgumentException(
-                        "Debit and credit amounts cannot be negative"
-                );
-            }
-
-            if (
-                    debit.compareTo(ZERO) > 0
-                    && credit.compareTo(ZERO) > 0
-            ) {
-                throw new IllegalArgumentException(
-                        "A journal line cannot contain both debit and credit"
-                );
-            }
-
-            if (
-                    debit.compareTo(ZERO) == 0
-                    && credit.compareTo(ZERO) == 0
-            ) {
-                throw new IllegalArgumentException(
-                        "A journal line must contain a debit or credit amount"
-                );
-            }
-
-            line.setDebit(debit);
-            line.setCredit(credit);
-
-            totalDebit =
-                    totalDebit.add(debit);
-
-            totalCredit =
-                    totalCredit.add(credit);
-        }
-
-        totalDebit = money(totalDebit);
-        totalCredit = money(totalCredit);
-
-        if (totalDebit.compareTo(totalCredit) != 0) {
-
-            throw new IllegalStateException(
-                    "Journal entry does not balance: " +
-                    "debits " +
-                    totalDebit.toPlainString() +
-                    " != credits " +
-                    totalCredit.toPlainString() +
-                    " (" +
-                    description +
-                    ")"
-            );
-        }
+                if (value == null) {
+                        return ZERO;
+                }
 
-        JournalEntry entry =
-                JournalEntry.builder()
-                        .organization(org)
-                        .branch(branch)
-                        .entryDate(LocalDate.now())
-                        .sourceType(normalizedSourceType)
-                        .sourceId(normalizedSourceId)
-                        .reference(reference.trim())
-                        .description(description.trim())
-                        .createdBy("SYSTEM")
-                        .reversed(false)
-                        .build();
-
-        entry = journalRepo.save(entry);
-
-        for (JournalLine line : lines) {
-
-            line.setJournalEntry(entry);
-
-            lineRepo.save(line);
+                return BigDecimal.valueOf(
+                                value).setScale(
+                                                MONEY_SCALE,
+                                                MONEY_ROUNDING);
         }
 
-        return entry;
-    }
-
-    /*
-     * ============================================================
-     * LOAN DISBURSEMENT
-     * ============================================================
-     */
-
-    @Transactional
-    public void postDisbursement(
-            Loan loan
-    ) {
-
-        if (loan == null) {
-            throw new IllegalArgumentException(
-                    "Loan is required"
-            );
-        }
+        private BigDecimal money(
+                        double value) {
 
-        if (loan.getId() == null) {
-            throw new IllegalArgumentException(
-                    "Loan ID is required"
-            );
+                return BigDecimal.valueOf(
+                                value).setScale(
+                                                MONEY_SCALE,
+                                                MONEY_ROUNDING);
         }
-
-        Organization org =
-                loan.getOrganization();
-
-        requireOrganization(org);
-
-        ensureChartOfAccounts(org);
 
-        BigDecimal amount =
-                money(
-                        loan.getAmount()
-                );
+        private BigDecimal money(
+                        Number value) {
 
-        if (amount.compareTo(ZERO) <= 0) {
-            throw new IllegalArgumentException(
-                    "Loan disbursement amount must be greater than zero"
-            );
-        }
-
-        String sourceId =
-                String.valueOf(
-                        loan.getId()
-                );
-
-        String reference =
-                loan.getReferenceNumber() != null
-                        && !loan.getReferenceNumber().isBlank()
-                        ? loan.getReferenceNumber().trim()
-                        : "LOAN-" + loan.getId();
-
-        JournalEntry existing =
-                journalRepo
-                        .findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                                org.getId(),
-                                "LOAN_DISBURSEMENT",
-                                sourceId
-                        )
-                        .orElse(null);
-
-        if (existing != null) {
-
-            log.info(
-                    "Loan {} disbursement already posted as journal {}",
-                    loan.getId(),
-                    existing.getId()
-            );
-
-            return;
-        }
+                if (value == null) {
+                        return ZERO;
+                }
 
-        List<JournalLine> lines =
-                new ArrayList<>();
-
-        /*
-         * DR Loans Receivable
-         */
-
-        lines.add(
-                JournalLine.builder()
-                        .account(
-                                account(
-                                        org,
-                                        "1100"
-                                )
-                        )
-                        .debit(amount)
-                        .credit(ZERO)
-                        .description(
-                                "Loans Receivable — " +
-                                reference
-                        )
-                        .build()
-        );
-
-        /*
-         * CR Cash
-         */
-
-        lines.add(
-                JournalLine.builder()
-                        .account(
-                                account(
-                                        org,
-                                        "1000"
-                                )
-                        )
-                        .debit(ZERO)
-                        .credit(amount)
-                        .description(
-                                "Cash disbursed — " +
-                                reference
-                        )
-                        .build()
-        );
-
-        post(
-                org,
-                loan.getBranch(),
-                "LOAN_DISBURSEMENT",
-                sourceId,
-                reference,
-                "Disbursement of loan " +
-                reference,
-                lines
-        );
-
-        /*
-         * PROCESSING FEE
-         *
-         * The fee is posted separately so the GL records:
-         *
-         * DR Cash
-         * CR Fee/Income
-         *
-         * If the fee is deducted from the borrower proceeds,
-         * the resulting cash movement is still correctly reflected
-         * across the two journals.
-         */
-
-        BigDecimal fee =
-                money(
-                        loan.getProcessingFee()
-                );
-
-        if (fee.compareTo(ZERO) > 0) {
-
-            post(
-                    org,
-                    loan.getBranch(),
-                    "PROCESSING_FEE",
-                    sourceId,
-                    reference,
-                    "Processing fee collected on " +
-                    reference,
-                    List.of(
-
-                            JournalLine.builder()
-                                    .account(
-                                            account(
-                                                    org,
-                                                    "1000"
-                                            )
-                                    )
-                                    .debit(fee)
-                                    .credit(ZERO)
-                                    .description(
-                                            "Processing fee — " +
-                                            reference
-                                    )
-                                    .build(),
-
-                            JournalLine.builder()
-                                    .account(
-                                            account(
-                                                    org,
-                                                    "4100"
-                                            )
-                                    )
-                                    .debit(ZERO)
-                                    .credit(fee)
-                                    .description(
-                                            "Processing fee income — " +
-                                            reference
-                                    )
-                                    .build()
-                    )
-            );
-        }
-    }
-
-    /*
-     * ============================================================
-     * INTEREST ACCRUAL
-     * ============================================================
-     */
-
-    @Transactional
-    public void postInterestAccrual(
-            Loan loan,
-            double dailyInterestAmount
-    ) {
-
-        postInterestAccrual(
-                loan,
-                money(dailyInterestAmount)
-        );
-    }
-
-    @Transactional
-    public void postInterestAccrual(
-            Loan loan,
-            BigDecimal dailyInterestAmount
-    ) {
-
-        if (loan == null) {
-            throw new IllegalArgumentException(
-                    "Loan is required"
-            );
-        }
+                if (value instanceof BigDecimal) {
+                        return money(
+                                        (BigDecimal) value);
+                }
 
-        if (loan.getId() == null) {
-            throw new IllegalArgumentException(
-                    "Loan ID is required"
-            );
+                return BigDecimal.valueOf(
+                                value.doubleValue()).setScale(
+                                                MONEY_SCALE,
+                                                MONEY_ROUNDING);
         }
-
-        Organization org =
-                loan.getOrganization();
-
-        requireOrganization(org);
-
-        ensureChartOfAccounts(org);
 
-        BigDecimal interest =
-                maxZero(
-                        dailyInterestAmount
-                );
+        private BigDecimal maxZero(
+                        BigDecimal value) {
 
-        if (interest.compareTo(ZERO) <= 0) {
-            return;
-        }
+                BigDecimal normalized = money(value);
 
-        /*
-         * One accounting accrual per loan per calendar date.
-         *
-         * The loan/payment service is responsible for determining
-         * whether a new day/cycle of interest is actually due.
-         */
-        LocalDate accrualDate =
-                LocalDate.now();
-
-        String sourceId =
-                loan.getId() +
-                "-" +
-                accrualDate;
-
-        JournalEntry existing =
-                journalRepo
-                        .findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                                org.getId(),
-                                "INTEREST_ACCRUAL",
-                                sourceId
-                        )
-                        .orElse(null);
-
-        if (existing != null) {
-
-            log.info(
-                    "Interest already accrued for loan {} on {}. Journal {}",
-                    loan.getId(),
-                    accrualDate,
-                    existing.getId()
-            );
-
-            return;
+                return normalized.compareTo(
+                                ZERO) < 0
+                                                ? ZERO
+                                                : normalized;
         }
 
-        String reference =
-                loan.getReferenceNumber() != null
-                        && !loan.getReferenceNumber().isBlank()
-                        ? loan.getReferenceNumber().trim()
-                        : "LOAN-" + loan.getId();
-
-        post(
-                org,
-                loan.getBranch(),
-                "INTEREST_ACCRUAL",
-                sourceId,
-                reference,
-                "Interest accrual for " +
-                reference +
-                " (" +
-                accrualDate +
-                ")",
-
-                List.of(
-
-                        JournalLine.builder()
-                                .account(
-                                        account(
-                                                org,
-                                                "1150"
-                                        )
-                                )
-                                .debit(interest)
-                                .credit(ZERO)
-                                .description(
-                                        "Interest accrued — " +
-                                        reference
-                                )
-                                .build(),
-
-                        JournalLine.builder()
-                                .account(
-                                        account(
-                                                org,
-                                                "4000"
-                                        )
-                                )
-                                .debit(ZERO)
-                                .credit(interest)
-                                .description(
-                                        "Interest income accrued — " +
-                                        reference
-                                )
-                                .build()
-                )
-        );
-    }
-
-    /*
-     * ============================================================
-     * PAYMENT RECEIVED
-     * ============================================================
-     */
-
-    @Transactional
-    public JournalEntry postPaymentReceived(
-            Payment payment,
-            Double paymentAmount,
-            double principalAmount,
-            double interestAmount,
-            double penaltyAmount,
-            double overpaymentAmount
-    ) {
-
-        return postPaymentReceived(
-                payment,
-                money(paymentAmount),
-                money(principalAmount),
-                money(interestAmount),
-                money(penaltyAmount),
-                money(overpaymentAmount)
-        );
-    }
-
-    @Transactional
-    public JournalEntry postPaymentReceived(
-            Payment payment,
-            BigDecimal paymentAmount,
-            BigDecimal principalAmount,
-            BigDecimal interestAmount,
-            BigDecimal penaltyAmount,
-            BigDecimal overpaymentAmount
-    ) {
-
-        if (payment == null) {
-            throw new IllegalArgumentException(
-                    "Payment is required"
-            );
-        }
+        private boolean isPositive(
+                        BigDecimal value) {
 
-        if (payment.getId() == null) {
-            throw new IllegalArgumentException(
-                    "Payment ID is required"
-            );
+                return money(value).compareTo(
+                                ZERO) > 0;
         }
-
-        Loan loan =
-                payment.getLoan();
 
-        if (loan == null) {
-            throw new IllegalArgumentException(
-                    "Payment has no loan"
-            );
-        }
+        private BigDecimal normalize(
+                        BigDecimal value) {
 
-        if (loan.getId() == null) {
-            throw new IllegalArgumentException(
-                    "Payment loan has no ID"
-            );
+                return money(value);
         }
-
-        Organization org =
-                loan.getOrganization();
-
-        requireOrganization(org);
-
-        ensureChartOfAccounts(org);
 
-        String sourceId =
-                String.valueOf(
-                        payment.getId()
-                );
+        // ============================================================
+        // VALIDATION
+        // ============================================================
 
-        JournalEntry existing =
-                journalRepo
-                        .findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                                org.getId(),
-                                "PAYMENT_RECEIVED",
-                                sourceId
-                        )
-                        .orElse(null);
+        private void requireOrganization(
+                        Organization org) {
 
-        if (existing != null) {
+                if (org == null
+                                || org.getId() == null) {
 
-            log.info(
-                    "Payment {} already posted as journal {}",
-                    payment.getId(),
-                    existing.getId()
-            );
-
-            return existing;
+                        throw new IllegalArgumentException(
+                                        "Organization is required");
+                }
         }
 
-        /*
-         * ========================================================
-         * TRANSACTION AMOUNTS
-         * ========================================================
-         */
-
-        BigDecimal total =
-                maxZero(paymentAmount);
-
-        if (total.compareTo(ZERO) <= 0) {
-            throw new IllegalArgumentException(
-                    "Payment amount must be greater than zero"
-            );
-        }
+        private void requireOrganizationId(
+                        Long orgId) {
 
-        BigDecimal principal =
-                maxZero(principalAmount);
-
-        BigDecimal interest =
-                maxZero(interestAmount);
-
-        BigDecimal penalty =
-                maxZero(penaltyAmount);
-
-        BigDecimal overpayment =
-                maxZero(overpaymentAmount);
-
-        BigDecimal allocated =
-                principal
-                        .add(interest)
-                        .add(penalty)
-                        .add(overpayment);
-
-        allocated =
-                money(allocated);
-
-        BigDecimal allocationDifference =
-                money(
-                        total.subtract(allocated)
-                );
-
-        if (
-                allocationDifference.compareTo(ZERO) != 0
-        ) {
-
-            throw new IllegalStateException(
-                    "Payment allocation does not equal payment amount: " +
-                    "payment=" +
-                    total.toPlainString() +
-                    ", principal=" +
-                    principal.toPlainString() +
-                    ", interest=" +
-                    interest.toPlainString() +
-                    ", penalty=" +
-                    penalty.toPlainString() +
-                    ", overpayment=" +
-                    overpayment.toPlainString() +
-                    ", allocated=" +
-                    allocated.toPlainString()
-            );
-        }
+                if (orgId == null) {
 
-        List<JournalLine> lines =
-                new ArrayList<>();
-
-        String loanReference =
-                loan.getReferenceNumber() != null
-                        && !loan.getReferenceNumber().isBlank()
-                        ? loan.getReferenceNumber().trim()
-                        : "LOAN-" + loan.getId();
-
-        /*
-         * ========================================================
-         * DR CASH
-         * ========================================================
-         */
-
-        lines.add(
-                JournalLine.builder()
-                        .account(
-                                account(
-                                        org,
-                                        "1000"
-                                )
-                        )
-                        .debit(total)
-                        .credit(ZERO)
-                        .description(
-                                "Payment received — " +
-                                loanReference
-                        )
-                        .build()
-        );
-
-        /*
-         * ========================================================
-         * CR LOANS RECEIVABLE
-         * ========================================================
-         */
-
-        if (principal.compareTo(ZERO) > 0) {
-
-            lines.add(
-                    JournalLine.builder()
-                            .account(
-                                    account(
-                                            org,
-                                            "1100"
-                                    )
-                            )
-                            .debit(ZERO)
-                            .credit(principal)
-                            .description(
-                                    "Principal repayment — " +
-                                    loanReference
-                            )
-                            .build()
-            );
+                        throw new IllegalArgumentException(
+                                        "Organization ID is required");
+                }
         }
 
-        /*
-         * ========================================================
-         * INTEREST
-         *
-         * First clear accrued interest receivable.
-         * Any remaining interest is recognized directly as income.
-         * ========================================================
-         */
-
-        if (interest.compareTo(ZERO) > 0) {
-
-            BigDecimal accrued =
-                    accruedInterestReceivable(
-                            org,
-                            loan.getId()
-                    );
-
-            BigDecimal clearReceivable =
-                    interest.min(
-                            maxZero(accrued)
-                    );
-
-            BigDecimal directIncome =
-                    interest.subtract(
-                            clearReceivable
-                    );
-
-            clearReceivable =
-                    maxZero(clearReceivable);
-
-            directIncome =
-                    maxZero(directIncome);
-
-            if (
-                    clearReceivable.compareTo(ZERO) > 0
-            ) {
-
-                lines.add(
-                        JournalLine.builder()
-                                .account(
-                                        account(
-                                                org,
-                                                "1150"
-                                        )
-                                )
-                                .debit(ZERO)
-                                .credit(clearReceivable)
-                                .description(
-                                        "Clears accrued interest — " +
-                                        loanReference
-                                )
-                                .build()
-                );
-            }
-
-            if (
-                    directIncome.compareTo(ZERO) > 0
-            ) {
-
-                lines.add(
-                        JournalLine.builder()
-                                .account(
-                                        account(
-                                                org,
-                                                "4000"
-                                        )
-                                )
-                                .debit(ZERO)
-                                .credit(directIncome)
-                                .description(
-                                        "Interest income — " +
-                                        loanReference
-                                )
-                                .build()
-                );
-            }
-        }
+        private void requireAccountId(
+                        Long accountId) {
 
-        /*
-         * ========================================================
-         * PENALTY / FEE INCOME
-         * ========================================================
-         */
-
-        if (penalty.compareTo(ZERO) > 0) {
-
-            lines.add(
-                    JournalLine.builder()
-                            .account(
-                                    account(
-                                            org,
-                                            "4100"
-                                    )
-                            )
-                            .debit(ZERO)
-                            .credit(penalty)
-                            .description(
-                                    "Penalty/fee income — " +
-                                    loanReference
-                            )
-                            .build()
-            );
-        }
+                if (accountId == null) {
 
-        /*
-         * ========================================================
-         * OVERPAYMENT LIABILITY
-         *
-         * IMPORTANT:
-         * The overpayment is recognized here exactly once.
-         * Therefore postOverpaymentRefundPayable() below will
-         * detect an existing payment journal and will NOT create
-         * a second liability.
-         * ========================================================
-         */
-
-        if (overpayment.compareTo(ZERO) > 0) {
-
-            lines.add(
-                    JournalLine.builder()
-                            .account(
-                                    account(
-                                            org,
-                                            "2100"
-                                    )
-                            )
-                            .debit(ZERO)
-                            .credit(overpayment)
-                            .description(
-                                    "Borrower overpayment refundable — " +
-                                    loanReference
-                            )
-                            .build()
-            );
-
-            log.info(
-                    "Payment {} has borrower overpayment of {}. " +
-                    "Amount posted to Borrower Refunds Payable.",
-                    payment.getId(),
-                    overpayment.toPlainString()
-            );
+                        throw new IllegalArgumentException(
+                                        "Account ID is required");
+                }
         }
 
-        /*
-         * ========================================================
-         * FINAL BALANCE VALIDATION
-         * ========================================================
-         */
-
-        BigDecimal totalDebits =
-                ZERO;
-
-        BigDecimal totalCredits =
-                ZERO;
-
-        for (JournalLine line : lines) {
-
-            totalDebits =
-                    totalDebits.add(
-                            money(
-                                    line.getDebitDecimal()
-                            )
-                    );
-
-            totalCredits =
-                    totalCredits.add(
-                            money(
-                                    line.getCreditDecimal()
-                            )
-                    );
-        }
+        private void validateDateRange(
+                        LocalDate from,
+                        LocalDate to) {
 
-        totalDebits =
-                money(totalDebits);
-
-        totalCredits =
-                money(totalCredits);
-
-        if (
-                totalDebits.compareTo(totalCredits) != 0
-        ) {
-
-            throw new IllegalStateException(
-                    "Payment accounting does not balance: " +
-                    "debits=" +
-                    totalDebits.toPlainString() +
-                    ", credits=" +
-                    totalCredits.toPlainString()
-            );
-        }
+                if (from == null) {
 
-        String reference =
-                payment.getPaymentReference() != null
-                        && !payment.getPaymentReference().isBlank()
-                        ? payment.getPaymentReference().trim()
-                        : "PAY-" + payment.getId();
-
-        return post(
-                org,
-                loan.getBranch(),
-                "PAYMENT_RECEIVED",
-                sourceId,
-                reference,
-                "Payment received on loan " +
-                loanReference,
-                lines
-        );
-    }
-
-    /*
-     * ============================================================
-     * PAYMENT RECEIVED FROM PAYMENT ENTITY
-     * ============================================================
-     */
-
-    @Transactional
-    public JournalEntry postPaymentReceived(
-            Payment payment
-    ) {
-
-        if (payment == null) {
-            throw new IllegalArgumentException(
-                    "Payment is required"
-            );
-        }
+                        throw new IllegalArgumentException(
+                                        "Start date is required");
+                }
 
-        BigDecimal amount =
-                payment.getAmountPaid() != null
-                        ? money(
-                                payment.getAmountPaid()
-                        )
-                        : payment.getAmount() != null
-                                ? money(
-                                        payment.getAmount()
-                                )
-                                : ZERO;
-
-        BigDecimal principal =
-                payment.getPrincipalComponent() != null
-                        ? money(
-                                payment.getPrincipalComponent()
-                        )
-                        : ZERO;
-
-        BigDecimal interest =
-                payment.getInterestComponent() != null
-                        ? money(
-                                payment.getInterestComponent()
-                        )
-                        : ZERO;
-
-        BigDecimal penalty =
-                payment.getPenalty() != null
-                        ? money(
-                                payment.getPenalty()
-                        )
-                        : ZERO;
-
-        BigDecimal derivedOverpayment =
-                amount
-                        .subtract(principal)
-                        .subtract(interest)
-                        .subtract(penalty);
-
-        derivedOverpayment =
-                maxZero(derivedOverpayment);
-
-        return postPaymentReceived(
-                payment,
-                amount,
-                principal,
-                interest,
-                penalty,
-                derivedOverpayment
-        );
-    }
-
-    /*
-     * ============================================================
-     * OVERPAYMENT REFUND PAYABLE
-     * ============================================================
-     *
-     * This method is retained for compatibility with callers.
-     *
-     * If the payment journal already recognized the overpayment,
-     * this method returns that existing journal instead of creating
-     * a second liability.
-     * ============================================================
-     */
-
-    @Transactional
-    public JournalEntry postOverpaymentRefundPayable(
-            Payment payment,
-            BigDecimal refundAmount
-    ) {
-
-        if (payment == null) {
-            throw new IllegalArgumentException(
-                    "Payment is required"
-            );
-        }
+                if (to == null) {
 
-        if (payment.getId() == null) {
-            throw new IllegalArgumentException(
-                    "Payment ID is required"
-            );
-        }
+                        throw new IllegalArgumentException(
+                                        "End date is required");
+                }
 
-        Loan loan =
-                payment.getLoan();
+                if (to.isBefore(from)) {
 
-        if (loan == null) {
-            throw new IllegalArgumentException(
-                    "Payment has no loan"
-            );
+                        throw new IllegalArgumentException(
+                                        "End date cannot be before start date");
+                }
         }
-
-        Organization org =
-                loan.getOrganization();
 
-        requireOrganization(org);
+        // ============================================================
+        // CHART OF ACCOUNTS
+        // ============================================================
 
-        ensureChartOfAccounts(org);
+        @Transactional
+        public void ensureChartOfAccounts(
+                        Organization org) {
 
-        BigDecimal amount =
-                maxZero(refundAmount);
-
-        if (amount.compareTo(ZERO) <= 0) {
-            throw new IllegalArgumentException(
-                    "Refund payable amount must be greater than zero"
-            );
-        }
-
-        String paymentSourceId =
-                String.valueOf(
-                        payment.getId()
-                );
-
-        /*
-         * Payment accounting already recognizes the overpayment.
-         * Do not create the liability twice.
-         */
-
-        JournalEntry paymentJournal =
-                journalRepo
-                        .findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                                org.getId(),
-                                "PAYMENT_RECEIVED",
-                                paymentSourceId
-                        )
-                        .orElse(null);
-
-        if (paymentJournal != null) {
-
-            log.info(
-                    "Overpayment for payment {} is already recognized " +
-                    "in payment journal {}. No duplicate liability created.",
-                    payment.getId(),
-                    paymentJournal.getId()
-            );
-
-            return paymentJournal;
-        }
+                requireOrganization(org);
 
-        JournalEntry existing =
-                journalRepo
-                        .findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                                org.getId(),
-                                "OVERPAYMENT_REFUND_PAYABLE",
-                                paymentSourceId
-                        )
-                        .orElse(null);
-
-        if (existing != null) {
-            return existing;
-        }
+                List<ChartOfAccount> existing = coaRepo.findByOrganization_IdOrderByCodeAsc(
+                                org.getId());
 
-        String reference =
-                payment.getPaymentReference() != null
-                        && !payment.getPaymentReference().isBlank()
-                        ? payment.getPaymentReference().trim()
-                        : "PAY-" + payment.getId();
-
-        return post(
-                org,
-                loan.getBranch(),
-                "OVERPAYMENT_REFUND_PAYABLE",
-                paymentSourceId,
-                "REFUND-" + payment.getId(),
-                "Borrower refund payable for payment " +
-                reference,
-
-                List.of(
-
-                        JournalLine.builder()
-                                .account(
-                                        account(
-                                                org,
-                                                "1000"
-                                        )
-                                )
-                                .debit(amount)
-                                .credit(ZERO)
-                                .description(
-                                        "Excess payment received — " +
-                                        reference
-                                )
-                                .build(),
-
-                        JournalLine.builder()
-                                .account(
-                                        account(
-                                                org,
-                                                "2100"
-                                        )
-                                )
-                                .debit(ZERO)
-                                .credit(amount)
-                                .description(
-                                        "Borrower refund payable — " +
-                                        reference
-                                )
-                                .build()
-                )
-        );
-    }
-
-    /*
-     * ============================================================
-     * REFUND PAID
-     * ============================================================
-     */
-
-    @Transactional
-    public JournalEntry postRefundPaid(
-            Organization org,
-            Branch branch,
-            String refundReference,
-            String sourceId,
-            BigDecimal refundAmount,
-            String description
-    ) {
-
-        requireOrganization(org);
-
-        ensureChartOfAccounts(org);
-
-        validateBranchOwnership(
-                org,
-                branch
-        );
-
-        if (sourceId == null || sourceId.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Refund source ID is required"
-            );
-        }
+                Set<String> existingCodes = new HashSet<>();
 
-        if (
-                refundReference == null
-                || refundReference.isBlank()
-        ) {
-            throw new IllegalArgumentException(
-                    "Refund reference is required"
-            );
-        }
+                if (existing != null) {
 
-        BigDecimal amount =
-                maxZero(refundAmount);
+                        for (ChartOfAccount account : existing) {
 
-        if (amount.compareTo(ZERO) <= 0) {
-            throw new IllegalArgumentException(
-                    "Refund amount must be greater than zero"
-            );
-        }
+                                if (account != null
+                                                && account.getCode() != null) {
 
-        BigDecimal payableBalance =
-                borrowerRefundsPayableBalance(
-                        org
-                );
-
-        if (
-                amount.compareTo(
-                        payableBalance
-                ) > 0
-        ) {
-
-            throw new IllegalStateException(
-                    "Refund amount exceeds borrower refund liability. " +
-                    "Requested=" +
-                    amount.toPlainString() +
-                    ", available=" +
-                    payableBalance.toPlainString()
-            );
-        }
+                                        existingCodes.add(
+                                                        account.getCode().trim());
+                                }
+                        }
+                }
 
-        JournalEntry existing =
-                journalRepo
-                        .findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                                org.getId(),
-                                "REFUND_PAYMENT",
-                                sourceId.trim()
-                        )
-                        .orElse(null);
-
-        if (existing != null) {
-            return existing;
-        }
+                for (String[] definition : DEFAULT_ACCOUNTS) {
 
-        String finalDescription =
-                description != null
-                        && !description.isBlank()
-                        ? description.trim()
-                        : "Borrower refund paid";
-
-        return post(
-                org,
-                branch,
-                "REFUND_PAYMENT",
-                sourceId.trim(),
-                refundReference.trim(),
-                finalDescription,
-
-                List.of(
-
-                        JournalLine.builder()
-                                .account(
-                                        account(
-                                                org,
-                                                "2100"
-                                        )
-                                )
-                                .debit(amount)
-                                .credit(ZERO)
-                                .description(
-                                        "Borrower refund liability settled — " +
-                                        refundReference
-                                )
-                                .build(),
-
-                        JournalLine.builder()
-                                .account(
-                                        account(
-                                                org,
-                                                "1000"
-                                        )
-                                )
-                                .debit(ZERO)
-                                .credit(amount)
-                                .description(
-                                        "Refund paid to borrower — " +
-                                        refundReference
-                                )
-                                .build()
-                )
-        );
-    }
-
-    /*
-     * ============================================================
-     * REFUND LIABILITY BALANCE
-     * ============================================================
-     */
-
-    @Transactional(readOnly = true)
-    public BigDecimal borrowerRefundsPayableBalance(
-            Organization org
-    ) {
-
-        requireOrganization(org);
-
-        ChartOfAccount refundAccount =
-                coaRepo
-                        .findByOrganization_IdAndCode(
-                                org.getId(),
-                                "2100"
-                        )
-                        .orElse(null);
-
-        if (refundAccount == null) {
-            return ZERO;
-        }
+                        String code = definition[0];
 
-        List<JournalLine> lines =
-                lineRepo.findByAccount_IdAndOrganization_Id(
-                        refundAccount.getId(),
-                        org.getId()
-                );
-
-        if (lines == null || lines.isEmpty()) {
-            return ZERO;
-        }
+                        if (existingCodes.contains(
+                                        code)) {
 
-        BigDecimal debit =
-                ZERO;
-
-        BigDecimal credit =
-                ZERO;
-
-        for (JournalLine line : lines) {
-
-            if (line == null) {
-                continue;
-            }
-
-            debit =
-                    debit.add(
-                            money(
-                                    line.getDebitDecimal()
-                            )
-                    );
-
-            credit =
-                    credit.add(
-                            money(
-                                    line.getCreditDecimal()
-                            )
-                    );
-        }
+                                continue;
+                        }
 
-        return maxZero(
-                credit.subtract(debit)
-        );
-    }
-
-    /*
-     * ============================================================
-     * ACCRUED INTEREST RECEIVABLE
-     * ============================================================
-     */
-
-    private BigDecimal accruedInterestReceivable(
-            Organization org,
-            Long loanId
-    ) {
-
-        requireOrganization(org);
-
-        if (loanId == null) {
-            return ZERO;
-        }
+                        coaRepo.save(
+                                        ChartOfAccount.builder()
+                                                        .organization(org)
+                                                        .code(code)
+                                                        .name(definition[1])
+                                                        .type(
+                                                                        ChartOfAccount.AccountType
+                                                                                        .valueOf(
+                                                                                                        definition[2]))
+                                                        .normalBalance(
+                                                                        ChartOfAccount.NormalBalance
+                                                                                        .valueOf(
+                                                                                                        definition[3]))
+                                                        .active(true)
+                                                        .build());
+                }
 
-        ChartOfAccount receivable =
-                coaRepo
-                        .findByOrganization_IdAndCode(
-                                org.getId(),
-                                "1150"
-                        )
-                        .orElse(null);
-
-        if (receivable == null) {
-            return ZERO;
+                log.info(
+                                "Chart of accounts verified for organization {}",
+                                org.getId());
         }
 
-        List<JournalLine> lines =
-                lineRepo.findInterestReceivableLinesForLoan(
-                        receivable.getId(),
-                        org.getId(),
-                        loanId
-                );
-
-        if (
-                lines == null
-                || lines.isEmpty()
-        ) {
-            return ZERO;
-        }
+        private ChartOfAccount account(
+                        Organization org,
+                        String code) {
 
-        BigDecimal balance =
-                ZERO;
+                requireOrganization(org);
 
-        for (JournalLine line : lines) {
+                if (code == null
+                                || code.isBlank()) {
 
-            if (line == null) {
-                continue;
-            }
+                        throw new IllegalArgumentException(
+                                        "Account code is required");
+                }
 
-            JournalEntry entry =
-                    line.getJournalEntry();
+                String normalizedCode = code.trim();
 
-            if (entry == null) {
-                continue;
-            }
+                ChartOfAccount account = coaRepo
+                                .findByOrganization_IdAndCode(
+                                                org.getId(),
+                                                normalizedCode)
+                                .orElseThrow(
+                                                () -> new IllegalStateException(
+                                                                "Chart of accounts is not configured " +
+                                                                                "for organization " +
+                                                                                org.getId() +
+                                                                                " (missing account " +
+                                                                                normalizedCode +
+                                                                                ")"));
 
-            BigDecimal debit =
-                    money(
-                            line.getDebitDecimal()
-                    );
+                if (!Boolean.TRUE.equals(
+                                account.getActive())) {
 
-            BigDecimal credit =
-                    money(
-                            line.getCreditDecimal()
-                    );
+                        throw new IllegalStateException(
+                                        "GL account "
+                                                        + normalizedCode
+                                                        + " is inactive");
+                }
 
-            balance =
-                    balance
-                            .add(debit)
-                            .subtract(credit);
+                return account;
         }
 
-        return maxZero(balance);
-    }
-
-    /*
-     * ============================================================
-     * WRITE OFF
-     * ============================================================
-     */
-
-    @Transactional
-    public void postWriteOff(
-            Loan loan
-    ) {
-
-        if (loan == null) {
-            throw new IllegalArgumentException(
-                    "Loan is required"
-            );
-        }
+        private void validateAccountOwnership(
+                        Organization org,
+                        ChartOfAccount account) {
 
-        if (loan.getId() == null) {
-            throw new IllegalArgumentException(
-                    "Loan ID is required"
-            );
-        }
+                requireOrganization(org);
 
-        Organization org =
-                loan.getOrganization();
+                if (account == null
+                                || account.getId() == null) {
 
-        requireOrganization(org);
+                        throw new IllegalArgumentException(
+                                        "Journal line account is required");
+                }
 
-        ensureChartOfAccounts(org);
+                if (account.getOrganization() == null
+                                || account
+                                                .getOrganization()
+                                                .getId() == null) {
 
-        BigDecimal outstanding =
-                money(
-                        loan.getOutstandingBalance()
-                );
+                        throw new IllegalStateException(
+                                        "GL account has no organization");
+                }
 
-        if (outstanding.compareTo(ZERO) <= 0) {
-            return;
-        }
+                if (!org.getId().equals(
+                                account
+                                                .getOrganization()
+                                                .getId())) {
 
-        String sourceId =
-                String.valueOf(
-                        loan.getId()
-                );
-
-        JournalEntry existing =
-                journalRepo
-                        .findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                                org.getId(),
-                                "WRITE_OFF",
-                                sourceId
-                        )
-                        .orElse(null);
-
-        if (existing != null) {
-
-            log.info(
-                    "Loan {} already has a write-off journal {}",
-                    loan.getId(),
-                    existing.getId()
-            );
-
-            return;
-        }
+                        throw new IllegalStateException(
+                                        "GL account "
+                                                        + account.getId()
+                                                        + " does not belong to organization "
+                                                        + org.getId());
+                }
 
-        String reference =
-                loan.getReferenceNumber() != null
-                        && !loan.getReferenceNumber().isBlank()
-                        ? loan.getReferenceNumber().trim()
-                        : "LOAN-" + loan.getId();
-
-        post(
-                org,
-                loan.getBranch(),
-                "WRITE_OFF",
-                sourceId,
-                reference,
-                "Write-off of loan " +
-                reference,
-
-                List.of(
-
-                        JournalLine.builder()
-                                .account(
-                                        account(
-                                                org,
-                                                "5000"
-                                        )
-                                )
-                                .debit(outstanding)
-                                .credit(ZERO)
-                                .description(
-                                        "Loan loss expense — " +
-                                        reference
-                                )
-                                .build(),
-
-                        JournalLine.builder()
-                                .account(
-                                        account(
-                                                org,
-                                                "1100"
-                                        )
-                                )
-                                .debit(ZERO)
-                                .credit(outstanding)
-                                .description(
-                                        "Write off receivable — " +
-                                        reference
-                                )
-                                .build()
-                )
-        );
-    }
-
-    /*
-     * ============================================================
-     * EXPENSE
-     * ============================================================
-     */
-
-    @Transactional
-    public JournalEntry postExpense(
-            Expense expense
-    ) {
-
-        if (expense == null) {
-            throw new IllegalArgumentException(
-                    "Expense is required"
-            );
-        }
+                if (!Boolean.TRUE.equals(
+                                account.getActive())) {
 
-        if (expense.getId() == null) {
-            throw new IllegalArgumentException(
-                    "Expense ID is required"
-            );
+                        throw new IllegalStateException(
+                                        "GL account "
+                                                        + account.getCode()
+                                                        + " is inactive");
+                }
         }
 
-        Organization org =
-                expense.getOrganization();
+        private void validateBranchOwnership(
+                        Organization org,
+                        Branch branch) {
 
-        requireOrganization(org);
+                if (branch == null) {
+                        return;
+                }
 
-        ensureChartOfAccounts(org);
+                requireOrganization(org);
 
-        if (expense.getCategory() == null) {
-            throw new IllegalArgumentException(
-                    "Expense category is required"
-            );
-        }
+                if (branch.getId() == null
+                                || branch.getOrganization() == null
+                                || branch.getOrganization()
+                                                .getId() == null) {
 
-        if (expense.getPaymentAccount() == null) {
-            throw new IllegalArgumentException(
-                    "Expense payment account is required"
-            );
-        }
+                        throw new IllegalStateException(
+                                        "Branch must belong to an organization");
+                }
 
-        ChartOfAccount expenseAccount =
-                account(
-                        org,
-                        expense
-                                .getCategory()
-                                .getAccountCode()
-                );
-
-        ChartOfAccount paymentGlAccount =
-                expense
-                        .getPaymentAccount()
-                        .getGlAccount();
-
-        if (paymentGlAccount == null) {
-            throw new IllegalArgumentException(
-                    "Payment account has no GL account"
-            );
-        }
+                if (!org.getId().equals(
+                                branch
+                                                .getOrganization()
+                                                .getId())) {
 
-        validateAccountOwnership(
-                org,
-                paymentGlAccount
-        );
-
-        BigDecimal amount =
-                money(
-                        expense.getAmount()
-                );
-
-        if (amount.compareTo(ZERO) <= 0) {
-            throw new IllegalArgumentException(
-                    "Expense amount must be greater than zero"
-            );
+                        throw new IllegalStateException(
+                                        "Branch "
+                                                        + branch.getId()
+                                                        + " does not belong to organization "
+                                                        + org.getId());
+                }
         }
 
-        String sourceId =
-                String.valueOf(
-                        expense.getId()
-                );
-
-        JournalEntry existing =
-                journalRepo
-                        .findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                                org.getId(),
-                                "EXPENSE",
-                                sourceId
-                        )
-                        .orElse(null);
-
-        if (existing != null) {
-
-            log.info(
-                    "Expense {} already posted as journal {}",
-                    expense.getId(),
-                    existing.getId()
-            );
-
-            return existing;
-        }
+        @Transactional
+        public ChartOfAccount getEquityAccount(
+                        Organization org) {
 
-        String reference =
-                "EXP-" +
-                expense.getId();
-
-        String description =
-                "Expense — " +
-                expense
-                        .getCategory()
-                        .getLabel();
-
-        if (
-                expense.getDescription() != null
-                && !expense.getDescription().isBlank()
-        ) {
-
-            description +=
-                    ": " +
-                    expense.getDescription().trim();
-        }
+                ensureChartOfAccounts(org);
 
-        return post(
-                org,
-                expense.getBranch(),
-                "EXPENSE",
-                sourceId,
-                reference,
-                description,
-
-                List.of(
-
-                        JournalLine.builder()
-                                .account(expenseAccount)
-                                .debit(amount)
-                                .credit(ZERO)
-                                .description(
-                                        expense
-                                                .getCategory()
-                                                .getLabel() +
-                                        " — " +
-                                        reference
-                                )
-                                .build(),
-
-                        JournalLine.builder()
-                                .account(paymentGlAccount)
-                                .debit(ZERO)
-                                .credit(amount)
-                                .description(
-                                        "Paid from " +
-                                        expense
-                                                .getPaymentAccount()
-                                                .getName() +
-                                        " — " +
-                                        reference
-                                )
-                                .build()
-                )
-        );
-    }
-
-    /*
-     * ============================================================
-     * REVERSE EXPENSE
-     * ============================================================
-     */
-
-    @Transactional
-    public JournalEntry reverseExpense(
-            Long orgId,
-            Long journalEntryId,
-            String reversedBy,
-            String reason
-    ) {
-
-        return reverseEntry(
-                orgId,
-                journalEntryId,
-                reversedBy,
-                reason
-        );
-    }
-
-    /*
-     * ============================================================
-     * REVERSE JOURNAL ENTRY
-     * ============================================================
-     */
-
-    @Transactional
-    public JournalEntry reverseEntry(
-            Long orgId,
-            Long entryId,
-            String reversedBy,
-            String reason
-    ) {
-
-        requireOrganizationId(orgId);
-
-        if (entryId == null) {
-            throw new IllegalArgumentException(
-                    "Journal entry ID is required"
-            );
+                return account(
+                                org,
+                                "3000");
         }
 
-        JournalEntry original =
-                journalRepo
-                        .findByIdAndOrganization_Id(
-                                entryId,
-                                orgId
-                        )
-                        .orElseThrow(
-                                () -> new IllegalArgumentException(
-                                        "Journal entry not found: " +
-                                        entryId
-                                )
-                        );
-
-        if (
-                original.getOrganization() == null
-                || original.getOrganization().getId() == null
-        ) {
-            throw new IllegalStateException(
-                    "Journal entry has no valid organization"
-            );
-        }
+        @Transactional
+        public ChartOfAccount createAccount(
+                        Organization org,
+                        String code,
+                        String name,
+                        ChartOfAccount.AccountType type,
+                        ChartOfAccount.NormalBalance normalBalance) {
 
-        if (
-                !orgId.equals(
-                        original.getOrganization().getId()
-                )
-        ) {
-            throw new IllegalStateException(
-                    "Journal entry does not belong to organization " +
-                    orgId
-            );
-        }
+                requireOrganization(org);
 
-        if (
-                Boolean.TRUE.equals(
-                        original.getReversed()
-                )
-        ) {
-            throw new IllegalStateException(
-                    "Entry " +
-                    entryId +
-                    " has already been reversed"
-            );
-        }
+                if (code == null
+                                || code.isBlank()) {
 
-        if (
-                "REVERSAL".equals(
-                        original.getSourceType()
-                )
-        ) {
-            throw new IllegalStateException(
-                    "A reversal entry cannot itself be reversed"
-            );
-        }
+                        throw new IllegalArgumentException(
+                                        "Account code is required");
+                }
 
-        if (
-                original.getLines() == null
-                || original.getLines().isEmpty()
-        ) {
-            throw new IllegalStateException(
-                    "Journal entry has no lines: " +
-                    entryId
-            );
-        }
+                if (name == null
+                                || name.isBlank()) {
 
-        /*
-         * A payment journal cannot be reversed after a refund
-         * payment using the same source ID has already been posted.
-         */
-
-        if (
-                "PAYMENT_RECEIVED".equals(
-                        original.getSourceType()
-                )
-        ) {
-
-            String paymentSourceId =
-                    original.getSourceId();
-
-            JournalEntry paidRefund =
-                    journalRepo
-                            .findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                                    orgId,
-                                    "REFUND_PAYMENT",
-                                    paymentSourceId
-                            )
-                            .orElse(null);
-
-            if (paidRefund != null) {
-
-                throw new IllegalStateException(
-                        "Payment journal " +
-                        entryId +
-                        " cannot be reversed because a borrower refund " +
-                        "has already been paid under refund journal " +
-                        paidRefund.getId() +
-                        ". Handle the refund transaction first."
-                );
-            }
-        }
+                        throw new IllegalArgumentException(
+                                        "Account name is required");
+                }
 
-        /*
-         * Prevent duplicate reversal journals.
-         */
-
-        String reversalSourceId =
-                String.valueOf(entryId);
-
-        JournalEntry existingReversal =
-                journalRepo
-                        .findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                                orgId,
-                                "REVERSAL",
-                                reversalSourceId
-                        )
-                        .orElse(null);
-
-        if (existingReversal != null) {
-
-            log.warn(
-                    "Entry {} already has reversal {}",
-                    entryId,
-                    existingReversal.getId()
-            );
-
-            return existingReversal;
-        }
+                if (type == null) {
 
-        List<JournalLine> reversedLines =
-                new ArrayList<>();
-
-        for (
-                JournalLine line :
-                original.getLines()
-        ) {
-
-            if (line == null) {
-                continue;
-            }
-
-            ChartOfAccount lineAccount =
-                    line.getAccount();
-
-            validateAccountOwnership(
-                    original.getOrganization(),
-                    lineAccount
-            );
-
-            BigDecimal originalDebit =
-                    money(
-                            line.getDebitDecimal()
-                    );
-
-            BigDecimal originalCredit =
-                    money(
-                            line.getCreditDecimal()
-                    );
-
-            if (
-                    originalDebit.compareTo(ZERO) < 0
-                    || originalCredit.compareTo(ZERO) < 0
-            ) {
-                throw new IllegalStateException(
-                        "Original journal contains negative amount " +
-                        "on line " +
-                        line.getId()
-                );
-            }
-
-            if (
-                    originalDebit.compareTo(ZERO) > 0
-                    && originalCredit.compareTo(ZERO) > 0
-            ) {
-                throw new IllegalStateException(
-                        "Original journal line " +
-                        line.getId() +
-                        " contains both debit and credit"
-                );
-            }
-
-            reversedLines.add(
-                    JournalLine.builder()
-                            .account(lineAccount)
-                            .debit(originalCredit)
-                            .credit(originalDebit)
-                            .description(
-                                    "Reversal of #" +
-                                    entryId +
-                                    " — " +
-                                    (
-                                            line.getDescription() != null
-                                                    ? line.getDescription()
-                                                    : ""
-                                    )
-                            )
-                            .build()
-            );
-        }
+                        throw new IllegalArgumentException(
+                                        "Account type is required");
+                }
 
-        if (reversedLines.isEmpty()) {
-            throw new IllegalStateException(
-                    "Journal entry contains no valid lines: " +
-                    entryId
-            );
-        }
+                if (normalBalance == null) {
 
-        BigDecimal reversalDebit =
-                ZERO;
-
-        BigDecimal reversalCredit =
-                ZERO;
-
-        for (JournalLine line : reversedLines) {
-
-            reversalDebit =
-                    reversalDebit.add(
-                            money(
-                                    line.getDebitDecimal()
-                            )
-                    );
-
-            reversalCredit =
-                    reversalCredit.add(
-                            money(
-                                    line.getCreditDecimal()
-                            )
-                    );
-        }
+                        throw new IllegalArgumentException(
+                                        "Normal balance is required");
+                }
 
-        reversalDebit =
-                normalize(reversalDebit);
-
-        reversalCredit =
-                normalize(reversalCredit);
-
-        if (
-                reversalDebit.compareTo(
-                        reversalCredit
-                ) != 0
-        ) {
-            throw new IllegalStateException(
-                    "Generated reversal does not balance for entry " +
-                    entryId
-            );
-        }
+                String normalizedCode = code.trim();
 
-        String reversalDescription =
-                "Reversal of entry #" +
-                entryId;
-
-        if (
-                reason != null
-                && !reason.isBlank()
-        ) {
-
-            reversalDescription +=
-                    ": " +
-                    reason.trim();
-        }
+                if (coaRepo
+                                .existsByOrganization_IdAndCode(
+                                                org.getId(),
+                                                normalizedCode)) {
 
-        if (
-                original.getDescription() != null
-                && !original.getDescription().isBlank()
-        ) {
-
-            reversalDescription +=
-                    " — " +
-                    original.getDescription();
-        }
+                        throw new IllegalArgumentException(
+                                        "Account code "
+                                                        + normalizedCode
+                                                        + " already exists");
+                }
 
-        JournalEntry reversal =
-                JournalEntry.builder()
-                        .organization(
-                                original.getOrganization()
-                        )
-                        .branch(
-                                original.getBranch()
-                        )
-                        .entryDate(
-                                LocalDate.now()
-                        )
-                        .sourceType(
-                                "REVERSAL"
-                        )
-                        .sourceId(
-                                reversalSourceId
-                        )
-                        .reference(
-                                original.getReference() != null
-                                        ? original.getReference()
-                                        : "REV-" + entryId
-                        )
-                        .description(
-                                reversalDescription
-                        )
-                        .createdBy(
-                                reversedBy != null
-                                        && !reversedBy.isBlank()
-                                                ? reversedBy.trim()
-                                                : "SYSTEM"
-                        )
-                        .reversed(false)
-                        .build();
-
-        reversal =
-                journalRepo.save(
-                        reversal
-                );
-
-        for (JournalLine line : reversedLines) {
-
-            line.setJournalEntry(
-                    reversal
-            );
-
-            lineRepo.save(line);
+                return coaRepo.save(
+                                ChartOfAccount.builder()
+                                                .organization(org)
+                                                .code(normalizedCode)
+                                                .name(name.trim())
+                                                .type(type)
+                                                .normalBalance(normalBalance)
+                                                .active(true)
+                                                .build());
         }
-
-        original.setReversed(true);
-
-        journalRepo.save(original);
-
-        log.info(
-                "Journal entry {} reversed by journal {}",
-                entryId,
-                reversal.getId()
-        );
-
-        return reversal;
-    }
-
-    /*
-     * ============================================================
-     * LEDGER
-     * ============================================================
-     */
 
-    @Transactional(readOnly = true)
-    public Map<String, Object> getLedger(
-            Long orgId,
-            Long accountId
-    ) {
+        @Transactional
+        public ChartOfAccount updateAccount(
+                        Long orgId,
+                        Long accountId,
+                        String name,
+                        Boolean active) {
 
-        requireOrganizationId(orgId);
-        requireAccountId(accountId);
+                requireOrganizationId(orgId);
+                requireAccountId(accountId);
 
-        ChartOfAccount acc =
-                coaRepo
-                        .findByIdAndOrganization_Id(
+                ChartOfAccount account = coaRepo.findByIdAndOrganization_Id(
                                 accountId,
-                                orgId
-                        )
-                        .orElseThrow(
-                                () -> new IllegalArgumentException(
-                                        "Account not found: " +
-                                        accountId
-                                )
-                        );
+                                orgId).orElseThrow(
+                                                () -> new IllegalArgumentException(
+                                                                "Account not found: "
+                                                                                + accountId));
 
-        boolean debitNormal =
-                acc.getNormalBalance()
-                        == ChartOfAccount.NormalBalance.DEBIT;
+                if (name != null
+                                && !name.isBlank()) {
 
-        List<JournalLine> lines =
-                lineRepo.findLedgerForAccountAndOrganization(
-                        accountId,
-                        orgId
-                );
-
-        List<Map<String, Object>> rows =
-                new ArrayList<>();
-
-        BigDecimal running =
-                ZERO;
-
-        if (lines != null) {
-
-            for (JournalLine line : lines) {
-
-                if (line == null) {
-                    continue;
+                        account.setName(
+                                        name.trim());
                 }
 
-                JournalEntry entry =
-                        line.getJournalEntry();
+                if (active != null) {
 
-                if (entry == null) {
-                    continue;
+                        account.setActive(
+                                        active);
                 }
 
-                BigDecimal debit =
-                        money(
-                                line.getDebitDecimal()
-                        );
-
-                BigDecimal credit =
-                        money(
-                                line.getCreditDecimal()
-                        );
-
-                running =
-                        running.add(
-                                debitNormal
-                                        ? debit.subtract(credit)
-                                        : credit.subtract(debit)
-                        );
-
-                running =
-                        normalize(running);
-
-                Map<String, Object> row =
-                        new LinkedHashMap<>();
-
-                row.put(
-                        "entryId",
-                        entry.getId()
-                );
-
-                row.put(
-                        "date",
-                        entry.getEntryDate()
-                );
-
-                row.put(
-                        "reference",
-                        entry.getReference()
-                );
-
-                row.put(
-                        "sourceType",
-                        entry.getSourceType()
-                );
-
-                row.put(
-                        "sourceId",
-                        entry.getSourceId()
-                );
-
-                row.put(
-                        "description",
-                        line.getDescription() != null
-                                ? line.getDescription()
-                                : entry.getDescription()
-                );
-
-                row.put(
-                        "debit",
-                        debit
-                );
-
-                row.put(
-                        "credit",
-                        credit
-                );
-
-                row.put(
-                        "balance",
-                        running
-                );
-
-                row.put(
-                        "reversed",
-                        Boolean.TRUE.equals(
-                                entry.getReversed()
-                        )
-                );
-
-                rows.add(row);
-            }
+                return coaRepo.save(
+                                account);
         }
 
-        Map<String, Object> result =
-                new LinkedHashMap<>();
+        // ============================================================
+        // GENERIC JOURNAL POSTING
+        // ============================================================
 
-        result.put(
-                "account",
-                acc
-        );
+        @Transactional
+        public JournalEntry post(
+                        Organization org,
+                        String sourceType,
+                        String sourceId,
+                        String reference,
+                        String description,
+                        List<JournalLine> lines) {
 
-        result.put(
-                "entries",
-                rows
-        );
+                return post(
+                                org,
+                                null,
+                                sourceType,
+                                sourceId,
+                                reference,
+                                description,
+                                lines);
+        }
 
-        result.put(
-                "closingBalance",
-                running
-        );
+        @Transactional
+        public JournalEntry post(
+                        Organization org,
+                        Branch branch,
+                        String sourceType,
+                        String sourceId,
+                        String reference,
+                        String description,
+                        List<JournalLine> lines) {
 
-        return result;
-    }
+                requireOrganization(org);
 
-    /*
-     * ============================================================
-     * TRIAL BALANCE
-     * ============================================================
-     */
+                validateBranchOwnership(
+                                org,
+                                branch);
 
-    @Transactional(readOnly = true)
-    public Map<String, Object> getTrialBalance(
-            Long orgId
-    ) {
+                if (sourceType == null
+                                || sourceType.isBlank()) {
 
-        requireOrganizationId(orgId);
-
-        List<ChartOfAccount> accounts =
-                coaRepo
-                        .findByOrganization_IdOrderByCodeAsc(
-                                orgId
-                        );
-
-        List<Map<String, Object>> rows =
-                new ArrayList<>();
-
-        BigDecimal totalDebit =
-                ZERO;
-
-        BigDecimal totalCredit =
-                ZERO;
-
-        if (accounts != null) {
-
-            for (ChartOfAccount acc : accounts) {
-
-                if (acc == null || acc.getId() == null) {
-                    continue;
+                        throw new IllegalArgumentException(
+                                        "Journal source type is required");
                 }
 
-                List<JournalLine> lines =
-                        lineRepo.findByAccount_IdAndOrganization_Id(
-                                acc.getId(),
-                                orgId
-                        );
+                if (sourceId == null
+                                || sourceId.isBlank()) {
 
-                BigDecimal debit =
-                        ZERO;
+                        throw new IllegalArgumentException(
+                                        "Journal source ID is required");
+                }
 
-                BigDecimal credit =
-                        ZERO;
+                if (reference == null
+                                || reference.isBlank()) {
 
-                if (lines != null) {
+                        throw new IllegalArgumentException(
+                                        "Journal reference is required");
+                }
 
-                    for (JournalLine line : lines) {
+                if (description == null
+                                || description.isBlank()) {
+
+                        throw new IllegalArgumentException(
+                                        "Journal description is required");
+                }
+
+                if (lines == null
+                                || lines.isEmpty()) {
+
+                        throw new IllegalArgumentException(
+                                        "Journal entry must contain at least one line");
+                }
+
+                String normalizedSourceType = sourceType.trim();
+
+                String normalizedSourceId = sourceId.trim();
+
+                if (!"REVERSAL".equals(
+                                normalizedSourceType)) {
+
+                        JournalEntry existing = journalRepo
+                                        .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                        org.getId(),
+                                                        normalizedSourceType,
+                                                        normalizedSourceId)
+                                        .orElse(null);
+
+                        if (existing != null) {
+
+                                log.warn(
+                                                "Accounting event already posted. " +
+                                                                "Returning existing journal entry {} for {}:{}",
+                                                existing.getId(),
+                                                normalizedSourceType,
+                                                normalizedSourceId);
+
+                                return existing;
+                        }
+                }
+
+                BigDecimal totalDebit = ZERO;
+
+                BigDecimal totalCredit = ZERO;
+
+                for (JournalLine line : lines) {
 
                         if (line == null) {
-                            continue;
+
+                                throw new IllegalArgumentException(
+                                                "Journal entry contains a null line");
                         }
 
-                        debit =
-                                debit.add(
-                                        money(
-                                                line.getDebitDecimal()
-                                        )
-                                );
+                        ChartOfAccount lineAccount = line.getAccount();
 
-                        credit =
-                                credit.add(
-                                        money(
-                                                line.getCreditDecimal()
-                                        )
-                                );
-                    }
-                }
+                        validateAccountOwnership(
+                                        org,
+                                        lineAccount);
 
-                debit =
-                        normalize(debit);
+                        BigDecimal debit = money(
+                                        line.getDebitDecimal());
 
-                credit =
-                        normalize(credit);
+                        BigDecimal credit = money(
+                                        line.getCreditDecimal());
 
-                BigDecimal net =
-                        debit.subtract(credit);
+                        if (debit.compareTo(ZERO) < 0
+                                        || credit.compareTo(ZERO) < 0) {
 
-                Map<String, Object> row =
-                        new LinkedHashMap<>();
-
-                row.put(
-                        "code",
-                        acc.getCode()
-                );
-
-                row.put(
-                        "name",
-                        acc.getName()
-                );
-
-                row.put(
-                        "type",
-                        acc.getType()
-                );
-
-                row.put(
-                        "debit",
-                        net.compareTo(ZERO) > 0
-                                ? net
-                                : ZERO
-                );
-
-                row.put(
-                        "credit",
-                        net.compareTo(ZERO) < 0
-                                ? net.negate()
-                                : ZERO
-                );
-
-                rows.add(row);
-
-                if (net.compareTo(ZERO) > 0) {
-
-                    totalDebit =
-                            totalDebit.add(net);
-
-                } else if (net.compareTo(ZERO) < 0) {
-
-                    totalCredit =
-                            totalCredit.add(
-                                    net.negate()
-                            );
-                }
-            }
-        }
-
-        totalDebit =
-                normalize(totalDebit);
-
-        totalCredit =
-                normalize(totalCredit);
-
-        Map<String, Object> result =
-                new LinkedHashMap<>();
-
-        result.put(
-                "accounts",
-                rows
-        );
-
-        result.put(
-                "totalDebit",
-                totalDebit
-        );
-
-        result.put(
-                "totalCredit",
-                totalCredit
-        );
-
-        result.put(
-                "balanced",
-                totalDebit.compareTo(
-                        totalCredit
-                ) == 0
-        );
-
-        return result;
-    }
-
-    /*
-     * ============================================================
-     * BALANCE SHEET
-     * ============================================================
-     */
-
-    @Transactional(readOnly = true)
-    public Map<String, Object> getBalanceSheet(
-            Long orgId
-    ) {
-
-        requireOrganizationId(orgId);
-
-        List<ChartOfAccount> accounts =
-                coaRepo
-                        .findByOrganization_IdOrderByCodeAsc(
-                                orgId
-                        );
-
-        Map<
-                ChartOfAccount.AccountType,
-                List<Map<String, Object>>
-        > byType =
-                new EnumMap<>(
-                        ChartOfAccount.AccountType.class
-                );
-
-        for (
-                ChartOfAccount.AccountType type :
-                ChartOfAccount.AccountType.values()
-        ) {
-
-            byType.put(
-                    type,
-                    new ArrayList<>()
-            );
-        }
-
-        BigDecimal totalAssets =
-                ZERO;
-
-        BigDecimal totalLiabilities =
-                ZERO;
-
-        BigDecimal totalEquity =
-                ZERO;
-
-        BigDecimal totalIncome =
-                ZERO;
-
-        BigDecimal totalExpense =
-                ZERO;
-
-        BigDecimal contraAssets =
-                ZERO;
-
-        if (accounts != null) {
-
-            for (ChartOfAccount acc : accounts) {
-
-                if (
-                        acc == null
-                        || acc.getId() == null
-                        || acc.getType() == null
-                        || acc.getNormalBalance() == null
-                ) {
-                    continue;
-                }
-
-                BigDecimal balance =
-                        netBalance(
-                                acc,
-                                orgId
-                        );
-
-                Map<String, Object> row =
-                        new LinkedHashMap<>();
-
-                row.put(
-                        "code",
-                        acc.getCode()
-                );
-
-                row.put(
-                        "name",
-                        acc.getName()
-                );
-
-                row.put(
-                        "type",
-                        acc.getType()
-                );
-
-                row.put(
-                        "normalBalance",
-                        acc.getNormalBalance()
-                );
-
-                row.put(
-                        "balance",
-                        balance
-                );
-
-                byType
-                        .get(acc.getType())
-                        .add(row);
-
-                switch (acc.getType()) {
-
-                    case ASSET -> {
-
-                        if (
-                                acc.getNormalBalance()
-                                        == ChartOfAccount.NormalBalance.CREDIT
-                        ) {
-
-                            contraAssets =
-                                    contraAssets.add(
-                                            balance
-                                    );
-
-                            totalAssets =
-                                    totalAssets.subtract(
-                                            balance
-                                    );
-
-                        } else {
-
-                            totalAssets =
-                                    totalAssets.add(
-                                            balance
-                                    );
+                                throw new IllegalArgumentException(
+                                                "Debit and credit amounts cannot be negative");
                         }
-                    }
 
-                    case LIABILITY ->
+                        if (debit.compareTo(ZERO) > 0
+                                        && credit.compareTo(ZERO) > 0) {
 
-                            totalLiabilities =
-                                    totalLiabilities.add(
-                                            balance
-                                    );
+                                throw new IllegalArgumentException(
+                                                "A journal line cannot contain both debit and credit");
+                        }
 
-                    case EQUITY ->
+                        if (debit.compareTo(ZERO) == 0
+                                        && credit.compareTo(ZERO) == 0) {
 
-                            totalEquity =
-                                    totalEquity.add(
-                                            balance
-                                    );
+                                throw new IllegalArgumentException(
+                                                "A journal line must contain a debit or credit amount");
+                        }
 
-                    case INCOME ->
+                        line.setDebit(
+                                        debit);
 
-                            totalIncome =
-                                    totalIncome.add(
-                                            balance
-                                    );
+                        line.setCredit(
+                                        credit);
 
-                    case EXPENSE ->
+                        totalDebit = totalDebit.add(
+                                        debit);
 
-                            totalExpense =
-                                    totalExpense.add(
-                                            balance
-                                    );
+                        totalCredit = totalCredit.add(
+                                        credit);
                 }
-            }
+
+                totalDebit = money(totalDebit);
+
+                totalCredit = money(totalCredit);
+
+                if (totalDebit.compareTo(
+                                totalCredit) != 0) {
+
+                        throw new IllegalStateException(
+                                        "Journal entry does not balance: " +
+                                                        "debits " +
+                                                        totalDebit.toPlainString() +
+                                                        " != credits " +
+                                                        totalCredit.toPlainString() +
+                                                        " (" +
+                                                        description +
+                                                        ")");
+                }
+
+                JournalEntry entry = JournalEntry.builder()
+                                .organization(org)
+                                .branch(branch)
+                                .entryDate(
+                                                LocalDate.now())
+                                .sourceType(
+                                                normalizedSourceType)
+                                .sourceId(
+                                                normalizedSourceId)
+                                .reference(
+                                                reference.trim())
+                                .description(
+                                                description.trim())
+                                .createdBy(
+                                                "SYSTEM")
+                                .reversed(false)
+                                .build();
+
+                entry = journalRepo.save(
+                                entry);
+
+                for (JournalLine line : lines) {
+
+                        line.setJournalEntry(
+                                        entry);
+
+                        lineRepo.save(
+                                        line);
+                }
+
+                return entry;
         }
 
-        BigDecimal netIncome =
-                totalIncome.subtract(
-                        totalExpense
-                );
+        // ============================================================
+        // LOAN DISBURSEMENT
+        // ============================================================
 
-        totalEquity =
-                totalEquity.add(
-                        netIncome
-                );
+        @Transactional
+        public void postDisbursement(
+                        Loan loan) {
 
-        BigDecimal liabilitiesPlusEquity =
-                totalLiabilities.add(
-                        totalEquity
-                );
+                if (loan == null) {
 
-        BigDecimal balanceDifference =
-                totalAssets.subtract(
-                        liabilitiesPlusEquity
-                );
+                        throw new IllegalArgumentException(
+                                        "Loan is required");
+                }
 
-        totalAssets =
-                normalize(totalAssets);
+                if (loan.getId() == null) {
 
-        totalLiabilities =
-                normalize(totalLiabilities);
+                        throw new IllegalArgumentException(
+                                        "Loan ID is required");
+                }
 
-        totalEquity =
-                normalize(totalEquity);
+                Organization org = loan.getOrganization();
 
-        netIncome =
-                normalize(netIncome);
+                requireOrganization(org);
 
-        liabilitiesPlusEquity =
-                normalize(liabilitiesPlusEquity);
+                ensureChartOfAccounts(org);
 
-        balanceDifference =
-                normalize(balanceDifference);
+                // --------------------------------------------------------
+                // GROSS PRINCIPAL
+                // --------------------------------------------------------
 
-        contraAssets =
-                normalize(contraAssets);
+                BigDecimal grossPrincipal = money(
+                                loan.getAmountDecimal());
 
-        Map<String, Object> result =
-                new LinkedHashMap<>();
+                if (grossPrincipal.compareTo(
+                                ZERO) <= 0) {
 
-        result.put(
-                "asOf",
-                LocalDate.now()
-        );
+                        throw new IllegalArgumentException(
+                                        "Loan disbursement amount must be greater than zero");
+                }
 
-        result.put(
-                "assets",
-                byType.get(
-                        ChartOfAccount.AccountType.ASSET
-                )
-        );
+                // --------------------------------------------------------
+                // PROCESSING FEE
+                // --------------------------------------------------------
 
-        result.put(
-                "liabilities",
-                byType.get(
-                        ChartOfAccount.AccountType.LIABILITY
-                )
-        );
+                BigDecimal processingFee = money(
+                                loan.getProcessingFeeDecimal());
 
-        result.put(
-                "equity",
-                byType.get(
-                        ChartOfAccount.AccountType.EQUITY
-                )
-        );
+                if (processingFee.compareTo(
+                                ZERO) < 0) {
 
-        result.put(
-                "currentPeriodNetIncome",
-                netIncome
-        );
+                        throw new IllegalStateException(
+                                        "Processing fee cannot be negative");
+                }
 
-        result.put(
-                "contraAssets",
-                contraAssets
-        );
+                if (processingFee.compareTo(
+                                grossPrincipal) > 0) {
 
-        result.put(
-                "totalAssets",
-                totalAssets
-        );
+                        throw new IllegalStateException(
+                                        "Processing fee cannot exceed the gross loan principal");
+                }
 
-        result.put(
-                "totalLiabilities",
-                totalLiabilities
-        );
+                // --------------------------------------------------------
+                // EXPECTED NET CASH
+                // --------------------------------------------------------
 
-        result.put(
-                "totalEquity",
-                totalEquity
-        );
+                BigDecimal netCashDisbursed = money(
+                                grossPrincipal.subtract(
+                                                processingFee));
 
-        result.put(
-                "liabilitiesPlusEquity",
-                liabilitiesPlusEquity
-        );
+                if (netCashDisbursed.compareTo(
+                                ZERO) <= 0) {
 
-        result.put(
-                "balanceDifference",
-                balanceDifference
-        );
+                        throw new IllegalStateException(
+                                        "Net loan disbursement must be greater than zero");
+                }
 
-        result.put(
-                "balanced",
-                balanceDifference.compareTo(
-                        ZERO
-                ) == 0
-        );
+                String sourceId = String.valueOf(
+                                loan.getId());
 
-        return result;
-    }
+                String reference = loan.getReferenceNumber() != null
+                                && !loan.getReferenceNumber().isBlank()
+                                                ? loan.getReferenceNumber().trim()
+                                                : "LOAN-" + loan.getId();
 
-    /*
-     * ============================================================
-     * PROFIT AND LOSS
-     * ============================================================
-     */
+                // --------------------------------------------------------
+                // IDEMPOTENCY
+                // --------------------------------------------------------
 
-    @Transactional(readOnly = true)
-    public Map<String, Object> getProfitAndLoss(
-            Long orgId,
-            LocalDate from,
-            LocalDate to
-    ) {
+                JournalEntry existing = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(),
+                                                "LOAN_DISBURSEMENT",
+                                                sourceId)
+                                .orElse(null);
 
-        validateDateRange(
-                from,
-                to
-        );
+                if (existing != null) {
 
-        requireOrganizationId(orgId);
+                        log.info(
+                                        "Loan {} disbursement already posted as journal {}",
+                                        loan.getId(),
+                                        existing.getId());
 
-        List<JournalEntry> entries =
-                journalRepo
-                        .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAsc(
+                        return;
+                }
+
+                /*
+                 * ========================================================
+                 * CORRECT ACCOUNTING
+                 * ========================================================
+                 *
+                 * Gross loan:
+                 *
+                 * RWF 1,000,000
+                 *
+                 * Processing fee:
+                 *
+                 * RWF 20,000
+                 *
+                 * Borrower receives:
+                 *
+                 * RWF 980,000
+                 *
+                 * Journal:
+                 *
+                 * DR Loans Receivable 1,000,000
+                 * CR Cash 980,000
+                 * CR Processing Fee Income 20,000
+                 *
+                 * This is one balanced journal.
+                 *
+                 * The fee must NOT create a second DR Cash entry.
+                 */
+
+                List<JournalLine> lines = new ArrayList<>();
+
+                // --------------------------------------------------------
+                // DR LOANS RECEIVABLE - GROSS
+                // --------------------------------------------------------
+
+                lines.add(
+                                JournalLine.builder()
+                                                .account(
+                                                                account(
+                                                                                org,
+                                                                                "1100"))
+                                                .debit(
+                                                                grossPrincipal)
+                                                .credit(
+                                                                ZERO)
+                                                .description(
+                                                                "Gross loan principal receivable — "
+                                                                                + reference)
+                                                .build());
+
+                // --------------------------------------------------------
+                // CR CASH - NET AMOUNT ACTUALLY GIVEN TO BORROWER
+                // --------------------------------------------------------
+
+                lines.add(
+                                JournalLine.builder()
+                                                .account(
+                                                                account(
+                                                                                org,
+                                                                                "1000"))
+                                                .debit(
+                                                                ZERO)
+                                                .credit(
+                                                                netCashDisbursed)
+                                                .description(
+                                                                "Net cash disbursed after 2% processing fee — "
+                                                                                + reference)
+                                                .build());
+
+                // --------------------------------------------------------
+                // CR PROCESSING FEE INCOME
+                // --------------------------------------------------------
+
+                if (processingFee.compareTo(
+                                ZERO) > 0) {
+
+                        lines.add(
+                                        JournalLine.builder()
+                                                        .account(
+                                                                        account(
+                                                                                        org,
+                                                                                        "4100"))
+                                                        .debit(
+                                                                        ZERO)
+                                                        .credit(
+                                                                        processingFee)
+                                                        .description(
+                                                                        "One-time 2% processing fee income — "
+                                                                                        + reference)
+                                                        .build());
+                }
+
+                post(
+                                org,
+                                loan.getBranch(),
+                                "LOAN_DISBURSEMENT",
+                                sourceId,
+                                reference,
+                                "Disbursement of loan "
+                                                + reference
+                                                + " — gross "
+                                                + grossPrincipal.toPlainString()
+                                                + ", processing fee "
+                                                + processingFee.toPlainString()
+                                                + ", net cash "
+                                                + netCashDisbursed.toPlainString(),
+                                lines);
+
+                log.info(
+                                "Loan disbursement accounted. " +
+                                                "loanId={}, grossPrincipal={}, processingFee={}, " +
+                                                "netCashDisbursed={}",
+                                loan.getId(),
+                                grossPrincipal,
+                                processingFee,
+                                netCashDisbursed);
+        }
+
+        // ============================================================
+        // INTEREST ACCRUAL
+        // ============================================================
+
+        @Transactional
+        public void postInterestAccrual(
+                        Loan loan,
+                        double dailyInterestAmount) {
+
+                postInterestAccrual(
+                                loan,
+                                money(
+                                                dailyInterestAmount));
+        }
+
+        @Transactional
+        public void postInterestAccrual(
+                        Loan loan,
+                        BigDecimal dailyInterestAmount) {
+
+                if (loan == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan is required");
+                }
+
+                if (loan.getId() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan ID is required");
+                }
+
+                Organization org = loan.getOrganization();
+
+                requireOrganization(org);
+
+                ensureChartOfAccounts(org);
+
+                BigDecimal interest = maxZero(
+                                dailyInterestAmount);
+
+                if (interest.compareTo(
+                                ZERO) <= 0) {
+
+                        return;
+                }
+
+                LocalDate accrualDate = LocalDate.now();
+
+                String sourceId = loan.getId()
+                                + "-"
+                                + accrualDate;
+
+                JournalEntry existing = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(),
+                                                "INTEREST_ACCRUAL",
+                                                sourceId)
+                                .orElse(null);
+
+                if (existing != null) {
+
+                        log.info(
+                                        "Interest already accrued for loan {} on {}. Journal {}",
+                                        loan.getId(),
+                                        accrualDate,
+                                        existing.getId());
+
+                        return;
+                }
+
+                String reference = loan.getReferenceNumber() != null
+                                && !loan.getReferenceNumber().isBlank()
+                                                ? loan.getReferenceNumber().trim()
+                                                : "LOAN-" + loan.getId();
+
+                post(
+                                org,
+                                loan.getBranch(),
+                                "INTEREST_ACCRUAL",
+                                sourceId,
+                                reference,
+                                "Interest accrual for "
+                                                + reference
+                                                + " ("
+                                                + accrualDate
+                                                + ")",
+
+                                List.of(
+
+                                                JournalLine.builder()
+                                                                .account(
+                                                                                account(
+                                                                                                org,
+                                                                                                "1150"))
+                                                                .debit(
+                                                                                interest)
+                                                                .credit(
+                                                                                ZERO)
+                                                                .description(
+                                                                                "Interest receivable accrued — "
+                                                                                                + reference)
+                                                                .build(),
+
+                                                JournalLine.builder()
+                                                                .account(
+                                                                                account(
+                                                                                                org,
+                                                                                                "4000"))
+                                                                .debit(
+                                                                                ZERO)
+                                                                .credit(
+                                                                                interest)
+                                                                .description(
+                                                                                "Interest income accrued — "
+                                                                                                + reference)
+                                                                .build()));
+        }
+
+        // ============================================================
+        // MANAGEMENT FEE ACCRUAL
+        // ============================================================
+
+        @Transactional
+        public void postManagementFeeAccrual(
+                        Loan loan,
+                        BigDecimal managementFeeAmount) {
+
+                if (loan == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan is required");
+                }
+
+                if (loan.getId() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan ID is required");
+                }
+
+                Organization org = loan.getOrganization();
+
+                requireOrganization(org);
+
+                ensureChartOfAccounts(org);
+
+                BigDecimal fee = maxZero(
+                                managementFeeAmount);
+
+                if (fee.compareTo(
+                                ZERO) <= 0) {
+
+                        return;
+                }
+
+                LocalDate accrualDate = LocalDate.now();
+
+                String sourceId = loan.getId()
+                                + "-"
+                                + accrualDate;
+
+                JournalEntry existing = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(),
+                                                "MANAGEMENT_FEE_ACCRUAL",
+                                                sourceId)
+                                .orElse(null);
+
+                if (existing != null) {
+
+                        return;
+                }
+
+                String reference = loan.getReferenceNumber() != null
+                                && !loan.getReferenceNumber().isBlank()
+                                                ? loan.getReferenceNumber().trim()
+                                                : "LOAN-" + loan.getId();
+
+                post(
+                                org,
+                                loan.getBranch(),
+                                "MANAGEMENT_FEE_ACCRUAL",
+                                sourceId,
+                                reference,
+                                "Management fee accrual for "
+                                                + reference
+                                                + " ("
+                                                + accrualDate
+                                                + ")",
+
+                                List.of(
+
+                                                JournalLine.builder()
+                                                                .account(
+                                                                                account(
+                                                                                                org,
+                                                                                                "1160"))
+                                                                .debit(
+                                                                                fee)
+                                                                .credit(
+                                                                                ZERO)
+                                                                .description(
+                                                                                "Management fee receivable accrued — "
+                                                                                                + reference)
+                                                                .build(),
+
+                                                JournalLine.builder()
+                                                                .account(
+                                                                                account(
+                                                                                                org,
+                                                                                                "4100"))
+                                                                .debit(
+                                                                                ZERO)
+                                                                .credit(
+                                                                                fee)
+                                                                .description(
+                                                                                "Management fee income accrued — "
+                                                                                                + reference)
+                                                                .build()));
+        }
+
+        // ============================================================
+        // PAYMENT RECEIVED
+        // ============================================================
+
+        /**
+         * Backward-compatible overload.
+         *
+         * Management fee is zero when the caller does not supply it.
+         */
+        @Transactional
+        public JournalEntry postPaymentReceived(
+                        Payment payment,
+                        Double paymentAmount,
+                        double principalAmount,
+                        double interestAmount,
+                        double penaltyAmount,
+                        double overpaymentAmount) {
+
+                return postPaymentReceived(
+                                payment,
+                                money(paymentAmount),
+                                money(principalAmount),
+                                money(interestAmount),
+                                ZERO,
+                                money(penaltyAmount),
+                                money(overpaymentAmount));
+        }
+
+        /**
+         * Correct overload used by the corrected PaymentService.
+         *
+         * Allocation:
+         *
+         * DR Cash
+         *
+         * CR Loans Receivable
+         * CR Interest Income
+         * CR Management/Fee Income
+         * CR Penalty/Fee Income
+         * CR Borrower Refunds Payable
+         */
+        @Transactional
+        public JournalEntry postPaymentReceived(
+                        Payment payment,
+                        BigDecimal paymentAmount,
+                        BigDecimal principalAmount,
+                        BigDecimal interestAmount,
+                        BigDecimal managementFeeAmount,
+                        BigDecimal penaltyAmount,
+                        BigDecimal overpaymentAmount) {
+
+                if (payment == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Payment is required");
+                }
+
+                if (payment.getId() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Payment ID is required");
+                }
+
+                Loan loan = payment.getLoan();
+
+                if (loan == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Payment has no loan");
+                }
+
+                if (loan.getId() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Payment loan has no ID");
+                }
+
+                Organization org = loan.getOrganization();
+
+                requireOrganization(org);
+
+                ensureChartOfAccounts(org);
+
+                String sourceId = String.valueOf(
+                                payment.getId());
+
+                JournalEntry existing = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(),
+                                                "PAYMENT_RECEIVED",
+                                                sourceId)
+                                .orElse(null);
+
+                if (existing != null) {
+
+                        log.info(
+                                        "Payment {} already posted as journal {}",
+                                        payment.getId(),
+                                        existing.getId());
+
+                        return existing;
+                }
+
+                // ============================================================
+                // AMOUNTS
+                // ============================================================
+
+                BigDecimal total = maxZero(
+                                paymentAmount);
+
+                if (total.compareTo(
+                                ZERO) <= 0) {
+
+                        throw new IllegalArgumentException(
+                                        "Payment amount must be greater than zero");
+                }
+
+                BigDecimal principal = maxZero(
+                                principalAmount);
+
+                BigDecimal interest = maxZero(
+                                interestAmount);
+
+                BigDecimal managementFee = maxZero(
+                                managementFeeAmount);
+
+                BigDecimal penalty = maxZero(
+                                penaltyAmount);
+
+                BigDecimal overpayment = maxZero(
+                                overpaymentAmount);
+
+                // ============================================================
+                // VALIDATE ALLOCATION
+                // ============================================================
+
+                BigDecimal allocated = principal
+                                .add(interest)
+                                .add(managementFee)
+                                .add(penalty)
+                                .add(overpayment);
+
+                allocated = money(
+                                allocated);
+
+                BigDecimal allocationDifference = money(
+                                total.subtract(
+                                                allocated));
+
+                if (allocationDifference.compareTo(
+                                ZERO) != 0) {
+
+                        throw new IllegalStateException(
+                                        "Payment allocation does not equal payment amount: " +
+                                                        "payment=" +
+                                                        total.toPlainString() +
+                                                        ", principal=" +
+                                                        principal.toPlainString() +
+                                                        ", interest=" +
+                                                        interest.toPlainString() +
+                                                        ", managementFee=" +
+                                                        managementFee.toPlainString() +
+                                                        ", penalty=" +
+                                                        penalty.toPlainString() +
+                                                        ", overpayment=" +
+                                                        overpayment.toPlainString() +
+                                                        ", allocated=" +
+                                                        allocated.toPlainString());
+                }
+
+                String loanReference = loan.getReferenceNumber() != null
+                                && !loan.getReferenceNumber().isBlank()
+                                                ? loan.getReferenceNumber().trim()
+                                                : "LOAN-" + loan.getId();
+
+                List<JournalLine> lines = new ArrayList<>();
+
+                // ============================================================
+                // DR CASH
+                // ============================================================
+
+                lines.add(
+                                JournalLine.builder()
+                                                .account(
+                                                                account(
+                                                                                org,
+                                                                                "1000"))
+                                                .debit(
+                                                                total)
+                                                .credit(
+                                                                ZERO)
+                                                .description(
+                                                                "Payment received — "
+                                                                                + loanReference)
+                                                .build());
+
+                // ============================================================
+                // CR LOANS RECEIVABLE
+                // ============================================================
+
+                if (principal.compareTo(
+                                ZERO) > 0) {
+
+                        lines.add(
+                                        JournalLine.builder()
+                                                        .account(
+                                                                        account(
+                                                                                        org,
+                                                                                        "1100"))
+                                                        .debit(
+                                                                        ZERO)
+                                                        .credit(
+                                                                        principal)
+                                                        .description(
+                                                                        "Principal repayment — "
+                                                                                        + loanReference)
+                                                        .build());
+                }
+
+                // ============================================================
+                // INTEREST
+                // ============================================================
+
+                if (interest.compareTo(
+                                ZERO) > 0) {
+
+                        BigDecimal accrued = accruedInterestReceivable(
+                                        org,
+                                        loan.getId());
+
+                        BigDecimal clearReceivable = interest.min(
+                                        maxZero(
+                                                        accrued));
+
+                        BigDecimal directIncome = interest.subtract(
+                                        clearReceivable);
+
+                        clearReceivable = maxZero(
+                                        clearReceivable);
+
+                        directIncome = maxZero(
+                                        directIncome);
+
+                        if (clearReceivable.compareTo(
+                                        ZERO) > 0) {
+
+                                lines.add(
+                                                JournalLine.builder()
+                                                                .account(
+                                                                                account(
+                                                                                                org,
+                                                                                                "1150"))
+                                                                .debit(
+                                                                                ZERO)
+                                                                .credit(
+                                                                                clearReceivable)
+                                                                .description(
+                                                                                "Clears accrued interest — "
+                                                                                                + loanReference)
+                                                                .build());
+                        }
+
+                        if (directIncome.compareTo(
+                                        ZERO) > 0) {
+
+                                lines.add(
+                                                JournalLine.builder()
+                                                                .account(
+                                                                                account(
+                                                                                                org,
+                                                                                                "4000"))
+                                                                .debit(
+                                                                                ZERO)
+                                                                .credit(
+                                                                                directIncome)
+                                                                .description(
+                                                                                "Interest income — "
+                                                                                                + loanReference)
+                                                                .build());
+                        }
+                }
+
+                // ============================================================
+                // MANAGEMENT FEE
+                // ------------------------------------------------------------
+                // Clear any previously accrued management-fee receivable first.
+                // Only the unaccrued portion is recognized as new income.
+
+                if (managementFee.compareTo(ZERO) > 0) {
+
+                        BigDecimal accruedManagementFee = accruedManagementFeeReceivable(org, loan.getId());
+
+                        BigDecimal clearManagementFee = managementFee.min(maxZero(accruedManagementFee));
+
+                        BigDecimal directManagementIncome = managementFee.subtract(clearManagementFee);
+
+                        if (clearManagementFee.compareTo(ZERO) > 0) {
+                                lines.add(
+                                                JournalLine.builder()
+                                                                .account(account(org, "1160"))
+                                                                .debit(ZERO)
+                                                                .credit(clearManagementFee)
+                                                                .description("Clears accrued management fee — "
+                                                                                + loanReference)
+                                                                .build());
+                        }
+
+                        if (directManagementIncome.compareTo(ZERO) > 0) {
+                                lines.add(
+                                                JournalLine.builder()
+                                                                .account(account(org, "4100"))
+                                                                .debit(ZERO)
+                                                                .credit(directManagementIncome)
+                                                                .description("Management fee income — " + loanReference)
+                                                                .build());
+                        }
+                }
+
+                // PENALTY
+                // ============================================================
+
+                if (penalty.compareTo(
+                                ZERO) > 0) {
+
+                        lines.add(
+                                        JournalLine.builder()
+                                                        .account(
+                                                                        account(
+                                                                                        org,
+                                                                                        "4100"))
+                                                        .debit(
+                                                                        ZERO)
+                                                        .credit(
+                                                                        penalty)
+                                                        .description(
+                                                                        "15% monthly / 0.5% daily penalty income — "
+                                                                                        + loanReference)
+                                                        .build());
+                }
+
+                // ============================================================
+                // OVERPAYMENT
+                // ============================================================
+
+                if (overpayment.compareTo(
+                                ZERO) > 0) {
+
+                        lines.add(
+                                        JournalLine.builder()
+                                                        .account(
+                                                                        account(
+                                                                                        org,
+                                                                                        "2100"))
+                                                        .debit(
+                                                                        ZERO)
+                                                        .credit(
+                                                                        overpayment)
+                                                        .description(
+                                                                        "Borrower overpayment refundable — "
+                                                                                        + loanReference)
+                                                        .build());
+
+                        log.info(
+                                        "Payment {} created borrower refund liability of {}",
+                                        payment.getId(),
+                                        overpayment);
+                }
+
+                // ============================================================
+                // VALIDATE JOURNAL
+                // ============================================================
+
+                BigDecimal totalDebits = ZERO;
+
+                BigDecimal totalCredits = ZERO;
+
+                for (JournalLine line : lines) {
+
+                        totalDebits = totalDebits.add(
+                                        money(
+                                                        line.getDebitDecimal()));
+
+                        totalCredits = totalCredits.add(
+                                        money(
+                                                        line.getCreditDecimal()));
+                }
+
+                totalDebits = money(
+                                totalDebits);
+
+                totalCredits = money(
+                                totalCredits);
+
+                if (totalDebits.compareTo(
+                                totalCredits) != 0) {
+
+                        throw new IllegalStateException(
+                                        "Payment accounting does not balance: " +
+                                                        "debits=" +
+                                                        totalDebits.toPlainString() +
+                                                        ", credits=" +
+                                                        totalCredits.toPlainString());
+                }
+
+                String reference = payment.getPaymentReference() != null
+                                && !payment.getPaymentReference().isBlank()
+                                                ? payment.getPaymentReference().trim()
+                                                : "PAY-" + payment.getId();
+
+                return post(
+                                org,
+                                loan.getBranch(),
+                                "PAYMENT_RECEIVED",
+                                sourceId,
+                                reference,
+                                "Payment received on loan "
+                                                + loanReference,
+                                lines);
+        }
+
+        // ============================================================
+        // PAYMENT RECEIVED FROM PAYMENT ENTITY
+        // ============================================================
+
+        @Transactional
+        public JournalEntry postPaymentReceived(
+                        Payment payment) {
+
+                if (payment == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Payment is required");
+                }
+
+                BigDecimal amount = payment.getAmountPaid() != null
+                                ? money(
+                                                payment.getAmountPaid())
+                                : ZERO;
+
+                BigDecimal principal = payment.getPrincipalComponent() != null
+                                ? money(
+                                                payment.getPrincipalComponent())
+                                : ZERO;
+
+                BigDecimal interest = payment.getInterestComponent() != null
+                                ? money(
+                                                payment.getInterestComponent())
+                                : ZERO;
+
+                BigDecimal managementFee = payment.getManagementFeeComponent() != null
+                                ? money(
+                                                payment.getManagementFeeComponent())
+                                : ZERO;
+
+                BigDecimal penalty = payment.getPenaltyPaid() != null
+                                ? money(
+                                                payment.getPenaltyPaid())
+                                : ZERO;
+
+                BigDecimal derivedOverpayment = amount
+                                .subtract(principal)
+                                .subtract(interest)
+                                .subtract(managementFee)
+                                .subtract(penalty);
+
+                derivedOverpayment = maxZero(
+                                derivedOverpayment);
+
+                return postPaymentReceived(
+                                payment,
+                                amount,
+                                principal,
+                                interest,
+                                managementFee,
+                                penalty,
+                                derivedOverpayment);
+        }
+
+        // ============================================================
+        // OVERPAYMENT REFUND PAYABLE
+        // ============================================================
+
+        @Transactional
+        public JournalEntry postOverpaymentRefundPayable(
+                        Payment payment,
+                        BigDecimal refundAmount) {
+
+                if (payment == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Payment is required");
+                }
+
+                if (payment.getId() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Payment ID is required");
+                }
+
+                Loan loan = payment.getLoan();
+
+                if (loan == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Payment has no loan");
+                }
+
+                Organization org = loan.getOrganization();
+
+                requireOrganization(org);
+
+                ensureChartOfAccounts(org);
+
+                BigDecimal amount = maxZero(
+                                refundAmount);
+
+                if (amount.compareTo(
+                                ZERO) <= 0) {
+
+                        throw new IllegalArgumentException(
+                                        "Refund payable amount must be greater than zero");
+                }
+
+                String paymentSourceId = String.valueOf(
+                                payment.getId());
+
+                JournalEntry paymentJournal = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(),
+                                                "PAYMENT_RECEIVED",
+                                                paymentSourceId)
+                                .orElse(null);
+
+                if (paymentJournal != null) {
+
+                        log.info(
+                                        "Overpayment for payment {} is already recognized " +
+                                                        "in payment journal {}. No duplicate liability created.",
+                                        payment.getId(),
+                                        paymentJournal.getId());
+
+                        return paymentJournal;
+                }
+
+                JournalEntry existing = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(),
+                                                "OVERPAYMENT_REFUND_PAYABLE",
+                                                paymentSourceId)
+                                .orElse(null);
+
+                if (existing != null) {
+
+                        return existing;
+                }
+
+                String reference = payment.getPaymentReference() != null
+                                && !payment.getPaymentReference().isBlank()
+                                                ? payment.getPaymentReference().trim()
+                                                : "PAY-" + payment.getId();
+
+                return post(
+                                org,
+                                loan.getBranch(),
+                                "OVERPAYMENT_REFUND_PAYABLE",
+                                paymentSourceId,
+                                "REFUND-" + payment.getId(),
+                                "Borrower refund payable for payment "
+                                                + reference,
+
+                                List.of(
+
+                                                JournalLine.builder()
+                                                                .account(
+                                                                                account(
+                                                                                                org,
+                                                                                                "1000"))
+                                                                .debit(
+                                                                                amount)
+                                                                .credit(
+                                                                                ZERO)
+                                                                .description(
+                                                                                "Excess payment received — "
+                                                                                                + reference)
+                                                                .build(),
+
+                                                JournalLine.builder()
+                                                                .account(
+                                                                                account(
+                                                                                                org,
+                                                                                                "2100"))
+                                                                .debit(
+                                                                                ZERO)
+                                                                .credit(
+                                                                                amount)
+                                                                .description(
+                                                                                "Borrower refund payable — "
+                                                                                                + reference)
+                                                                .build()));
+        }
+
+        // ============================================================
+        // REFUND PAID
+        // ============================================================
+
+        @Transactional
+        public JournalEntry postRefundPaid(
+                        Organization org,
+                        Branch branch,
+                        String refundReference,
+                        String sourceId,
+                        BigDecimal refundAmount,
+                        String description) {
+
+                requireOrganization(org);
+
+                ensureChartOfAccounts(org);
+
+                validateBranchOwnership(
+                                org,
+                                branch);
+
+                if (sourceId == null
+                                || sourceId.isBlank()) {
+
+                        throw new IllegalArgumentException(
+                                        "Refund source ID is required");
+                }
+
+                if (refundReference == null
+                                || refundReference.isBlank()) {
+
+                        throw new IllegalArgumentException(
+                                        "Refund reference is required");
+                }
+
+                BigDecimal amount = maxZero(
+                                refundAmount);
+
+                if (amount.compareTo(
+                                ZERO) <= 0) {
+
+                        throw new IllegalArgumentException(
+                                        "Refund amount must be greater than zero");
+                }
+
+                BigDecimal payableBalance = borrowerRefundsPayableBalance(
+                                org);
+
+                if (amount.compareTo(
+                                payableBalance) > 0) {
+
+                        throw new IllegalStateException(
+                                        "Refund amount exceeds borrower refund liability. " +
+                                                        "Requested=" +
+                                                        amount.toPlainString() +
+                                                        ", available=" +
+                                                        payableBalance.toPlainString());
+                }
+
+                JournalEntry existing = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(),
+                                                "REFUND_PAYMENT",
+                                                sourceId.trim())
+                                .orElse(null);
+
+                if (existing != null) {
+
+                        return existing;
+                }
+
+                String finalDescription = description != null
+                                && !description.isBlank()
+                                                ? description.trim()
+                                                : "Borrower refund paid";
+
+                return post(
+                                org,
+                                branch,
+                                "REFUND_PAYMENT",
+                                sourceId.trim(),
+                                refundReference.trim(),
+                                finalDescription,
+
+                                List.of(
+
+                                                JournalLine.builder()
+                                                                .account(
+                                                                                account(
+                                                                                                org,
+                                                                                                "2100"))
+                                                                .debit(
+                                                                                amount)
+                                                                .credit(
+                                                                                ZERO)
+                                                                .description(
+                                                                                "Borrower refund liability settled — "
+                                                                                                + refundReference)
+                                                                .build(),
+
+                                                JournalLine.builder()
+                                                                .account(
+                                                                                account(
+                                                                                                org,
+                                                                                                "1000"))
+                                                                .debit(
+                                                                                ZERO)
+                                                                .credit(
+                                                                                amount)
+                                                                .description(
+                                                                                "Refund paid to borrower — "
+                                                                                                + refundReference)
+                                                                .build()));
+        }
+
+        // ============================================================
+        // REFUND LIABILITY BALANCE
+        // ============================================================
+
+        @Transactional(readOnly = true)
+        public BigDecimal borrowerRefundsPayableBalance(
+                        Organization org) {
+
+                requireOrganization(org);
+
+                ChartOfAccount refundAccount = coaRepo
+                                .findByOrganization_IdAndCode(
+                                                org.getId(),
+                                                "2100")
+                                .orElse(null);
+
+                if (refundAccount == null) {
+
+                        return ZERO;
+                }
+
+                List<JournalLine> lines = lineRepo.findByAccount_IdAndOrganization_Id(
+                                refundAccount.getId(),
+                                org.getId());
+
+                if (lines == null
+                                || lines.isEmpty()) {
+
+                        return ZERO;
+                }
+
+                BigDecimal debit = ZERO;
+
+                BigDecimal credit = ZERO;
+
+                for (JournalLine line : lines) {
+
+                        if (line == null) {
+                                continue;
+                        }
+
+                        debit = debit.add(
+                                        money(
+                                                        line.getDebitDecimal()));
+
+                        credit = credit.add(
+                                        money(
+                                                        line.getCreditDecimal()));
+                }
+
+                return maxZero(
+                                credit.subtract(
+                                                debit));
+        }
+
+        // ============================================================
+        // ACCRUED INTEREST RECEIVABLE
+        // ============================================================
+
+        private BigDecimal accruedInterestReceivable(
+                        Organization org,
+                        Long loanId) {
+
+                requireOrganization(org);
+
+                if (loanId == null) {
+
+                        return ZERO;
+                }
+
+                ChartOfAccount receivable = coaRepo
+                                .findByOrganization_IdAndCode(
+                                                org.getId(),
+                                                "1150")
+                                .orElse(null);
+
+                if (receivable == null) {
+
+                        return ZERO;
+                }
+
+                List<JournalLine> lines = lineRepo.findInterestReceivableLinesForLoan(
+                                receivable.getId(),
+                                org.getId(),
+                                loanId);
+
+                if (lines == null
+                                || lines.isEmpty()) {
+
+                        return ZERO;
+                }
+
+                BigDecimal balance = ZERO;
+
+                for (JournalLine line : lines) {
+
+                        if (line == null) {
+                                continue;
+                        }
+
+                        JournalEntry entry = line.getJournalEntry();
+
+                        if (entry == null) {
+                                continue;
+                        }
+
+                        BigDecimal debit = money(
+                                        line.getDebitDecimal());
+
+                        BigDecimal credit = money(
+                                        line.getCreditDecimal());
+
+                        balance = balance
+                                        .add(
+                                                        debit)
+                                        .subtract(
+                                                        credit);
+                }
+
+                return maxZero(
+                                balance);
+        }
+
+        // ============================================================
+        // ACCRUED MANAGEMENT FEE RECEIVABLE
+        // ============================================================
+
+        private BigDecimal accruedManagementFeeReceivable(
+                        Organization org,
+                        Long loanId) {
+                requireOrganization(org);
+                if (loanId == null)
+                        return ZERO;
+
+                ChartOfAccount receivable = coaRepo.findByOrganization_IdAndCode(org.getId(), "1160")
+                                .orElse(null);
+                if (receivable == null)
+                        return ZERO;
+
+                List<JournalLine> lines = lineRepo.findByAccount_IdAndOrganization_Id(
+                                receivable.getId(), org.getId());
+                if (lines == null || lines.isEmpty())
+                        return ZERO;
+
+                BigDecimal balance = ZERO;
+                for (JournalLine line : lines) {
+                        if (line == null)
+                                continue;
+                        balance = balance
+                                        .add(money(line.getDebitDecimal()))
+                                        .subtract(money(line.getCreditDecimal()));
+                }
+                return maxZero(balance);
+        }
+
+        // ============================================================
+        // ============================================================
+
+        @Transactional
+        public void postWriteOff(
+                        Loan loan) {
+
+                if (loan == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan is required");
+                }
+
+                if (loan.getId() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan ID is required");
+                }
+
+                Organization org = loan.getOrganization();
+
+                requireOrganization(org);
+
+                ensureChartOfAccounts(org);
+
+                BigDecimal outstanding = money(
+                                loan.getOutstandingBalanceDecimal());
+
+                if (outstanding.compareTo(
+                                ZERO) <= 0) {
+
+                        return;
+                }
+
+                String sourceId = String.valueOf(
+                                loan.getId());
+
+                JournalEntry existing = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(),
+                                                "WRITE_OFF",
+                                                sourceId)
+                                .orElse(null);
+
+                if (existing != null) {
+
+                        log.info(
+                                        "Loan {} already has a write-off journal {}",
+                                        loan.getId(),
+                                        existing.getId());
+
+                        return;
+                }
+
+                String reference = loan.getReferenceNumber() != null
+                                && !loan.getReferenceNumber().isBlank()
+                                                ? loan.getReferenceNumber().trim()
+                                                : "LOAN-" + loan.getId();
+
+                BigDecimal reserveAvailable = loanLossReserveBalance(org);
+                BigDecimal reserveUsed = outstanding.min(reserveAvailable);
+                BigDecimal additionalLossExpense = outstanding.subtract(reserveUsed);
+
+                List<JournalLine> writeOffLines = new ArrayList<>();
+
+                if (reserveUsed.compareTo(ZERO) > 0) {
+                        writeOffLines.add(
+                                        JournalLine.builder()
+                                                        .account(account(org, "1200"))
+                                                        .debit(reserveUsed)
+                                                        .credit(ZERO)
+                                                        .description("Loan loss reserve utilized — " + reference)
+                                                        .build());
+                }
+
+                if (additionalLossExpense.compareTo(ZERO) > 0) {
+                        writeOffLines.add(
+                                        JournalLine.builder()
+                                                        .account(account(org, "5000"))
+                                                        .debit(additionalLossExpense)
+                                                        .credit(ZERO)
+                                                        .description("Uncovered loan loss expense — " + reference)
+                                                        .build());
+                }
+
+                writeOffLines.add(
+                                JournalLine.builder()
+                                                .account(account(org, "1100"))
+                                                .debit(ZERO)
+                                                .credit(outstanding)
+                                                .description("Write off receivable — " + reference)
+                                                .build());
+
+                post(
+                                org,
+                                loan.getBranch(),
+                                "WRITE_OFF",
+                                sourceId,
+                                reference,
+                                "Write-off of loan " + reference,
+                                writeOffLines);
+        }
+
+        // ============================================================
+        // LOAN LOSS RESERVE BALANCE
+        // ============================================================
+
+        private BigDecimal loanLossReserveBalance(Organization org) {
+                requireOrganization(org);
+                ChartOfAccount reserve = coaRepo.findByOrganization_IdAndCode(org.getId(), "1200")
+                                .orElse(null);
+                if (reserve == null)
+                        return ZERO;
+
+                List<JournalLine> lines = lineRepo.findByAccount_IdAndOrganization_Id(
+                                reserve.getId(), org.getId());
+                if (lines == null || lines.isEmpty())
+                        return ZERO;
+
+                BigDecimal debit = ZERO;
+                BigDecimal credit = ZERO;
+                for (JournalLine line : lines) {
+                        if (line == null)
+                                continue;
+                        debit = debit.add(money(line.getDebitDecimal()));
+                        credit = credit.add(money(line.getCreditDecimal()));
+                }
+                return maxZero(credit.subtract(debit));
+        }
+
+        // ============================================================
+        // ============================================================
+
+        @Transactional
+        public JournalEntry postExpense(
+                        Expense expense) {
+
+                if (expense == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Expense is required");
+                }
+
+                if (expense.getId() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Expense ID is required");
+                }
+
+                Organization org = expense.getOrganization();
+
+                requireOrganization(org);
+
+                ensureChartOfAccounts(org);
+
+                if (expense.getCategory() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Expense category is required");
+                }
+
+                if (expense.getPaymentAccount() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Expense payment account is required");
+                }
+
+                ChartOfAccount expenseAccount = account(
+                                org,
+                                expense
+                                                .getCategory()
+                                                .getAccountCode());
+
+                ChartOfAccount paymentGlAccount = expense
+                                .getPaymentAccount()
+                                .getGlAccount();
+
+                if (paymentGlAccount == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Payment account has no GL account");
+                }
+
+                validateAccountOwnership(
+                                org,
+                                paymentGlAccount);
+
+                BigDecimal amount = money(
+                                expense.getAmount());
+
+                if (amount.compareTo(
+                                ZERO) <= 0) {
+
+                        throw new IllegalArgumentException(
+                                        "Expense amount must be greater than zero");
+                }
+
+                String sourceId = String.valueOf(
+                                expense.getId());
+
+                JournalEntry existing = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(),
+                                                "EXPENSE",
+                                                sourceId)
+                                .orElse(null);
+
+                if (existing != null) {
+
+                        log.info(
+                                        "Expense {} already posted as journal {}",
+                                        expense.getId(),
+                                        existing.getId());
+
+                        return existing;
+                }
+
+                String reference = "EXP-" +
+                                expense.getId();
+
+                String description = "Expense — " +
+                                expense
+                                                .getCategory()
+                                                .getLabel();
+
+                if (expense.getDescription() != null
+                                && !expense
+                                                .getDescription()
+                                                .isBlank()) {
+
+                        description += ": " +
+                                        expense
+                                                        .getDescription()
+                                                        .trim();
+                }
+
+                return post(
+                                org,
+                                expense.getBranch(),
+                                "EXPENSE",
+                                sourceId,
+                                reference,
+                                description,
+
+                                List.of(
+
+                                                JournalLine.builder()
+                                                                .account(
+                                                                                expenseAccount)
+                                                                .debit(
+                                                                                amount)
+                                                                .credit(
+                                                                                ZERO)
+                                                                .description(
+                                                                                expense
+                                                                                                .getCategory()
+                                                                                                .getLabel() +
+                                                                                                " — " +
+                                                                                                reference)
+                                                                .build(),
+
+                                                JournalLine.builder()
+                                                                .account(
+                                                                                paymentGlAccount)
+                                                                .debit(
+                                                                                ZERO)
+                                                                .credit(
+                                                                                amount)
+                                                                .description(
+                                                                                "Paid from " +
+                                                                                                expense
+                                                                                                                .getPaymentAccount()
+                                                                                                                .getName()
+                                                                                                +
+                                                                                                " — " +
+                                                                                                reference)
+                                                                .build()));
+        }
+
+        // ============================================================
+        // REVERSE EXPENSE
+        // ============================================================
+
+        @Transactional
+        public JournalEntry reverseExpense(
+                        Long orgId,
+                        Long journalEntryId,
+                        String reversedBy,
+                        String reason) {
+
+                return reverseEntry(
                                 orgId,
-                                from,
-                                to
-                        );
-
-        Map<String, BigDecimal> perAccount =
-                new LinkedHashMap<>();
-
-        Map<String, String> names =
-                new LinkedHashMap<>();
-
-        Map<
-                String,
-                ChartOfAccount.AccountType
-        > types =
-                new LinkedHashMap<>();
-
-        if (entries != null) {
-
-            for (JournalEntry entry : entries) {
-
-                if (
-                        entry == null
-                        || entry.getLines() == null
-                ) {
-                    continue;
-                }
-
-                for (JournalLine line : entry.getLines()) {
-
-                    if (
-                            line == null
-                            || line.getAccount() == null
-                    ) {
-                        continue;
-                    }
-
-                    ChartOfAccount acc =
-                            line.getAccount();
-
-                    if (
-                            acc.getType()
-                                    != ChartOfAccount.AccountType.INCOME
-                            &&
-                            acc.getType()
-                                    != ChartOfAccount.AccountType.EXPENSE
-                    ) {
-                        continue;
-                    }
-
-                    BigDecimal debit =
-                            money(
-                                    line.getDebitDecimal()
-                            );
-
-                    BigDecimal credit =
-                            money(
-                                    line.getCreditDecimal()
-                            );
-
-                    BigDecimal net =
-                            acc.getType()
-                                    == ChartOfAccount.AccountType.INCOME
-                                    ? credit.subtract(debit)
-                                    : debit.subtract(credit);
-
-                    perAccount.merge(
-                            acc.getCode(),
-                            net,
-                            BigDecimal::add
-                    );
-
-                    names.put(
-                            acc.getCode(),
-                            acc.getName()
-                    );
-
-                    types.put(
-                            acc.getCode(),
-                            acc.getType()
-                    );
-                }
-            }
+                                journalEntryId,
+                                reversedBy,
+                                reason);
         }
 
-        List<Map<String, Object>> income =
-                new ArrayList<>();
+        // ============================================================
+        // REVERSE JOURNAL ENTRY
+        // ============================================================
 
-        List<Map<String, Object>> expense =
-                new ArrayList<>();
+        @Transactional
+        public JournalEntry reverseEntry(
+                        Long orgId,
+                        Long entryId,
+                        String reversedBy,
+                        String reason) {
 
-        BigDecimal totalIncome =
-                ZERO;
+                requireOrganizationId(
+                                orgId);
 
-        BigDecimal totalExpense =
-                ZERO;
+                if (entryId == null) {
 
-        for (
-                Map.Entry<String, BigDecimal> entry :
-                perAccount.entrySet()
-        ) {
+                        throw new IllegalArgumentException(
+                                        "Journal entry ID is required");
+                }
 
-            BigDecimal amount =
-                    normalize(
-                            entry.getValue()
-                    );
+                JournalEntry original = journalRepo
+                                .findByIdAndOrganization_Id(
+                                                entryId,
+                                                orgId)
+                                .orElseThrow(
+                                                () -> new IllegalArgumentException(
+                                                                "Journal entry not found: "
+                                                                                + entryId));
 
-            if (amount.compareTo(ZERO) == 0) {
-                continue;
-            }
+                if (original.getOrganization() == null
+                                || original
+                                                .getOrganization()
+                                                .getId() == null) {
 
-            Map<String, Object> row =
-                    new LinkedHashMap<>();
+                        throw new IllegalStateException(
+                                        "Journal entry has no valid organization");
+                }
 
-            row.put(
-                    "code",
-                    entry.getKey()
-            );
+                if (!orgId.equals(
+                                original
+                                                .getOrganization()
+                                                .getId())) {
 
-            row.put(
-                    "name",
-                    names.get(
-                            entry.getKey()
-                    )
-            );
+                        throw new IllegalStateException(
+                                        "Journal entry does not belong to organization "
+                                                        + orgId);
+                }
 
-            row.put(
-                    "amount",
-                    amount
-            );
+                if (Boolean.TRUE.equals(
+                                original.getReversed())) {
 
-            if (
-                    types.get(
-                            entry.getKey()
-                    )
-                            == ChartOfAccount.AccountType.INCOME
-            ) {
+                        throw new IllegalStateException(
+                                        "Entry "
+                                                        + entryId
+                                                        + " has already been reversed");
+                }
 
-                income.add(row);
+                if ("REVERSAL".equals(
+                                original.getSourceType())) {
 
-                totalIncome =
-                        totalIncome.add(amount);
+                        throw new IllegalStateException(
+                                        "A reversal entry cannot itself be reversed");
+                }
 
-            } else {
+                if (original.getLines() == null
+                                || original.getLines().isEmpty()) {
 
-                expense.add(row);
+                        throw new IllegalStateException(
+                                        "Journal entry has no lines: "
+                                                        + entryId);
+                }
 
-                totalExpense =
-                        totalExpense.add(amount);
-            }
+                // ------------------------------------------------------------
+                // PAYMENT REFUND SAFETY
+                // ------------------------------------------------------------
+
+                if ("PAYMENT_RECEIVED".equals(
+                                original.getSourceType())) {
+
+                        String paymentSourceId = original.getSourceId();
+
+                        JournalEntry paidRefund = journalRepo
+                                        .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                        orgId,
+                                                        "REFUND_PAYMENT",
+                                                        paymentSourceId)
+                                        .orElse(null);
+
+                        if (paidRefund != null) {
+
+                                throw new IllegalStateException(
+                                                "Payment journal "
+                                                                + entryId
+                                                                + " cannot be reversed because a borrower refund "
+                                                                + "has already been paid under refund journal "
+                                                                + paidRefund.getId());
+                        }
+                }
+
+                String reversalSourceId = String.valueOf(
+                                entryId);
+
+                JournalEntry existingReversal = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                orgId,
+                                                "REVERSAL",
+                                                reversalSourceId)
+                                .orElse(null);
+
+                if (existingReversal != null) {
+
+                        return existingReversal;
+                }
+
+                List<JournalLine> reversedLines = new ArrayList<>();
+
+                for (JournalLine line : original.getLines()) {
+
+                        if (line == null) {
+                                continue;
+                        }
+
+                        ChartOfAccount lineAccount = line.getAccount();
+
+                        validateAccountOwnership(
+                                        original.getOrganization(),
+                                        lineAccount);
+
+                        BigDecimal originalDebit = money(
+                                        line.getDebitDecimal());
+
+                        BigDecimal originalCredit = money(
+                                        line.getCreditDecimal());
+
+                        if (originalDebit.compareTo(
+                                        ZERO) < 0
+                                        || originalCredit.compareTo(
+                                                        ZERO) < 0) {
+
+                                throw new IllegalStateException(
+                                                "Original journal contains negative amount " +
+                                                                "on line " +
+                                                                line.getId());
+                        }
+
+                        if (originalDebit.compareTo(
+                                        ZERO) > 0
+                                        && originalCredit.compareTo(
+                                                        ZERO) > 0) {
+
+                                throw new IllegalStateException(
+                                                "Original journal line "
+                                                                + line.getId()
+                                                                + " contains both debit and credit");
+                        }
+
+                        reversedLines.add(
+                                        JournalLine.builder()
+                                                        .account(
+                                                                        lineAccount)
+                                                        .debit(
+                                                                        originalCredit)
+                                                        .credit(
+                                                                        originalDebit)
+                                                        .description(
+                                                                        "Reversal of #"
+                                                                                        + entryId
+                                                                                        + " — "
+                                                                                        + (line.getDescription() != null
+                                                                                                        ? line.getDescription()
+                                                                                                        : ""))
+                                                        .build());
+                }
+
+                if (reversedLines.isEmpty()) {
+
+                        throw new IllegalStateException(
+                                        "Journal entry contains no valid lines: "
+                                                        + entryId);
+                }
+
+                BigDecimal reversalDebit = ZERO;
+
+                BigDecimal reversalCredit = ZERO;
+
+                for (JournalLine line : reversedLines) {
+
+                        reversalDebit = reversalDebit.add(
+                                        money(
+                                                        line.getDebitDecimal()));
+
+                        reversalCredit = reversalCredit.add(
+                                        money(
+                                                        line.getCreditDecimal()));
+                }
+
+                reversalDebit = normalize(
+                                reversalDebit);
+
+                reversalCredit = normalize(
+                                reversalCredit);
+
+                if (reversalDebit.compareTo(
+                                reversalCredit) != 0) {
+
+                        throw new IllegalStateException(
+                                        "Generated reversal does not balance for entry "
+                                                        + entryId);
+                }
+
+                String reversalDescription = "Reversal of entry #"
+                                + entryId;
+
+                if (reason != null
+                                && !reason.isBlank()) {
+
+                        reversalDescription += ": "
+                                        + reason.trim();
+                }
+
+                if (original.getDescription() != null
+                                && !original
+                                                .getDescription()
+                                                .isBlank()) {
+
+                        reversalDescription += " — "
+                                        + original.getDescription();
+                }
+
+                JournalEntry reversal = JournalEntry.builder()
+                                .organization(
+                                                original.getOrganization())
+                                .branch(
+                                                original.getBranch())
+                                .entryDate(
+                                                LocalDate.now())
+                                .sourceType(
+                                                "REVERSAL")
+                                .sourceId(
+                                                reversalSourceId)
+                                .reference(
+                                                original.getReference() != null
+                                                                ? original.getReference()
+                                                                : "REV-" + entryId)
+                                .description(
+                                                reversalDescription)
+                                .createdBy(
+                                                reversedBy != null
+                                                                && !reversedBy.isBlank()
+                                                                                ? reversedBy.trim()
+                                                                                : "SYSTEM")
+                                .reversed(false)
+                                .build();
+
+                reversal = journalRepo.save(
+                                reversal);
+
+                for (JournalLine line : reversedLines) {
+
+                        line.setJournalEntry(
+                                        reversal);
+
+                        lineRepo.save(
+                                        line);
+                }
+
+                original.setReversed(
+                                true);
+
+                journalRepo.save(
+                                original);
+
+                log.info(
+                                "Journal entry {} reversed by journal {}",
+                                entryId,
+                                reversal.getId());
+
+                return reversal;
         }
 
-        BigDecimal netIncome =
-                totalIncome.subtract(
-                        totalExpense
-                );
+        // ============================================================
+        // FINANCIAL REPORTING
+        // ============================================================
 
-        Map<String, Object> result =
-                new LinkedHashMap<>();
+        @Transactional(readOnly = true)
+        public Map<String, Object> getLedger(Long orgId, Long accountId) {
+                requireOrganizationId(orgId);
+                requireAccountId(accountId);
 
-        result.put(
-                "from",
-                from
-        );
+                ChartOfAccount acc = coaRepo.findByIdAndOrganization_Id(accountId, orgId)
+                                .orElseThrow(() -> new IllegalArgumentException("Account not found: " + accountId));
 
-        result.put(
-                "to",
-                to
-        );
+                validateAccountOwnership(acc.getOrganization(), acc);
 
-        result.put(
-                "income",
-                income
-        );
+                List<JournalLine> lines = lineRepo.findLedgerForAccountAndOrganization(accountId, orgId);
+                List<Map<String, Object>> rows = new ArrayList<>();
+                BigDecimal running = ZERO;
 
-        result.put(
-                "expense",
-                expense
-        );
+                if (lines != null) {
+                        for (JournalLine line : lines) {
+                                if (line == null || line.getJournalEntry() == null)
+                                        continue;
 
-        result.put(
-                "totalIncome",
-                normalize(totalIncome)
-        );
+                                JournalEntry entry = line.getJournalEntry();
+                                BigDecimal debit = money(line.getDebitDecimal());
+                                BigDecimal credit = money(line.getCreditDecimal());
 
-        result.put(
-                "totalExpense",
-                normalize(totalExpense)
-        );
+                                running = running.add(
+                                                acc.getNormalBalance() == ChartOfAccount.NormalBalance.DEBIT
+                                                                ? debit.subtract(credit)
+                                                                : credit.subtract(debit));
+                                running = normalize(running);
 
-        result.put(
-                "netIncome",
-                normalize(netIncome)
-        );
-
-        return result;
-    }
-
-    /*
-     * ============================================================
-     * CASH FLOW
-     * ============================================================
-     */
-
-    @Transactional(readOnly = true)
-    public Map<String, Object> getCashFlow(
-            Long orgId,
-            LocalDate from,
-            LocalDate to
-    ) {
-
-        validateDateRange(
-                from,
-                to
-        );
-
-        requireOrganizationId(orgId);
-
-        List<JournalEntry> entries =
-                journalRepo
-                        .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAsc(
-                                orgId,
-                                from,
-                                to
-                        );
-
-        BigDecimal lending =
-                ZERO;
-
-        BigDecimal collections =
-                ZERO;
-
-        BigDecimal feesAndPenalties =
-                ZERO;
-
-        BigDecimal refunds =
-                ZERO;
-
-        BigDecimal other =
-                ZERO;
-
-        if (entries != null) {
-
-            for (JournalEntry entry : entries) {
-
-                if (
-                        entry == null
-                        || entry.getLines() == null
-                ) {
-                    continue;
+                                Map<String, Object> row = new LinkedHashMap<>();
+                                row.put("entryId", entry.getId());
+                                row.put("date", entry.getEntryDate());
+                                row.put("reference", entry.getReference());
+                                row.put("sourceType", entry.getSourceType());
+                                row.put("sourceId", entry.getSourceId());
+                                row.put("description", line.getDescription() != null
+                                                ? line.getDescription()
+                                                : entry.getDescription());
+                                row.put("debit", debit);
+                                row.put("credit", credit);
+                                row.put("balance", running);
+                                row.put("reversed", Boolean.TRUE.equals(entry.getReversed()));
+                                row.put("branch", entry.getBranch() == null ? null : entry.getBranch().getName());
+                                rows.add(row);
+                        }
                 }
 
-                for (JournalLine line : entry.getLines()) {
-
-                    if (
-                            line == null
-                            || line.getAccount() == null
-                    ) {
-                        continue;
-                    }
-
-                    if (
-                            !"1000".equals(
-                                    line
-                                            .getAccount()
-                                            .getCode()
-                            )
-                    ) {
-                        continue;
-                    }
-
-                    BigDecimal debit =
-                            money(
-                                    line.getDebitDecimal()
-                            );
-
-                    BigDecimal credit =
-                            money(
-                                    line.getCreditDecimal()
-                            );
-
-                    BigDecimal net =
-                            debit.subtract(
-                                    credit
-                            );
-
-                    String source =
-                            entry.getSourceType() != null
-                                    ? entry.getSourceType()
-                                    : "";
-
-                    switch (source) {
-
-                        case "LOAN_DISBURSEMENT" ->
-
-                                lending =
-                                        lending.add(net);
-
-                        case "PAYMENT_RECEIVED" ->
-
-                                collections =
-                                        collections.add(net);
-
-                        case "PROCESSING_FEE" ->
-
-                                feesAndPenalties =
-                                        feesAndPenalties.add(net);
-
-                        case "REFUND_PAYMENT" ->
-
-                                refunds =
-                                        refunds.add(net);
-
-                        default ->
-
-                                other =
-                                        other.add(net);
-                    }
-                }
-            }
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("account", acc);
+                result.put("entries", rows);
+                result.put("closingBalance", running);
+                result.put("normalBalance", acc.getNormalBalance());
+                return result;
         }
 
-        BigDecimal netChange =
-                lending
-                        .add(collections)
-                        .add(feesAndPenalties)
-                        .add(refunds)
-                        .add(other);
+        /** Current trial balance, through today. */
+        @Transactional(readOnly = true)
+        public Map<String, Object> getTrialBalance(Long orgId) {
+                return getTrialBalance(orgId, LocalDate.now());
+        }
 
-        Map<String, Object> result =
-                new LinkedHashMap<>();
+        @Transactional(readOnly = true)
+        public Map<String, Object> getTrialBalance(Long orgId, LocalDate asOf) {
+                requireOrganizationId(orgId);
+                if (asOf == null)
+                        throw new IllegalArgumentException("As-of date is required");
 
-        result.put(
-                "from",
-                from
-        );
+                List<ChartOfAccount> accounts = coaRepo.findByOrganization_IdOrderByCodeAsc(orgId);
+                List<JournalEntry> entries = loadEntries(orgId, null, asOf);
+                Map<Long, BigDecimal[]> totals = accountTotals(entries);
 
-        result.put(
-                "to",
-                to
-        );
+                List<Map<String, Object>> rows = new ArrayList<>();
+                BigDecimal totalDebit = ZERO;
+                BigDecimal totalCredit = ZERO;
 
-        result.put(
-                "cashUsedForLending",
-                normalize(lending)
-        );
+                if (accounts != null) {
+                        for (ChartOfAccount acc : accounts) {
+                                if (acc == null || acc.getId() == null || acc.getType() == null
+                                                || acc.getNormalBalance() == null)
+                                        continue;
 
-        result.put(
-                "cashFromCollections",
-                normalize(collections)
-        );
+                                BigDecimal[] dc = totals.getOrDefault(acc.getId(), new BigDecimal[] { ZERO, ZERO });
+                                BigDecimal debitActivity = normalize(dc[0]);
+                                BigDecimal creditActivity = normalize(dc[1]);
+                                BigDecimal net = debitActivity.subtract(creditActivity);
 
-        result.put(
-                "cashFromFees",
-                normalize(feesAndPenalties)
-        );
+                                BigDecimal debitBalance = net.compareTo(ZERO) > 0 ? net : ZERO;
+                                BigDecimal creditBalance = net.compareTo(ZERO) < 0 ? net.negate() : ZERO;
 
-        result.put(
-                "cashRefundedToBorrowers",
-                normalize(refunds)
-        );
+                                Map<String, Object> row = new LinkedHashMap<>();
+                                row.put("accountId", acc.getId());
+                                row.put("code", acc.getCode());
+                                row.put("name", acc.getName());
+                                row.put("type", acc.getType());
+                                row.put("normalBalance", acc.getNormalBalance());
+                                row.put("debitActivity", debitActivity);
+                                row.put("creditActivity", creditActivity);
+                                row.put("debit", normalize(debitBalance));
+                                row.put("credit", normalize(creditBalance));
+                                row.put("balance", normalize(
+                                                acc.getNormalBalance() == ChartOfAccount.NormalBalance.DEBIT
+                                                                ? debitBalance.subtract(creditBalance)
+                                                                : creditBalance.subtract(debitBalance)));
+                                rows.add(row);
 
-        result.put(
-                "otherCashMovement",
-                normalize(other)
-        );
-
-        result.put(
-                "netChangeInCash",
-                normalize(netChange)
-        );
-
-        return result;
-    }
-
-    /*
-     * ============================================================
-     * BRANCH SUMMARY
-     * ============================================================
-     */
-
-    @Transactional(readOnly = true)
-    public List<Map<String, Object>> getBranchSummary(
-            Long orgId,
-            LocalDate from,
-            LocalDate to
-    ) {
-
-        validateDateRange(
-                from,
-                to
-        );
-
-        requireOrganizationId(orgId);
-
-        List<JournalEntry> entries =
-                journalRepo
-                        .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAsc(
-                                orgId,
-                                from,
-                                to
-                        );
-
-        Map<
-                String,
-                BigDecimal[]
-        > byBranch =
-                new LinkedHashMap<>();
-
-        if (entries != null) {
-
-            for (JournalEntry entry : entries) {
-
-                if (entry == null) {
-                    continue;
+                                totalDebit = totalDebit.add(debitBalance);
+                                totalCredit = totalCredit.add(creditBalance);
+                        }
                 }
 
-                String branchName =
-                        entry.getBranch() != null
-                                && entry
-                                        .getBranch()
-                                        .getName() != null
-                                ? entry
-                                        .getBranch()
-                                        .getName()
-                                : "Unassigned";
+                totalDebit = normalize(totalDebit);
+                totalCredit = normalize(totalCredit);
+                BigDecimal difference = normalize(totalDebit.subtract(totalCredit));
 
-                BigDecimal[] totals =
-                        byBranch.computeIfAbsent(
-                                branchName,
-                                key ->
-                                        new BigDecimal[]{
-                                                ZERO,
-                                                ZERO,
-                                                ZERO,
-                                                ZERO
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("asOf", asOf);
+                result.put("accounts", rows);
+                result.put("accountCount", rows.size());
+                result.put("totalDebit", totalDebit);
+                result.put("totalCredit", totalCredit);
+                result.put("difference", difference);
+                result.put("balanced", difference.compareTo(ZERO) == 0);
+                return result;
+        }
+
+        /** Current balance sheet, as of today. */
+        @Transactional(readOnly = true)
+        public Map<String, Object> getBalanceSheet(Long orgId) {
+                return getBalanceSheet(orgId, LocalDate.now());
+        }
+
+        /**
+         * Statement of financial position as of a date. Assets, liabilities and
+         * equity are point-in-time balances. Income and expense balances are
+         * included as unclosed current earnings so Assets = Liabilities + Equity
+         * remains mathematically reconciled until the system implements formal
+         * period-closing entries.
+         */
+        @Transactional(readOnly = true)
+        public Map<String, Object> getBalanceSheet(Long orgId, LocalDate asOf) {
+                requireOrganizationId(orgId);
+                if (asOf == null)
+                        throw new IllegalArgumentException("As-of date is required");
+
+                List<ChartOfAccount> accounts = coaRepo.findByOrganization_IdOrderByCodeAsc(orgId);
+                List<JournalEntry> entries = loadEntries(orgId, null, asOf);
+                Map<Long, BigDecimal[]> totals = accountTotals(entries);
+
+                Map<ChartOfAccount.AccountType, List<Map<String, Object>>> byType = new EnumMap<>(
+                                ChartOfAccount.AccountType.class);
+                for (ChartOfAccount.AccountType type : ChartOfAccount.AccountType.values()) {
+                        byType.put(type, new ArrayList<>());
+                }
+
+                BigDecimal totalAssets = ZERO;
+                BigDecimal totalLiabilities = ZERO;
+                BigDecimal totalEquity = ZERO;
+                BigDecimal totalIncome = ZERO;
+                BigDecimal totalExpense = ZERO;
+                BigDecimal contraAssets = ZERO;
+
+                if (accounts != null) {
+                        for (ChartOfAccount acc : accounts) {
+                                if (acc == null || acc.getId() == null || acc.getType() == null
+                                                || acc.getNormalBalance() == null)
+                                        continue;
+
+                                BigDecimal balance = accountBalance(acc, totals);
+                                if (balance.compareTo(ZERO) == 0) {
+                                        // Keep zero accounts available for the UI, but do not distort totals.
+                                }
+
+                                Map<String, Object> row = new LinkedHashMap<>();
+                                row.put("accountId", acc.getId());
+                                row.put("code", acc.getCode());
+                                row.put("name", acc.getName());
+                                row.put("type", acc.getType());
+                                row.put("normalBalance", acc.getNormalBalance());
+                                row.put("balance", balance);
+                                byType.get(acc.getType()).add(row);
+
+                                switch (acc.getType()) {
+                                        case ASSET -> {
+                                                if (acc.getNormalBalance() == ChartOfAccount.NormalBalance.CREDIT) {
+                                                        contraAssets = contraAssets.add(balance);
+                                                        totalAssets = totalAssets.subtract(balance);
+                                                } else {
+                                                        totalAssets = totalAssets.add(balance);
+                                                }
                                         }
-                        );
-
-                if (entry.getLines() == null) {
-                    continue;
+                                        case LIABILITY -> totalLiabilities = totalLiabilities.add(balance);
+                                        case EQUITY -> totalEquity = totalEquity.add(balance);
+                                        case INCOME -> totalIncome = totalIncome.add(balance);
+                                        case EXPENSE -> totalExpense = totalExpense.add(balance);
+                                }
+                        }
                 }
 
-                String source =
-                        entry.getSourceType() != null
-                                ? entry.getSourceType()
-                                : "";
+                BigDecimal unclosedProfit = normalize(totalIncome.subtract(totalExpense));
+                BigDecimal totalEquityIncludingProfit = normalize(totalEquity.add(unclosedProfit));
+                BigDecimal liabilitiesPlusEquity = normalize(totalLiabilities.add(totalEquityIncludingProfit));
+                BigDecimal balanceDifference = normalize(totalAssets.subtract(liabilitiesPlusEquity));
 
-                for (JournalLine line : entry.getLines()) {
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("asOf", asOf);
+                result.put("assets", byType.get(ChartOfAccount.AccountType.ASSET));
+                result.put("liabilities", byType.get(ChartOfAccount.AccountType.LIABILITY));
+                result.put("equity", byType.get(ChartOfAccount.AccountType.EQUITY));
+                result.put("incomeAccounts", byType.get(ChartOfAccount.AccountType.INCOME));
+                result.put("expenseAccounts", byType.get(ChartOfAccount.AccountType.EXPENSE));
+                result.put("contraAssets", normalize(contraAssets));
+                result.put("totalAssets", normalize(totalAssets));
+                result.put("totalLiabilities", normalize(totalLiabilities));
+                result.put("ownerEquity", normalize(totalEquity));
+                result.put("unclosedProfit", unclosedProfit);
+                result.put("totalEquity", totalEquityIncludingProfit);
+                result.put("liabilitiesPlusEquity", liabilitiesPlusEquity);
+                result.put("balanceDifference", balanceDifference);
+                result.put("balanced", balanceDifference.compareTo(ZERO) == 0);
+                return result;
+        }
 
-                    if (
-                            line == null
-                            || line.getAccount() == null
-                    ) {
-                        continue;
-                    }
+        /**
+         * Accrual-basis income statement / profit and loss for an exact period.
+         * Reversal entries are treated as normal accounting entries on their
+         * posting date, preserving the audit trail and period integrity.
+         */
+        @Transactional(readOnly = true)
+        public Map<String, Object> getProfitAndLoss(Long orgId, LocalDate from, LocalDate to) {
+                validateDateRange(from, to);
+                requireOrganizationId(orgId);
 
-                    if (
-                            !"1000".equals(
-                                    line
-                                            .getAccount()
-                                            .getCode()
-                            )
-                    ) {
-                        continue;
-                    }
+                List<JournalEntry> entries = loadEntries(orgId, from, to);
+                Map<String, AccountReportTotal> totals = new LinkedHashMap<>();
 
-                    BigDecimal debit =
-                            money(
-                                    line.getDebitDecimal()
-                            );
+                for (JournalEntry entry : entries) {
+                        if (entry == null || entry.getLines() == null)
+                                continue;
+                        for (JournalLine line : entry.getLines()) {
+                                if (line == null || line.getAccount() == null)
+                                        continue;
+                                ChartOfAccount acc = line.getAccount();
+                                if (acc.getType() != ChartOfAccount.AccountType.INCOME &&
+                                                acc.getType() != ChartOfAccount.AccountType.EXPENSE)
+                                        continue;
 
-                    BigDecimal credit =
-                            money(
-                                    line.getCreditDecimal()
-                            );
+                                BigDecimal debit = money(line.getDebitDecimal());
+                                BigDecimal credit = money(line.getCreditDecimal());
+                                BigDecimal amount = acc.getType() == ChartOfAccount.AccountType.INCOME
+                                                ? credit.subtract(debit)
+                                                : debit.subtract(credit);
 
-                    switch (source) {
-
-                        case "LOAN_DISBURSEMENT" -> {
-
-                            BigDecimal disbursed =
-                                    credit.subtract(debit);
-
-                            if (
-                                    disbursed.compareTo(ZERO) < 0
-                            ) {
-                                throw new IllegalStateException(
-                                        "Invalid cash direction for " +
-                                        "loan disbursement journal " +
-                                        entry.getId()
-                                );
-                            }
-
-                            totals[0] =
-                                    totals[0].add(
-                                            disbursed
-                                    );
+                                AccountReportTotal total = totals.computeIfAbsent(
+                                                acc.getCode(),
+                                                k -> new AccountReportTotal(acc.getCode(), acc.getName(),
+                                                                acc.getType()));
+                                total.amount = normalize(total.amount.add(amount));
                         }
-
-                        case "PAYMENT_RECEIVED" -> {
-
-                            BigDecimal collected =
-                                    debit.subtract(
-                                            credit
-                                    );
-
-                            if (
-                                    collected.compareTo(ZERO) < 0
-                            ) {
-                                throw new IllegalStateException(
-                                        "Invalid cash direction for " +
-                                        "payment journal " +
-                                        entry.getId()
-                                );
-                            }
-
-                            totals[1] =
-                                    totals[1].add(
-                                            collected
-                                    );
-                        }
-
-                        case "PROCESSING_FEE" -> {
-
-                            BigDecimal fee =
-                                    debit.subtract(
-                                            credit
-                                    );
-
-                            if (
-                                    fee.compareTo(ZERO) < 0
-                            ) {
-                                throw new IllegalStateException(
-                                        "Invalid cash direction for " +
-                                        "processing-fee journal " +
-                                        entry.getId()
-                                );
-                            }
-
-                            totals[2] =
-                                    totals[2].add(
-                                            fee
-                                    );
-                        }
-
-                        case "REFUND_PAYMENT" -> {
-
-                            BigDecimal refund =
-                                    credit.subtract(
-                                            debit
-                                    );
-
-                            if (
-                                    refund.compareTo(ZERO) < 0
-                            ) {
-                                throw new IllegalStateException(
-                                        "Invalid cash direction for " +
-                                        "refund journal " +
-                                        entry.getId()
-                                );
-                            }
-
-                            totals[3] =
-                                    totals[3].add(
-                                            refund
-                                    );
-                        }
-
-                        default -> {
-                            // Not part of this branch summary.
-                        }
-                    }
                 }
-            }
+
+                List<Map<String, Object>> income = new ArrayList<>();
+                List<Map<String, Object>> expenses = new ArrayList<>();
+                BigDecimal totalIncome = ZERO;
+                BigDecimal totalExpense = ZERO;
+
+                for (AccountReportTotal total : totals.values()) {
+                        BigDecimal amount = normalize(total.amount);
+                        if (amount.compareTo(ZERO) == 0)
+                                continue;
+
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("code", total.code);
+                        row.put("name", total.name);
+                        row.put("amount", amount);
+
+                        if (total.type == ChartOfAccount.AccountType.INCOME) {
+                                income.add(row);
+                                totalIncome = totalIncome.add(amount);
+                        } else {
+                                expenses.add(row);
+                                totalExpense = totalExpense.add(amount);
+                        }
+                }
+
+                income.sort((a, b) -> String.valueOf(a.get("code")).compareTo(String.valueOf(b.get("code"))));
+                expenses.sort((a, b) -> String.valueOf(a.get("code")).compareTo(String.valueOf(b.get("code"))));
+
+                totalIncome = normalize(totalIncome);
+                totalExpense = normalize(totalExpense);
+                BigDecimal netProfit = normalize(totalIncome.subtract(totalExpense));
+                BigDecimal margin = totalIncome.compareTo(ZERO) == 0
+                                ? ZERO
+                                : normalize(netProfit.multiply(new BigDecimal("100"))
+                                                .divide(totalIncome, 6, MONEY_ROUNDING));
+
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("from", from);
+                result.put("to", to);
+                result.put("income", income);
+                result.put("expenses", expenses);
+                result.put("expense", expenses); // backward compatibility
+                result.put("totalIncome", totalIncome);
+                result.put("totalExpense", totalExpense);
+                result.put("netIncome", netProfit); // backward compatibility
+                result.put("netProfit", netProfit);
+                result.put("profitMarginPercent", margin);
+                result.put("profitable", netProfit.compareTo(ZERO) >= 0);
+                return result;
         }
 
-        List<Map<String, Object>> rows =
-                new ArrayList<>();
+        /** Monthly P&L plus year-to-date comparison. */
+        @Transactional(readOnly = true)
+        public Map<String, Object> getMonthlyProfitAndLoss(Long orgId, int year, int month) {
+                validateYearMonth(year, month);
+                LocalDate from = LocalDate.of(year, month, 1);
+                LocalDate to = from.withDayOfMonth(from.lengthOfMonth());
+                LocalDate ytdFrom = LocalDate.of(year, 1, 1);
 
-        for (
-                Map.Entry<
-                        String,
-                        BigDecimal[]
-                > entry :
-                byBranch.entrySet()
-        ) {
+                Map<String, Object> monthly = getProfitAndLoss(orgId, from, to);
+                Map<String, Object> ytd = getProfitAndLoss(orgId, ytdFrom, to);
 
-            Map<String, Object> row =
-                    new LinkedHashMap<>();
-
-            row.put(
-                    "branch",
-                    entry.getKey()
-            );
-
-            row.put(
-                    "disbursed",
-                    normalize(
-                            entry.getValue()[0]
-                    )
-            );
-
-            row.put(
-                    "collected",
-                    normalize(
-                            entry.getValue()[1]
-                    )
-            );
-
-            row.put(
-                    "feeIncome",
-                    normalize(
-                            entry.getValue()[2]
-                    )
-            );
-
-            row.put(
-                    "refunded",
-                    normalize(
-                            entry.getValue()[3]
-                    )
-            );
-
-            rows.add(row);
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.putAll(monthly);
+                result.put("year", year);
+                result.put("month", month);
+                result.put("period", from.getMonth().toString() + " " + year);
+                result.put("ytdFrom", ytdFrom);
+                result.put("ytdTotalIncome", ytd.get("totalIncome"));
+                result.put("ytdTotalExpense", ytd.get("totalExpense"));
+                result.put("ytdNetProfit", ytd.get("netProfit"));
+                return result;
         }
 
-        return rows;
-    }
-
-    /*
-     * ============================================================
-     * NET ACCOUNT BALANCE
-     * ============================================================
-     */
-
-    private BigDecimal netBalance(
-            ChartOfAccount acc,
-            Long orgId
-    ) {
-
-        if (
-                acc == null
-                || acc.getId() == null
-                || orgId == null
-        ) {
-            return ZERO;
+        /** Monthly expense report with category totals and YTD expense. */
+        @Transactional(readOnly = true)
+        public Map<String, Object> getMonthlyExpenses(Long orgId, int year, int month) {
+                Map<String, Object> pnl = getMonthlyProfitAndLoss(orgId, year, month);
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("year", year);
+                result.put("month", month);
+                result.put("from", pnl.get("from"));
+                result.put("to", pnl.get("to"));
+                result.put("expenses", pnl.get("expenses"));
+                result.put("expense", pnl.get("expenses"));
+                result.put("totalExpense", pnl.get("totalExpense"));
+                result.put("ytdTotalExpense", pnl.get("ytdTotalExpense"));
+                return result;
         }
 
-        List<JournalLine> lines =
-                lineRepo.findByAccount_IdAndOrganization_Id(
-                        acc.getId(),
-                        orgId
-                );
+        /**
+         * Production reporting facade. One call supplies the core accounting
+         * package for a reporting period: trial balance, P&L, balance sheet and
+         * cash flow, plus reconciliation flags.
+         */
+        @Transactional(readOnly = true)
+        public Map<String, Object> getFinancialReport(Long orgId, LocalDate from, LocalDate to) {
+                validateDateRange(from, to);
+                requireOrganizationId(orgId);
 
-        if (
-                lines == null
-                || lines.isEmpty()
-        ) {
-            return ZERO;
+                Map<String, Object> pnl = getProfitAndLoss(orgId, from, to);
+                Map<String, Object> trialBalance = getTrialBalance(orgId, to);
+                Map<String, Object> balanceSheet = getBalanceSheet(orgId, to);
+                Map<String, Object> cashFlow = getCashFlow(orgId, from, to);
+
+                Map<String, Object> reconciliation = new LinkedHashMap<>();
+                reconciliation.put("trialBalanceBalanced", trialBalance.get("balanced"));
+                reconciliation.put("balanceSheetBalanced", balanceSheet.get("balanced"));
+                reconciliation.put("trialBalanceDifference", trialBalance.get("difference"));
+                reconciliation.put("balanceSheetDifference", balanceSheet.get("balanceDifference"));
+                reconciliation.put("cashFlowReconciles", cashFlow.get("reconciles"));
+
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("from", from);
+                result.put("to", to);
+                result.put("generatedAt", java.time.LocalDateTime.now());
+                result.put("trialBalance", trialBalance);
+                result.put("profitAndLoss", pnl);
+                result.put("balanceSheet", balanceSheet);
+                result.put("cashFlow", cashFlow);
+                result.put("reconciliation", reconciliation);
+                result.put("allReportsHealthy",
+                                Boolean.TRUE.equals(trialBalance.get("balanced")) &&
+                                                Boolean.TRUE.equals(balanceSheet.get("balanced")) &&
+                                                Boolean.TRUE.equals(cashFlow.get("reconciles")));
+                return result;
         }
 
-        BigDecimal debit =
-                ZERO;
-
-        BigDecimal credit =
-                ZERO;
-
-        for (JournalLine line : lines) {
-
-            if (line == null) {
-                continue;
-            }
-
-            debit =
-                    debit.add(
-                            money(
-                                    line.getDebitDecimal()
-                            )
-                    );
-
-            credit =
-                    credit.add(
-                            money(
-                                    line.getCreditDecimal()
-                            )
-                    );
+        /** Convenience monthly financial package. */
+        @Transactional(readOnly = true)
+        public Map<String, Object> getMonthlyFinancialReport(Long orgId, int year, int month) {
+                validateYearMonth(year, month);
+                LocalDate from = LocalDate.of(year, month, 1);
+                LocalDate to = from.withDayOfMonth(from.lengthOfMonth());
+                Map<String, Object> result = getFinancialReport(orgId, from, to);
+                result.put("year", year);
+                result.put("month", month);
+                result.put("period", from.getMonth().toString() + " " + year);
+                return result;
         }
 
-        if (
-                acc.getNormalBalance()
-                        == ChartOfAccount.NormalBalance.DEBIT
-        ) {
+        /**
+         * Cash flow based on the actual cash GL account (1000), not loan model
+         * balances. This prevents reporting a loan balance change as cash when no
+         * cash journal was posted.
+         */
+        @Transactional(readOnly = true)
+        public Map<String, Object> getCashFlow(Long orgId, LocalDate from, LocalDate to) {
+                validateDateRange(from, to);
+                requireOrganizationId(orgId);
 
-            return normalize(
-                    debit.subtract(credit)
-            );
+                ChartOfAccount cash = coaRepo.findByOrganization_IdAndCode(orgId, "1000")
+                                .orElseThrow(() -> new IllegalStateException(
+                                                "Cash and Bank account 1000 is not configured"));
+
+                List<JournalLine> cashLines = lineRepo.findByAccount_IdAndOrganization_Id(cash.getId(), orgId);
+
+                BigDecimal openingCash = ZERO;
+                BigDecimal operatingInflows = ZERO;
+                BigDecimal operatingOutflows = ZERO;
+                BigDecimal lendingOutflows = ZERO;
+                BigDecimal financingInflows = ZERO;
+                BigDecimal financingOutflows = ZERO;
+                BigDecimal investingInflows = ZERO;
+                BigDecimal investingOutflows = ZERO;
+                BigDecimal otherInflows = ZERO;
+                BigDecimal otherOutflows = ZERO;
+
+                if (cashLines != null) {
+                        for (JournalLine line : cashLines) {
+                                if (line == null || line.getJournalEntry() == null)
+                                        continue;
+                                JournalEntry entry = line.getJournalEntry();
+                                BigDecimal movement = money(line.getDebitDecimal())
+                                                .subtract(money(line.getCreditDecimal()));
+
+                                if (entry.getEntryDate() != null && entry.getEntryDate().isBefore(from)) {
+                                        openingCash = openingCash.add(movement);
+                                        continue;
+                                }
+                                if (entry.getEntryDate() == null || entry.getEntryDate().isAfter(to))
+                                        continue;
+
+                                String source = entry.getSourceType() == null ? ""
+                                                : entry.getSourceType().trim().toUpperCase();
+                                if (movement.compareTo(ZERO) >= 0) {
+                                        switch (source) {
+                                                case "PAYMENT_RECEIVED" ->
+                                                        operatingInflows = operatingInflows.add(movement);
+                                                case "REFUND_PAYMENT" -> otherOutflows = otherOutflows.add(movement);
+                                                case "LOAN_DISBURSEMENT" -> otherInflows = otherInflows.add(movement);
+                                                case "EQUITY_CONTRIBUTION", "OWNER_CONTRIBUTION", "CAPITAL_INJECTION",
+                                                                "DEPOSIT_RECEIVED" ->
+                                                        financingInflows = financingInflows.add(movement);
+                                                default -> otherInflows = otherInflows.add(movement);
+                                        }
+                                } else {
+                                        BigDecimal outflow = movement.negate();
+                                        switch (source) {
+                                                case "LOAN_DISBURSEMENT" ->
+                                                        lendingOutflows = lendingOutflows.add(outflow);
+                                                case "EXPENSE", "OPERATING_EXPENSE" ->
+                                                        operatingOutflows = operatingOutflows.add(outflow);
+                                                case "REFUND_PAYMENT" ->
+                                                        operatingOutflows = operatingOutflows.add(outflow);
+                                                case "OWNER_DRAW", "DIVIDEND", "EQUITY_DISTRIBUTION",
+                                                                "DEPOSIT_REPAYMENT" ->
+                                                        financingOutflows = financingOutflows.add(outflow);
+                                                default -> otherOutflows = otherOutflows.add(outflow);
+                                        }
+                                }
+                        }
+                }
+
+                // Lending is operating for a loan-finance business, so expose it
+                // separately while also including it in operating net cash flow.
+                BigDecimal operatingNet = operatingInflows
+                                .subtract(operatingOutflows)
+                                .subtract(lendingOutflows);
+                BigDecimal investingNet = investingInflows.subtract(investingOutflows);
+                BigDecimal financingNet = financingInflows.subtract(financingOutflows);
+                BigDecimal otherNet = otherInflows.subtract(otherOutflows);
+                BigDecimal netChange = operatingNet.add(investingNet).add(financingNet).add(otherNet);
+                BigDecimal closingCash = normalize(openingCash.add(netChange));
+                BigDecimal actualClosingCash = cashBalanceAsOf(cash, orgId, to);
+                BigDecimal reconciliationDifference = normalize(closingCash.subtract(actualClosingCash));
+
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("from", from);
+                result.put("to", to);
+                result.put("openingCash", normalize(openingCash));
+                result.put("cashFromCollections", normalize(operatingInflows));
+                result.put("cashUsedForLending", normalize(lendingOutflows));
+                result.put("operatingCashOutflows", normalize(operatingOutflows));
+                result.put("operatingNetCashFlow", normalize(operatingNet));
+                result.put("investingCashInflow", normalize(investingInflows));
+                result.put("investingCashOutflow", normalize(investingOutflows));
+                result.put("investingNetCashFlow", normalize(investingNet));
+                result.put("financingCashInflow", normalize(financingInflows));
+                result.put("financingCashOutflow", normalize(financingOutflows));
+                result.put("financingNetCashFlow", normalize(financingNet));
+                result.put("otherCashInflow", normalize(otherInflows));
+                result.put("otherCashOutflow", normalize(otherOutflows));
+                result.put("otherNetCashFlow", normalize(otherNet));
+                result.put("netChangeInCash", normalize(netChange));
+                result.put("closingCash", closingCash);
+                result.put("actualClosingCash", actualClosingCash);
+                result.put("reconciliationDifference", reconciliationDifference);
+                result.put("reconciles", reconciliationDifference.compareTo(ZERO) == 0);
+                // Backward-compatible keys.
+                result.put("cashFromFees", ZERO);
+                result.put("cashRefundedToBorrowers", normalize(otherOutflows));
+                result.put("otherCashMovement", normalize(otherNet));
+                return result;
         }
 
-        return normalize(
-                credit.subtract(debit)
-        );
-    }
+        /** Branch cash activity summary. */
+        @Transactional(readOnly = true)
+        public List<Map<String, Object>> getBranchSummary(Long orgId, LocalDate from, LocalDate to) {
+                validateDateRange(from, to);
+                requireOrganizationId(orgId);
+
+                List<JournalEntry> entries = loadEntries(orgId, from, to);
+                Map<String, BigDecimal[]> byBranch = new LinkedHashMap<>();
+
+                for (JournalEntry entry : entries) {
+                        if (entry == null || entry.getLines() == null)
+                                continue;
+                        String branchName = entry.getBranch() != null && entry.getBranch().getName() != null
+                                        ? entry.getBranch().getName()
+                                        : "Unassigned";
+                        BigDecimal[] totals = byBranch.computeIfAbsent(branchName,
+                                        k -> new BigDecimal[] { ZERO, ZERO, ZERO, ZERO });
+
+                        for (JournalLine line : entry.getLines()) {
+                                if (line == null || line.getAccount() == null ||
+                                                !"1000".equals(line.getAccount().getCode()))
+                                        continue;
+                                BigDecimal debit = money(line.getDebitDecimal());
+                                BigDecimal credit = money(line.getCreditDecimal());
+                                String source = entry.getSourceType() == null ? "" : entry.getSourceType();
+
+                                switch (source) {
+                                        case "LOAN_DISBURSEMENT" ->
+                                                totals[0] = totals[0].add(credit.subtract(debit).max(ZERO));
+                                        case "PAYMENT_RECEIVED" ->
+                                                totals[1] = totals[1].add(debit.subtract(credit).max(ZERO));
+                                        case "REFUND_PAYMENT" ->
+                                                totals[3] = totals[3].add(credit.subtract(debit).max(ZERO));
+                                        default -> {
+                                        }
+                                }
+                        }
+                }
+
+                List<Map<String, Object>> rows = new ArrayList<>();
+                for (Map.Entry<String, BigDecimal[]> entry : byBranch.entrySet()) {
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("branch", entry.getKey());
+                        row.put("disbursed", normalize(entry.getValue()[0]));
+                        row.put("collected", normalize(entry.getValue()[1]));
+                        row.put("feeIncome", ZERO);
+                        row.put("refunded", normalize(entry.getValue()[3]));
+                        rows.add(row);
+                }
+                return rows;
+        }
+
+        // ============================================================
+        // REPORTING HELPERS
+        // ============================================================
+
+        private void validateYearMonth(int year, int month) {
+                if (year < 1900 || year > 9999) {
+                        throw new IllegalArgumentException("Year is outside the supported range");
+                }
+                if (month < 1 || month > 12) {
+                        throw new IllegalArgumentException("Month must be between 1 and 12");
+                }
+        }
+
+        private List<JournalEntry> loadEntries(Long orgId, LocalDate from, LocalDate to) {
+                requireOrganizationId(orgId);
+                if (to == null)
+                        throw new IllegalArgumentException("End date is required");
+                if (from != null && to.isBefore(from))
+                        throw new IllegalArgumentException("End date cannot be before start date");
+
+                LocalDate start = from == null ? LocalDate.of(1900, 1, 1) : from;
+                List<JournalEntry> entries = journalRepo
+                                .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAsc(orgId, start, to);
+                return entries == null ? List.of() : entries;
+        }
+
+        private Map<Long, BigDecimal[]> accountTotals(List<JournalEntry> entries) {
+                Map<Long, BigDecimal[]> totals = new LinkedHashMap<>();
+                for (JournalEntry entry : entries) {
+                        if (entry == null || entry.getLines() == null)
+                                continue;
+                        for (JournalLine line : entry.getLines()) {
+                                if (line == null || line.getAccount() == null || line.getAccount().getId() == null)
+                                        continue;
+                                BigDecimal[] dc = totals.computeIfAbsent(line.getAccount().getId(),
+                                                k -> new BigDecimal[] { ZERO, ZERO });
+                                dc[0] = dc[0].add(money(line.getDebitDecimal()));
+                                dc[1] = dc[1].add(money(line.getCreditDecimal()));
+                        }
+                }
+                return totals;
+        }
+
+        private BigDecimal accountBalance(ChartOfAccount acc, Map<Long, BigDecimal[]> totals) {
+                BigDecimal[] dc = totals.getOrDefault(acc.getId(), new BigDecimal[] { ZERO, ZERO });
+                BigDecimal debit = money(dc[0]);
+                BigDecimal credit = money(dc[1]);
+                return normalize(acc.getNormalBalance() == ChartOfAccount.NormalBalance.DEBIT
+                                ? debit.subtract(credit)
+                                : credit.subtract(debit));
+        }
+
+        private BigDecimal cashBalanceAsOf(ChartOfAccount cash, Long orgId, LocalDate asOf) {
+                List<JournalLine> lines = lineRepo.findByAccount_IdAndOrganization_Id(cash.getId(), orgId);
+                BigDecimal balance = ZERO;
+                if (lines != null) {
+                        for (JournalLine line : lines) {
+                                if (line == null || line.getJournalEntry() == null)
+                                        continue;
+                                LocalDate date = line.getJournalEntry().getEntryDate();
+                                if (date == null || date.isAfter(asOf))
+                                        continue;
+                                balance = balance.add(money(line.getDebitDecimal()))
+                                                .subtract(money(line.getCreditDecimal()));
+                        }
+                }
+                return normalize(balance);
+        }
+
+        private static final class AccountReportTotal {
+                private final String code;
+                private final String name;
+                private final ChartOfAccount.AccountType type;
+                private BigDecimal amount = ZERO;
+
+                private AccountReportTotal(String code, String name, ChartOfAccount.AccountType type) {
+                        this.code = code;
+                        this.name = name;
+                        this.type = type;
+                }
+        }
+
 }

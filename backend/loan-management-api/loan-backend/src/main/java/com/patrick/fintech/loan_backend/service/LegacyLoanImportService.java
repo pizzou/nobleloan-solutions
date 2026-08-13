@@ -1,3 +1,4 @@
+
 package com.patrick.fintech.loan_backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -16,11 +17,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * ================================================================
@@ -32,15 +32,17 @@ import java.util.Objects;
  *
  * Responsibilities:
  *
- * 1. Parse the uploaded ledger.
- * 2. Validate basic import context.
- * 3. Support safe preview mode.
- * 4. Create an auditable ImportBatch for committed imports.
- * 5. Delegate each row to LegacyLoanImportRowService.
- * 6. Keep each row transactionally independent.
- * 7. Record successful and failed rows.
- * 8. Update batch status correctly.
- * 9. Produce an audit trail.
+ * 1. Parse uploaded CSV / Excel ledger files.
+ * 2. Validate import context.
+ * 3. Clean Excel-specific values such as leading apostrophes.
+ * 4. Normalize headers and cell values.
+ * 5. Support safe preview mode.
+ * 6. Create an auditable ImportBatch for committed imports.
+ * 7. Delegate each row to LegacyLoanImportRowService.
+ * 8. Keep individual rows transactionally independent.
+ * 9. Record successful and failed rows.
+ * 10. Update import batch status correctly.
+ * 11. Produce an audit trail.
  *
  * IMPORTANT:
  *
@@ -73,12 +75,6 @@ public class LegacyLoanImportService {
 
     /**
      * Maximum number of rows allowed in one import.
-     *
-     * This protects the application from accidental or malicious
-     * extremely large uploads.
-     *
-     * If your business requires larger imports, increase this value
-     * deliberately and consider asynchronous/background processing.
      */
     private static final int MAX_IMPORT_ROWS = 10_000;
 
@@ -88,19 +84,12 @@ public class LegacyLoanImportService {
     private static final int MAX_FILENAME_LENGTH = 255;
 
     /**
-     * Maximum number of rows returned from preview/commit processing
-     * that we retain in the in-memory result collection.
-     *
-     * This is intentionally equal to MAX_IMPORT_ROWS because the
-     * import itself is capped at that size.
+     * Maximum number of results retained in memory.
      */
     private static final int MAX_RESULTS = MAX_IMPORT_ROWS;
 
     /**
      * Import batch statuses.
-     *
-     * Keep these values consistent with the ImportBatch entity and
-     * any frontend/reporting code consuming them.
      */
     public static final String STATUS_PROCESSING = "PROCESSING";
     public static final String STATUS_COMPLETED = "COMPLETED";
@@ -121,8 +110,8 @@ public class LegacyLoanImportService {
      * PREVIEW
      * ================================================================
      *
-     * Preview performs exactly the same row validation/business logic
-     * as commit, but does not persist borrowers or loans.
+     * Preview performs the same validation/business logic as commit,
+     * but does not persist borrowers or loans.
      *
      * It does NOT create an ImportBatch.
      */
@@ -170,9 +159,12 @@ public class LegacyLoanImportService {
             );
         }
 
-        validateParsedRows(
-                rows
-        );
+        /*
+         * Clean Excel / CSV values before validation and processing.
+         */
+        rows = sanitizeParsedRows(rows);
+
+        validateParsedRows(rows);
 
         Map<String, Borrower> sessionBorrowers =
                 new HashMap<>();
@@ -188,8 +180,11 @@ public class LegacyLoanImportService {
         long startedAt =
                 System.currentTimeMillis();
 
-        int rowNumber =
-                1;
+        /*
+         * Excel/CSV data normally starts on row 2 because row 1
+         * contains the header.
+         */
+        int rowNumber = 1;
 
         for (
                 Map<String, String> row :
@@ -208,9 +203,22 @@ public class LegacyLoanImportService {
                             sessionBorrowers
                     );
 
-            results.add(
-                    result
-            );
+            if (result != null) {
+
+                results.add(result);
+
+            } else {
+
+                results.add(
+                        ImportRowResult.builder()
+                                .rowNumber(rowNumber)
+                                .success(false)
+                                .error(
+                                        "The import service returned no result for this row."
+                                )
+                                .build()
+                );
+            }
         }
 
         long durationMs =
@@ -218,9 +226,7 @@ public class LegacyLoanImportService {
 
         long successful =
                 results.stream()
-                        .filter(
-                                ImportRowResult::isSuccess
-                        )
+                        .filter(ImportRowResult::isSuccess)
                         .count();
 
         long failed =
@@ -246,13 +252,12 @@ public class LegacyLoanImportService {
      * COMMIT
      * ================================================================
      *
-     * The ImportBatch itself is persisted first as PROCESSING.
+     * Creates an ImportBatch as PROCESSING.
      *
-     * Each individual row is then processed by
-     * LegacyLoanImportRowService using REQUIRES_NEW.
+     * Each row is then processed by LegacyLoanImportRowService.
      *
-     * The final batch status is updated after all rows have been
-     * attempted.
+     * LegacyLoanImportRowService should use REQUIRES_NEW for the
+     * individual row transaction.
      */
     public ImportBatch commit(
             String filename,
@@ -298,17 +303,43 @@ public class LegacyLoanImportService {
             );
         }
 
-        validateParsedRows(
-                rows
-        );
+        /*
+         * ============================================================
+         * IMPORTANT
+         * ============================================================
+         *
+         * Clean Excel-specific values here.
+         *
+         * Example:
+         *
+         * Excel cell:
+         *
+         * '119876543210
+         *
+         * becomes:
+         *
+         * 119876543210
+         *
+         * But:
+         *
+         * O'Connor
+         *
+         * remains:
+         *
+         * O'Connor
+         *
+         * Only a leading apostrophe is removed.
+         */
+        rows = sanitizeParsedRows(rows);
+
+        validateParsedRows(rows);
 
         /*
          * ============================================================
          * CREATE IMPORT BATCH
          * ============================================================
-         *
-         * Never create the batch as COMPLETED before processing.
          */
+
         ImportBatch batch =
                 ImportBatch.builder()
                         .organization(org)
@@ -321,9 +352,7 @@ public class LegacyLoanImportService {
                         .build();
 
         batch =
-                importBatchRepo.save(
-                        batch
-                );
+                importBatchRepo.save(batch);
 
         final Long batchId =
                 batch.getId();
@@ -352,14 +381,11 @@ public class LegacyLoanImportService {
         long startedAt =
                 System.currentTimeMillis();
 
-        int rowNumber =
-                1;
+        int rowNumber = 1;
 
-        int success =
-                0;
+        int success = 0;
 
-        int failed =
-                0;
+        int failed = 0;
 
         /*
          * ============================================================
@@ -387,17 +413,20 @@ public class LegacyLoanImportService {
                                 sessionBorrowers
                         );
 
+                if (result == null) {
+
+                    result =
+                            ImportRowResult.builder()
+                                    .rowNumber(rowNumber)
+                                    .success(false)
+                                    .error(
+                                            "The import service returned no result for this row."
+                                    )
+                                    .build();
+                }
+
             } catch (Exception e) {
 
-                /*
-                 * Defensive protection.
-                 *
-                 * Normally LegacyLoanImportRowService catches and
-                 * converts row-level failures to ImportRowResult.
-                 *
-                 * This extra guard ensures one unexpected exception
-                 * does not stop the entire import loop.
-                 */
                 log.error(
                         "Unexpected exception while processing legacy loan import row. " +
                                 "organizationId={}, batchId={}, rowNumber={}",
@@ -418,13 +447,9 @@ public class LegacyLoanImportService {
                                 .build();
             }
 
-            results.add(
-                    result
-            );
+            results.add(result);
 
-            if (
-                    result.isSuccess()
-            ) {
+            if (result.isSuccess()) {
 
                 success++;
 
@@ -445,16 +470,12 @@ public class LegacyLoanImportService {
 
         String finalStatus;
 
-        if (
-                failed == 0
-        ) {
+        if (failed == 0) {
 
             finalStatus =
                     STATUS_COMPLETED;
 
-        } else if (
-                success == 0
-        ) {
+        } else if (success == 0) {
 
             finalStatus =
                     STATUS_FAILED;
@@ -465,23 +486,18 @@ public class LegacyLoanImportService {
                     STATUS_PARTIAL;
         }
 
-        batch.setSuccessCount(
-                success
-        );
+        batch.setSuccessCount(success);
 
-        batch.setFailureCount(
-                failed
-        );
+        batch.setFailureCount(failed);
 
-        batch.setStatus(
-                finalStatus
-        );
+        batch.setStatus(finalStatus);
 
         /*
-         * Store detailed row results for staff review.
-         *
-         * If serialization fails, the import itself remains valid.
+         * ============================================================
+         * STORE ROW RESULTS
+         * ============================================================
          */
+
         try {
 
             batch.setRowResults(
@@ -500,19 +516,11 @@ public class LegacyLoanImportService {
                     e
             );
 
-            /*
-             * Do not destroy the import merely because the optional
-             * staff-review JSON could not be generated.
-             */
-            batch.setRowResults(
-                    null
-            );
+            batch.setRowResults(null);
         }
 
         batch =
-                importBatchRepo.save(
-                        batch
-                );
+                importBatchRepo.save(batch);
 
         /*
          * ============================================================
@@ -531,9 +539,7 @@ public class LegacyLoanImportService {
                             safeFilename +
                             "\"";
 
-            if (
-                    failed > 0
-            ) {
+            if (failed > 0) {
 
                 auditMessage +=
                         " (" +
@@ -557,15 +563,6 @@ public class LegacyLoanImportService {
 
         } catch (Exception e) {
 
-            /*
-             * Audit failure should be logged loudly.
-             *
-             * Whether you want an audit failure to fail the import
-             * itself depends on your compliance policy.
-             *
-             * For this service we preserve the financial import and
-             * make the audit failure highly visible in logs.
-             */
             log.error(
                     "Legacy loan import completed but audit logging failed. " +
                             "organizationId={}, batchId={}",
@@ -595,6 +592,253 @@ public class LegacyLoanImportService {
 
     /*
      * ================================================================
+     * SANITIZE PARSED ROWS
+     * ================================================================
+     *
+     * This is the important Excel compatibility layer.
+     *
+     * It handles:
+     *
+     * 1. Leading Excel apostrophe:
+     *
+     *    '119876543210
+     *
+     *    -> 119876543210
+     *
+     * 2. Leading/trailing whitespace.
+     *
+     * 3. UTF-8 BOM characters.
+     *
+     * 4. Non-breaking spaces.
+     *
+     * 5. Empty strings.
+     *
+     * 6. Excel-style text values.
+     *
+     * 7. Header normalization.
+     *
+     * We intentionally DO NOT remove apostrophes occurring inside
+     * normal text.
+     *
+     * Example:
+     *
+     * O'Connor
+     *
+     * stays:
+     *
+     * O'Connor
+     */
+    private List<Map<String, String>> sanitizeParsedRows(
+            List<Map<String, String>> rows
+    ) {
+
+        if (rows == null || rows.isEmpty()) {
+
+            return rows;
+        }
+
+        List<Map<String, String>> sanitizedRows =
+                new ArrayList<>(
+                        rows.size()
+                );
+
+        for (
+                Map<String, String> originalRow :
+                rows
+        ) {
+
+            if (originalRow == null) {
+
+                sanitizedRows.add(null);
+
+                continue;
+            }
+
+            Map<String, String> sanitizedRow =
+                    new HashMap<>();
+
+            for (
+                    Map.Entry<String, String> entry :
+                    originalRow.entrySet()
+            ) {
+
+                String originalKey =
+                        entry.getKey();
+
+                String originalValue =
+                        entry.getValue();
+
+                String normalizedKey =
+                        sanitizeHeader(
+                                originalKey
+                        );
+
+                String normalizedValue =
+                        sanitizeCellValue(
+                                originalValue
+                        );
+
+                sanitizedRow.put(
+                        normalizedKey,
+                        normalizedValue
+                );
+            }
+
+            sanitizedRows.add(
+                    sanitizedRow
+            );
+        }
+
+        return sanitizedRows;
+    }
+
+
+    /*
+     * ================================================================
+     * SANITIZE HEADER
+     * ================================================================
+     */
+    private String sanitizeHeader(
+            String value
+    ) {
+
+        if (value == null) {
+
+            return "";
+        }
+
+        String result =
+                value
+                        .replace(
+                                "\uFEFF",
+                                ""
+                        )
+                        .replace(
+                                "\u00A0",
+                                " "
+                        )
+                        .trim()
+                        .toLowerCase(
+                                Locale.ROOT
+                        );
+
+        /*
+         * Excel may produce headers such as:
+         *
+         * 'national_id
+         *
+         * Remove only the leading apostrophe.
+         */
+        result =
+                removeLeadingExcelApostrophe(
+                        result
+                );
+
+        return result.trim();
+    }
+
+
+    /*
+     * ================================================================
+     * SANITIZE CELL VALUE
+     * ================================================================
+     */
+    private String sanitizeCellValue(
+            String value
+    ) {
+
+        if (value == null) {
+
+            return "";
+        }
+
+        String result =
+                value
+                        .replace(
+                                "\uFEFF",
+                                ""
+                        )
+                        .replace(
+                                "\u00A0",
+                                " "
+                        )
+                        .trim();
+
+        /*
+         * Remove Excel's leading text apostrophe.
+         *
+         * IMPORTANT:
+         *
+         * This removes:
+         *
+         * '119876543210
+         *
+         * but does NOT change:
+         *
+         * O'Connor
+         *
+         * because the apostrophe is not the first character.
+         */
+        result =
+                removeLeadingExcelApostrophe(
+                        result
+                );
+
+        return result.trim();
+    }
+
+
+    /*
+     * ================================================================
+     * REMOVE LEADING EXCEL APOSTROPHE
+     * ================================================================
+     *
+     * Handles:
+     *
+     * '123456789
+     *
+     * -> 123456789
+     *
+     * Also handles whitespace before the apostrophe:
+     *
+     *   '123456789
+     *
+     * -> 123456789
+     *
+     * Does NOT modify:
+     *
+     * O'Connor
+     * Mary's
+     * Borrower's loan
+     */
+    private String removeLeadingExcelApostrophe(
+            String value
+    ) {
+
+        if (value == null) {
+
+            return "";
+        }
+
+        String result =
+                value.trim();
+
+        if (
+                result.length() >= 2
+                        && result.charAt(0) == '\''
+        ) {
+
+            return result
+                    .substring(1)
+                    .trim();
+        }
+
+        return result;
+    }
+
+
+    /*
+     * ================================================================
      * VALIDATE IMPORT REQUEST
      * ================================================================
      */
@@ -605,27 +849,21 @@ public class LegacyLoanImportService {
             User importedBy
     ) {
 
-        if (
-                org == null
-        ) {
+        if (org == null) {
 
             throw new IllegalArgumentException(
                     "Organization is required for legacy loan import."
             );
         }
 
-        if (
-                org.getId() == null
-        ) {
+        if (org.getId() == null) {
 
             throw new IllegalArgumentException(
                     "Organization ID is required for legacy loan import."
             );
         }
 
-        if (
-                in == null
-        ) {
+        if (in == null) {
 
             throw new IllegalArgumentException(
                     "No ledger file was supplied."
@@ -656,7 +894,7 @@ public class LegacyLoanImportService {
 
     /*
      * ================================================================
-     * PARSED ROW VALIDATION
+     * VALIDATE PARSED ROWS
      * ================================================================
      */
     private void validateParsedRows(
@@ -692,14 +930,24 @@ public class LegacyLoanImportService {
                 i++
         ) {
 
-            if (
-                    rows.get(i) == null
-            ) {
+            Map<String, String> row =
+                    rows.get(i);
+
+            if (row == null) {
 
                 throw new IllegalArgumentException(
                         "Import row " +
                                 (i + 2) +
                                 " is empty."
+                );
+            }
+
+            if (row.isEmpty()) {
+
+                throw new IllegalArgumentException(
+                        "Import row " +
+                                (i + 2) +
+                                " contains no readable columns."
                 );
             }
         }
@@ -710,9 +958,6 @@ public class LegacyLoanImportService {
      * ================================================================
      * FILENAME NORMALIZATION
      * ================================================================
-     *
-     * Do not store arbitrary client-provided filenames without
-     * normalization.
      */
     private String normalizeFilename(
             String filename
@@ -758,11 +1003,7 @@ public class LegacyLoanImportService {
      * CSV TEMPLATE
      * ================================================================
      *
-     * This template intentionally uses obviously synthetic data.
-     *
-     * IMPORTANT:
-     *
-     * The example National ID is NOT a real customer identity.
+     * Synthetic example only.
      */
     public String buildCsvTemplate() {
 

@@ -18,8 +18,10 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.format.ResolverStyle;
@@ -36,12 +38,78 @@ import java.util.Set;
 public class LegacyLoanImportRowService {
 
     // ================================================================
-    // CONFIGURATION
+    // PLATFORM BUSINESS RULES
     // ================================================================
 
     private static final int MONEY_SCALE = 2;
 
     private static final int RATE_SCALE = 6;
+
+    private static final int CALCULATION_SCALE = 16;
+
+    private static final int MIN_DURATION_MONTHS = 1;
+
+    private static final int MAX_DURATION_MONTHS = 6;
+
+    private static final int MAX_TEXT_LENGTH = 5000;
+
+    private static final int MAX_NAME_LENGTH = 150;
+
+    private static final int MAX_PHONE_LENGTH = 50;
+
+    private static final int MAX_NATIONAL_ID_LENGTH = 100;
+
+    private static final int MAX_EMAIL_LENGTH = 320;
+
+    /**
+     * Minimum allowed loan principal.
+     *
+     * RWF 500,000.
+     */
+    private static final BigDecimal MIN_LOAN_AMOUNT =
+            new BigDecimal("500000.00");
+
+    /**
+     * No maximum loan amount.
+     */
+    private static final BigDecimal MAX_LOAN_AMOUNT = null;
+
+    /**
+     * All loan types use exactly 5% monthly interest.
+     */
+    private static final BigDecimal MONTHLY_INTEREST_RATE =
+            new BigDecimal("5.00");
+
+    /**
+     * All loan types use exactly 5% monthly management fee.
+     */
+    private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE =
+            new BigDecimal("5.00");
+
+    /**
+     * Combined monthly charge:
+     *
+     * 5% interest + 5% management fee = 10%.
+     */
+    private static final BigDecimal TOTAL_MONTHLY_CHARGE_RATE =
+            MONTHLY_INTEREST_RATE.add(
+                    MONTHLY_MANAGEMENT_FEE_RATE
+            );
+
+    /**
+     * One-time processing fee:
+     *
+     * 2% of gross principal.
+     */
+    private static final BigDecimal PROCESSING_FEE_RATE =
+            new BigDecimal("2.00");
+
+    /**
+     * Historical imported interest rate is only validated for
+     * source-file quality. It is NOT used as the final platform rate.
+     */
+    private static final BigDecimal MAX_IMPORT_RATE =
+            new BigDecimal("1000.00");
 
     private static final BigDecimal ZERO =
             BigDecimal.ZERO.setScale(
@@ -51,21 +119,6 @@ public class LegacyLoanImportRowService {
 
     private static final BigDecimal ONE_HUNDRED =
             new BigDecimal("100");
-
-    private static final BigDecimal MAX_INTEREST_RATE =
-            new BigDecimal("1000");
-
-    private static final int MIN_DURATION_MONTHS = 1;
-
-    private static final int MAX_DURATION_MONTHS = 600;
-
-    private static final int MAX_TEXT_LENGTH = 5000;
-
-    private static final int MAX_NAME_LENGTH = 150;
-
-    private static final int MAX_PHONE_LENGTH = 50;
-
-    private static final int MAX_NATIONAL_ID_LENGTH = 100;
 
     private static final Set<String> ALLOWED_IMPORT_STATUSES =
             Set.of(
@@ -113,22 +166,10 @@ public class LegacyLoanImportRowService {
 
     private final LoanService loanService;
 
-
     // ================================================================
-    // IMPORT ONE ROW
+    // IMPORT ROW
     // ================================================================
 
-    /**
-     * Imports exactly one historical loan row.
-     *
-     * Each row executes inside its own REQUIRES_NEW transaction.
-     *
-     * This means a failure on row 217 does not roll back rows
-     * that were already successfully committed.
-     *
-     * Historical loans intentionally bypass the normal origination,
-     * approval and underwriting workflow.
-     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ImportRowResult importRow(
             Map<String, String> row,
@@ -155,7 +196,6 @@ public class LegacyLoanImportRowService {
                     sessionBorrowers
             );
 
-
             // ========================================================
             // BORROWER INFORMATION
             // ========================================================
@@ -172,7 +212,6 @@ public class LegacyLoanImportRowService {
                     nationalId
             );
 
-
             String firstName =
                     normalizeRequiredText(
                             req(
@@ -182,7 +221,6 @@ public class LegacyLoanImportRowService {
                             "first_name",
                             MAX_NAME_LENGTH
                     );
-
 
             String lastName =
                     normalizeRequiredText(
@@ -194,7 +232,6 @@ public class LegacyLoanImportRowService {
                             MAX_NAME_LENGTH
                     );
 
-
             String phone =
                     normalizeRequiredText(
                             req(
@@ -205,7 +242,6 @@ public class LegacyLoanImportRowService {
                             MAX_PHONE_LENGTH
                     );
 
-
             String gender =
                     normalizeGender(
                             req(
@@ -213,7 +249,6 @@ public class LegacyLoanImportRowService {
                                     "gender"
                             )
                     );
-
 
             // ========================================================
             // LOAN INFORMATION
@@ -230,17 +265,48 @@ public class LegacyLoanImportRowService {
                     "amount"
             );
 
+            /*
+             * Current platform rule:
+             *
+             * Minimum = RWF 500,000.
+             * There is NO maximum.
+             */
+            if (
+                    amount.compareTo(
+                            MIN_LOAN_AMOUNT
+                    ) < 0
+            ) {
 
-            BigDecimal interestRate =
+                return fail(
+                        rowNumber,
+                        "amount must be at least "
+                                + formatMoney(
+                                        MIN_LOAN_AMOUNT
+                                )
+                                + " "
+                                + resolveCurrency(
+                                        row,
+                                        org
+                                )
+                );
+            }
+
+            /*
+             * Historical source file may contain an old
+             * interest_rate field.
+             *
+             * We validate it but DO NOT use it for the imported
+             * loan because the current platform rules are fixed.
+             */
+            BigDecimal importedInterestRate =
                     reqRate(
                             row,
                             "interest_rate"
                     );
 
             validateInterestRate(
-                    interestRate
+                    importedInterestRate
             );
-
 
             int durationMonths =
                     reqInteger(
@@ -252,13 +318,11 @@ public class LegacyLoanImportRowService {
                     durationMonths
             );
 
-
             LocalDate startDate =
                     reqDate(
                             row,
                             "start_date"
                     );
-
 
             String statusRaw =
                     req(
@@ -270,55 +334,51 @@ public class LegacyLoanImportRowService {
                             )
                             .trim();
 
-
             validateStatus(
                     statusRaw
             );
-
 
             LoanStatus status =
                     LoanStatus.valueOf(
                             statusRaw
                     );
 
-
             // ========================================================
-            // INTEREST RATE TYPE
+            // HISTORICAL RATE TYPE
             // ========================================================
 
-            String rateTypeRaw =
+            /*
+             * Accept the old field for compatibility with imported
+             * files, but normalize the resulting Loan to MONTHLY.
+             */
+            String importedRateType =
                     opt(
                             row,
                             "interest_rate_type",
-                            "ANNUAL"
+                            "MONTHLY"
                     )
                             .toUpperCase(
                                     Locale.ROOT
                             )
                             .trim();
 
-
-            String rateType;
-
-            if ("MONTHLY".equals(rateTypeRaw)) {
-
-                rateType = "MONTHLY";
-
-            } else if ("ANNUAL".equals(rateTypeRaw)) {
-
-                rateType = "ANNUAL";
-
-            } else {
+            if (
+                    !"MONTHLY".equals(
+                            importedRateType
+                    )
+                            && !"ANNUAL".equals(
+                            importedRateType
+                    )
+            ) {
 
                 return fail(
                         rowNumber,
-                        "interest_rate_type must be MONTHLY or ANNUAL. " +
-                                "Got \"" +
-                                rateTypeRaw +
-                                "\"."
+                        "interest_rate_type must be MONTHLY or ANNUAL. "
+                                + "Got \""
+                                + importedRateType
+                                + "\"."
                 );
             }
-
 
             // ========================================================
             // LOAN TYPE
@@ -339,7 +399,6 @@ public class LegacyLoanImportRowService {
                                     '_'
                             );
 
-
             Loan.LoanType loanType;
 
             try {
@@ -353,15 +412,15 @@ public class LegacyLoanImportRowService {
 
                 return fail(
                         rowNumber,
-                        "loan_type \"" +
-                                loanTypeRaw +
-                                "\" is not recognized. Valid values: " +
-                                Arrays.toString(
+                        "loan_type \""
+                                + loanTypeRaw
+                                + "\" is not recognized. "
+                                + "Valid values: "
+                                + Arrays.toString(
                                         Loan.LoanType.values()
                                 )
                 );
             }
-
 
             // ========================================================
             // OPTIONAL FINANCIAL VALUES
@@ -373,13 +432,11 @@ public class LegacyLoanImportRowService {
                             "total_paid"
                     );
 
-
             BigDecimal outstandingGiven =
                     optMoney(
                             row,
                             "outstanding_balance"
                     );
-
 
             BigDecimal totalRepayableGiven =
                     optMoney(
@@ -387,24 +444,20 @@ public class LegacyLoanImportRowService {
                             "total_repayable"
                     );
 
-
             validateOptionalMoney(
                     totalPaid,
                     "total_paid"
             );
-
 
             validateOptionalMoney(
                     outstandingGiven,
                     "outstanding_balance"
             );
 
-
             validateOptionalMoney(
                     totalRepayableGiven,
                     "total_repayable"
             );
-
 
             if (totalPaid == null) {
 
@@ -417,7 +470,6 @@ public class LegacyLoanImportRowService {
                                 totalPaid
                         );
             }
-
 
             // ========================================================
             // FINANCIAL CONSISTENCY
@@ -435,7 +487,6 @@ public class LegacyLoanImportRowService {
                 );
             }
 
-
             if (
                     outstandingGiven != null
                             && outstandingGiven.compareTo(
@@ -448,7 +499,6 @@ public class LegacyLoanImportRowService {
                         "outstanding_balance cannot be negative."
                 );
             }
-
 
             if (
                     totalRepayableGiven != null
@@ -463,7 +513,6 @@ public class LegacyLoanImportRowService {
                 );
             }
 
-
             // ========================================================
             // DETERMINE HISTORICAL BALANCE
             // ========================================================
@@ -472,22 +521,12 @@ public class LegacyLoanImportRowService {
 
             BigDecimal outstandingBalance;
 
-
-            /*
-             * Priority:
-             *
-             * 1. Explicit outstanding balance
-             * 2. Explicit total repayable
-             * 3. Reconstruct using amortization
-             */
-
             if (outstandingGiven != null) {
 
                 outstandingBalance =
                         money(
                                 outstandingGiven
                         );
-
 
                 if (totalRepayableGiven != null) {
 
@@ -506,14 +545,12 @@ public class LegacyLoanImportRowService {
                             );
                 }
 
-
             } else if (totalRepayableGiven != null) {
 
                 totalRepayable =
                         money(
                                 totalRepayableGiven
                         );
-
 
                 outstandingBalance =
                         money(
@@ -526,36 +563,32 @@ public class LegacyLoanImportRowService {
                                         )
                         );
 
-
             } else {
 
-                double[] calculated =
-                        loanService.amortize(
-                                amount.doubleValue(),
-                                interestRate.doubleValue(),
-                                durationMonths,
-                                rateType
+                /*
+                 * No historical repayment totals were supplied.
+                 *
+                 * Calculate according to the current platform rule:
+                 *
+                 * 5% monthly interest
+                 * +
+                 * 5% monthly management fee
+                 * =
+                 * 10% monthly recurring charge.
+                 *
+                 * Processing fee is NOT included here because it is
+                 * a one-time fee deducted at disbursement.
+                 */
+                BigDecimal[] calculated =
+                        calculateCurrentPlatformLoan(
+                                amount,
+                                durationMonths
                         );
-
-
-                if (
-                        calculated == null
-                                || calculated.length < 2
-                ) {
-
-                    throw new IllegalStateException(
-                            "Unable to calculate historical loan amortization."
-                    );
-                }
-
 
                 totalRepayable =
                         money(
-                                BigDecimal.valueOf(
-                                        calculated[1]
-                                )
+                                calculated[1]
                         );
-
 
                 outstandingBalance =
                         money(
@@ -569,18 +602,58 @@ public class LegacyLoanImportRowService {
                         );
             }
 
-
             outstandingBalance =
                     outstandingBalance.max(
                             ZERO
                     );
-
 
             totalRepayable =
                     totalRepayable.max(
                             ZERO
                     );
 
+            // ========================================================
+            // PROCESSING FEE
+            // ========================================================
+
+            /*
+             * Current rule:
+             *
+             * 2% of GROSS principal.
+             *
+             * One-time only.
+             *
+             * Example:
+             *
+             * Gross loan = 500,000
+             * Processing fee = 10,000
+             * Borrower receives = 490,000
+             *
+             * Interest continues to be calculated on 500,000.
+             */
+            BigDecimal processingFee =
+                    money(
+                            amount
+                                    .multiply(
+                                            PROCESSING_FEE_RATE
+                                    )
+                                    .divide(
+                                            ONE_HUNDRED,
+                                            CALCULATION_SCALE,
+                                            RoundingMode.HALF_UP
+                                    )
+                    );
+
+            /*
+             * Historical imported loans are assumed to have already
+             * gone through disbursement.
+             *
+             * Therefore do not charge the processing fee again.
+             */
+            boolean processingFeePaid =
+                    isHistoricalLoanStatus(
+                            statusRaw
+                    );
 
             // ========================================================
             // STATUS / BALANCE CONSISTENCY
@@ -588,8 +661,12 @@ public class LegacyLoanImportRowService {
 
             if (
                     (
-                            "PAID".equals(statusRaw)
-                                    || "CLOSED".equals(statusRaw)
+                            "PAID".equals(
+                                    statusRaw
+                            )
+                                    || "CLOSED".equals(
+                                    statusRaw
+                            )
                     )
                             && outstandingBalance.compareTo(
                             ZERO
@@ -598,19 +675,22 @@ public class LegacyLoanImportRowService {
 
                 return fail(
                         rowNumber,
-                        "Loan status " +
-                                statusRaw +
-                                " is inconsistent with outstanding_balance=" +
-                                outstandingBalance +
-                                ". A PAID/CLOSED loan must have zero outstanding balance."
+                        "Loan status "
+                                + statusRaw
+                                + " is inconsistent with outstanding_balance="
+                                + outstandingBalance
+                                + ". A PAID/CLOSED loan must have zero outstanding balance."
                 );
             }
 
-
             if (
                     (
-                            "PAID".equals(statusRaw)
-                                    || "CLOSED".equals(statusRaw)
+                            "PAID".equals(
+                                    statusRaw
+                            )
+                                    || "CLOSED".equals(
+                                    statusRaw
+                            )
                     )
                             && totalPaid.compareTo(
                             totalRepayable
@@ -618,8 +698,8 @@ public class LegacyLoanImportRowService {
             ) {
 
                 log.warn(
-                        "Historical loan marked {} although totalPaid={} < totalRepayable={}. " +
-                                "rowNumber={}, organizationId={}",
+                        "Historical loan marked {} although totalPaid={} < totalRepayable={}. "
+                                + "rowNumber={}, organizationId={}",
                         statusRaw,
                         totalPaid,
                         totalRepayable,
@@ -627,7 +707,6 @@ public class LegacyLoanImportRowService {
                         org.getId()
                 );
             }
-
 
             // ========================================================
             // BORROWER MATCHING
@@ -638,12 +717,10 @@ public class LegacyLoanImportRowService {
                             nationalId
                     );
 
-
             Borrower borrower =
                     sessionBorrowers.get(
                             nationalIdHash
                     );
-
 
             if (borrower == null) {
 
@@ -654,7 +731,6 @@ public class LegacyLoanImportRowService {
                                         org.getId()
                                 );
 
-
                 if (existingBorrower.isPresent()) {
 
                     borrower =
@@ -662,7 +738,6 @@ public class LegacyLoanImportRowService {
 
                     borrowerAction =
                             "MATCHED_EXISTING_BORROWER";
-
                 }
 
             } else {
@@ -670,7 +745,6 @@ public class LegacyLoanImportRowService {
                 borrowerAction =
                         "MATCHED_SESSION_BORROWER";
             }
-
 
             // ========================================================
             // CREATE BORROWER
@@ -736,7 +810,6 @@ public class LegacyLoanImportRowService {
                                 )
                                 .build();
 
-
                 if (commit) {
 
                     try {
@@ -746,43 +819,27 @@ public class LegacyLoanImportRowService {
                                         borrower
                                 );
 
-
                         borrowerAction =
                                 "CREATED_NEW_BORROWER";
-
 
                     } catch (
                             DataIntegrityViolationException e
                     ) {
 
-                        /*
-                         * A concurrent import may have created the
-                         * same borrower between our lookup and save.
-                         *
-                         * We deliberately do not attempt to continue
-                         * after a database constraint violation inside
-                         * the same transaction because Hibernate/Spring
-                         * may mark that transaction rollback-only.
-                         *
-                         * The row is therefore reported as failed and
-                         * can safely be retried.
-                         */
-
                         log.warn(
-                                "Concurrent borrower creation conflict. " +
-                                        "rowNumber={}, organizationId={}, nationalIdHash={}",
+                                "Concurrent borrower creation conflict. "
+                                        + "rowNumber={}, organizationId={}, nationalIdHash={}",
                                 rowNumber,
                                 org.getId(),
                                 nationalIdHash,
                                 e
                         );
 
-
                         return fail(
                                 rowNumber,
-                                "Borrower could not be created because another " +
-                                        "record appears to have created the same borrower " +
-                                        "at the same time. Please retry this row."
+                                "Borrower could not be created because another "
+                                        + "record appears to have created the same borrower "
+                                        + "at the same time. Please retry this row."
                         );
                     }
 
@@ -793,7 +850,6 @@ public class LegacyLoanImportRowService {
                 }
             }
 
-
             if (borrowerAction == null) {
 
                 borrowerAction =
@@ -802,18 +858,10 @@ public class LegacyLoanImportRowService {
                                 : "MATCHED_EXISTING_BORROWER_PREVIEW";
             }
 
-
-            /*
-             * Cache only the actual borrower object.
-             *
-             * In preview mode this object is intentionally not persisted.
-             */
-
             sessionBorrowers.put(
                     nationalIdHash,
                     borrower
             );
-
 
             // ========================================================
             // LOAN REFERENCE
@@ -826,9 +874,7 @@ public class LegacyLoanImportRowService {
                             null
                     );
 
-
             String referenceNumber;
-
 
             if (
                     suppliedReference != null
@@ -848,7 +894,6 @@ public class LegacyLoanImportRowService {
                         );
             }
 
-
             if (
                     referenceNumber == null
                             || referenceNumber.isBlank()
@@ -859,7 +904,6 @@ public class LegacyLoanImportRowService {
                 );
             }
 
-
             // ========================================================
             // HISTORICAL STATUS
             // ========================================================
@@ -869,6 +913,29 @@ public class LegacyLoanImportRowService {
                             statusRaw
                     );
 
+            // ========================================================
+            // DISBURSEMENT TIMESTAMP
+            // ========================================================
+
+            /*
+             * Loan.disbursedAt is LocalDateTime.
+             *
+             * Historical imported loans use the start date at
+             * midnight as their historical disbursement timestamp.
+             */
+            LocalDateTime disbursedAt =
+                    historicalLoan
+                            ? startDate.atStartOfDay()
+                            : null;
+
+            // ========================================================
+            // MATURITY DATE
+            // ========================================================
+
+            LocalDate maturityDate =
+                    startDate.plusMonths(
+                            durationMonths
+                    );
 
             // ========================================================
             // BUILD LOAN
@@ -891,46 +958,161 @@ public class LegacyLoanImportRowService {
                             .status(
                                     status
                             )
+
+                            // ------------------------------------------------
+                            // GROSS PRINCIPAL
+                            // ------------------------------------------------
+
                             .amount(
-                                    amount.doubleValue()
+                                    amount
                             )
+
+                            // ------------------------------------------------
+                            // FIXED PLATFORM INTEREST
+                            // ------------------------------------------------
+
                             .interestRate(
-                                    interestRate.doubleValue()
+                                    MONTHLY_INTEREST_RATE
                             )
+
+                            // ------------------------------------------------
+                            // FIXED MANAGEMENT FEE
+                            // ------------------------------------------------
+
+                            .managementFeeRate(
+                                    MONTHLY_MANAGEMENT_FEE_RATE
+                            )
+
+                            // ------------------------------------------------
+                            // MONTHLY RATE TYPE
+                            // ------------------------------------------------
+
                             .interestRateType(
-                                    rateType
+                                    "MONTHLY"
                             )
+
+                            // ------------------------------------------------
+                            // TERM
+                            // ------------------------------------------------
+
                             .durationMonths(
                                     durationMonths
                             )
+
+                            // ------------------------------------------------
+                            // CURRENCY
+                            // ------------------------------------------------
+
                             .currency(
                                     resolveCurrency(
                                             row,
                                             org
                                     )
                             )
+
+                            // ------------------------------------------------
+                            // PROCESSING FEE
+                            // ------------------------------------------------
+
+                            .processingFeeRate(
+                                    PROCESSING_FEE_RATE
+                            )
+
+                            .processingFee(
+                                    processingFee
+                            )
+
+                            
+                     
+
                             .totalRepayable(
-                                    totalRepayable.doubleValue()
+                                    totalRepayable
                             )
+
                             .totalPaid(
-                                    totalPaid.doubleValue()
+                                    totalPaid
                             )
+
                             .outstandingBalance(
-                                    outstandingBalance.doubleValue()
+                                    outstandingBalance
                             )
+
+                            // ------------------------------------------------
+                            // MANAGEMENT FEE TOTALS
+                            // ------------------------------------------------
+
+                            .managementFee(
+                                    ZERO
+                            )
+
+                            .managementFeePaid(
+                                    ZERO
+                            )
+
+                            // ------------------------------------------------
+                            // INTEREST TOTALS
+                            // ------------------------------------------------
+
+                            .totalInterest(
+                                    ZERO
+                            )
+
+                            .interestPaid(
+                                    ZERO
+                            )
+
+                            // ------------------------------------------------
+                            // DATES
+                            // ------------------------------------------------
+
                             .startDate(
                                     startDate
                             )
+
                             .approvedAt(
                                     historicalLoan
                                             ? startDate
                                             : null
                             )
+
+                            /*
+                             * LocalDateTime.
+                             */
                             .disbursedAt(
+                                    disbursedAt
+                            )
+
+                            /*
+                             * Keep the exact timestamp field synchronized.
+                             */
+                            .disbursedAtTimestamp(
+                                    disbursedAt
+                            )
+
+                            .maturityDate(
+                                    maturityDate
+                            )
+
+                            // ------------------------------------------------
+                            // NEXT PAYMENT DATE
+                            // ------------------------------------------------
+
+                            .nextDueDate(
                                     historicalLoan
-                                            ? startDate.atStartOfDay()
+                                            ? startDate.plusMonths(1)
                                             : null
                             )
+
+                            .nextPaymentDate(
+                                    historicalLoan
+                                            ? startDate.plusMonths(1)
+                                            : null
+                            )
+
+                            // ------------------------------------------------
+                            // NOTES
+                            // ------------------------------------------------
+
                             .notes(
                                     normalizeOptionalText(
                                             opt(
@@ -942,22 +1124,29 @@ public class LegacyLoanImportRowService {
                                             MAX_TEXT_LENGTH
                                     )
                             )
+
                             .internalNotes(
                                     buildInternalImportNote(
-                                            importBatchId
+                                            importBatchId,
+                                            importedInterestRate,
+                                            importedRateType
                                     )
                             )
+
+                            // ------------------------------------------------
+                            // IMPORT FLAGS
+                            // ------------------------------------------------
+
                             .imported(
                                     true
                             )
+
                             .importBatchId(
                                     importBatchId
                             );
 
-
             Loan loan =
                     builder.build();
-
 
             // ========================================================
             // PREVIEW MODE
@@ -976,16 +1165,15 @@ public class LegacyLoanImportRowService {
                                 borrowerAction
                         )
                         .borrowerName(
-                                firstName +
-                                        " " +
-                                        lastName
+                                firstName
+                                        + " "
+                                        + lastName
                         )
                         .loanReferenceNumber(
                                 referenceNumber
                         )
                         .build();
             }
-
 
             // ========================================================
             // SAVE LOAN
@@ -998,42 +1186,42 @@ public class LegacyLoanImportRowService {
                                 loan
                         );
 
-
             } catch (
                     DataIntegrityViolationException e
             ) {
 
                 log.warn(
-                        "Legacy loan import database constraint violation. " +
-                                "rowNumber={}, organizationId={}, referenceNumber={}",
+                        "Legacy loan import database constraint violation. "
+                                + "rowNumber={}, organizationId={}, referenceNumber={}",
                         rowNumber,
                         org.getId(),
                         referenceNumber,
                         e
                 );
 
-
                 return fail(
                         rowNumber,
-                        "Loan with reference number \"" +
-                                referenceNumber +
-                                "\" could not be imported because " +
-                                "a conflicting record already exists or " +
-                                "the database rejected the record."
+                        "Loan with reference number \""
+                                + referenceNumber
+                                + "\" could not be imported because "
+                                + "a conflicting record already exists or "
+                                + "the database rejected the record."
                 );
             }
-
 
             // ========================================================
             // SUCCESS LOG
             // ========================================================
 
             log.info(
-                    "Legacy loan imported successfully. " +
-                            "rowNumber={}, organizationId={}, loanId={}, " +
-                            "referenceNumber={}, borrowerId={}, status={}, " +
-                            "amount={}, totalRepayable={}, totalPaid={}, " +
-                            "outstandingBalance={}, batchId={}",
+                    "Legacy loan imported successfully. "
+                            + "rowNumber={}, organizationId={}, loanId={}, "
+                            + "referenceNumber={}, borrowerId={}, status={}, "
+                            + "amount={}, totalRepayable={}, totalPaid={}, "
+                            + "outstandingBalance={}, interestRate={}%, "
+                            + "managementFeeRate={}%, processingFeeRate={}%, "
+                            + "processingFee={}, processingFeePaid={}, "
+                            + "duration={} months, batchId={}",
                     rowNumber,
                     org.getId(),
                     loan.getId(),
@@ -1044,9 +1232,14 @@ public class LegacyLoanImportRowService {
                     totalRepayable,
                     totalPaid,
                     outstandingBalance,
+                    MONTHLY_INTEREST_RATE,
+                    MONTHLY_MANAGEMENT_FEE_RATE,
+                    PROCESSING_FEE_RATE,
+                    processingFee,
+                    processingFeePaid,
+                    durationMonths,
                     importBatchId
             );
-
 
             // ========================================================
             // RETURN SUCCESS
@@ -1063,21 +1256,20 @@ public class LegacyLoanImportRowService {
                             borrowerAction
                     )
                     .borrowerName(
-                            firstName +
-                                    " " +
-                                    lastName
+                            firstName
+                                    + " "
+                                    + lastName
                     )
                     .loanReferenceNumber(
                             referenceNumber
                     )
                     .build();
 
-
         } catch (IllegalArgumentException e) {
 
             log.warn(
-                    "Legacy loan import validation failure. " +
-                            "rowNumber={}, organizationId={}, error={}",
+                    "Legacy loan import validation failure. "
+                            + "rowNumber={}, organizationId={}, error={}",
                     rowNumber,
                     org != null
                             ? org.getId()
@@ -1085,18 +1277,16 @@ public class LegacyLoanImportRowService {
                     e.getMessage()
             );
 
-
             return fail(
                     rowNumber,
                     e.getMessage()
             );
 
-
         } catch (Exception e) {
 
             log.error(
-                    "Unexpected legacy loan import failure. " +
-                            "rowNumber={}, organizationId={}",
+                    "Unexpected legacy loan import failure. "
+                            + "rowNumber={}, organizationId={}",
                     rowNumber,
                     org != null
                             ? org.getId()
@@ -1104,17 +1294,175 @@ public class LegacyLoanImportRowService {
                     e
             );
 
-
             return fail(
                     rowNumber,
-                    "Unexpected import error. " +
-                            "The row was not imported. " +
-                            "Reference row number: " +
-                            rowNumber
+                    "Unexpected import error. "
+                            + "The row was not imported. "
+                            + "Reference row number: "
+                            + rowNumber
             );
         }
     }
 
+    // ================================================================
+    // CURRENT PLATFORM LOAN CALCULATION
+    // ================================================================
+
+    /**
+     * Calculates current platform repayment using:
+     *
+     * 5% monthly interest
+     * +
+     * 5% monthly management fee
+     * =
+     * 10% monthly recurring charge.
+     *
+     * Processing fee is excluded because it is a one-time
+     * disbursement deduction.
+     *
+     * Returns:
+     *
+     * [monthlyInstallment, totalRepayable]
+     */
+    private BigDecimal[] calculateCurrentPlatformLoan(
+            BigDecimal principal,
+            int months
+    ) {
+
+        BigDecimal normalizedPrincipal =
+                money(
+                        principal
+                );
+
+        if (
+                normalizedPrincipal.compareTo(
+                        MIN_LOAN_AMOUNT
+                ) < 0
+        ) {
+
+            throw new IllegalArgumentException(
+                    "Loan principal must be at least "
+                            + formatMoney(
+                                    MIN_LOAN_AMOUNT
+                            )
+            );
+        }
+
+        if (
+                months < MIN_DURATION_MONTHS
+                        || months > MAX_DURATION_MONTHS
+        ) {
+
+            throw new IllegalArgumentException(
+                    "Loan duration must be between "
+                            + MIN_DURATION_MONTHS
+                            + " and "
+                            + MAX_DURATION_MONTHS
+                            + " months"
+            );
+        }
+
+        BigDecimal monthlyRate =
+                TOTAL_MONTHLY_CHARGE_RATE
+                        .divide(
+                                ONE_HUNDRED,
+                                CALCULATION_SCALE,
+                                RoundingMode.HALF_UP
+                        );
+
+        if (
+                monthlyRate.compareTo(
+                        ZERO
+                ) == 0
+        ) {
+
+            BigDecimal monthlyPayment =
+                    money(
+                            normalizedPrincipal
+                                    .divide(
+                                            BigDecimal.valueOf(
+                                                    months
+                                            ),
+                                            CALCULATION_SCALE,
+                                            RoundingMode.HALF_UP
+                                    )
+                    );
+
+            BigDecimal totalRepayable =
+                    money(
+                            monthlyPayment
+                                    .multiply(
+                                            BigDecimal.valueOf(
+                                                    months
+                                            )
+                                    )
+                    );
+
+            return new BigDecimal[]{
+                    monthlyPayment,
+                    totalRepayable
+            };
+        }
+
+        BigDecimal onePlusRate =
+                BigDecimal.ONE.add(
+                        monthlyRate
+                );
+
+        BigDecimal factor =
+                onePlusRate.pow(
+                        months,
+                        MathContext.DECIMAL128
+                );
+
+        BigDecimal numerator =
+                normalizedPrincipal
+                        .multiply(
+                                monthlyRate
+                        )
+                        .multiply(
+                                factor
+                        );
+
+        BigDecimal denominator =
+                factor.subtract(
+                        BigDecimal.ONE
+                );
+
+        if (
+                denominator.compareTo(
+                        ZERO
+                ) == 0
+        ) {
+
+            throw new IllegalStateException(
+                    "Invalid monthly loan calculation."
+            );
+        }
+
+        BigDecimal monthlyPayment =
+                money(
+                        numerator.divide(
+                                denominator,
+                                CALCULATION_SCALE,
+                                RoundingMode.HALF_UP
+                        )
+                );
+
+        BigDecimal totalRepayable =
+                money(
+                        monthlyPayment.multiply(
+                                BigDecimal.valueOf(
+                                        months
+                                )
+                        )
+                );
+
+        return new BigDecimal[]{
+                monthlyPayment,
+                totalRepayable
+        };
+    }
 
     // ================================================================
     // IMPORT CONTEXT VALIDATION
@@ -1131,21 +1479,19 @@ public class LegacyLoanImportRowService {
         if (row == null) {
 
             throw new IllegalArgumentException(
-                    "Import row " +
-                            rowNumber +
-                            " is empty."
+                    "Import row "
+                            + rowNumber
+                            + " is empty."
             );
         }
-
 
         if (rowNumber <= 0) {
 
             throw new IllegalArgumentException(
-                    "Invalid import row number: " +
-                            rowNumber
+                    "Invalid import row number: "
+                            + rowNumber
             );
         }
-
 
         if (org == null) {
 
@@ -1154,7 +1500,6 @@ public class LegacyLoanImportRowService {
             );
         }
 
-
         if (org.getId() == null) {
 
             throw new IllegalArgumentException(
@@ -1162,14 +1507,12 @@ public class LegacyLoanImportRowService {
             );
         }
 
-
         if (sessionBorrowers == null) {
 
             throw new IllegalArgumentException(
                     "Import borrower session cache is required."
             );
         }
-
 
         if (
                 importBatchId != null
@@ -1181,7 +1524,6 @@ public class LegacyLoanImportRowService {
             );
         }
     }
-
 
     // ================================================================
     // NATIONAL ID
@@ -1198,19 +1540,74 @@ public class LegacyLoanImportRowService {
             );
         }
 
-
         String normalized =
                 value
-                        .trim()
-                        .replaceAll(
-                                "\\s+",
+                        .replace(
+                                "\uFEFF",
                                 ""
-                        );
+                        )
+                        .trim();
 
+        if (
+                normalized.startsWith("'")
+                        && normalized.length() > 1
+        ) {
+
+            normalized =
+                    normalized.substring(
+                            1
+                    ).trim();
+
+            log.debug(
+                    "Removed Excel text-prefix apostrophe from national_id."
+            );
+        }
+
+        if (
+                normalized.startsWith("’")
+                        && normalized.length() > 1
+        ) {
+
+            normalized =
+                    normalized.substring(
+                            1
+                    ).trim();
+
+            log.debug(
+                    "Removed Unicode Excel-style apostrophe from national_id."
+            );
+        }
+
+        normalized =
+                normalized.replaceAll(
+                        "\\s+",
+                        ""
+                );
+
+        if (
+                normalized.length() >= 2
+                        && (
+                        (
+                                normalized.startsWith("\"")
+                                        && normalized.endsWith("\"")
+                        )
+                                ||
+                                (
+                                        normalized.startsWith("'")
+                                                && normalized.endsWith("'")
+                                )
+                )
+        ) {
+
+            normalized =
+                    normalized.substring(
+                            1,
+                            normalized.length() - 1
+                    ).trim();
+        }
 
         return normalized;
     }
-
 
     private void validateNationalId(
             String nationalId
@@ -1226,7 +1623,6 @@ public class LegacyLoanImportRowService {
             );
         }
 
-
         if (
                 nationalId.length()
                         > MAX_NATIONAL_ID_LENGTH
@@ -1237,7 +1633,6 @@ public class LegacyLoanImportRowService {
             );
         }
     }
-
 
     // ================================================================
     // STATUS
@@ -1255,16 +1650,15 @@ public class LegacyLoanImportRowService {
         ) {
 
             throw new IllegalArgumentException(
-                    "status must be one of " +
-                            ALLOWED_IMPORT_STATUSES +
-                            " for historical imported loans. " +
-                            "Got \"" +
-                            status +
-                            "\"."
+                    "status must be one of "
+                            + ALLOWED_IMPORT_STATUSES
+                            + " for historical imported loans. "
+                            + "Got \""
+                            + status
+                            + "\"."
             );
         }
     }
-
 
     private boolean isHistoricalLoanStatus(
             String status
@@ -1274,7 +1668,6 @@ public class LegacyLoanImportRowService {
                 status
         );
     }
-
 
     // ================================================================
     // MONEY PARSING
@@ -1291,7 +1684,6 @@ public class LegacyLoanImportRowService {
                         key
                 );
 
-
         try {
 
             String normalized =
@@ -1302,30 +1694,26 @@ public class LegacyLoanImportRowService {
                             )
                             .trim();
 
-
             BigDecimal parsed =
                     new BigDecimal(
                             normalized
                     );
 
-
             return money(
                     parsed
             );
 
-
         } catch (NumberFormatException e) {
 
             throw new IllegalArgumentException(
-                    "\"" +
-                            key +
-                            "\" must be a valid decimal amount. Got \"" +
-                            value +
-                            "\"."
+                    "\""
+                            + key
+                            + "\" must be a valid decimal amount. Got \""
+                            + value
+                            + "\"."
             );
         }
     }
-
 
     private BigDecimal optMoney(
             Map<String, String> row,
@@ -1337,7 +1725,6 @@ public class LegacyLoanImportRowService {
                         key
                 );
 
-
         if (
                 value == null
                         || value.isBlank()
@@ -1345,7 +1732,6 @@ public class LegacyLoanImportRowService {
 
             return null;
         }
-
 
         try {
 
@@ -1359,24 +1745,21 @@ public class LegacyLoanImportRowService {
                                     .trim()
                     );
 
-
             return money(
                     parsed
             );
 
-
         } catch (NumberFormatException e) {
 
             throw new IllegalArgumentException(
-                    "\"" +
-                            key +
-                            "\" must be a valid decimal amount if provided. Got \"" +
-                            value +
-                            "\"."
+                    "\""
+                            + key
+                            + "\" must be a valid decimal amount if provided. Got \""
+                            + value
+                            + "\"."
             );
         }
     }
-
 
     private void validateOptionalMoney(
             BigDecimal value,
@@ -1384,10 +1767,8 @@ public class LegacyLoanImportRowService {
     ) {
 
         if (value == null) {
-
             return;
         }
-
 
         if (
                 value.compareTo(
@@ -1396,30 +1777,21 @@ public class LegacyLoanImportRowService {
         ) {
 
             throw new IllegalArgumentException(
-                    field +
-                            " cannot be negative."
+                    field
+                            + " cannot be negative."
             );
         }
-
-
-        /*
-         * Reject absurdly large financial values.
-         *
-         * This is a protection against corrupted spreadsheets
-         * and accidental scientific-number imports.
-         */
 
         if (
                 value.precision() > 30
         ) {
 
             throw new IllegalArgumentException(
-                    field +
-                            " contains an unreasonably large value."
+                    field
+                            + " contains an unreasonably large value."
             );
         }
     }
-
 
     private void validatePositiveMoney(
             BigDecimal value,
@@ -1434,12 +1806,11 @@ public class LegacyLoanImportRowService {
         ) {
 
             throw new IllegalArgumentException(
-                    field +
-                            " must be greater than zero."
+                    field
+                            + " must be greater than zero."
             );
         }
     }
-
 
     private BigDecimal money(
             BigDecimal value
@@ -1450,13 +1821,20 @@ public class LegacyLoanImportRowService {
             return ZERO;
         }
 
-
         return value.setScale(
                 MONEY_SCALE,
                 RoundingMode.HALF_UP
         );
     }
 
+    private String formatMoney(
+            BigDecimal value
+    ) {
+
+        return money(
+                value
+        ).toPlainString();
+    }
 
     // ================================================================
     // INTEREST RATE
@@ -1473,7 +1851,6 @@ public class LegacyLoanImportRowService {
                         key
                 );
 
-
         try {
 
             return new BigDecimal(
@@ -1489,19 +1866,17 @@ public class LegacyLoanImportRowService {
                             RoundingMode.HALF_UP
                     );
 
-
         } catch (NumberFormatException e) {
 
             throw new IllegalArgumentException(
-                    "\"" +
-                            key +
-                            "\" must be a valid interest rate. Got \"" +
-                            value +
-                            "\"."
+                    "\""
+                            + key
+                            + "\" must be a valid interest rate. Got \""
+                            + value
+                            + "\"."
             );
         }
     }
-
 
     private void validateInterestRate(
             BigDecimal rate
@@ -1519,22 +1894,20 @@ public class LegacyLoanImportRowService {
             );
         }
 
-
         if (
                 rate.compareTo(
-                        MAX_INTEREST_RATE
+                        MAX_IMPORT_RATE
                 ) > 0
         ) {
 
             throw new IllegalArgumentException(
-                    "interest_rate is unreasonably high. " +
-                            "Maximum accepted import rate is " +
-                            MAX_INTEREST_RATE +
-                            "%."
+                    "interest_rate is unreasonably high. "
+                            + "Maximum accepted import rate is "
+                            + MAX_IMPORT_RATE
+                            + "%."
             );
         }
     }
-
 
     // ================================================================
     // INTEGER PARSING
@@ -1551,7 +1924,6 @@ public class LegacyLoanImportRowService {
                         key
                 );
 
-
         try {
 
             BigDecimal decimal =
@@ -1564,56 +1936,56 @@ public class LegacyLoanImportRowService {
                                     .trim()
                     );
 
-
             if (
-                    decimal.stripTrailingZeros()
+                    decimal
+                            .stripTrailingZeros()
                             .scale() > 0
             ) {
 
                 throw new IllegalArgumentException(
-                        "\"" +
-                                key +
-                                "\" must be a whole number."
+                        "\""
+                                + key
+                                + "\" must be a whole number."
                 );
             }
 
-
             return decimal.intValueExact();
 
-
-        } catch (NumberFormatException |
-                 ArithmeticException e) {
+        } catch (
+                NumberFormatException
+                        | ArithmeticException e
+        ) {
 
             throw new IllegalArgumentException(
-                    "\"" +
-                            key +
-                            "\" must be a valid whole number. Got \"" +
-                            value +
-                            "\"."
+                    "\""
+                            + key
+                            + "\" must be a valid whole number. Got \""
+                            + value
+                            + "\"."
             );
         }
     }
-
 
     private void validateDuration(
             int durationMonths
     ) {
 
         if (
-                durationMonths < MIN_DURATION_MONTHS
-                        || durationMonths > MAX_DURATION_MONTHS
+                durationMonths
+                        < MIN_DURATION_MONTHS
+                        || durationMonths
+                        > MAX_DURATION_MONTHS
         ) {
 
             throw new IllegalArgumentException(
-                    "duration_months must be between " +
-                            MIN_DURATION_MONTHS +
-                            " and " +
-                            MAX_DURATION_MONTHS +
-                            "."
+                    "duration_months must be between "
+                            + MIN_DURATION_MONTHS
+                            + " and "
+                            + MAX_DURATION_MONTHS
+                            + "."
             );
         }
     }
-
 
     // ================================================================
     // DATE PARSING
@@ -1630,10 +2002,9 @@ public class LegacyLoanImportRowService {
                         key
                 );
 
-
         for (
-                DateTimeFormatter formatter
-                : DATE_FORMATS
+                DateTimeFormatter formatter :
+                DATE_FORMATS
         ) {
 
             try {
@@ -1644,22 +2015,19 @@ public class LegacyLoanImportRowService {
                 );
 
             } catch (DateTimeParseException ignored) {
-
-                // Try next supported format.
+                // Try next format.
             }
         }
 
-
         throw new IllegalArgumentException(
-                "\"" +
-                        key +
-                        "\" isn't a recognized date. " +
-                        "Preferred format is YYYY-MM-DD. Got \"" +
-                        value +
-                        "\"."
+                "\""
+                        + key
+                        + "\" isn't a recognized date. "
+                        + "Preferred format is YYYY-MM-DD. Got \""
+                        + value
+                        + "\"."
         );
     }
-
 
     // ================================================================
     // GENDER
@@ -1670,10 +2038,8 @@ public class LegacyLoanImportRowService {
     ) {
 
         if (value == null) {
-
             return "UNKNOWN";
         }
-
 
         String gender =
                 value
@@ -1681,7 +2047,6 @@ public class LegacyLoanImportRowService {
                         .toUpperCase(
                                 Locale.ROOT
                         );
-
 
         if (
                 "M".equals(gender)
@@ -1691,7 +2056,6 @@ public class LegacyLoanImportRowService {
             return "Male";
         }
 
-
         if (
                 "F".equals(gender)
                         || "FEMALE".equals(gender)
@@ -1700,23 +2064,12 @@ public class LegacyLoanImportRowService {
             return "Female";
         }
 
-
-        if (
-                gender.isBlank()
-        ) {
-
+        if (gender.isBlank()) {
             return "UNKNOWN";
         }
 
-
-        /*
-         * Preserve historical values rather than
-         * destroying source information.
-         */
-
         return value.trim();
     }
-
 
     // ================================================================
     // REQUIRED TEXT
@@ -1733,15 +2086,13 @@ public class LegacyLoanImportRowService {
                         ? ""
                         : value.trim();
 
-
         if (normalized.isBlank()) {
 
             throw new IllegalArgumentException(
-                    field +
-                            " is required."
+                    field
+                            + " is required."
             );
         }
-
 
         if (
                 normalized.length()
@@ -1749,17 +2100,15 @@ public class LegacyLoanImportRowService {
         ) {
 
             throw new IllegalArgumentException(
-                    field +
-                            " is too long. Maximum length is " +
-                            maxLength +
-                            " characters."
+                    field
+                            + " is too long. Maximum length is "
+                            + maxLength
+                            + " characters."
             );
         }
 
-
         return normalized;
     }
-
 
     private String normalizeOptionalText(
             String value,
@@ -1775,10 +2124,8 @@ public class LegacyLoanImportRowService {
             return null;
         }
 
-
         String normalized =
                 value.trim();
-
 
         if (
                 normalized.length()
@@ -1786,17 +2133,15 @@ public class LegacyLoanImportRowService {
         ) {
 
             throw new IllegalArgumentException(
-                    field +
-                            " is too long. Maximum length is " +
-                            maxLength +
-                            " characters."
+                    field
+                            + " is too long. Maximum length is "
+                            + maxLength
+                            + " characters."
             );
         }
 
-
         return normalized;
     }
-
 
     // ================================================================
     // REQUIRED FIELD
@@ -1812,23 +2157,20 @@ public class LegacyLoanImportRowService {
                         key
                 );
 
-
         if (
                 value == null
                         || value.isBlank()
         ) {
 
             throw new IllegalArgumentException(
-                    "\"" +
-                            key +
-                            "\" is required but was blank."
+                    "\""
+                            + key
+                            + "\" is required but was blank."
             );
         }
 
-
         return value.trim();
     }
-
 
     // ================================================================
     // OPTIONAL TEXT
@@ -1845,7 +2187,6 @@ public class LegacyLoanImportRowService {
                         key
                 );
 
-
         if (
                 value == null
                         || value.isBlank()
@@ -1854,20 +2195,13 @@ public class LegacyLoanImportRowService {
             return fallback;
         }
 
-
         return value.trim();
     }
-
 
     // ================================================================
     // OPTIONAL DOUBLE
     // ================================================================
 
-    /**
-     * Used for legacy borrower fields such as monthly income.
-     *
-     * Returns null when the source field is empty.
-     */
     private Double optDouble(
             Map<String, String> row,
             String key
@@ -1878,7 +2212,6 @@ public class LegacyLoanImportRowService {
                         key
                 );
 
-
         if (
                 value == null
                         || value.isBlank()
@@ -1886,7 +2219,6 @@ public class LegacyLoanImportRowService {
 
             return null;
         }
-
 
         try {
 
@@ -1898,12 +2230,10 @@ public class LegacyLoanImportRowService {
                             )
                             .trim();
 
-
             double parsed =
                     Double.parseDouble(
                             normalized
                     );
-
 
             if (
                     !Double.isFinite(
@@ -1912,52 +2242,41 @@ public class LegacyLoanImportRowService {
             ) {
 
                 throw new IllegalArgumentException(
-                        "\"" +
-                                key +
-                                "\" must be a finite number."
+                        "\""
+                                + key
+                                + "\" must be a finite number."
                 );
             }
-
 
             if (
                     parsed < 0
             ) {
 
                 throw new IllegalArgumentException(
-                        "\"" +
-                                key +
-                                "\" cannot be negative."
+                        "\""
+                                + key
+                                + "\" cannot be negative."
                 );
             }
 
-
             return parsed;
-
 
         } catch (NumberFormatException e) {
 
             throw new IllegalArgumentException(
-                    "\"" +
-                            key +
-                            "\" must be a valid number if provided. Got \"" +
-                            value +
-                            "\"."
+                    "\""
+                            + key
+                            + "\" must be a valid number if provided. Got \""
+                            + value
+                            + "\"."
             );
         }
     }
-
 
     // ================================================================
     // EMAIL
     // ================================================================
 
-    /**
-     * Generates a deterministic placeholder email when a historical
-     * record has no email address.
-     *
-     * This prevents repeated imports from generating a different
-     * placeholder every time.
-     */
     private String resolveEmail(
             Map<String, String> row,
             String nationalId,
@@ -1968,7 +2287,6 @@ public class LegacyLoanImportRowService {
                 row.get(
                         "email"
                 );
-
 
         if (
                 supplied != null
@@ -1982,9 +2300,9 @@ public class LegacyLoanImportRowService {
                                     Locale.ROOT
                             );
 
-
             if (
-                    email.length() > 320
+                    email.length()
+                            > MAX_EMAIL_LENGTH
             ) {
 
                 throw new IllegalArgumentException(
@@ -1992,27 +2310,16 @@ public class LegacyLoanImportRowService {
                 );
             }
 
-
             return email;
         }
 
-
-        return "imported." +
-                organizationId +
-                "." +
-                nationalId +
-                "@imported.local";
+        return "imported."
+                + organizationId
+                + "."
+                + nationalId
+                + "@imported.local";
     }
 
-
-    // ================================================================
-    // BACKWARD-COMPATIBLE ALIAS
-    // ================================================================
-
-    /**
-     * Kept as a compatibility alias because older versions of this
-     * service called this helper optOrGenerated().
-     */
     private String optOrGenerated(
             Map<String, String> row,
             String key,
@@ -2026,7 +2333,6 @@ public class LegacyLoanImportRowService {
                 organizationId
         );
     }
-
 
     // ================================================================
     // CURRENCY
@@ -2044,7 +2350,6 @@ public class LegacyLoanImportRowService {
                         null
                 );
 
-
         if (
                 supplied != null
                         && !supplied.isBlank()
@@ -2057,7 +2362,6 @@ public class LegacyLoanImportRowService {
                                     Locale.ROOT
                             );
 
-
             if (
                     currency.length() != 3
             ) {
@@ -2067,14 +2371,11 @@ public class LegacyLoanImportRowService {
                 );
             }
 
-
             return currency;
         }
 
-
         String organizationCurrency =
                 org.getDefaultCurrency();
-
 
         if (
                 organizationCurrency == null
@@ -2086,7 +2387,6 @@ public class LegacyLoanImportRowService {
             );
         }
 
-
         String currency =
                 organizationCurrency
                         .trim()
@@ -2094,21 +2394,18 @@ public class LegacyLoanImportRowService {
                                 Locale.ROOT
                         );
 
-
         if (
                 currency.length() != 3
         ) {
 
             throw new IllegalArgumentException(
-                    "Organization default currency is invalid: " +
-                            currency
+                    "Organization default currency is invalid: "
+                            + currency
             );
         }
 
-
         return currency;
     }
-
 
     // ================================================================
     // LOAN REFERENCE
@@ -2128,10 +2425,8 @@ public class LegacyLoanImportRowService {
             );
         }
 
-
         String normalized =
                 reference.trim();
-
 
         if (
                 normalized.length() > 150
@@ -2142,31 +2437,94 @@ public class LegacyLoanImportRowService {
             );
         }
 
-
         return normalized;
     }
-
 
     // ================================================================
     // INTERNAL IMPORT NOTE
     // ================================================================
 
     private String buildInternalImportNote(
-            Long importBatchId
+            Long importBatchId,
+            BigDecimal importedInterestRate,
+            String importedRateType
     ) {
+
+        StringBuilder note =
+                new StringBuilder();
 
         if (importBatchId == null) {
 
-            return "Imported from legacy ledger.";
+            note.append(
+                    "Imported from legacy ledger."
+            );
+
+        } else {
+
+            note.append(
+                    "Imported from legacy ledger "
+            );
+
+            note.append(
+                    "(batch #"
+            );
+
+            note.append(
+                    importBatchId
+            );
+
+            note.append(
+                    ")."
+            );
         }
 
+        note.append(
+                " Current platform rates normalized to "
+        );
 
-        return "Imported from legacy ledger " +
-                "(batch #" +
-                importBatchId +
-                ").";
+        note.append(
+                "5% monthly interest, "
+        );
+
+        note.append(
+                "5% monthly management fee, "
+        );
+
+        note.append(
+                "2% one-time processing fee."
+        );
+
+        /*
+         * Preserve information about the original source rate
+         * without using it as the active loan rule.
+         */
+        if (importedInterestRate != null) {
+
+            note.append(
+                    " Original imported interest rate was "
+            );
+
+            note.append(
+                    importedInterestRate.stripTrailingZeros()
+            );
+
+            note.append(
+                    "% "
+            );
+
+            note.append(
+                    importedRateType != null
+                            ? importedRateType
+                            : "UNKNOWN"
+            );
+
+            note.append(
+                    "; source rate was normalized."
+            );
+        }
+
+        return note.toString();
     }
-
 
     // ================================================================
     // FAILURE RESULT
@@ -2182,7 +2540,6 @@ public class LegacyLoanImportRowService {
                         || error.isBlank()
                         ? "Import failed."
                         : error;
-
 
         return ImportRowResult.builder()
                 .rowNumber(

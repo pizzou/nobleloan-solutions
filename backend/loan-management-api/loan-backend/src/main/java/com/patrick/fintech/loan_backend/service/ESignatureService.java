@@ -1,4 +1,3 @@
-
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.model.Borrower;
@@ -7,12 +6,16 @@ import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.repository.ESignatureRequestRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -68,15 +71,15 @@ public class ESignatureService {
     /**
      * Maximum OTP resends for one signing request.
      *
-     * Default: 5.
-     *
-     * This is an application-level limit. A proper production deployment
-     * should also have IP/device/user rate limiting at the API gateway.
+     * The current ESignatureRequest model does not expose a
+     * dedicated resend counter, so cooldown remains the primary
+     * protection here.
      */
     @Value("${app.esignature.max-resends:5}")
     private int maxResends;
 
-    private static final SecureRandom RANDOM = new SecureRandom();
+    private static final SecureRandom RANDOM =
+            new SecureRandom();
 
     private static final DateTimeFormatter DOCUMENT_DATE_FORMAT =
             DateTimeFormatter.ofPattern(
@@ -84,21 +87,28 @@ public class ESignatureService {
                     Locale.US
             );
 
-    /**
-     * ============================================================
-     * INITIATE SIGNATURE REQUEST
-     * ============================================================
-     *
-     * Creates:
-     * - signing token
-     * - OTP
-     * - immutable document snapshot
-     * - SHA-256 document hash
-     * - SHA-256 OTP hash
-     * - signing request
-     *
-     * The plaintext OTP is never stored in the database.
-     */
+    private static final BigDecimal ZERO =
+            BigDecimal.ZERO.setScale(
+                    2,
+                    RoundingMode.HALF_UP
+            );
+
+    private static final BigDecimal ONE_HUNDRED =
+            new BigDecimal("100.00");
+
+    private static final BigDecimal MONTHLY_INTEREST_RATE =
+            new BigDecimal("5.00");
+
+    private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE =
+            new BigDecimal("5.00");
+
+    private static final BigDecimal PROCESSING_FEE_RATE =
+            new BigDecimal("2.00");
+
+    // ================================================================
+    // INITIATE SIGNATURE REQUEST
+    // ================================================================
+
     @Transactional
     public ESignatureRequest initiate(
             Long loanId,
@@ -112,14 +122,17 @@ public class ESignatureService {
             );
         }
 
-        Loan loan = loanRepo.findById(loanId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
+        Loan loan =
+                loanRepo.findById(
+                        loanId
+                ).orElseThrow(
+                        () -> new IllegalArgumentException(
                                 "Loan not found: " + loanId
                         )
                 );
 
-        Borrower borrower = loan.getBorrower();
+        Borrower borrower =
+                loan.getBorrower();
 
         if (borrower == null) {
             throw new IllegalStateException(
@@ -127,9 +140,13 @@ public class ESignatureService {
             );
         }
 
-        Organization organization = loan.getOrganization();
+        Organization organization =
+                loan.getOrganization();
 
-        if (organization == null || organization.getId() == null) {
+        if (
+                organization == null
+                        || organization.getId() == null
+        ) {
             throw new IllegalStateException(
                     "Loan has no valid organization"
             );
@@ -150,66 +167,58 @@ public class ESignatureService {
             );
         }
 
-        /*
-         * Prevent creation of multiple simultaneously active signing
-         * requests for the same loan.
-         *
-         * We use history() rather than requiring a new repository method,
-         * keeping this service compatible with the current repository.
-         */
         List<ESignatureRequest> existingRequests =
-                esignRepo.findByLoan_IdOrderByCreatedAtDesc(loanId);
-
-        for (ESignatureRequest existing : existingRequests) {
-
-            if (existing == null || existing.getStatus() == null) {
-                continue;
-            }
-
-            if (existing.getStatus()
-                    != ESignatureRequest.SignatureStatus.SIGNED
-                    && existing.getStatus()
-                    != ESignatureRequest.SignatureStatus.DECLINED
-                    && existing.getStatus()
-                    != ESignatureRequest.SignatureStatus.EXPIRED) {
-
-                /*
-                 * Do not silently create competing signing links.
-                 *
-                 * The officer should resend the existing request instead.
-                 */
-                throw new IllegalStateException(
-                        "An active e-signature request already exists "
-                                + "for this loan. Resend the existing OTP "
-                                + "instead of creating another signing request."
+                esignRepo.findByLoan_IdOrderByCreatedAtDesc(
+                        loanId
                 );
+
+        if (existingRequests != null) {
+
+            for (ESignatureRequest existing :
+                    existingRequests) {
+
+                if (
+                        existing == null
+                                || existing.getStatus() == null
+                ) {
+                    continue;
+                }
+
+                ESignatureRequest.SignatureStatus status =
+                        existing.getStatus();
+
+                if (
+                        status !=
+                                ESignatureRequest.SignatureStatus.SIGNED
+                                && status !=
+                                ESignatureRequest.SignatureStatus.DECLINED
+                                && status !=
+                                ESignatureRequest.SignatureStatus.EXPIRED
+                ) {
+
+                    throw new IllegalStateException(
+                            "An active e-signature request already exists "
+                                    + "for this loan. Resend the existing OTP "
+                                    + "instead of creating another signing request."
+                    );
+                }
             }
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now =
+                LocalDateTime.now();
 
-        /*
-         * UUID token is long and cryptographically unpredictable.
-         *
-         * The database currently stores the token itself because the
-         * existing repository exposes findBySigningToken().
-         */
         String token =
                 UUID.randomUUID()
                         .toString()
-                        .replace("-", "");
+                        .replace(
+                                "-",
+                                ""
+                        );
 
         String otp =
                 generateOtp();
 
-        /*
-         * IMPORTANT:
-         *
-         * Generate the document snapshot once and never regenerate it
-         * during the signing process.
-         *
-         * The exact snapshot shown to the borrower is hashed and persisted.
-         */
         String documentTypeValue =
                 clean(documentType) != null
                         ? clean(documentType)
@@ -226,40 +235,31 @@ public class ESignatureService {
                 sha256(documentSnapshot);
 
         String signLink =
-                buildSigningLink(token);
+                buildSigningLink(
+                        token
+                );
 
         ESignatureRequest request =
                 ESignatureRequest.builder()
                         .loan(loan)
                         .borrower(borrower)
                         .organization(organization)
-
                         .signingToken(token)
-
-                        .documentType(
-                                documentTypeValue
-                        )
-
+                        .documentType(documentTypeValue)
                         .status(
                                 ESignatureRequest.SignatureStatus.OTP_SENT
                         )
-
                         .otpCodeHash(
                                 sha256(otp)
                         )
-
                         .otpAttempts(0)
-
                         .otpSentAt(now)
-
                         .documentSnapshot(
                                 documentSnapshot
                         )
-
                         .documentHash(
                                 documentHash
                         )
-
                         .consentText(
                                 "By entering the verification code and "
                                         + "typing your full legal name, you "
@@ -270,25 +270,17 @@ public class ESignatureService {
                                         + "acceptance of the agreement, "
                                         + "subject to applicable law."
                         )
-
                         .createdBy(
                                 clean(initiatedBy)
                         )
-
                         .sentAt(now)
-
                         .build();
 
         request =
-                esignRepo.save(request);
+                esignRepo.save(
+                        request
+                );
 
-        /*
-         * Send notifications after persistence.
-         *
-         * The signing request exists before the external notification
-         * providers are called, so a provider failure does not mean the
-         * request itself never existed.
-         */
         sendSigningNotifications(
                 request,
                 borrower,
@@ -297,16 +289,14 @@ public class ESignatureService {
                 otp
         );
 
-        /*
-         * Never put the OTP, full borrower name, email, phone number,
-         * document contents or signing token into audit logs.
-         */
         auditService.log(
                 organization,
                 null,
                 "ESIGNATURE_INITIATED",
                 "LOAN",
-                String.valueOf(loanId),
+                String.valueOf(
+                        loanId
+                ),
                 "E-signature request created for document type "
                         + documentTypeValue
                         + " by "
@@ -317,8 +307,7 @@ public class ESignatureService {
         );
 
         log.info(
-                "E-signature request {} initiated for loan {} "
-                        + "by actor {}",
+                "E-signature request {} initiated for loan {} by actor {}",
                 safeRequestId(request),
                 loanId,
                 safeActor(initiatedBy)
@@ -327,25 +316,23 @@ public class ESignatureService {
         return request;
     }
 
-    /**
-     * ============================================================
-     * RESEND OTP
-     * ============================================================
-     */
+    // ================================================================
+    // RESEND OTP
+    // ================================================================
+
     @Transactional
     public ESignatureRequest resendOtp(
             String token
     ) {
 
         ESignatureRequest request =
-                getActiveByToken(token);
+                getActiveByToken(
+                        token
+                );
 
         LocalDateTime now =
                 LocalDateTime.now();
 
-        /*
-         * Prevent OTP bombing.
-         */
         if (request.getOtpSentAt() != null) {
 
             Duration elapsed =
@@ -354,8 +341,10 @@ public class ESignatureService {
                             now
                     );
 
-            if (elapsed.getSeconds()
-                    < resendCooldownSeconds) {
+            if (
+                    elapsed.getSeconds()
+                            < resendCooldownSeconds
+            ) {
 
                 long remaining =
                         resendCooldownSeconds
@@ -363,25 +352,15 @@ public class ESignatureService {
 
                 throw new IllegalStateException(
                         "Please wait "
-                                + Math.max(1, remaining)
+                                + Math.max(
+                                1,
+                                remaining
+                        )
                                 + " seconds before requesting "
                                 + "another verification code."
                 );
             }
         }
-
-        /*
-         * We use otpAttempts as the existing persisted counter for
-         * verification attempts only.
-         *
-         * Do not silently reuse it as a resend counter because doing so
-         * could make the security semantics confusing.
-         *
-         * A proper production schema should eventually add:
-         * otpResendCount.
-         *
-         * For the current model we rely on cooldown + API rate limiting.
-         */
 
         String otp =
                 generateOtp();
@@ -390,12 +369,16 @@ public class ESignatureService {
                 sha256(otp)
         );
 
-        request.setOtpSentAt(now);
+        request.setOtpSentAt(
+                now
+        );
 
         request.setOtpAttempts(0);
 
         request =
-                esignRepo.save(request);
+                esignRepo.save(
+                        request
+                );
 
         String signLink =
                 buildSigningLink(
@@ -408,7 +391,11 @@ public class ESignatureService {
         Loan loan =
                 request.getLoan();
 
-        if (borrower == null || loan == null) {
+        if (
+                borrower == null
+                        || loan == null
+        ) {
+
             throw new IllegalStateException(
                     "Signing request is missing borrower or loan information"
             );
@@ -431,11 +418,10 @@ public class ESignatureService {
         return request;
     }
 
-    /**
-     * ============================================================
-     * VERIFY OTP AND SIGN
-     * ============================================================
-     */
+    // ================================================================
+    // VERIFY OTP AND SIGN
+    // ================================================================
+
     @Transactional
     public ESignatureRequest verifyAndSign(
             String token,
@@ -446,27 +432,29 @@ public class ESignatureService {
     ) {
 
         ESignatureRequest request =
-                getActiveByToken(token);
+                getActiveByToken(
+                        token
+                );
 
-        /*
-         * Validate OTP input before hashing.
-         */
         String suppliedOtp =
                 clean(otp);
 
-        if (suppliedOtp == null
-                || !suppliedOtp.matches("\\d{6}")) {
+        if (
+                suppliedOtp == null
+                        || !suppliedOtp.matches(
+                        "\\d{6}"
+                )
+        ) {
 
-            incrementOtpAttempt(request);
+            incrementOtpAttempt(
+                    request
+            );
 
             throw new IllegalArgumentException(
                     "Verification code must contain exactly 6 digits."
             );
         }
 
-        /*
-         * Maximum incorrect attempts.
-         */
         int attempts =
                 request.getOtpAttempts() == null
                         ? 0
@@ -480,23 +468,19 @@ public class ESignatureService {
             );
         }
 
-        /*
-         * Legal name validation.
-         */
         String signerName =
                 clean(typedFullName);
 
-        if (signerName == null
-                || signerName.length() < 3) {
+        if (
+                signerName == null
+                        || signerName.length() < 3
+        ) {
 
             throw new IllegalArgumentException(
                     "Please type your full legal name to sign."
             );
         }
 
-        /*
-         * Basic name length protection.
-         */
         if (signerName.length() > 200) {
 
             throw new IllegalArgumentException(
@@ -504,18 +488,21 @@ public class ESignatureService {
             );
         }
 
-        /*
-         * Constant-time comparison prevents timing attacks.
-         */
         String suppliedHash =
-                sha256(suppliedOtp);
+                sha256(
+                        suppliedOtp
+                );
 
-        if (!secureEquals(
-                suppliedHash,
-                request.getOtpCodeHash()
-        )) {
+        if (
+                !secureEquals(
+                        suppliedHash,
+                        request.getOtpCodeHash()
+                )
+        ) {
 
-            incrementOtpAttempt(request);
+            incrementOtpAttempt(
+                    request
+            );
 
             throw new IllegalArgumentException(
                     "Incorrect verification code."
@@ -525,9 +512,6 @@ public class ESignatureService {
         LocalDateTime now =
                 LocalDateTime.now();
 
-        /*
-         * Signing is now complete.
-         */
         request.setStatus(
                 ESignatureRequest.SignatureStatus.SIGNED
         );
@@ -536,15 +520,16 @@ public class ESignatureService {
                 signerName
         );
 
-        /*
-         * Do not trust arbitrary whitespace or giant headers.
-         */
         request.setSignerIpAddress(
-                sanitizeIpAddress(ipAddress)
+                sanitizeIpAddress(
+                        ipAddress
+                )
         );
 
         request.setSignerUserAgent(
-                sanitizeUserAgent(userAgent)
+                sanitizeUserAgent(
+                        userAgent
+                )
         );
 
         request.setSignedAt(
@@ -552,7 +537,7 @@ public class ESignatureService {
         );
 
         /*
-         * OTP must not remain usable after successful signing.
+         * Invalidate OTP after successful signing.
          */
         request.setOtpCodeHash(null);
 
@@ -561,14 +546,10 @@ public class ESignatureService {
         );
 
         request =
-                esignRepo.save(request);
+                esignRepo.save(
+                        request
+                );
 
-        /*
-         * Do NOT log the complete IP, user agent, name, OTP or token
-         * in application logs.
-         *
-         * The database still contains the evidentiary fields.
-         */
         auditService.log(
                 request.getOrganization(),
                 null,
@@ -592,11 +573,10 @@ public class ESignatureService {
         return request;
     }
 
-    /**
-     * ============================================================
-     * DECLINE SIGNATURE
-     * ============================================================
-     */
+    // ================================================================
+    // DECLINE SIGNATURE
+    // ================================================================
+
     @Transactional
     public ESignatureRequest decline(
             String token,
@@ -604,7 +584,9 @@ public class ESignatureService {
     ) {
 
         ESignatureRequest request =
-                getActiveByToken(token);
+                getActiveByToken(
+                        token
+                );
 
         String cleanReason =
                 clean(reason);
@@ -615,8 +597,12 @@ public class ESignatureService {
         }
 
         if (cleanReason.length() > 1000) {
+
             cleanReason =
-                    cleanReason.substring(0, 1000);
+                    cleanReason.substring(
+                            0,
+                            1000
+                    );
         }
 
         request.setStatus(
@@ -631,13 +617,12 @@ public class ESignatureService {
                 cleanReason
         );
 
-        /*
-         * Invalidate OTP after decline.
-         */
         request.setOtpCodeHash(null);
 
         request =
-                esignRepo.save(request);
+                esignRepo.save(
+                        request
+                );
 
         auditService.log(
                 request.getOrganization(),
@@ -662,17 +647,10 @@ public class ESignatureService {
         return request;
     }
 
-    /**
-     * ============================================================
-     * GET REQUEST BY TOKEN
-     * ============================================================
-     *
-     * This method should normally be used only for the signing page.
-     *
-     * Do not expose the JPA entity directly from a public controller
-     * in production because it can expose relationships and internal
-     * fields.
-     */
+    // ================================================================
+    // GET REQUEST BY TOKEN
+    // ================================================================
+
     @Transactional(readOnly = true)
     public ESignatureRequest getByToken(
             String token
@@ -688,28 +666,20 @@ public class ESignatureService {
             );
         }
 
-        ESignatureRequest request =
-                esignRepo.findBySigningToken(
+        return esignRepo.findBySigningToken(
                         cleanToken
                 )
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
+                .orElseThrow(
+                        () -> new IllegalArgumentException(
                                 "Signing link not found."
                         )
                 );
-
-        return request;
     }
 
-    /**
-     * ============================================================
-     * HISTORY
-     * ============================================================
-     *
-     * IMPORTANT:
-     * The controller must authorize the requesting officer/admin
-     * before calling this method.
-     */
+    // ================================================================
+    // HISTORY
+    // ================================================================
+
     @Transactional(readOnly = true)
     public List<ESignatureRequest> history(
             Long loanId
@@ -721,16 +691,11 @@ public class ESignatureService {
             );
         }
 
-        /*
-         * Ensure the loan actually exists.
-         *
-         * This prevents returning an empty list for a completely
-         * invalid loan ID and makes authorization easier at the
-         * service/controller layer.
-         */
-        loanRepo.findById(loanId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
+        loanRepo.findById(
+                        loanId
+                )
+                .orElseThrow(
+                        () -> new IllegalArgumentException(
                                 "Loan not found: " + loanId
                         )
                 );
@@ -741,36 +706,43 @@ public class ESignatureService {
                 );
     }
 
-    /**
-     * ============================================================
-     * GET ACTIVE REQUEST
-     * ============================================================
-     */
+    // ================================================================
+    // GET ACTIVE REQUEST
+    // ================================================================
+
     private ESignatureRequest getActiveByToken(
             String token
     ) {
 
         ESignatureRequest request =
-                getByToken(token);
+                getByToken(
+                        token
+                );
 
-        if (request.getStatus()
-                == ESignatureRequest.SignatureStatus.SIGNED) {
+        if (
+                request.getStatus()
+                        == ESignatureRequest.SignatureStatus.SIGNED
+        ) {
 
             throw new IllegalStateException(
                     "This document has already been signed."
             );
         }
 
-        if (request.getStatus()
-                == ESignatureRequest.SignatureStatus.DECLINED) {
+        if (
+                request.getStatus()
+                        == ESignatureRequest.SignatureStatus.DECLINED
+        ) {
 
             throw new IllegalStateException(
                     "This signing request was declined."
             );
         }
 
-        if (request.getStatus()
-                == ESignatureRequest.SignatureStatus.EXPIRED) {
+        if (
+                request.getStatus()
+                        == ESignatureRequest.SignatureStatus.EXPIRED
+        ) {
 
             throw new IllegalStateException(
                     "This signing link has expired. "
@@ -781,16 +753,15 @@ public class ESignatureService {
 
         if (request.isExpired()) {
 
-            /*
-             * Persist expired state.
-             */
             request.setStatus(
                     ESignatureRequest.SignatureStatus.EXPIRED
             );
 
             request.setOtpCodeHash(null);
 
-            esignRepo.save(request);
+            esignRepo.save(
+                    request
+            );
 
             throw new IllegalStateException(
                     "This signing link has expired. "
@@ -799,8 +770,10 @@ public class ESignatureService {
             );
         }
 
-        if (request.getStatus()
-                != ESignatureRequest.SignatureStatus.OTP_SENT) {
+        if (
+                request.getStatus()
+                        != ESignatureRequest.SignatureStatus.OTP_SENT
+        ) {
 
             throw new IllegalStateException(
                     "This signing request is not available for signing."
@@ -810,11 +783,10 @@ public class ESignatureService {
         return request;
     }
 
-    /**
-     * ============================================================
-     * SEND SMS + EMAIL
-     * ============================================================
-     */
+    // ================================================================
+    // SEND SMS + EMAIL
+    // ================================================================
+
     private void sendSigningNotifications(
             ESignatureRequest request,
             Borrower borrower,
@@ -831,21 +803,18 @@ public class ESignatureService {
                 borrower.getEmail() != null
                         && !borrower.getEmail().isBlank();
 
-        /*
-         * At least one channel was validated before initiation.
-         */
         if (!hasPhone && !hasEmail) {
+
             throw new IllegalStateException(
                     "Borrower has no notification channel."
             );
         }
 
         String organizationName =
-                orgName(loan);
+                orgName(
+                        loan
+                );
 
-        /*
-         * SMS.
-         */
         if (hasPhone) {
 
             try {
@@ -877,17 +846,9 @@ public class ESignatureService {
                         loan.getId(),
                         ex
                 );
-
-                /*
-                 * We deliberately do not include the OTP, phone number
-                 * or signing token in the log.
-                 */
             }
         }
 
-        /*
-         * Email.
-         */
         if (hasEmail) {
 
             try {
@@ -912,14 +873,10 @@ public class ESignatureService {
         }
     }
 
-    /**
-     * ============================================================
-     * RENDER IMMUTABLE AGREEMENT SNAPSHOT
-     * ============================================================
-     *
-     * The timestamp is passed into this method so the document hash
-     * does not change merely because the agreement is rendered again.
-     */
+    // ================================================================
+    // RENDER IMMUTABLE AGREEMENT SNAPSHOT
+    // ================================================================
+
     private String renderAgreement(
             Loan loan,
             Borrower borrower,
@@ -932,28 +889,54 @@ public class ESignatureService {
         String organizationName =
                 organization != null
                         && organization.getName() != null
-                        ? organization.getName()
+                        ? organization.getName().trim()
                         : "Lender";
 
         String borrowerName =
                 borrower.getFullName() != null
-                        ? borrower.getFullName()
-                        : buildBorrowerName(borrower);
+                        && !borrower.getFullName().isBlank()
+                        ? borrower.getFullName().trim()
+                        : buildBorrowerName(
+                        borrower
+                );
 
         String currency =
                 loan.getCurrency() != null
-                        ? loan.getCurrency()
+                        ? loan.getCurrency().trim()
                         : "";
 
-        double amount =
-                loan.getAmount() != null
-                        ? loan.getAmount()
-                        : 0.0;
+        /*
+         * Loan monetary values are BigDecimal.
+         */
+        BigDecimal amount =
+                money(
+                        loan.getAmountDecimal()
+                );
 
-        double interestRate =
-                loan.getInterestRate() != null
-                        ? loan.getInterestRate()
-                        : 0.0;
+        BigDecimal interestRate =
+                money(
+                        loan.getInterestRateDecimal()
+                );
+
+        BigDecimal managementFeeRate =
+                money(
+                        loan.getManagementFeeRateDecimal()
+                );
+
+        BigDecimal processingFeeRate =
+                money(
+                        loan.getProcessingFeeRateDecimal()
+                );
+
+        BigDecimal processingFee =
+                money(
+                        loan.getProcessingFeeDecimal()
+                );
+
+        BigDecimal totalRepayable =
+                money(
+                        loan.getTotalRepayableDecimal()
+                );
 
         int durationMonths =
                 loan.getDurationMonths() != null
@@ -962,28 +945,27 @@ public class ESignatureService {
 
         String frequency =
                 loan.getRepaymentFrequency() != null
-                        ? loan.getRepaymentFrequency().toString()
+                        ? loan.getRepaymentFrequency().name()
                         : "MONTHLY";
-
-        double processingFee =
-                loan.getProcessingFee() != null
-                        ? loan.getProcessingFee()
-                        : 0.0;
-
-        double totalRepayable =
-                loan.getTotalRepayable() != null
-                        ? loan.getTotalRepayable()
-                        : 0.0;
 
         String purpose =
                 loan.getPurpose() != null
-                        ? loan.getPurpose()
+                        && !loan.getPurpose().isBlank()
+                        ? loan.getPurpose().trim()
                         : "General";
 
         String reference =
                 loan.getReferenceNumber() != null
-                        ? loan.getReferenceNumber()
+                        && !loan.getReferenceNumber().isBlank()
+                        ? loan.getReferenceNumber().trim()
                         : "N/A";
+
+        BigDecimal totalMonthlyChargeRate =
+                money(
+                        interestRate.add(
+                                managementFeeRate
+                        )
+                );
 
         return String.format(
                 Locale.US,
@@ -992,12 +974,23 @@ public class ESignatureService {
                         + "Lender: %s%n"
                         + "Borrower: %s%n"
                         + "Loan Reference: %s%n"
-                        + "Principal Amount: %s %,.2f%n"
-                        + "Interest Rate (annual): %.2f%%%n"
+                        + "Principal Amount: %s %s%n"
+                        + "Monthly Interest Rate: %s%%%n"
+                        + "Monthly Management Fee Rate: %s%%%n"
+                        + "Total Monthly Charge Rate: %s%%%n"
+                        + "One-Time Processing Fee Rate: %s%%%n"
+                        + "One-Time Processing Fee: %s %s%n"
                         + "Term: %d months, repaid %s%n"
-                        + "Processing Fee: %s %,.2f%n"
-                        + "Total Repayable: %s %,.2f%n"
+                        + "Total Repayable: %s %s%n"
                         + "Purpose: %s%n%n"
+                        + "IMPORTANT DISBURSEMENT TERM%n"
+                        + "The processing fee is deducted once from the "
+                        + "gross loan principal at disbursement. The "
+                        + "borrower receives the gross principal less the "
+                        + "2% processing fee. Interest and management fee "
+                        + "are calculated according to the contractual "
+                        + "loan terms and are not reduced by the processing "
+                        + "fee deduction.%n%n"
                         + "By signing below, the Borrower acknowledges "
                         + "receipt of the loan terms above, agrees to "
                         + "repay the loan in accordance with the repayment "
@@ -1010,14 +1003,17 @@ public class ESignatureService {
                 borrowerName,
                 reference,
                 currency,
-                amount,
-                interestRate,
+                formatMoney(amount),
+                formatRate(interestRate),
+                formatRate(managementFeeRate),
+                formatRate(totalMonthlyChargeRate),
+                formatRate(processingFeeRate),
+                currency,
+                formatMoney(processingFee),
                 durationMonths,
                 frequency,
                 currency,
-                processingFee,
-                currency,
-                totalRepayable,
+                formatMoney(totalRepayable),
                 purpose,
                 generatedAt.format(
                         DOCUMENT_DATE_FORMAT
@@ -1025,25 +1021,67 @@ public class ESignatureService {
         );
     }
 
-    /**
-     * ============================================================
-     * OTP GENERATOR
-     * ============================================================
-     */
+    // ================================================================
+    // MONEY FORMATTING
+    // ================================================================
+
+    private BigDecimal money(
+            BigDecimal value
+    ) {
+
+        if (value == null) {
+            return ZERO;
+        }
+
+        return value.setScale(
+                2,
+                RoundingMode.HALF_UP
+        );
+    }
+
+    private String formatMoney(
+            BigDecimal value
+    ) {
+
+        return money(
+                value
+        ).setScale(
+                2,
+                RoundingMode.HALF_UP
+        ).toPlainString();
+    }
+
+    private String formatRate(
+            BigDecimal value
+    ) {
+
+        return money(
+                value
+        ).setScale(
+                2,
+                RoundingMode.HALF_UP
+        ).toPlainString();
+    }
+
+    // ================================================================
+    // OTP GENERATOR
+    // ================================================================
+
     private String generateOtp() {
 
         return String.format(
                 Locale.US,
                 "%06d",
-                RANDOM.nextInt(1_000_000)
+                RANDOM.nextInt(
+                        1_000_000
+                )
         );
     }
 
-    /**
-     * ============================================================
-     * SIGNING LINK
-     * ============================================================
-     */
+    // ================================================================
+    // SIGNING LINK
+    // ================================================================
+
     private String buildSigningLink(
             String token
     ) {
@@ -1053,7 +1091,10 @@ public class ESignatureService {
                         ? frontendUrl.trim()
                         : "";
 
-        while (base.endsWith("/")) {
+        while (
+                base.endsWith("/")
+                        && !base.isBlank()
+        ) {
 
             base =
                     base.substring(
@@ -1069,16 +1110,25 @@ public class ESignatureService {
             );
         }
 
+        if (
+                token == null
+                        || token.isBlank()
+        ) {
+
+            throw new IllegalArgumentException(
+                    "Signing token is required."
+            );
+        }
+
         return base
                 + "/sign/"
                 + token;
     }
 
-    /**
-     * ============================================================
-     * OTP ATTEMPT
-     * ============================================================
-     */
+    // ================================================================
+    // OTP ATTEMPT
+    // ================================================================
+
     private void incrementOtpAttempt(
             ESignatureRequest request
     ) {
@@ -1094,36 +1144,54 @@ public class ESignatureService {
                 attempts
         );
 
-        esignRepo.save(request);
+        /*
+         * Lock the request after reaching the maximum number of
+         * incorrect attempts. The actual status remains available
+         * only until the controller/service decides to resend.
+         */
+        if (attempts >= maxOtpAttempts) {
+
+            request.setOtpCodeHash(
+                    null
+            );
+        }
+
+        esignRepo.save(
+                request
+        );
     }
 
-    /**
-     * ============================================================
-     * CONSTANT-TIME STRING COMPARISON
-     * ============================================================
-     */
+    // ================================================================
+    // CONSTANT-TIME STRING COMPARISON
+    // ================================================================
+
     private boolean secureEquals(
             String expected,
             String supplied
     ) {
 
-        if (expected == null
-                || supplied == null) {
+        if (
+                expected == null
+                        || supplied == null
+        ) {
 
             return false;
         }
 
         return MessageDigest.isEqual(
-                expected.getBytes(StandardCharsets.UTF_8),
-                supplied.getBytes(StandardCharsets.UTF_8)
+                expected.getBytes(
+                        StandardCharsets.UTF_8
+                ),
+                supplied.getBytes(
+                        StandardCharsets.UTF_8
+                )
         );
     }
 
-    /**
-     * ============================================================
-     * SHA-256
-     * ============================================================
-     */
+    // ================================================================
+    // SHA-256
+    // ================================================================
+
     private String sha256(
             String value
     ) {
@@ -1173,14 +1241,17 @@ public class ESignatureService {
         }
     }
 
-    /**
-     * ============================================================
-     * BORROWER NAME
-     * ============================================================
-     */
+    // ================================================================
+    // BORROWER NAME
+    // ================================================================
+
     private String buildBorrowerName(
             Borrower borrower
     ) {
+
+        if (borrower == null) {
+            return "";
+        }
 
         String first =
                 borrower.getFirstName() != null
@@ -1199,19 +1270,20 @@ public class ESignatureService {
         ).trim();
     }
 
-    /**
-     * ============================================================
-     * ORGANIZATION NAME
-     * ============================================================
-     */
+    // ================================================================
+    // ORGANIZATION NAME
+    // ================================================================
+
     private String orgName(
             Loan loan
     ) {
 
-        if (loan == null
-                || loan.getOrganization() == null
-                || loan.getOrganization().getName() == null
-                || loan.getOrganization().getName().isBlank()) {
+        if (
+                loan == null
+                        || loan.getOrganization() == null
+                        || loan.getOrganization().getName() == null
+                        || loan.getOrganization().getName().isBlank()
+        ) {
 
             return "LoanSaaS";
         }
@@ -1222,11 +1294,10 @@ public class ESignatureService {
                 .trim();
     }
 
-    /**
-     * ============================================================
-     * STRING CLEANING
-     * ============================================================
-     */
+    // ================================================================
+    // STRING CLEANING
+    // ================================================================
+
     private String clean(
             String value
     ) {
@@ -1243,11 +1314,10 @@ public class ESignatureService {
                 : cleaned;
     }
 
-    /**
-     * ============================================================
-     * IP ADDRESS SANITIZATION
-     * ============================================================
-     */
+    // ================================================================
+    // IP ADDRESS SANITIZATION
+    // ================================================================
+
     private String sanitizeIpAddress(
             String ipAddress
     ) {
@@ -1259,21 +1329,21 @@ public class ESignatureService {
             return null;
         }
 
-        /*
-         * Prevent database/log abuse through giant headers.
-         */
         if (value.length() > 100) {
-            return value.substring(0, 100);
+
+            return value.substring(
+                    0,
+                    100
+            );
         }
 
         return value;
     }
 
-    /**
-     * ============================================================
-     * USER AGENT SANITIZATION
-     * ============================================================
-     */
+    // ================================================================
+    // USER AGENT SANITIZATION
+    // ================================================================
+
     private String sanitizeUserAgent(
             String userAgent
     ) {
@@ -1285,27 +1355,29 @@ public class ESignatureService {
             return null;
         }
 
-        /*
-         * Browser User-Agent strings can be large.
-         */
         if (value.length() > 1000) {
-            return value.substring(0, 1000);
+
+            return value.substring(
+                    0,
+                    1000
+            );
         }
 
         return value;
     }
 
-    /**
-     * ============================================================
-     * SAFE LOG REQUEST ID
-     * ============================================================
-     */
+    // ================================================================
+    // SAFE REQUEST ID
+    // ================================================================
+
     private String safeRequestId(
             ESignatureRequest request
     ) {
 
-        if (request == null
-                || request.getId() == null) {
+        if (
+                request == null
+                        || request.getId() == null
+        ) {
 
             return "NEW";
         }
@@ -1315,11 +1387,10 @@ public class ESignatureService {
         );
     }
 
-    /**
-     * ============================================================
-     * SAFE ACTOR
-     * ============================================================
-     */
+    // ================================================================
+    // SAFE ACTOR
+    // ================================================================
+
     private String safeActor(
             String actor
     ) {
@@ -1332,7 +1403,11 @@ public class ESignatureService {
         }
 
         if (value.length() > 100) {
-            return value.substring(0, 100);
+
+            return value.substring(
+                    0,
+                    100
+            );
         }
 
         return value;

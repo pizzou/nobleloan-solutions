@@ -1,192 +1,420 @@
+
 package com.patrick.fintech.loan_backend.model;
 
 import java.math.BigDecimal;
-
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import jakarta.persistence.*;
-import lombok.*;
 import java.time.LocalDateTime;
 import java.util.List;
 
-@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@JsonIgnoreProperties({
+        "hibernateLazyInitializer",
+        "handler"
+})
 @Entity
 @Table(name = "organizations")
-@Data @NoArgsConstructor @AllArgsConstructor @Builder
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Organization {
 
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    /*
+     * ============================================================
+     * IDENTIFICATION
+     * ============================================================
+     */
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(nullable = false)
     private String name;
+
     private String industry;
+
     private String country;
+
     private String defaultCurrency;
+
     private String timezone;
+
     private String locale;
+
     private String logoUrl;
+
     private String primaryColor;
+
     private String accentColor;
+
     private String website;
+
     private String contactEmail;
+
     private String contactPhone;
+
     private String address;
+
     private String registrationNumber;
 
-    // ---- Public marketing website content ----
+
+    /*
+     * ============================================================
+     * PUBLIC MARKETING WEBSITE CONTENT
+     * ============================================================
+     */
+
     private String tagline;
+
     @Column(columnDefinition = "TEXT")
     private String mission;
+
     @Column(columnDefinition = "TEXT")
     private String vision;
+
     private Integer foundedYear;
+
     private String facebookUrl;
+
     private String instagramUrl;
+
     private String linkedinUrl;
+
     private String twitterUrl;
+
     private String whatsappUrl;
+
     @Column(columnDefinition = "TEXT")
     private String mapUrl;
 
-    // ---- Flexible CMS content (stored as JSON, parsed/defaulted by PublicController) ----
+
+    /*
+     * ============================================================
+     * FLEXIBLE CMS CONTENT
+     * ============================================================
+     */
+
     private String heroHeadline;
+
     @Column(columnDefinition = "TEXT")
     private String heroSubtext;
+
     @Column(columnDefinition = "TEXT")
-    private String statsJson;         // [{icon,value,label}]
+    private String statsJson;
+
     @Column(columnDefinition = "TEXT")
-    private String servicesJson;      // [{title,icon,rate,maxAmount,term,description}]
+    private String servicesJson;
+
     @Column(columnDefinition = "TEXT")
-    private String testimonialsJson;  // [{name,role,text,rating}]
+    private String testimonialsJson;
+
     @Column(columnDefinition = "TEXT")
-    private String teamJson;          // [{name,role,initials}]
+    private String teamJson;
+
+
+    /*
+     * ============================================================
+     * SUBSCRIPTION
+     * ============================================================
+     */
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private SubscriptionTier subscriptionTier;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, precision = 19, scale = 6)
+    @Column(nullable = false)
     private OrgStatus status;
 
     private Integer maxUsers;
+
     private Integer maxActiveLoans;
+
+
+    /*
+     * ============================================================
+     * LOAN LIMITS
+     *
+     * IMPORTANT:
+     *
+     * maxLoanAmount == null means NO MAXIMUM.
+     *
+     * This is intentional for the current lending rules.
+     *
+     * Minimum loan amount is stored as BigDecimal because this is
+     * monetary financial data.
+     * ============================================================
+     */
+
     @JsonProperty("maxLoanAmount")
-    @Column(precision = 19, scale = 6)
+    @Column(
+            precision = 19,
+            scale = 6
+    )
     private BigDecimal maxLoanAmount;
+
     @JsonProperty("minLoanAmount")
-    @Column(precision = 19, scale = 6)
+    @Column(
+            precision = 19,
+            scale = 6
+    )
     private BigDecimal minLoanAmount;
 
+
+    /*
+     * ============================================================
+     * BILLING / SUBSCRIPTION DATES
+     * ============================================================
+     */
+
     private String stripeCustomerId;
+
     private LocalDateTime subscribedAt;
+
     private LocalDateTime trialEndsAt;
+
     private LocalDateTime subscriptionExpiresAt;
+
     private LocalDateTime createdAt;
+
     private LocalDateTime updatedAt;
 
+
+    /*
+     * ============================================================
+     * RELATIONSHIPS
+     * ============================================================
+     */
+
     @JsonIgnore
-    @OneToMany(mappedBy = "organization", fetch = FetchType.LAZY)
+    @OneToMany(
+            mappedBy = "organization",
+            fetch = FetchType.LAZY
+    )
     private List<User> users;
 
     @JsonIgnore
-    @OneToMany(mappedBy = "organization", fetch = FetchType.LAZY)
+    @OneToMany(
+            mappedBy = "organization",
+            fetch = FetchType.LAZY
+    )
     private List<Loan> loans;
+
+
+    /*
+     * ============================================================
+     * DEFAULTS
+     * ============================================================
+     */
 
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-        if (subscriptionTier == null) subscriptionTier = SubscriptionTier.TRIAL;
-        if (status == null)           status = OrgStatus.ACTIVE;
-        if (defaultCurrency == null)  defaultCurrency = "USD";
-        if (timezone == null)         timezone = "UTC";
-        if (locale == null)           locale = "en-US";
-        if (maxUsers == null)         maxUsers = 100;
-        if (maxActiveLoans == null)   maxActiveLoans = 10000;
-        if (minLoanAmount == null)    minLoanAmount = BigDecimal.valueOf(100.0);
-        if (maxLoanAmount == null)    maxLoanAmount = BigDecimal.valueOf(1000000.0);
+
+        LocalDateTime now = LocalDateTime.now();
+
+        if (createdAt == null) {
+            createdAt = now;
+        }
+
+        if (updatedAt == null) {
+            updatedAt = now;
+        }
+
+        if (subscriptionTier == null) {
+            subscriptionTier = SubscriptionTier.TRIAL;
+        }
+
+        if (status == null) {
+            status = OrgStatus.ACTIVE;
+        }
+
+        if (defaultCurrency == null || defaultCurrency.isBlank()) {
+            defaultCurrency = "USD";
+        }
+
+        if (timezone == null || timezone.isBlank()) {
+            timezone = "UTC";
+        }
+
+        if (locale == null || locale.isBlank()) {
+            locale = "en-US";
+        }
+
+        if (maxUsers == null) {
+            maxUsers = 100;
+        }
+
+        if (maxActiveLoans == null) {
+            maxActiveLoans = 10_000;
+        }
+
+        /*
+         * Production lending rule:
+         *
+         * Minimum loan amount = RWF 500,000.
+         *
+         * Do NOT automatically create a maximum.
+         * null means unlimited.
+         */
+        if (minLoanAmount == null) {
+            minLoanAmount = new BigDecimal("500000.00");
+        }
+
+        /*
+         * maxLoanAmount intentionally remains null when no maximum
+         * has been configured.
+         */
     }
+
 
     @PreUpdate
-    protected void onUpdate() { updatedAt = LocalDateTime.now(); }
+    protected void onUpdate() {
 
-    public enum SubscriptionTier { TRIAL, STARTER, PROFESSIONAL, ENTERPRISE, UNLIMITED }
-    public enum OrgStatus        { ACTIVE, SUSPENDED, TRIAL, EXPIRED, PENDING_SETUP }
-    /**
-     * Legacy binary-floating-point read boundary retained for existing service integrations.
-     * New financial code should use getMaxLoanAmountDecimal().
-     */
-    @Deprecated
-    @JsonIgnore
-    public Double getMaxLoanAmount() {
-        return maxLoanAmount == null ? null : maxLoanAmount.doubleValue();
+        updatedAt = LocalDateTime.now();
     }
+
+
+    /*
+     * ============================================================
+     * BIGDECIMAL FINANCIAL ACCESSORS
+     *
+     * Financial code should use these methods.
+     * ============================================================
+     */
 
     @JsonIgnore
     public BigDecimal getMaxLoanAmountDecimal() {
+
         return maxLoanAmount;
     }
 
-    @Deprecated
-    public void setMaxLoanAmount(Double value) {
-        this.maxLoanAmount = value == null ? null : BigDecimal.valueOf(value);
+    public void setMaxLoanAmount(BigDecimal value) {
+
+        this.maxLoanAmount = normalizeMoney(value);
     }
 
-    public void setMaxLoanAmount(BigDecimal value) {
-        this.maxLoanAmount = value;
+
+    @JsonIgnore
+    public BigDecimal getMinLoanAmountDecimal() {
+
+        return minLoanAmount;
+    }
+
+    public void setMinLoanAmount(BigDecimal value) {
+
+        this.minLoanAmount = normalizeMoney(value);
+    }
+
+
+    /*
+     * ============================================================
+     * LIMIT HELPERS
+     * ============================================================
+     */
+
+    /**
+     * Returns true when this organization has no configured
+     * maximum loan amount.
+     */
+    @JsonIgnore
+    public boolean hasUnlimitedMaximumLoanAmount() {
+
+        return maxLoanAmount == null;
     }
 
 
     /**
-     * Legacy binary-floating-point read boundary retained for existing service integrations.
-     * New financial code should use getMinLoanAmountDecimal().
+     * Checks whether a loan amount satisfies the organization's
+     * configured loan limits.
+     *
+     * A null maximum means unlimited.
      */
-    @Deprecated
     @JsonIgnore
-    public Double getMinLoanAmount() {
-        return minLoanAmount == null ? null : minLoanAmount.doubleValue();
+    public boolean isLoanAmountWithinLimits(BigDecimal amount) {
+
+        if (amount == null) {
+            return false;
+        }
+
+        BigDecimal normalizedAmount = normalizeMoney(amount);
+
+        if (minLoanAmount != null
+                && normalizedAmount.compareTo(minLoanAmount) < 0) {
+
+            return false;
+        }
+
+        if (maxLoanAmount != null
+                && normalizedAmount.compareTo(maxLoanAmount) > 0) {
+
+            return false;
+        }
+
+        return true;
     }
 
-    @JsonIgnore
-    public BigDecimal getMinLoanAmountDecimal() {
-        return minLoanAmount;
-    }
 
-    @Deprecated
-    public void setMinLoanAmount(Double value) {
-        this.minLoanAmount = value == null ? null : BigDecimal.valueOf(value);
-    }
-
-    public void setMinLoanAmount(BigDecimal value) {
-        this.minLoanAmount = value;
-    }
-
-    /** Backward-compatible builder overloads for legacy Double callers.
-     *  Financial state is stored as BigDecimal.
+    /*
+     * ============================================================
+     * MONEY NORMALIZATION
+     * ============================================================
      */
-    public static class OrganizationBuilder {
-        private BigDecimal maxLoanAmount;
-        private BigDecimal minLoanAmount;
 
+    private static BigDecimal normalizeMoney(BigDecimal value) {
 
-        public OrganizationBuilder maxLoanAmount(Double value) {
-            this.maxLoanAmount = value == null ? null : BigDecimal.valueOf(value);
-            return this;
+        if (value == null) {
+            return null;
         }
-        public OrganizationBuilder minLoanAmount(Double value) {
-            this.minLoanAmount = value == null ? null : BigDecimal.valueOf(value);
-            return this;
-        }        public OrganizationBuilder maxLoanAmount(BigDecimal value) {
-            this.maxLoanAmount = value;
-            return this;
-        }
-        public OrganizationBuilder minLoanAmount(BigDecimal value) {
-            this.minLoanAmount = value;
-            return this;
-        }
+
+        return value.setScale(
+                6,
+                java.math.RoundingMode.HALF_UP
+        );
     }
 
+
+    /*
+     * ============================================================
+     * ENUMS
+     * ============================================================
+     */
+
+    public enum SubscriptionTier {
+
+        TRIAL,
+        STARTER,
+        PROFESSIONAL,
+        ENTERPRISE,
+        UNLIMITED
+    }
+
+    public enum OrgStatus {
+
+        ACTIVE,
+        SUSPENDED,
+        TRIAL,
+        EXPIRED,
+        PENDING_SETUP
+    }
 }

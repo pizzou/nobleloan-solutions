@@ -1,8 +1,9 @@
-
 package com.patrick.fintech.loan_backend.service;
 
-import com.patrick.fintech.loan_backend.model.*;
-import com.patrick.fintech.loan_backend.repository.*;
+import com.patrick.fintech.loan_backend.model.Loan;
+import com.patrick.fintech.loan_backend.model.LoanStatus;
+import com.patrick.fintech.loan_backend.model.User;
+import com.patrick.fintech.loan_backend.repository.LoanRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -10,9 +11,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -20,10 +24,31 @@ import java.util.*;
 public class BulkDisbursementService {
 
     private final LoanRepository loanRepo;
+    private final PaymentScheduleService paymentScheduleService;
+    private final AccountingService accountingService;
     private final AuditService auditService;
     private final WebhookService webhookService;
     private final SmsService smsService;
 
+    // ================================================================
+    // PLATFORM RULES
+    // ================================================================
+
+    private static final BigDecimal PROCESSING_FEE_RATE =
+            new BigDecimal("2.00");
+
+    private static final BigDecimal ONE_HUNDRED =
+            new BigDecimal("100.00");
+
+    private static final BigDecimal ZERO =
+            BigDecimal.ZERO.setScale(
+                    2,
+                    RoundingMode.HALF_UP
+            );
+
+    // ================================================================
+    // BULK DISBURSE
+    // ================================================================
 
     @Transactional
     public BulkDisbursementResult disburseAll(
@@ -33,131 +58,360 @@ public class BulkDisbursementService {
             String method
     ) {
 
+        if (loanIds == null || loanIds.isEmpty()) {
+
+            throw new IllegalArgumentException(
+                    "At least one loan ID is required"
+            );
+        }
+
+        if (orgId == null) {
+
+            throw new IllegalArgumentException(
+                    "Organization ID is required"
+            );
+        }
+
+        if (officer == null) {
+
+            throw new IllegalArgumentException(
+                    "Officer is required"
+            );
+        }
+
+        if (officer.getOrganization() == null
+                || officer.getOrganization().getId() == null
+                || !orgId.equals(
+                        officer.getOrganization().getId()
+                )) {
+
+            throw new IllegalStateException(
+                    "Officer does not belong to the selected organization"
+            );
+        }
+
+        String normalizedMethod =
+                method == null || method.isBlank()
+                        ? "UNSPECIFIED"
+                        : method.trim();
+
         List<DisbursementLine> lines =
                 new ArrayList<>();
 
-        double total = 0;
+        BigDecimal totalGrossDisbursed =
+                ZERO;
 
-        int ok = 0;
-        int fail = 0;
+        BigDecimal totalProcessingFees =
+                ZERO;
 
+        BigDecimal totalNetDisbursed =
+                ZERO;
 
-        for (Long id : loanIds) {
+        int successCount = 0;
+        int failureCount = 0;
+
+        LocalDateTime processedAt =
+                LocalDateTime.now();
+
+        // ============================================================
+        // PROCESS EACH LOAN
+        // ============================================================
+
+        for (Long loanId : loanIds) {
+
+            if (loanId == null) {
+
+                lines.add(
+                        DisbursementLine.failed(
+                                null,
+                                null,
+                                "Loan ID is required"
+                        )
+                );
+
+                failureCount++;
+                continue;
+            }
 
             try {
 
+                // ====================================================
+                // LOAD LOAN
+                // ====================================================
+
                 Loan loan =
-                        loanRepo.findById(id)
-                                .orElseThrow(
-                                        () ->
-                                                new RuntimeException(
-                                                        "Not found"
-                                                )
-                                );
-
-
-                if (
-                        !loan.getOrganization()
-                                .getId()
-                                .equals(orgId)
-                ) {
-
-                    lines.add(
-                            DisbursementLine.failed(
-                                    id,
-                                    null,
-                                    "Access denied"
-                            )
-                    );
-
-                    fail++;
-
-                    continue;
-                }
-
-
-                if (
-                        loan.getStatus()
-                                != LoanStatus.APPROVED
-                ) {
-
-                    lines.add(
-                            DisbursementLine.failed(
-                                    id,
-                                    loan.getReferenceNumber(),
-                                    "Status is "
-                                            + loan.getStatus()
-                            )
-                    );
-
-                    fail++;
-
-                    continue;
-                }
-
+                        loanRepo.findById(
+                                loanId
+                        )
+                        .orElseThrow(
+                                () ->
+                                        new IllegalArgumentException(
+                                                "Loan not found: "
+                                                        + loanId
+                                        )
+                        );
 
                 // ====================================================
-                // DISBURSE LOAN
+                // ORGANIZATION SECURITY
                 // ====================================================
 
+                if (loan.getOrganization() == null
+                        || loan.getOrganization().getId() == null) {
+
+                    throw new IllegalStateException(
+                            "Loan has no valid organization"
+                    );
+                }
+
+                if (!orgId.equals(
+                        loan.getOrganization().getId()
+                )) {
+
+                    throw new IllegalStateException(
+                            "Access denied"
+                    );
+                }
+
+                // ====================================================
+                // STATUS VALIDATION
+                // ====================================================
+
+                if (loan.getStatus()
+                        != LoanStatus.APPROVED) {
+
+                    throw new IllegalStateException(
+                            "Loan status is "
+                                    + loan.getStatus()
+                                    + ". Only APPROVED loans can be disbursed."
+                    );
+                }
+
+                // ====================================================
+                // AMOUNT VALIDATION
+                // ====================================================
+
+                BigDecimal grossAmount =
+                        money(
+                                loan.getAmountDecimal()
+                        );
+
+                if (grossAmount.compareTo(ZERO) <= 0) {
+
+                    throw new IllegalStateException(
+                            "Loan gross amount must be greater than zero"
+                    );
+                }
+
+                // ====================================================
+                // PROCESSING FEE
+                // ====================================================
+
+                BigDecimal processingFee =
+                        money(
+                                grossAmount
+                                        .multiply(
+                                                PROCESSING_FEE_RATE
+                                        )
+                                        .divide(
+                                                ONE_HUNDRED,
+                                                16,
+                                                RoundingMode.HALF_UP
+                                        )
+                        );
+
+                /*
+                 * Net cash delivered to borrower.
+                 */
+                BigDecimal netDisbursement =
+                        money(
+                                grossAmount
+                                        .subtract(
+                                                processingFee
+                                        )
+                                        .max(
+                                                ZERO
+                                        )
+                        );
+
+                // ====================================================
+                // DISBURSEMENT TIMESTAMP
+                // ====================================================
+
+                LocalDateTime disbursedAt =
+                        LocalDateTime.now();
+
+                LocalDate disbursementDate =
+                        disbursedAt.toLocalDate();
+
+                // ====================================================
+                // UPDATE LOAN
+                // ============================================================
+
+               
                 loan.setStatus(
                         LoanStatus.ACTIVE
                 );
 
-
-                /*
-                 * Loan.disbursedAt is LocalDateTime.
-                 *
-                 * Therefore we must use LocalDateTime.now()
-                 * instead of LocalDate.now().
-                 */
                 loan.setDisbursedAt(
-                        LocalDateTime.now()
+                        disbursedAt
                 );
 
+                loan.setDisbursedAtTimestamp(
+                        disbursedAt
+                );
+
+                loan.setStartDate(
+                        disbursementDate
+                );
 
                 loan.setDisbursedAmount(
-                        loan.getAmount()
+                        netDisbursement
                 );
 
+                loan.setProcessingFeeRate(
+                        PROCESSING_FEE_RATE
+                );
+
+                loan.setProcessingFee(
+                        processingFee
+                );
+
+                
+                loan.setOutstandingBalance(
+                        grossAmount
+                );
+
+                
+                if (loan.getDurationMonths() == null
+                        || loan.getDurationMonths() <= 0) {
+
+                    throw new IllegalStateException(
+                            "Loan duration must be greater than zero"
+                    );
+                }
+
+                LocalDate firstDueDate =
+                        disbursementDate.plusMonths(1);
 
                 loan.setMaturityDate(
-                        LocalDate.now()
-                                .plusMonths(
-                                        loan.getDurationMonths()
-                                )
-                );
-
-
-                loan.setNextDueDate(
-                        LocalDate.now()
-                                .plusMonths(1)
-                );
-
-
-                loanRepo.save(
-                        loan
-                );
-
-
-                total +=
-                        loan.getAmount() != null
-                                ? loan.getAmount()
-                                : 0;
-
-
-                ok++;
-
-
-                lines.add(
-                        DisbursementLine.success(
-                                id,
-                                loan.getReferenceNumber(),
-                                loan.getAmount(),
-                                loan.getCurrency()
+                        disbursementDate.plusMonths(
+                                loan.getDurationMonths()
                         )
                 );
 
+                loan.setNextDueDate(
+                        firstDueDate
+                );
+
+                loan.setNextPaymentDate(
+                        firstDueDate
+                );
+
+                // ====================================================
+                // SAVE LOAN BEFORE SCHEDULE GENERATION
+                // ====================================================
+
+                Loan saved =
+                        loanRepo.save(
+                                loan
+                        );
+
+                // ====================================================
+                // GENERATE REPAYMENT SCHEDULE
+                // ====================================================
+
+                /*
+                 * PaymentScheduleService uses the GROSS principal.
+                 *
+                 * Therefore interest is calculated on:
+                 *
+                 * RWF 1,000,000
+                 *
+                 * not:
+                 *
+                 * RWF 980,000
+                 *
+                 * when the processing fee is RWF 20,000.
+                 */
+                paymentScheduleService.generateSchedule(
+                        saved
+                );
+
+                // ====================================================
+                // REFRESH LOAN AFTER SCHEDULE GENERATION
+                // ====================================================
+
+                saved =
+                        loanRepo.save(
+                                saved
+                        );
+
+                // ====================================================
+                // ACCOUNTING
+                // ====================================================
+
+                /*
+                 * AccountingService posts:
+                 *
+                 * DR Loans Receivable     gross amount
+                 * CR Cash                 gross amount
+                 *
+                 * and separately:
+                 *
+                 * DR Cash                 processing fee
+                 * CR Fee Income            processing fee
+                 *
+                 * Net cash movement =
+                 * gross amount - processing fee
+                 */
+                accountingService.postDisbursement(
+                        saved
+                );
+
+                // ====================================================
+                // TOTALS
+                // ====================================================
+
+                totalGrossDisbursed =
+                        money(
+                                totalGrossDisbursed
+                                        .add(
+                                                grossAmount
+                                        )
+                        );
+
+                totalProcessingFees =
+                        money(
+                                totalProcessingFees
+                                        .add(
+                                                processingFee
+                                        )
+                        );
+
+                totalNetDisbursed =
+                        money(
+                                totalNetDisbursed
+                                        .add(
+                                                netDisbursement
+                                        )
+                        );
+
+                successCount++;
+
+                // ====================================================
+                // SUCCESS RESPONSE LINE
+                // ====================================================
+
+                lines.add(
+                        DisbursementLine.success(
+                                loanId,
+                                saved.getReferenceNumber(),
+                                grossAmount,
+                                processingFee,
+                                netDisbursement,
+                                saved.getCurrency()
+                        )
+                );
 
                 // ====================================================
                 // SMS
@@ -165,87 +419,157 @@ public class BulkDisbursementService {
 
                 try {
 
-                    smsService.sendLoanApproved(
-                            loan
+                    /*
+                     * IMPORTANT:
+                     *
+                     * Use sendLoanDisbursed(), not
+                     * sendLoanApproved().
+                     *
+                     * The borrower needs to know the actual net
+                     * amount received after the 2% processing fee.
+                     */
+                    smsService.sendLoanDisbursed(
+                            saved,
+                            normalizedMethod
                     );
 
                 } catch (Exception e) {
 
                     log.warn(
                             "SMS notification failed for loan {}",
-                            id,
+                            loanId,
                             e
                     );
                 }
-
 
                 // ====================================================
                 // AUDIT
                 // ====================================================
 
-                auditService.log(
-                        loan.getOrganization(),
-                        officer,
-                        "BULK_DISBURSEMENT",
-                        "LOAN",
-                        id.toString(),
-                        "Bulk disbursed via "
-                                + method
-                );
+                try {
 
+                    auditService.log(
+                            saved.getOrganization(),
+                            officer,
+                            "BULK_DISBURSEMENT",
+                            "LOAN",
+                            loanId.toString(),
+                            "Bulk disbursement via "
+                                    + normalizedMethod
+                                    + ". Gross="
+                                    + grossAmount
+                                    + ", processing fee="
+                                    + processingFee
+                                    + ", net disbursement="
+                                    + netDisbursement
+                    );
+
+                } catch (Exception e) {
+
+                    log.warn(
+                            "Audit logging failed for loan {}",
+                            loanId,
+                            e
+                    );
+                }
 
                 // ====================================================
                 // WEBHOOK
                 // ====================================================
 
-                webhookService.dispatch(
-                        loan.getOrganization(),
-                        "LOAN_DISBURSED",
-                        loan
-                );
+                try {
 
+                    webhookService.dispatch(
+                            saved.getOrganization(),
+                            "LOAN_DISBURSED",
+                            saved
+                    );
+
+                } catch (Exception e) {
+
+                    log.warn(
+                            "Webhook dispatch failed for loan {}",
+                            loanId,
+                            e
+                    );
+                }
 
             } catch (Exception e) {
 
-                log.warn(
-                        "Bulk fail for loan {}: {}",
-                        id,
-                        e.getMessage()
+                log.error(
+                        "Bulk disbursement failed for loan {}: {}",
+                        loanId,
+                        e.getMessage(),
+                        e
                 );
-
 
                 lines.add(
                         DisbursementLine.failed(
-                                id,
+                                loanId,
                                 null,
-                                e.getMessage()
+                                e.getMessage() != null
+                                        ? e.getMessage()
+                                        : "Disbursement failed"
                         )
                 );
 
-
-                fail++;
+                failureCount++;
             }
         }
 
+        // ============================================================
+        // FINAL LOG
+        // ============================================================
 
         log.info(
-                "Bulk disbursement: {}/{} succeeded, total {}",
-                ok,
+                "Bulk disbursement completed. " +
+                        "organizationId={}, totalLoans={}, " +
+                        "success={}, failures={}, grossDisbursed={}, " +
+                        "processingFees={}, netDisbursed={}, method={}",
+                orgId,
                 loanIds.size(),
-                total
+                successCount,
+                failureCount,
+                totalGrossDisbursed,
+                totalProcessingFees,
+                totalNetDisbursed,
+                normalizedMethod
         );
 
+        // ============================================================
+        // RESULT
+        // ============================================================
 
         return new BulkDisbursementResult(
-                ok,
-                fail,
-                total,
-                method,
-                LocalDateTime.now(),
+                successCount,
+                failureCount,
+                totalGrossDisbursed.doubleValue(),
+                totalProcessingFees.doubleValue(),
+                totalNetDisbursed.doubleValue(),
+                normalizedMethod,
+                processedAt,
                 lines
         );
     }
 
+    // ================================================================
+    // MONEY
+    // ================================================================
+
+    private BigDecimal money(
+            BigDecimal value
+    ) {
+
+        if (value == null) {
+
+            return ZERO;
+        }
+
+        return value.setScale(
+                2,
+                RoundingMode.HALF_UP
+        );
+    }
 
     // ================================================================
     // DISBURSEMENT LINE
@@ -255,46 +579,58 @@ public class BulkDisbursementService {
             Long loanId,
             String referenceNumber,
             boolean success,
-            Double amount,
+            Double grossAmount,
+            Double processingFee,
+            Double netDisbursedAmount,
             String currency,
             String errorMessage
     ) {
 
         static DisbursementLine success(
                 Long id,
-                String ref,
-                Double amt,
-                String cur
+                String referenceNumber,
+                BigDecimal grossAmount,
+                BigDecimal processingFee,
+                BigDecimal netDisbursedAmount,
+                String currency
         ) {
 
             return new DisbursementLine(
                     id,
-                    ref,
+                    referenceNumber,
                     true,
-                    amt,
-                    cur,
+                    grossAmount != null
+                            ? grossAmount.doubleValue()
+                            : 0.0,
+                    processingFee != null
+                            ? processingFee.doubleValue()
+                            : 0.0,
+                    netDisbursedAmount != null
+                            ? netDisbursedAmount.doubleValue()
+                            : 0.0,
+                    currency,
                     null
             );
         }
 
-
         static DisbursementLine failed(
                 Long id,
-                String ref,
-                String err
+                String referenceNumber,
+                String error
         ) {
 
             return new DisbursementLine(
                     id,
-                    ref,
+                    referenceNumber,
                     false,
                     null,
                     null,
-                    err
+                    null,
+                    null,
+                    error
             );
         }
     }
-
 
     // ================================================================
     // BULK DISBURSEMENT RESULT
@@ -303,7 +639,9 @@ public class BulkDisbursementService {
     public record BulkDisbursementResult(
             int successCount,
             int failureCount,
-            double totalAmountDisbursed,
+            double totalGrossAmountDisbursed,
+            double totalProcessingFees,
+            double totalNetAmountDisbursed,
             String disbursementMethod,
             LocalDateTime processedAt,
             List<DisbursementLine> lines

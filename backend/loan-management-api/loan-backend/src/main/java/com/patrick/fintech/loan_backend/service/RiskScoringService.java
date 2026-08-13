@@ -1,12 +1,22 @@
 package com.patrick.fintech.loan_backend.service;
 
-import com.patrick.fintech.loan_backend.model.*;
+import com.patrick.fintech.loan_backend.model.Borrower;
+import com.patrick.fintech.loan_backend.model.CreditBureauCheck;
+import com.patrick.fintech.loan_backend.model.Loan;
+import com.patrick.fintech.loan_backend.model.LoanStatus;
 import com.patrick.fintech.loan_backend.repository.CreditBureauCheckRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
 
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.List;
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -16,92 +26,486 @@ public class RiskScoringService {
     private final LoanRepository loanRepo;
     private final CreditBureauCheckRepository creditBureauCheckRepo;
 
+    private static final BigDecimal ZERO =
+            BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+
+    private static final BigDecimal FIFTY_PERCENT =
+            new BigDecimal("0.50");
+
+    private static final BigDecimal DTI_20 =
+            new BigDecimal("20.00");
+
+    private static final BigDecimal DTI_30 =
+            new BigDecimal("30.00");
+
+    private static final BigDecimal DTI_40 =
+            new BigDecimal("40.00");
+
+    private static final BigDecimal DTI_50 =
+            new BigDecimal("50.00");
+
+    /**
+     * Calculate a risk score from 0 to 100.
+     *
+     * Higher score = lower risk.
+     *
+     * Risk factors:
+     *
+     * 1. Credit score
+     * 2. Debt-to-income ratio
+     * 3. Employment type
+     * 4. Collateral
+     * 5. Loan type
+     * 6. Existing active/overdue loans
+     * 7. Credit bureau history
+     */
+    @Transactional(readOnly = true)
     public RiskResult score(Loan loan) {
-        Borrower b = loan.getBorrower();
-        double score = 100.0; // start healthy
 
-        // 1. Credit score (max 30 pts)
-        if (b.getCreditScore() != null) {
-            int cs = b.getCreditScore();
-            if      (cs >= 800) score -= 0;
-            else if (cs >= 750) score -= 5;
-            else if (cs >= 700) score -= 12;
-            else if (cs >= 650) score -= 20;
-            else if (cs >= 600) score -= 28;
-            else                score -= 35;
-        } else { score -= 20; } // no credit history
-
-        // 2. Debt-to-income ratio (max 25 pts)
-        if (loan.getDebtToIncomeRatio() != null) {
-            double dti = loan.getDebtToIncomeRatio();
-            if      (dti < 20)  score -= 0;
-            else if (dti < 30)  score -= 5;
-            else if (dti < 40)  score -= 12;
-            else if (dti < 50)  score -= 20;
-            else                score -= 28;
+        if (loan == null) {
+            throw new IllegalArgumentException(
+                    "Loan is required for risk scoring"
+            );
         }
 
-        // 3. Employment type (max 15 pts)
-        if (b.getEmploymentType() != null) {
-            switch (b.getEmploymentType().toUpperCase()) {
-                case "PERMANENT"     -> {}
-                case "CONTRACT"      -> score -= 5;
-                case "SELF_EMPLOYED" -> score -= 8;
-                case "UNEMPLOYED"    -> score -= 18;
-                default              -> score -= 5;
+        Borrower borrower =
+                loan.getBorrower();
+
+        if (borrower == null) {
+            throw new IllegalArgumentException(
+                    "Loan borrower is required for risk scoring"
+            );
+        }
+
+        if (loan.getOrganization() == null
+                || loan.getOrganization().getId() == null) {
+
+            throw new IllegalArgumentException(
+                    "Loan organization is required for risk scoring"
+            );
+        }
+
+        double score = 100.0;
+
+        // ============================================================
+        // 1. CREDIT SCORE
+        // ============================================================
+
+        Integer borrowerCreditScore =
+                borrower.getCreditScore();
+
+        if (borrowerCreditScore != null) {
+
+            int creditScore =
+                    borrowerCreditScore;
+
+            if (creditScore >= 800) {
+
+                score -= 0;
+
+            } else if (creditScore >= 750) {
+
+                score -= 5;
+
+            } else if (creditScore >= 700) {
+
+                score -= 12;
+
+            } else if (creditScore >= 650) {
+
+                score -= 20;
+
+            } else if (creditScore >= 600) {
+
+                score -= 28;
+
+            } else {
+
+                score -= 35;
+            }
+
+        } else {
+
+            /*
+             * No credit history available.
+             */
+            score -= 20;
+        }
+
+       
+        BigDecimal dti =
+                loan.getDebtToIncomeRatio() != null
+                        ? loan.getDebtToIncomeRatio()
+                        : ZERO;
+
+        dti =
+                dti.setScale(
+                        2,
+                        RoundingMode.HALF_UP
+                );
+
+        if (dti.compareTo(DTI_20) < 0) {
+
+            score -= 0;
+
+        } else if (dti.compareTo(DTI_30) < 0) {
+
+            score -= 5;
+
+        } else if (dti.compareTo(DTI_40) < 0) {
+
+            score -= 12;
+
+        } else if (dti.compareTo(DTI_50) < 0) {
+
+            score -= 20;
+
+        } else {
+
+            score -= 28;
+        }
+
+        // ============================================================
+        // 3. EMPLOYMENT TYPE
+        // ============================================================
+
+        if (borrower.getEmploymentType() != null) {
+
+            String employmentType =
+                    borrower.getEmploymentType()
+                            .trim()
+                            .toUpperCase(Locale.ROOT);
+
+            switch (employmentType) {
+
+                case "PERMANENT" -> {
+                    // No deduction.
+                }
+
+                case "CONTRACT" -> {
+                    score -= 5;
+                }
+
+                case "SELF_EMPLOYED" -> {
+                    score -= 8;
+                }
+
+                case "UNEMPLOYED" -> {
+                    score -= 18;
+                }
+
+                default -> {
+                    score -= 5;
+                }
             }
         }
 
-        // 4. Collateral (max 15 pts)
-        if (loan.getCollateralValue() == null || loan.getCollateralValue() == 0) score -= 12;
-        else if (loan.getCollateralValue() < loan.getAmount() * 0.5)             score -= 6;
+        // ============================================================
+        // 4. COLLATERAL
+        // ============================================================
 
-        // 5. Loan type multiplier (max 10 pts)
+        BigDecimal collateralValue =
+                loan.getCollateralValue() != null
+                        ? loan.getCollateralValue()
+                        : ZERO;
+
+        collateralValue =
+                collateralValue.setScale(
+                        2,
+                        RoundingMode.HALF_UP
+                );
+
+        BigDecimal loanAmount =
+                loan.getAmountDecimal() != null
+                        ? loan.getAmountDecimal()
+                        : ZERO;
+
+        loanAmount =
+                loanAmount.setScale(
+                        2,
+                        RoundingMode.HALF_UP
+                );
+
+        if (collateralValue.compareTo(ZERO) <= 0) {
+
+            /*
+             * No collateral.
+             */
+            score -= 12;
+
+        } else if (loanAmount.compareTo(ZERO) > 0) {
+
+            BigDecimal minimumCollateralCoverage =
+                    loanAmount.multiply(
+                            FIFTY_PERCENT
+                    );
+
+            if (collateralValue.compareTo(
+                    minimumCollateralCoverage
+            ) < 0) {
+
+                score -= 6;
+            }
+        }
+
+        // ============================================================
+        // 5. LOAN TYPE
+        // ============================================================
+
         if (loan.getLoanType() != null) {
+
             switch (loan.getLoanType()) {
-                case MORTGAGE, AGRICULTURAL -> {}
-                case AUTO, ASSET_FINANCE    -> score -= 2;
-                case BUSINESS               -> score -= 5;
-                case PERSONAL               -> score -= 8;
-                case EMERGENCY              -> score -= 12;
-                case MICROFINANCE           -> score -= 10;
-                default                     -> score -= 5;
+
+                case MORTGAGE,
+                     AGRICULTURAL -> {
+                    // No deduction.
+                }
+
+                case AUTO,
+                     ASSET_FINANCE -> {
+                    score -= 2;
+                }
+
+                case BUSINESS -> {
+                    score -= 5;
+                }
+
+                case PERSONAL -> {
+                    score -= 8;
+                }
+
+                case EMERGENCY -> {
+                    score -= 12;
+                }
+
+                case MICROFINANCE -> {
+                    score -= 10;
+                }
+
+                default -> {
+                    score -= 5;
+                }
             }
         }
 
-        // 6. Existing loans penalty
-        long existingActive = loanRepo.findByBorrowerIdAndOrganizationId(
-            b.getId(), loan.getOrganization().getId()).stream()
-            .filter(l -> l.getStatus() == LoanStatus.ACTIVE || l.getStatus() == LoanStatus.OVERDUE)
-            .count();
-        score -= existingActive * 8;
+        // ============================================================
+        // 6. EXISTING ACTIVE / OVERDUE LOANS
+        // ============================================================
 
-        // 7. Credit bureau history (max 15 pts) — uses the freshest non-expired bureau pull on file
-        var bureauCheck = creditBureauCheckRepo.findFirstByBorrower_IdOrderByCreatedAtDesc(b.getId())
-            .filter(c -> !c.isExpired() && c.getStatus() == CreditBureauCheck.CheckStatus.COMPLETED);
-        if (bureauCheck.isPresent()) {
-            CreditBureauCheck cb = bureauCheck.get();
-            if (Boolean.TRUE.equals(cb.getHasDefaultHistory())) score -= 12;
-            if (Boolean.TRUE.equals(cb.getHasActiveListing())) score -= 15;
-            if (cb.getDelinquentAccounts() != null && cb.getDelinquentAccounts() > 0)
-                score -= Math.min(cb.getDelinquentAccounts() * 4, 12);
+        List<Loan> borrowerLoans =
+                loanRepo.findByBorrowerIdAndOrganizationId(
+                        borrower.getId(),
+                        loan.getOrganization().getId()
+                );
+
+        if (borrowerLoans == null) {
+            borrowerLoans = List.of();
         }
 
-        score = Math.max(0, Math.min(100, score));
+        long existingActiveLoans =
+                borrowerLoans.stream()
+                        .filter(
+                                existingLoan ->
+                                        existingLoan != null
+                        )
+                        .filter(
+                                existingLoan ->
+                                        existingLoan.getId() == null
+                                                || loan.getId() == null
+                                                || !existingLoan
+                                                .getId()
+                                                .equals(
+                                                        loan.getId()
+                                                )
+                        )
+                        .filter(
+                                existingLoan -> {
+
+                                    LoanStatus status =
+                                            existingLoan.getStatus();
+
+                                    return status == LoanStatus.ACTIVE
+                                            || status == LoanStatus.OVERDUE;
+                                }
+                        )
+                        .count();
+
+        score -=
+                existingActiveLoans * 8.0;
+
+        // ============================================================
+        // 7. CREDIT BUREAU HISTORY
+        // ============================================================
+
+        try {
+
+            if (borrower.getId() != null) {
+
+                var bureauCheck =
+                        creditBureauCheckRepo
+                                .findFirstByBorrower_IdOrderByCreatedAtDesc(
+                                        borrower.getId()
+                                )
+                                .filter(
+                                        check ->
+                                                check != null
+                                                        && !check.isExpired()
+                                )
+                                .filter(
+                                        check ->
+                                                check.getStatus()
+                                                        == CreditBureauCheck.CheckStatus.COMPLETED
+                                );
+
+                if (bureauCheck.isPresent()) {
+
+                    CreditBureauCheck creditBureau =
+                            bureauCheck.get();
+
+                    if (
+                            Boolean.TRUE.equals(
+                                    creditBureau.getHasDefaultHistory()
+                            )
+                    ) {
+
+                        score -= 12;
+                    }
+
+                    if (
+                            Boolean.TRUE.equals(
+                                    creditBureau.getHasActiveListing()
+                            )
+                    ) {
+
+                        score -= 15;
+                    }
+
+                    Integer delinquentAccounts =
+                            creditBureau.getDelinquentAccounts();
+
+                    if (
+                            delinquentAccounts != null
+                                    && delinquentAccounts > 0
+                    ) {
+
+                        double delinquentPenalty =
+                                Math.min(
+                                        delinquentAccounts * 4.0,
+                                        12.0
+                                );
+
+                        score -=
+                                delinquentPenalty;
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+
+            /*
+             * Credit bureau information is supplementary.
+             * A bureau lookup failure must not prevent risk scoring.
+             */
+            log.warn(
+                    "Credit bureau history could not be evaluated for borrower {}: {}",
+                    borrower.getId(),
+                    e.getMessage()
+            );
+        }
+
+        // ============================================================
+        // FINAL SCORE NORMALIZATION
+        // ============================================================
+
+        score =
+                Math.max(
+                        0.0,
+                        Math.min(
+                                100.0,
+                                score
+                        )
+                );
+
+        score =
+                round(
+                        score
+                );
+
+        // ============================================================
+        // RISK CATEGORY
+        // ============================================================
 
         String category;
-        if      (score >= 80) category = "LOW";
-        else if (score >= 60) category = "MEDIUM";
-        else if (score >= 40) category = "HIGH";
-        else                  category = "CRITICAL";
 
-        return new RiskResult(round(score), category);
+        if (score >= 80.0) {
+
+            category = "LOW";
+
+        } else if (score >= 60.0) {
+
+            category = "MEDIUM";
+
+        } else if (score >= 40.0) {
+
+            category = "HIGH";
+
+        } else {
+
+            category = "CRITICAL";
+        }
+
+        log.info(
+                "Risk score calculated. loanId={}, borrowerId={}, " +
+                        "dti={}, collateral={}, existingActiveLoans={}, " +
+                        "score={}, category={}",
+                loan.getId(),
+                borrower.getId(),
+                dti,
+                collateralValue,
+                existingActiveLoans,
+                score,
+                category
+        );
+
+        return new RiskResult(
+                score,
+                category
+        );
     }
 
-    private double round(double v) { return Math.round(v * 10.0) / 10.0; }
+    // ============================================================
+    // ROUND SCORE
+    // ============================================================
 
-    public record RiskResult(double score, String category) {
-        public double getScore()    { return score; }
-        public String getCategory() { return category; }
+    private double round(
+            double value
+    ) {
+
+        return BigDecimal.valueOf(
+                        value
+                )
+                .setScale(
+                        1,
+                        RoundingMode.HALF_UP
+                )
+                .doubleValue();
+    }
+
+    // ============================================================
+    // RESULT
+    // ============================================================
+
+    public record RiskResult(
+            double score,
+            String category
+    ) {
+
+        public double getScore() {
+            return score;
+        }
+
+        public String getCategory() {
+            return category;
+        }
     }
 }

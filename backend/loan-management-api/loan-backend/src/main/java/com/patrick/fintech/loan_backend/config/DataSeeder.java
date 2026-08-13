@@ -1,15 +1,27 @@
 package com.patrick.fintech.loan_backend.config;
 
-import com.patrick.fintech.loan_backend.model.*;
-import com.patrick.fintech.loan_backend.repository.*;
+import com.patrick.fintech.loan_backend.model.Loan;
+import com.patrick.fintech.loan_backend.model.LoanProduct;
+import com.patrick.fintech.loan_backend.model.Organization;
+import com.patrick.fintech.loan_backend.model.Role;
+import com.patrick.fintech.loan_backend.model.User;
+import com.patrick.fintech.loan_backend.repository.LoanProductRepository;
+import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
+import com.patrick.fintech.loan_backend.repository.RoleRepository;
+import com.patrick.fintech.loan_backend.repository.UserRepository;
+import com.patrick.fintech.loan_backend.service.AccountingService;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-
+import java.util.List;
 
 @Component
 @RequiredArgsConstructor
@@ -17,113 +29,667 @@ import java.time.LocalDateTime;
 public class DataSeeder implements CommandLineRunner {
 
     private final OrganizationRepository orgRepo;
-    private final UserRepository         userRepo;
-    private final RoleRepository         roleRepo;
-    private final PasswordEncoder        encoder;
-    private final com.patrick.fintech.loan_backend.service.AccountingService accountingService;
-    private final LoanProductRepository  loanProductRepo;
+
+    private final UserRepository userRepo;
+
+    private final RoleRepository roleRepo;
+
+    private final PasswordEncoder encoder;
+
+    private final AccountingService accountingService;
+
+    private final LoanProductRepository loanProductRepo;
+
+    /*
+     * ============================================================
+     * CURRENT BUSINESS RULES
+     * ============================================================
+     */
+
+    private static final BigDecimal INTEREST_RATE =
+            new BigDecimal("5.00");
+
+    private static final String INTEREST_RATE_TYPE =
+            "MONTHLY";
+
+    private static final BigDecimal PROCESSING_FEE =
+            new BigDecimal("2.00");
+
+    private static final BigDecimal MANAGEMENT_FEE =
+            new BigDecimal("5.00");
+
+    private static final BigDecimal MIN_LOAN_AMOUNT =
+            new BigDecimal("500000.00");
+
+    private static final int MIN_TERM_MONTHS = 1;
+
+    private static final int MAX_TERM_MONTHS = 6;
 
     @Override
+    @Transactional
     public void run(String... args) {
-        if (orgRepo.count() > 0) {
-            log.info("Data already seeded — skipping DataSeeder");
+
+        log.info("Starting Loan SaaS bootstrap validation...");
+
+        Role adminRole =
+                ensureRole(
+                        "ADMIN",
+                        "Full platform access"
+                );
+
+        ensureRole(
+                "LOAN_OFFICER",
+                "Approve and disburse loans"
+        );
+
+        ensureRole(
+                "MANAGER",
+                "Branch/portfolio management"
+        );
+
+        List<Organization> organizations =
+                orgRepo.findAll();
+
+        if (organizations.isEmpty()) {
+
+            Organization organization =
+                    createDefaultOrganization();
+
+            createBootstrapAdmin(
+                    organization,
+                    adminRole
+            );
+
+            accountingService.ensureChartOfAccounts(
+                    organization
+            );
+
+            ensureLoanProducts(
+                    organization
+            );
+
+            log.info(
+                    "Initial organization and loan products created successfully."
+            );
+
+            logBootstrapInformation(
+                    organization
+            );
+
             return;
         }
 
-        log.info("Running initial bootstrap seed...");
+        /*
+         * ========================================================
+         * EXISTING ORGANIZATIONS
+         * ========================================================
+         *
+         * Do not skip.
+         *
+         * Existing production organizations may have old product
+         * configurations such as:
+         *
+         * 8%, 9%, 10%, 11%, 12%
+         * 12/24/48 month terms
+         * artificial maximum loan amounts
+         * old fee configuration
+         *
+         * The current business rules must be enforced.
+         */
 
-        // Roles already seeded by Flyway V1 migration — just look them up (create if missing,
-        // e.g. local H2 dev profile).
-        Role adminRole   = ensureRole("ADMIN",        "Full platform access");
-        Role officerRole = ensureRole("LOAN_OFFICER", "Approve and disburse loans");
-        Role managerRole = ensureRole("MANAGER",      "Branch/portfolio management");
+        for (Organization organization : organizations) {
 
-       
-        Organization growth = orgRepo.save(Organization.builder()
-            .name("Noble Loan Solutions Ltd").industry("Microfinance").country("RW")
-            .defaultCurrency("RWF").timezone("Africa/Kigali").locale("en-RW")
-            .primaryColor("#0F1B3D").accentColor("#C9A227")
-            .website("https://nobleloansolutions.rw")
-            .contactEmail("info@nobleloansolutions.rw").contactPhone("+250 788 000 000")
-            .address("KG 7 Ave, Kigali, Rwanda").registrationNumber("REG-NLS-004")
-            .tagline("Your Trusted Partner in Financial Support")
-            .mission("To provide honest, fairly-priced credit to individuals and businesses across Rwanda, delivered with integrity, transparency, and respect for every client.")
-            .vision("To be Rwanda's most trusted name in lending — synonymous with fairness, transparency, and financial dignity for every client we serve.")
-            .heroHeadline("Need Cash Fast? We've Got You Covered!")
-            .heroSubtext("Your trusted partner in financial support — personal, business, vehicle, salary advance, and agriculture loans, backed by a secure, fully compliant lending platform.")
-            .foundedYear(2020)
-            .facebookUrl("https://facebook.com/nobleloansolutionsrw").instagramUrl("https://instagram.com/nobleloansolutionsrw")
-            .linkedinUrl("https://linkedin.com/company/nobleloansolutionsrw").twitterUrl("https://twitter.com/nobleloansolutionsrw")
-            .whatsappUrl("https://wa.me/250788000000")
-            .mapUrl("https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d63800.15641867!2d30.0644!3d-1.9536!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x19dca75a929d959f%3A0x0!2sKigali!5e0!3m2!1sen!2srw!4v1690000000000")
-            .subscriptionTier(Organization.SubscriptionTier.PROFESSIONAL)
-            .status(Organization.OrgStatus.ACTIVE)
-            .maxUsers(100).maxActiveLoans(10000)
-            .minLoanAmount(BigDecimal.valueOf(20000.0)).maxLoanAmount(BigDecimal.valueOf(30_000_000.0))
-            .subscribedAt(LocalDateTime.now()).subscriptionExpiresAt(LocalDateTime.now().plusYears(1))
-            .build());
+            if (organization == null
+                    || organization.getId() == null) {
+                continue;
+            }
 
-        // Real admin account — from Render env vars, no hardcoded fallback for the password.
-        // This only runs on the very first startup against an empty database; changing these
-        // env vars later won't retroactively update an already-created admin.
-        String bootstrapAdminEmail    = System.getenv("BOOTSTRAP_ADMIN_EMAIL");
-        String bootstrapAdminPassword = System.getenv("BOOTSTRAP_ADMIN_PASSWORD");
-        String bootstrapAdminName     = System.getenv("BOOTSTRAP_ADMIN_NAME");
-        if (bootstrapAdminEmail == null || bootstrapAdminEmail.isBlank()
-                || bootstrapAdminPassword == null || bootstrapAdminPassword.isBlank()) {
-            throw new IllegalStateException(
-                "BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD must both be set — refusing " +
-                "to create an admin account with a guessable default in production.");
+            log.info(
+                    "Validating loan-product configuration for organization {} ({})",
+                    organization.getId(),
+                    organization.getName()
+            );
+
+            ensureLoanProducts(
+                    organization
+            );
+
+            accountingService.ensureChartOfAccounts(
+                    organization
+            );
         }
-        String adminName = (bootstrapAdminName != null && !bootstrapAdminName.isBlank()) ? bootstrapAdminName : "Admin";
-        userRepo.save(makeUser(adminName, bootstrapAdminEmail, bootstrapAdminPassword, adminRole, growth));
-        accountingService.ensureChartOfAccounts(growth);
 
-        // Real loan products — edit rates/limits directly here, or from Dashboard → Loan Products
-        // once the app is running.
-        seedProduct(growth, "Personal Loan", "👤", Loan.LoanType.PERSONAL, 10.0, "MONTHLY", 50_000.0, 5_000_000.0, 1, 12,
-            "Fast personal financing for any purpose — school fees, medical bills, home improvement.", 1);
-        seedProduct(growth, "Business Finance", "🏢", Loan.LoanType.BUSINESS, 12.0, "A", 500_000.0, 30_000_000.0, 1, 12,
-            "Working capital and expansion financing for registered Rwandan businesses.", 2);
-        seedProduct(growth, "Vehicle Finance", "🚗", Loan.LoanType.AUTO, 11.0, "ANNUAL", 500_000.0, 20_000_000.0, 6, 48,
-            "Financing to purchase a new or used vehicle, personal or commercial.", 3);
-        seedProduct(growth, "Salary Advance Loan", "💵", Loan.LoanType.SALARY_ADVANCE, 10.0, "MONTHLY", 50_000.0, 2_000_000.0, 1, 3,
-            "Quick advance against your salary for urgent short-term needs.", 4);
-        seedProduct(growth, "Agriculture Loan", "🌾", Loan.LoanType.AGRICULTURAL, 9.0, "ANNUAL", 100_000.0, 10_000_000.0, 3, 24,
-            "Financing for farmers and agribusinesses — inputs, equipment, and expansion.", 5);
+        log.info(
+                "Loan SaaS bootstrap validation completed successfully."
+        );
+    }
+
+    /*
+     * ============================================================
+     * DEFAULT ORGANIZATION
+     * ============================================================
+     */
+
+    private Organization createDefaultOrganization() {
+
+        Organization organization =
+                Organization.builder()
+
+                        .name(
+                                "Noble Loan Solutions Ltd"
+                        )
+
+                        .industry(
+                                "Microfinance"
+                        )
+
+                        .country(
+                                "RW"
+                        )
+
+                        .defaultCurrency(
+                                "RWF"
+                        )
+
+                        .timezone(
+                                "Africa/Kigali"
+                        )
+
+                        .locale(
+                                "en-RW"
+                        )
+
+                        .primaryColor(
+                                "#0F1B3D"
+                        )
+
+                        .accentColor(
+                                "#C9A227"
+                        )
+
+                        .website(
+                                "https://nobleloansolutions.rw"
+                        )
+
+                        .contactEmail(
+                                "info@nobleloansolutions.rw"
+                        )
+
+                        .contactPhone(
+                                "+250 788 000 000"
+                        )
+
+                        .address(
+                                "KG 7 Ave, Kigali, Rwanda"
+                        )
+
+                        .registrationNumber(
+                                "REG-NLS-004"
+                        )
+
+                        .tagline(
+                                "Your Trusted Partner in Financial Support"
+                        )
+
+                        .mission(
+                                "To provide honest, fairly-priced credit to individuals and businesses across Rwanda, delivered with integrity, transparency, and respect for every client."
+                        )
+
+                        .vision(
+                                "To be Rwanda's most trusted name in lending — synonymous with fairness, transparency, and financial dignity for every client we serve."
+                        )
+
+                        .heroHeadline(
+                                "Need Cash Fast? We've Got You Covered!"
+                        )
+
+                        .heroSubtext(
+                                "Your trusted partner in financial support — personal, business, vehicle, salary advance, and agriculture loans, backed by a secure, fully compliant lending platform."
+                        )
+
+                        .foundedYear(
+                                2020
+                        )
+
+                        .facebookUrl(
+                                "https://facebook.com/nobleloansolutionsrw"
+                        )
+
+                        .instagramUrl(
+                                "https://instagram.com/nobleloansolutionsrw"
+                        )
+
+                        .linkedinUrl(
+                                "https://linkedin.com/company/nobleloansolutionsrw"
+                        )
+
+                        .twitterUrl(
+                                "https://twitter.com/nobleloansolutionsrw"
+                        )
+
+                        .whatsappUrl(
+                                "https://wa.me/250788000000"
+                        )
+
+                        .mapUrl(
+                                "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d63800.15641867!2d30.0644!3d-1.9536!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x19dca75a929d959f%3A0x0!2sKigali!5e0!3m2!1sen!2srw!4v1690000000000"
+                        )
+
+                        .subscriptionTier(
+                                Organization.SubscriptionTier.PROFESSIONAL
+                        )
+
+                        .status(
+                                Organization.OrgStatus.ACTIVE
+                        )
+
+                        .maxUsers(
+                                100
+                        )
+
+                        .maxActiveLoans(
+                                10000
+                        )
+
+                       
+
+                        .minLoanAmount(
+                                MIN_LOAN_AMOUNT
+                        )
+
+                        
+                        .maxLoanAmount(
+                                null
+                        )
+
+                        .subscribedAt(
+                                LocalDateTime.now()
+                        )
+
+                        .subscriptionExpiresAt(
+                                LocalDateTime.now()
+                                        .plusYears(1)
+                        )
+
+                        .build();
+
+        return orgRepo.save(
+                organization
+        );
+    }
+
+    /*
+     * ============================================================
+     * BOOTSTRAP ADMIN
+     * ============================================================
+     */
+
+    private void createBootstrapAdmin(
+            Organization organization,
+            Role adminRole) {
+
+        String email =
+                System.getenv(
+                        "BOOTSTRAP_ADMIN_EMAIL"
+                );
+
+        String password =
+                System.getenv(
+                        "BOOTSTRAP_ADMIN_PASSWORD"
+                );
+
+        String configuredName =
+                System.getenv(
+                        "BOOTSTRAP_ADMIN_NAME"
+                );
+
+        if (email == null
+                || email.isBlank()
+                || password == null
+                || password.isBlank()) {
+
+            throw new IllegalStateException(
+                    "BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD "
+                            + "must both be set — refusing to create "
+                            + "an admin account with a guessable default."
+            );
+        }
+
+        String normalizedEmail =
+                email.trim()
+                        .toLowerCase();
+
+        if (userRepo.findByEmail(
+                normalizedEmail
+        ).isPresent()) {
+
+            log.info(
+                    "Bootstrap admin {} already exists — skipping.",
+                    normalizedEmail
+            );
+
+            return;
+        }
+
+        String name =
+                configuredName != null
+                        && !configuredName.isBlank()
+                        ? configuredName.trim()
+                        : "Admin";
+
+        User user =
+                makeUser(
+                        name,
+                        normalizedEmail,
+                        password,
+                        adminRole,
+                        organization
+                );
+
+        userRepo.save(
+                user
+        );
+
+        log.info(
+                "Bootstrap administrator created: {}",
+                normalizedEmail
+        );
+    }
+
+    /*
+     * ============================================================
+     * ROLES
+     * ============================================================
+     */
+
+    private Role ensureRole(
+            String name,
+            String description) {
+
+        return roleRepo
+                .findByName(name)
+                .orElseGet(
+                        () -> roleRepo.save(
+                                new Role(
+                                        null,
+                                        name,
+                                        description
+                                )
+                        )
+                );
+    }
+
+    /*
+     * ============================================================
+     * USER
+     * ============================================================
+     */
+
+    private User makeUser(
+            String name,
+            String email,
+            String password,
+            Role role,
+            Organization organization) {
+
+        User user =
+                new User();
+
+        user.setName(
+                name
+        );
+
+        user.setEmail(
+                email
+        );
+
+        user.setPassword(
+                encoder.encode(password)
+        );
+
+        user.setRole(
+                role
+        );
+
+        user.setOrganization(
+                organization
+        );
+
+        user.setStatus(
+                User.UserStatus.ACTIVE
+        );
+
+        return user;
+    }
+
+    /*
+     * ============================================================
+     * LOAN PRODUCTS
+     * ============================================================
+     */
+
+    private void ensureLoanProducts(
+            Organization organization) {
+
+        ensureProduct(
+                organization,
+                "Personal Loan",
+                "👤",
+                Loan.LoanType.PERSONAL,
+                "Personal financing for approved household and individual needs.",
+                1
+        );
+
+        ensureProduct(
+                organization,
+                "Business Finance",
+                "🏢",
+                Loan.LoanType.BUSINESS,
+                "Working capital and business expansion financing.",
+                2
+        );
+
+        ensureProduct(
+                organization,
+                "Vehicle Finance",
+                "🚗",
+                Loan.LoanType.AUTO,
+                "Financing for approved vehicle purchases.",
+                3
+        );
+
+        ensureProduct(
+                organization,
+                "Salary Advance Loan",
+                "💵",
+                Loan.LoanType.SALARY_ADVANCE,
+                "Short-term financing against verified salary income.",
+                4
+        );
+
+        ensureProduct(
+                organization,
+                "Agriculture Loan",
+                "🌾",
+                Loan.LoanType.AGRICULTURAL,
+                "Financing for approved agricultural and agribusiness activities.",
+                5
+        );
+    }
+
+    /*
+     * ============================================================
+     * PRODUCT UPSERT
+     * ============================================================
+     */
+
+    private void ensureProduct(
+            Organization organization,
+            String name,
+            String icon,
+            Loan.LoanType type,
+            String description,
+            int displayOrder) {
+
+        LoanProduct product =
+                loanProductRepo
+                        .findByOrganization_IdAndLoanType(
+                                organization.getId(),
+                                type
+                        )
+                        .orElseGet(
+                                LoanProduct::new
+                        );
+
+        boolean isNew =
+                product.getId() == null;
+
+        product.setOrganization(
+                organization
+        );
+
+        product.setName(
+                name
+        );
+
+        product.setIcon(
+                icon
+        );
+
+        product.setLoanType(
+                type
+        );
+
+        product.setDescription(
+                description
+        );
+
+        /*
+         * ========================================================
+         * CURRENT FINANCIAL RULES
+         * ========================================================
+         */
+
+        product.setInterestRate(
+                INTEREST_RATE
+        );
+
+        product.setInterestRateType(
+                INTEREST_RATE_TYPE
+        );
+
+        product.setMinAmount(
+                MIN_LOAN_AMOUNT
+        );
+
+        /*
+         * NULL means unlimited.
+         */
+        product.setMaxAmount(
+                null
+        );
+
+        product.setMinTermMonths(
+                MIN_TERM_MONTHS
+        );
+
+        product.setMaxTermMonths(
+                MAX_TERM_MONTHS
+        );
+
+        product.setProcessingFeePercent(
+                PROCESSING_FEE
+        );
+
+        product.setManagementFeePercent(
+                MANAGEMENT_FEE
+        );
+
+        product.setActive(
+                true
+        );
+
+        product.setDisplayOrder(
+                displayOrder
+        );
+
+        if (isNew) {
+
+            log.info(
+                    "Creating loan product '{}' for organization {}",
+                    name,
+                    organization.getId()
+            );
+
+        } else {
+
+            log.info(
+                    "Updating loan product '{}' for organization {} "
+                            + "to current lending rules",
+                    name,
+                    organization.getId()
+            );
+        }
+
+        loanProductRepo.save(
+                product
+        );
+    }
+
+    /*
+     * ============================================================
+     * BOOTSTRAP LOG
+     * ============================================================
+     */
+
+    private void logBootstrapInformation(
+            Organization organization) {
 
         log.info("");
-        log.info("╔══════════════════════════════════════════════════════════════╗");
-        log.info("║          LOANSAAS PRO — BOOTSTRAP COMPLETE                   ║");
-        log.info("╠══════════════════════════════════════════════════════════════╣");
-        log.info("║  {} — admin login: {}", growth.getName(), bootstrapAdminEmail);
-        log.info("╚══════════════════════════════════════════════════════════════╝");
+        log.info(
+                "╔══════════════════════════════════════════════════════════════╗"
+        );
+        log.info(
+                "║             LOANSAAS PRO — BOOTSTRAP COMPLETE              ║"
+        );
+        log.info(
+                "╠══════════════════════════════════════════════════════════════╣"
+        );
+        log.info(
+                "║ Organization : {}",
+                organization.getName()
+        );
+        log.info(
+                "║ Currency     : {}",
+                organization.getDefaultCurrency()
+        );
+        log.info(
+                "║ Min Loan     : {}",
+                MIN_LOAN_AMOUNT
+        );
+        log.info(
+                "║ Max Loan     : UNLIMITED"
+        );
+        log.info(
+                "║ Interest     : {}% MONTHLY",
+                INTEREST_RATE
+        );
+        log.info(
+                "║ Processing   : {}%",
+                PROCESSING_FEE
+        );
+        log.info(
+                "║ Management   : {}%",
+                MANAGEMENT_FEE
+        );
+        log.info(
+                "║ Term         : {}-{} months",
+                MIN_TERM_MONTHS,
+                MAX_TERM_MONTHS
+        );
+        log.info(
+                "╚══════════════════════════════════════════════════════════════╝"
+        );
         log.info("");
-    }
-
-    private Role ensureRole(String name, String desc) {
-        return roleRepo.findByName(name)
-            .orElseGet(() -> roleRepo.save(new Role(null, name, desc)));
-    }
-
-    private User makeUser(String name, String email, String pw, Role role, Organization org) {
-        User u = new User();
-        u.setName(name); u.setEmail(email);
-        u.setPassword(encoder.encode(pw));
-        u.setRole(role); u.setOrganization(org);
-        u.setStatus(User.UserStatus.ACTIVE);
-        return u;
-    }
-
-    private void seedProduct(Organization org, String name, String icon, Loan.LoanType type,
-                              double rate, String rateType, double minAmount, double maxAmount,
-                              int minTerm, int maxTerm, String description, int order) {
-        loanProductRepo.save(LoanProduct.builder()
-            .organization(org).name(name).icon(icon).loanType(type)
-            .interestRate(BigDecimal.valueOf(rate)).interestRateType(rateType)
-            .minAmount(BigDecimal.valueOf(minAmount)).maxAmount(BigDecimal.valueOf(maxAmount))
-            .minTermMonths(minTerm).maxTermMonths(maxTerm)
-            .processingFeePercent(BigDecimal.valueOf(2.0)).description(description)
-            .active(true).displayOrder(order).build());
     }
 }

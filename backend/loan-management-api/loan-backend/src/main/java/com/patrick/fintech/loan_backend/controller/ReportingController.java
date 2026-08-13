@@ -1,5 +1,8 @@
 package com.patrick.fintech.loan_backend.controller;
 
+import com.patrick.fintech.loan_backend.model.JournalEntry;
+import com.patrick.fintech.loan_backend.repository.JournalEntryRepository;
+import com.patrick.fintech.loan_backend.service.AccountingService;
 import com.patrick.fintech.loan_backend.service.ReportingService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 
@@ -11,10 +14,15 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -22,10 +30,13 @@ import java.util.concurrent.TimeUnit;
 @RequestMapping("/api/reports")
 @RequiredArgsConstructor
 @Slf4j
+@PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT')")
 public class ReportingController {
 
     private final ReportingService reportingService;
+    private final AccountingService accountingService;
     private final CurrentUserUtil currentUserUtil;
+    private final JournalEntryRepository journalEntryRepository;
 
     private static final MediaType EXCEL_MEDIA_TYPE =
             MediaType.parseMediaType(
@@ -54,14 +65,10 @@ public class ReportingController {
 
     // ============================================================
     // PAYMENT REPORT
-    //
-    // IMPORTANT:
-    // Financial amounts are BigDecimal.
-    // Do NOT change this back to Double.
     // ============================================================
 
     @GetMapping("/payments/{orgId}")
-    public ResponseEntity<Map<String, java.math.BigDecimal>> paymentReport(
+    public ResponseEntity<Map<String, BigDecimal>> paymentReport(
             @PathVariable Long orgId) {
 
         validateOrganization(orgId);
@@ -69,6 +76,373 @@ public class ReportingController {
         return ResponseEntity.ok(
                 reportingService.paymentReport(orgId)
         );
+    }
+
+    // ============================================================
+    // ACCOUNTING DASHBOARD
+    //
+    // This is the main unified accounting report endpoint.
+    //
+    // It returns:
+    //   - Trial Balance
+    //   - Balance Sheet
+    //   - Profit & Loss
+    //   - Cash Flow
+    //   - Journal
+    //   - Monthly Profit
+    //   - Monthly Expenses
+    //
+    // Example:
+    //
+    // GET /api/reports/accounting/1
+    //
+    // Or:
+    //
+    // GET /api/reports/accounting/1?from=2026-01-01&to=2026-08-13
+    // ============================================================
+
+    @GetMapping("/accounting/{orgId}")
+    public ResponseEntity<Map<String, Object>> accountingReport(
+            @PathVariable Long orgId,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) {
+
+        validateOrganization(orgId);
+
+        LocalDate fromDate = parseFromDate(from);
+        LocalDate toDate = parseToDate(to);
+
+        validateDateRange(fromDate, toDate);
+
+        Map<String, Object> report =
+                buildAccountingReport(
+                        orgId,
+                        fromDate,
+                        toDate
+                );
+
+        return ResponseEntity.ok(report);
+    }
+
+    // ============================================================
+    // ACCOUNTING DASHBOARD - CURRENT MONTH
+    //
+    // Convenient endpoint for the frontend dashboard.
+    //
+    // GET /api/reports/accounting/{orgId}/current-month
+    // ============================================================
+
+    @GetMapping("/accounting/{orgId}/current-month")
+    public ResponseEntity<Map<String, Object>> currentMonthAccountingReport(
+            @PathVariable Long orgId) {
+
+        validateOrganization(orgId);
+
+        LocalDate today = LocalDate.now();
+
+        LocalDate fromDate =
+                today.withDayOfMonth(1);
+
+        LocalDate toDate =
+                today;
+
+        return ResponseEntity.ok(
+                buildAccountingReport(
+                        orgId,
+                        fromDate,
+                        toDate
+                )
+        );
+    }
+
+    // ============================================================
+    // TRIAL BALANCE
+    // ============================================================
+
+    @GetMapping("/accounting/{orgId}/trial-balance")
+    public ResponseEntity<Map<String, Object>> trialBalance(
+            @PathVariable Long orgId) {
+
+        validateOrganization(orgId);
+
+        return ResponseEntity.ok(
+                accountingService.getTrialBalance(orgId)
+        );
+    }
+
+    // ============================================================
+    // BALANCE SHEET
+    // ============================================================
+
+    @GetMapping("/accounting/{orgId}/balance-sheet")
+    public ResponseEntity<Map<String, Object>> balanceSheet(
+            @PathVariable Long orgId) {
+
+        validateOrganization(orgId);
+
+        return ResponseEntity.ok(
+                accountingService.getBalanceSheet(orgId)
+        );
+    }
+
+    // ============================================================
+    // PROFIT AND LOSS
+    // ============================================================
+
+    @GetMapping("/accounting/{orgId}/profit-and-loss")
+    public ResponseEntity<Map<String, Object>> profitAndLoss(
+            @PathVariable Long orgId,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) {
+
+        validateOrganization(orgId);
+
+        LocalDate fromDate =
+                parseFromDate(from);
+
+        LocalDate toDate =
+                parseToDate(to);
+
+        validateDateRange(
+                fromDate,
+                toDate
+        );
+
+        return ResponseEntity.ok(
+                accountingService.getProfitAndLoss(
+                        orgId,
+                        fromDate,
+                        toDate
+                )
+        );
+    }
+
+    // ============================================================
+    // MONTHLY PROFIT
+    //
+    // Returns monthly P&L information for a selected year.
+    //
+    // Example:
+    //
+    // GET /api/reports/accounting/1/monthly-profit?year=2026
+    //
+    // This deliberately uses AccountingService.getProfitAndLoss()
+    // as the accounting source of truth.
+    // ============================================================
+
+    @GetMapping("/accounting/{orgId}/monthly-profit")
+    public ResponseEntity<List<Map<String, Object>>> monthlyProfit(
+            @PathVariable Long orgId,
+            @RequestParam(required = false) Integer year) {
+
+        validateOrganization(orgId);
+
+        int requestedYear =
+                year != null
+                        ? year
+                        : LocalDate.now().getYear();
+
+        return ResponseEntity.ok(
+                buildMonthlyProfitAndExpenses(
+                        orgId,
+                        requestedYear
+                )
+        );
+    }
+
+    // ============================================================
+    // MONTHLY EXPENSES
+    //
+    // Same accounting source of truth as monthly profit.
+    // ============================================================
+
+    @GetMapping("/accounting/{orgId}/monthly-expenses")
+    public ResponseEntity<List<Map<String, Object>>> monthlyExpenses(
+            @PathVariable Long orgId,
+            @RequestParam(required = false) Integer year) {
+
+        validateOrganization(orgId);
+
+        int requestedYear =
+                year != null
+                        ? year
+                        : LocalDate.now().getYear();
+
+        List<Map<String, Object>> monthly =
+                buildMonthlyProfitAndExpenses(
+                        orgId,
+                        requestedYear
+                );
+
+        List<Map<String, Object>> result =
+                new ArrayList<>();
+
+        for (Map<String, Object> month : monthly) {
+
+            Map<String, Object> row =
+                    new LinkedHashMap<>();
+
+            row.put(
+                    "year",
+                    month.get("year")
+            );
+
+            row.put(
+                    "month",
+                    month.get("month")
+            );
+
+            row.put(
+                    "monthNumber",
+                    month.get("monthNumber")
+            );
+
+            row.put(
+                    "from",
+                    month.get("from")
+            );
+
+            row.put(
+                    "to",
+                    month.get("to")
+            );
+
+            row.put(
+                    "expenses",
+                    month.get("expenses")
+            );
+
+            result.add(row);
+        }
+
+        return ResponseEntity.ok(result);
+    }
+
+    // ============================================================
+    // CASH FLOW
+    // ============================================================
+
+    @GetMapping("/accounting/{orgId}/cash-flow")
+    public ResponseEntity<Map<String, Object>> cashFlow(
+            @PathVariable Long orgId,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) {
+
+        validateOrganization(orgId);
+
+        LocalDate fromDate =
+                parseFromDate(from);
+
+        LocalDate toDate =
+                parseToDate(to);
+
+        validateDateRange(
+                fromDate,
+                toDate
+        );
+
+        return ResponseEntity.ok(
+                accountingService.getCashFlow(
+                        orgId,
+                        fromDate,
+                        toDate
+                )
+        );
+    }
+
+    // ============================================================
+    // GENERAL JOURNAL
+    //
+    // Accounting journal for the selected organization.
+    // ============================================================
+
+    @GetMapping("/accounting/{orgId}/journal")
+    public ResponseEntity<List<JournalEntry>> journal(
+            @PathVariable Long orgId) {
+
+        validateOrganization(orgId);
+
+        List<JournalEntry> entries =
+                journalEntryRepository
+                        .findByOrganization_IdOrderByEntryDateDesc(
+                                orgId
+                        );
+
+        return ResponseEntity.ok(entries);
+    }
+
+    // ============================================================
+    // GENERAL JOURNAL - DATE RANGE
+    // ============================================================
+
+    @GetMapping("/accounting/{orgId}/journal/range")
+    public ResponseEntity<List<JournalEntry>> journalRange(
+            @PathVariable Long orgId,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) {
+
+        validateOrganization(orgId);
+
+        LocalDate fromDate =
+                parseFromDate(from);
+
+        LocalDate toDate =
+                parseToDate(to);
+
+        validateDateRange(
+                fromDate,
+                toDate
+        );
+
+        /*
+         * We intentionally use the existing repository method here
+         * only if the repository exposes a date-range query.
+         *
+         * Otherwise the complete organization journal is loaded and
+         * filtered safely in memory.
+         */
+        List<JournalEntry> allEntries =
+                journalEntryRepository
+                        .findByOrganization_IdOrderByEntryDateDesc(
+                                orgId
+                        );
+
+        List<JournalEntry> filtered =
+                allEntries.stream()
+                        .filter(entry ->
+                                entry != null
+                                        && entry.getEntryDate() != null
+                                        && !entry.getEntryDate().isBefore(fromDate)
+                                        && !entry.getEntryDate().isAfter(toDate))
+                        .toList();
+
+        return ResponseEntity.ok(filtered);
+    }
+
+    // ============================================================
+    // PORTFOLIO SUMMARY
+    // ============================================================
+
+    @GetMapping("/accounting/{orgId}/portfolio")
+    public ResponseEntity<Map<String, Object>> portfolioSummary(
+            @PathVariable Long orgId) {
+
+        validateOrganization(orgId);
+
+        Map<String, Object> result =
+                new LinkedHashMap<>();
+
+        result.put(
+                "loanStatus",
+                reportingService.loanStatusReport(orgId)
+        );
+
+        result.put(
+                "payments",
+                reportingService.paymentReport(orgId)
+        );
+
+        return ResponseEntity.ok(result);
     }
 
     // ============================================================
@@ -310,6 +684,417 @@ public class ReportingController {
     }
 
     // ============================================================
+    // ACCOUNTING REPORT BUILDER
+    // ============================================================
+
+    private Map<String, Object> buildAccountingReport(
+            Long organizationId,
+            LocalDate fromDate,
+            LocalDate toDate) {
+
+        Map<String, Object> report =
+                new LinkedHashMap<>();
+
+        report.put(
+                "organizationId",
+                organizationId
+        );
+
+        report.put(
+                "period",
+                buildPeriod(
+                        fromDate,
+                        toDate
+                )
+        );
+
+        /*
+         * Balance sheet / trial balance are point-in-time reports.
+         */
+        report.put(
+                "trialBalance",
+                accountingService.getTrialBalance(
+                        organizationId
+                )
+        );
+
+        report.put(
+                "balanceSheet",
+                accountingService.getBalanceSheet(
+                        organizationId
+                )
+        );
+
+        /*
+         * Income statement / P&L is period based.
+         */
+        report.put(
+                "profitAndLoss",
+                accountingService.getProfitAndLoss(
+                        organizationId,
+                        fromDate,
+                        toDate
+                )
+        );
+
+        /*
+         * Cash flow is also period based.
+         */
+        report.put(
+                "cashFlow",
+                accountingService.getCashFlow(
+                        organizationId,
+                        fromDate,
+                        toDate
+                )
+        );
+
+        /*
+         * Journal is included so the frontend can drill down from
+         * financial statements into actual accounting entries.
+         */
+        List<JournalEntry> journal =
+                journalEntryRepository
+                        .findByOrganization_IdOrderByEntryDateDesc(
+                                organizationId
+                        )
+                        .stream()
+                        .filter(entry ->
+                                entry != null
+                                        && entry.getEntryDate() != null
+                                        && !entry.getEntryDate().isBefore(fromDate)
+                                        && !entry.getEntryDate().isAfter(toDate))
+                        .toList();
+
+        report.put(
+                "journal",
+                journal
+        );
+
+        /*
+         * Monthly profit/expense trend for the selected year.
+         */
+        int year =
+                fromDate.getYear();
+
+        report.put(
+                "monthlyProfitAndExpenses",
+                buildMonthlyProfitAndExpenses(
+                        organizationId,
+                        year
+                )
+        );
+
+        return report;
+    }
+
+    // ============================================================
+    // MONTHLY PROFIT / EXPENSES
+    // ============================================================
+
+    private List<Map<String, Object>> buildMonthlyProfitAndExpenses(
+            Long organizationId,
+            int year) {
+
+        List<Map<String, Object>> result =
+                new ArrayList<>();
+
+        LocalDate today =
+                LocalDate.now();
+
+        for (int month = 1; month <= 12; month++) {
+
+            LocalDate monthStart =
+                    LocalDate.of(
+                            year,
+                            month,
+                            1
+                    );
+
+            LocalDate monthEnd =
+                    monthStart
+                            .withDayOfMonth(
+                                    monthStart.lengthOfMonth()
+                            );
+
+            /*
+             * Do not report future months as completed accounting
+             * periods.
+             */
+            if (monthStart.isAfter(today)) {
+                break;
+            }
+
+            LocalDate effectiveEnd =
+                    monthEnd.isAfter(today)
+                            ? today
+                            : monthEnd;
+
+            Map<String, Object> pnl =
+                    accountingService.getProfitAndLoss(
+                            organizationId,
+                            monthStart,
+                            effectiveEnd
+                    );
+
+            Map<String, Object> row =
+                    new LinkedHashMap<>();
+
+            row.put(
+                    "year",
+                    year
+            );
+
+            row.put(
+                    "month",
+                    monthStart.getMonth().name()
+            );
+
+            row.put(
+                    "monthNumber",
+                    month
+            );
+
+            row.put(
+                    "from",
+                    monthStart
+            );
+
+            row.put(
+                    "to",
+                    effectiveEnd
+            );
+
+            /*
+             * Preserve the exact values returned by AccountingService.
+             *
+             * We do not cast monetary values to double.
+             */
+            row.put(
+                    "profit",
+                    extractMoney(
+                            pnl,
+                            "profit",
+                            "netProfit",
+                            "netIncome"
+                    )
+            );
+
+            row.put(
+                    "expenses",
+                    extractMoney(
+                            pnl,
+                            "expenses",
+                            "totalExpenses"
+                    )
+            );
+
+            row.put(
+                    "revenue",
+                    extractMoney(
+                            pnl,
+                            "revenue",
+                            "totalRevenue",
+                            "income"
+                    )
+            );
+
+            row.put(
+                    "netIncome",
+                    extractMoney(
+                            pnl,
+                            "netIncome",
+                            "netProfit",
+                            "profit"
+                    )
+            );
+
+            /*
+             * Keep the complete P&L as well.
+             *
+             * This makes the endpoint future-proof if AccountingService
+             * returns additional accounting categories.
+             */
+            row.put(
+                    "profitAndLoss",
+                    pnl
+            );
+
+            result.add(row);
+        }
+
+        return result;
+    }
+
+    // ============================================================
+    // MONEY EXTRACTION
+    // ============================================================
+
+    private BigDecimal extractMoney(
+            Map<String, Object> source,
+            String... keys) {
+
+        if (source == null || keys == null) {
+            return BigDecimal.ZERO.setScale(
+                    2
+            );
+        }
+
+        for (String key : keys) {
+
+            if (!source.containsKey(key)) {
+                continue;
+            }
+
+            Object value =
+                    source.get(key);
+
+            if (value == null) {
+                continue;
+            }
+
+            if (value instanceof BigDecimal decimal) {
+                return decimal;
+            }
+
+            if (value instanceof Number number) {
+
+                /*
+                 * Compatibility only.
+                 *
+                 * AccountingService should return BigDecimal.
+                 * This prevents the controller from crashing if an
+                 * older report implementation returns another Number.
+                 */
+                return new BigDecimal(
+                        number.toString()
+                );
+            }
+
+            try {
+
+                return new BigDecimal(
+                        value.toString()
+                );
+
+            } catch (NumberFormatException ignored) {
+                // Try next supported key.
+            }
+        }
+
+        return BigDecimal.ZERO.setScale(
+                2
+        );
+    }
+
+    // ============================================================
+    // PERIOD
+    // ============================================================
+
+    private Map<String, Object> buildPeriod(
+            LocalDate fromDate,
+            LocalDate toDate) {
+
+        Map<String, Object> period =
+                new LinkedHashMap<>();
+
+        period.put(
+                "from",
+                fromDate
+        );
+
+        period.put(
+                "to",
+                toDate
+        );
+
+        period.put(
+                "days",
+                java.time.temporal.ChronoUnit.DAYS.between(
+                        fromDate,
+                        toDate
+                ) + 1
+        );
+
+        return period;
+    }
+
+    // ============================================================
+    // DATE PARSING
+    // ============================================================
+
+    private LocalDate parseFromDate(
+            String from) {
+
+        if (from == null
+                || from.isBlank()) {
+
+            return LocalDate.now()
+                    .withDayOfMonth(1);
+        }
+
+        try {
+
+            return LocalDate.parse(
+                    from
+            );
+
+        } catch (Exception e) {
+
+            throw new IllegalArgumentException(
+                    "Invalid 'from' date. Expected YYYY-MM-DD."
+            );
+        }
+    }
+
+    private LocalDate parseToDate(
+            String to) {
+
+        if (to == null
+                || to.isBlank()) {
+
+            return LocalDate.now();
+        }
+
+        try {
+
+            return LocalDate.parse(
+                    to
+            );
+
+        } catch (Exception e) {
+
+            throw new IllegalArgumentException(
+                    "Invalid 'to' date. Expected YYYY-MM-DD."
+            );
+        }
+    }
+
+    // ============================================================
+    // DATE RANGE VALIDATION
+    // ============================================================
+
+    private void validateDateRange(
+            LocalDate fromDate,
+            LocalDate toDate) {
+
+        if (fromDate == null
+                || toDate == null) {
+
+            throw new IllegalArgumentException(
+                    "Both report dates are required."
+            );
+        }
+
+        if (fromDate.isAfter(toDate)) {
+
+            throw new IllegalArgumentException(
+                    "'from' date cannot be after 'to' date."
+            );
+        }
+    }
+
+    // ============================================================
     // CSV RESPONSE
     // ============================================================
 
@@ -429,10 +1214,6 @@ public class ReportingController {
                 excel.length
         );
 
-        /*
-         * Do not let browser/proxy caching cause an old or corrupted
-         * report to be reused.
-         */
         headers.setCacheControl(
                 CacheControl
                         .noCache()
@@ -469,9 +1250,6 @@ public class ReportingController {
             return "report";
         }
 
-        /*
-         * Prevent accidental path/header manipulation.
-         */
         return filename
                 .replace(
                         "\\",

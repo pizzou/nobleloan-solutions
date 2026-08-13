@@ -1,7 +1,9 @@
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.model.Loan;
+
 import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -11,365 +13,955 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Locale;
+
 @Service
 @Slf4j
 public class SmsService {
 
-private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate =
+            new RestTemplate();
 
-@Value("${app.sms.africas-talking.api-key:}")
-private String atApiKey;
+    // ================================================================
+    // AFRICA'S TALKING
+    // ================================================================
 
-@Value("${app.sms.africas-talking.username:sandbox}")
-private String atUsername;
+    @Value("${app.sms.africas-talking.api-key:}")
+    private String atApiKey;
 
-@Value("${app.sms.africas-talking.sender-id:LoanSaaS}")
-private String atSenderId;
+    @Value("${app.sms.africas-talking.username:sandbox}")
+    private String atUsername;
 
-@Value("${app.sms.twilio.account-sid:}")
-private String twilioAccountSid;
+    @Value("${app.sms.africas-talking.sender-id:LoanSaaS}")
+    private String atSenderId;
 
-@Value("${app.sms.twilio.auth-token:}")
-private String twilioAuthToken;
+    // ================================================================
+    // TWILIO
+    // ================================================================
 
-@Value("${app.sms.twilio.from-number:}")
-private String twilioFromNumber;
+    @Value("${app.sms.twilio.account-sid:}")
+    private String twilioAccountSid;
 
-@Value("${app.sms.enabled:false}")
-private boolean smsEnabled;
+    @Value("${app.sms.twilio.auth-token:}")
+    private String twilioAuthToken;
 
-@Async
-public void sendLoanApproved(Loan loan) {
-    String phone = phone(loan);
+    @Value("${app.sms.twilio.from-number:}")
+    private String twilioFromNumber;
 
-    if (phone == null) {
-        return;
-    }
+    // ================================================================
+    // GENERAL CONFIG
+    // ================================================================
 
-    send(
-        phone,
-        String.format(
-            "Congratulations! Loan %s for %s %s approved. Funds disbursed shortly. -%s",
-            loan.getReferenceNumber(),
-            loan.getCurrency(),
-            fmt(loan.getAmount()),
-            orgName(loan)
-        )
-    );
-}
+    @Value("${app.sms.enabled:false}")
+    private boolean smsEnabled;
 
-@Async
-public void sendLoanRejected(Loan loan) {
-    String phone = phone(loan);
+    // ================================================================
+    // PLATFORM RULES
+    // ================================================================
 
-    if (phone == null) {
-        return;
-    }
+    private static final BigDecimal PROCESSING_FEE_RATE =
+            new BigDecimal("2.00");
 
-    send(
-        phone,
-        String.format(
-            "Your application for loan %s was not approved at this time. Contact us for details. -%s",
-            loan.getReferenceNumber(),
-            orgName(loan)
-        )
-    );
-}
+    private static final BigDecimal MONTHLY_PENALTY_RATE =
+            new BigDecimal("15.00");
 
-@Async
-public void sendLoanDisbursed(Loan loan, String method) {
-    String phone = phone(loan);
+    // ================================================================
+    // LOAN APPROVED
+    // ================================================================
 
-    if (phone == null) {
-        return;
-    }
+    @Async
+    public void sendLoanApproved(
+            Loan loan
+    ) {
 
-    send(
-        phone,
-        String.format(
-            "Funds sent! %s %s for loan %s has been disbursed via %s. -%s",
-            loan.getCurrency(),
-            fmt(loan.getDisbursedAmount()),
-            loan.getReferenceNumber(),
-            method,
-            orgName(loan)
-        )
-    );
-}
+        String phone =
+                phone(loan);
 
-@Async
-public void sendPaymentDue(Loan loan, double amount, String dueDate) {
-    String phone = phone(loan);
+        if (phone == null) {
+            return;
+        }
 
-    if (phone == null) {
-        return;
-    }
+        BigDecimal grossAmount =
+                money(
+                        loan != null
+                                ? loan.getAmountDecimal()
+                                : null
+                );
 
-    send(
-        phone,
-        String.format(
-            "REMINDER: Payment of %s %s due %s for loan %s. Pay now to avoid penalties. -%s",
-            loan.getCurrency(),
-            fmt(amount),
-            dueDate,
-            loan.getReferenceNumber(),
-            orgName(loan)
-        )
-    );
-}
+        BigDecimal processingFee =
+                money(
+                        loan != null
+                                ? loan.getProcessingFeeDecimal()
+                                : null
+                );
 
-@Async
-public void sendPaymentConfirmed(Loan loan, double amount) {
-    String phone = phone(loan);
+        BigDecimal expectedNetDisbursement =
+                grossAmount
+                        .subtract(
+                                processingFee
+                        )
+                        .max(
+                                BigDecimal.ZERO
+                        );
 
-    if (phone == null) {
-        return;
-    }
+        String currency =
+                value(
+                        loan != null
+                                ? loan.getCurrency()
+                                : "RWF"
+                );
 
-    send(
-        phone,
-        String.format(
-            "Payment of %s %s received for %s. Balance: %s %s. -%s",
-            loan.getCurrency(),
-            fmt(amount),
-            loan.getReferenceNumber(),
-            loan.getCurrency(),
-            fmt(loan.getOutstandingBalance()),
-            orgName(loan)
-        )
-    );
-}
+        send(
+                phone,
+                String.format(
+                        Locale.ROOT,
+                        "Congratulations! Loan %s approved. "
+                                + "Gross amount: %s %s. "
+                                + "Processing fee (2%%): %s %s. "
+                                + "Net amount to be disbursed: %s %s. "
+                                + "-%s",
 
-@Async
-public void sendLoanOverdue(Loan loan, int days) {
-    String phone = phone(loan);
+                        value(
+                                loan != null
+                                        ? loan.getReferenceNumber()
+                                        : null
+                        ),
 
-    if (phone == null) {
-        return;
-    }
+                        currency,
+                        formatMoney(grossAmount),
 
-    send(
-        phone,
-        String.format(
-            "URGENT: Loan %s is %d day(s) overdue. Outstanding: %s %s. Contact us immediately. -%s",
-            loan.getReferenceNumber(),
-            days,
-            loan.getCurrency(),
-            fmt(loan.getOutstandingBalance()),
-            orgName(loan)
-        )
-    );
-}
+                        currency,
+                        formatMoney(processingFee),
 
-@Async
-public void sendCustom(String phone, String message) {
-    send(phone, message);
-}
+                        currency,
+                        formatMoney(
+                                expectedNetDisbursement
+                        ),
 
-private void send(String to, String msg) {
-    String normalized = normalizePhone(to);
-
-    if (normalized == null) {
-        log.warn("Skipping SMS - invalid phone number: {}", to);
-        return;
-    }
-
-    if (!smsEnabled) {
-        log.info("[SMS SIMULATION] {} -> {}", normalized, msg);
-        return;
-    }
-
-    if (trySendAT(normalized, msg)) {
-        return;
-    }
-
-    if (trySendTwilio(normalized, msg)) {
-        return;
-    }
-
-    log.warn("All SMS providers failed for {}", normalized);
-}
-
-/**
- * Normalizes borrower/staff phone numbers into E.164 format.
- *
- * Examples:
- * +250 788 000 000 -> +250788000000
- * 0788000000       -> +250788000000
- * 250788000000     -> +250788000000
- *
- * Local numbers are currently assumed to be Rwanda numbers.
- */
-private String normalizePhone(String raw) {
-    if (raw == null || raw.isBlank()) {
-        return null;
-    }
-
-    String digits = raw.replaceAll("[^+0-9]", "");
-
-    if (digits.isEmpty()) {
-        return null;
-    }
-
-    if (digits.startsWith("+")) {
-        return digits;
-    }
-
-    if (digits.startsWith("250")) {
-        return "+" + digits;
-    }
-
-    if (digits.startsWith("0")) {
-        return "+250" + digits.substring(1);
-    }
-
-    return "+250" + digits;
-}
-
-private boolean trySendAT(String to, String msg) {
-    if (atApiKey == null || atApiKey.isBlank()) {
-        return false;
-    }
-
-    try {
-        HttpHeaders headers = new HttpHeaders();
-
-        headers.set("apiKey", atApiKey);
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-
-        String body =
-            "username=" + enc(atUsername)
-            + "&to=" + enc(to)
-            + "&message=" + enc(msg)
-            + "&from=" + enc(atSenderId);
-
-        HttpEntity<String> request = new HttpEntity<>(body, headers);
-
-        restTemplate.exchange(
-            "https://api.africastalking.com/version1/messaging",
-            HttpMethod.POST,
-            request,
-            String.class
+                        orgName(loan)
+                )
         );
-
-        log.debug("SMS sent via Africa's Talking to {}", to);
-
-        return true;
-
-    } catch (Exception e) {
-        log.warn("Africa's Talking SMS failed: {}", e.getMessage());
-        return false;
-    }
-}
-
-private boolean trySendTwilio(String to, String msg) {
-    if (twilioAccountSid == null || twilioAccountSid.isBlank()) {
-        return false;
     }
 
-    if (twilioAuthToken == null || twilioAuthToken.isBlank()) {
-        log.warn("Twilio SMS skipped because auth token is not configured");
-        return false;
-    }
+    // ================================================================
+    // LOAN REJECTED
+    // ================================================================
 
-    if (twilioFromNumber == null || twilioFromNumber.isBlank()) {
-        log.warn("Twilio SMS skipped because from-number is not configured");
-        return false;
-    }
+    @Async
+    public void sendLoanRejected(
+            Loan loan
+    ) {
 
-    try {
-        String url =
-            "https://api.twilio.com/2010-04-01/Accounts/"
-            + twilioAccountSid
-            + "/Messages.json";
+        String phone =
+                phone(loan);
 
-        HttpHeaders headers = new HttpHeaders();
+        if (phone == null) {
+            return;
+        }
 
-        headers.setBasicAuth(
-            twilioAccountSid,
-            twilioAuthToken
+        send(
+                phone,
+                String.format(
+                        Locale.ROOT,
+                        "Your application for loan %s was not approved "
+                                + "at this time. Contact us for details. -%s",
+
+                        value(
+                                loan != null
+                                        ? loan.getReferenceNumber()
+                                        : null
+                        ),
+
+                        orgName(loan)
+                )
         );
+    }
 
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+    // ================================================================
+    // LOAN DISBURSED
+    // ================================================================
 
-        String body =
-            "To=" + enc(to)
-            + "&From=" + enc(twilioFromNumber)
-            + "&Body=" + enc(msg);
+    @Async
+    public void sendLoanDisbursed(
+            Loan loan,
+            String method
+    ) {
 
-        HttpEntity<String> request = new HttpEntity<>(body, headers);
+        String phone =
+                phone(loan);
 
-        restTemplate.exchange(
-            url,
-            HttpMethod.POST,
-            request,
-            String.class
+        if (phone == null) {
+            return;
+        }
+
+        BigDecimal grossAmount =
+                money(
+                        loan != null
+                                ? loan.getAmountDecimal()
+                                : null
+                );
+
+        BigDecimal processingFee =
+                money(
+                        loan != null
+                                ? loan.getProcessingFeeDecimal()
+                                : null
+                );
+
+        /*
+         * Platform rule:
+         *
+         * Gross loan principal remains the basis for interest.
+         *
+         * Processing fee is deducted once from the gross amount
+         * before the borrower receives the funds.
+         */
+        BigDecimal netDisbursedAmount =
+                grossAmount
+                        .subtract(
+                                processingFee
+                        )
+                        .max(
+                                BigDecimal.ZERO
+                        );
+
+        String currency =
+                value(
+                        loan != null
+                                ? loan.getCurrency()
+                                : "RWF"
+                );
+
+        String reference =
+                value(
+                        loan != null
+                                ? loan.getReferenceNumber()
+                                : null
+                );
+
+        String normalizedMethod =
+                method != null
+                        && !method.isBlank()
+                        ? method.trim()
+                        : "unspecified";
+
+        send(
+                phone,
+                String.format(
+                        Locale.ROOT,
+
+                        "Loan %s has been disbursed. "
+                                + "Gross principal: %s %s. "
+                                + "Processing fee (2%%): %s %s. "
+                                + "Net amount received: %s %s "
+                                + "via %s. "
+                                + "Interest remains calculated on the "
+                                + "gross principal. -%s",
+
+                        reference,
+
+                        currency,
+                        formatMoney(grossAmount),
+
+                        currency,
+                        formatMoney(processingFee),
+
+                        currency,
+                        formatMoney(netDisbursedAmount),
+
+                        normalizedMethod,
+
+                        orgName(loan)
+                )
         );
+    }
 
-        log.info(
-            "SMS sent via Twilio successfully to recipient target: {}",
-            to
+    // ================================================================
+    // PAYMENT DUE
+    // ================================================================
+
+    @Async
+    public void sendPaymentDue(
+            Loan loan,
+            double amount,
+            String dueDate
+    ) {
+
+        String phone =
+                phone(loan);
+
+        if (phone == null) {
+            return;
+        }
+
+        send(
+                phone,
+                String.format(
+                        Locale.ROOT,
+
+                        "REMINDER: Payment of %s %s is due %s "
+                                + "for loan %s. "
+                                + "Overdue penalty is 15%% per month, "
+                                + "calculated daily. "
+                                + "Please pay on time. -%s",
+
+                        value(
+                                loan != null
+                                        ? loan.getCurrency()
+                                        : "RWF"
+                        ),
+
+                        formatMoney(amount),
+
+                        value(dueDate),
+
+                        value(
+                                loan != null
+                                        ? loan.getReferenceNumber()
+                                        : null
+                        ),
+
+                        orgName(loan)
+                )
         );
-
-        return true;
-
-    } catch (Exception e) {
-        log.warn("Twilio SMS failed: {}", e.getMessage());
-        return false;
-    }
-}
-
-private String enc(String value) {
-    if (value == null) {
-        return "";
     }
 
-    try {
-        return java.net.URLEncoder.encode(
-            value,
-            java.nio.charset.StandardCharsets.UTF_8
+    // ================================================================
+    // PAYMENT CONFIRMED
+    // ================================================================
+
+    @Async
+    public void sendPaymentConfirmed(
+            Loan loan,
+            double amount
+    ) {
+
+        String phone =
+                phone(loan);
+
+        if (phone == null) {
+            return;
+        }
+
+        BigDecimal outstandingBalance =
+                money(
+                        loan != null
+                                ? loan.getOutstandingBalanceDecimal()
+                                : null
+                );
+
+        String currency =
+                value(
+                        loan != null
+                                ? loan.getCurrency()
+                                : "RWF"
+                );
+
+        send(
+                phone,
+                String.format(
+                        Locale.ROOT,
+
+                        "Payment of %s %s received for loan %s. "
+                                + "Remaining principal balance: %s %s. "
+                                + "-%s",
+
+                        currency,
+                        formatMoney(amount),
+
+                        value(
+                                loan != null
+                                        ? loan.getReferenceNumber()
+                                        : null
+                        ),
+
+                        currency,
+                        formatMoney(
+                                outstandingBalance
+                        ),
+
+                        orgName(loan)
+                )
         );
-    } catch (Exception e) {
-        log.warn("Unable to URL encode SMS value", e);
-        return value;
-    }
-}
-
-private String fmt(Double value) {
-    return value == null
-        ? "0.00"
-        : String.format("%,.2f", value);
-}
-
-private String phone(Loan loan) {
-    if (loan == null) {
-        return null;
     }
 
-    if (loan.getBorrower() == null) {
-        return null;
+    // ================================================================
+    // LOAN OVERDUE
+    // ================================================================
+
+    @Async
+    public void sendLoanOverdue(
+            Loan loan,
+            int days
+    ) {
+
+        String phone =
+                phone(loan);
+
+        if (phone == null) {
+            return;
+        }
+
+        BigDecimal outstandingBalance =
+                money(
+                        loan != null
+                                ? loan.getOutstandingBalanceDecimal()
+                                : null
+                );
+
+        String currency =
+                value(
+                        loan != null
+                                ? loan.getCurrency()
+                                : "RWF"
+                );
+
+        send(
+                phone,
+                String.format(
+                        Locale.ROOT,
+
+                        "URGENT: Loan %s is %d day(s) overdue. "
+                                + "Outstanding principal: %s %s. "
+                                + "Penalty: 15%% per month, calculated "
+                                + "daily on overdue exposure. "
+                                + "Please contact us immediately. -%s",
+
+                        value(
+                                loan != null
+                                        ? loan.getReferenceNumber()
+                                        : null
+                        ),
+
+                        Math.max(
+                                0,
+                                days
+                        ),
+
+                        currency,
+
+                        formatMoney(
+                                outstandingBalance
+                        ),
+
+                        orgName(loan)
+                )
+        );
     }
 
-    String borrowerPhone = loan.getBorrower().getPhone();
+    // ================================================================
+    // CUSTOM SMS
+    // ================================================================
 
-    if (borrowerPhone == null || borrowerPhone.isBlank()) {
-        return null;
+    @Async
+    public void sendCustom(
+            String phone,
+            String message
+    ) {
+
+        send(
+                phone,
+                message
+        );
     }
 
-    return borrowerPhone;
-}
+    // ================================================================
+    // SEND
+    // ================================================================
 
-private String orgName(Loan loan) {
-    if (loan == null || loan.getOrganization() == null) {
-        return "LoanSaaS";
+    private void send(
+            String to,
+            String msg
+    ) {
+
+        String normalized =
+                normalizePhone(to);
+
+        if (normalized == null) {
+
+            log.warn(
+                    "Skipping SMS - invalid phone number"
+            );
+
+            return;
+        }
+
+        if (msg == null
+                || msg.isBlank()) {
+
+            log.warn(
+                    "Skipping SMS - message is empty"
+            );
+
+            return;
+        }
+
+        if (!smsEnabled) {
+
+            log.info(
+                    "[SMS SIMULATION] {} -> {}",
+                    normalized,
+                    msg
+            );
+
+            return;
+        }
+
+        if (
+                trySendAT(
+                        normalized,
+                        msg
+                )
+        ) {
+            return;
+        }
+
+        if (
+                trySendTwilio(
+                        normalized,
+                        msg
+                )
+        ) {
+            return;
+        }
+
+        log.warn(
+                "All SMS providers failed for {}",
+                normalized
+        );
     }
 
-    String name = loan.getOrganization().getName();
+    // ================================================================
+    // PHONE NORMALIZATION
+    // ================================================================
 
-    return name == null || name.isBlank()
-        ? "LoanSaaS"
-        : name;
-}
+    private String normalizePhone(
+            String raw
+    ) {
 
+        if (
+                raw == null
+                        || raw.isBlank()
+        ) {
 
+            return null;
+        }
+
+        String cleaned =
+                raw.trim();
+
+        boolean hasPlus =
+                cleaned.startsWith("+");
+
+        String digits =
+                cleaned.replaceAll(
+                        "[^0-9]",
+                        ""
+                );
+
+        if (digits.isEmpty()) {
+            return null;
+        }
+
+        if (hasPlus) {
+            return "+" + digits;
+        }
+
+        if (
+                digits.startsWith(
+                        "250"
+                )
+        ) {
+            return "+" + digits;
+        }
+
+        if (
+                digits.startsWith(
+                        "0"
+                )
+        ) {
+
+            String national =
+                    digits.substring(
+                            1
+                    );
+
+            if (national.isBlank()) {
+                return null;
+            }
+
+            return "+250" + national;
+        }
+
+        return "+250" + digits;
+    }
+
+    // ================================================================
+    // AFRICA'S TALKING
+    // ================================================================
+
+    private boolean trySendAT(
+            String to,
+            String msg
+    ) {
+
+        if (
+                atApiKey == null
+                        || atApiKey.isBlank()
+        ) {
+
+            return false;
+        }
+
+        if (
+                atUsername == null
+                        || atUsername.isBlank()
+        ) {
+
+            log.warn(
+                    "Africa's Talking SMS skipped because username "
+                            + "is not configured"
+            );
+
+            return false;
+        }
+
+        try {
+
+            HttpHeaders headers =
+                    new HttpHeaders();
+
+            headers.set(
+                    "apiKey",
+                    atApiKey
+            );
+
+            headers.setContentType(
+                    MediaType.APPLICATION_FORM_URLENCODED
+            );
+
+            StringBuilder body =
+                    new StringBuilder();
+
+            body.append(
+                    "username="
+            );
+
+            body.append(
+                    enc(atUsername)
+            );
+
+            body.append(
+                    "&to="
+            );
+
+            body.append(
+                    enc(to)
+            );
+
+            body.append(
+                    "&message="
+            );
+
+            body.append(
+                    enc(msg)
+            );
+
+            if (
+                    atSenderId != null
+                            && !atSenderId.isBlank()
+            ) {
+
+                body.append(
+                        "&from="
+                );
+
+                body.append(
+                        enc(atSenderId)
+                );
+            }
+
+            HttpEntity<String> request =
+                    new HttpEntity<>(
+                            body.toString(),
+                            headers
+                    );
+
+            restTemplate.exchange(
+                    "https://api.africastalking.com/version1/messaging",
+                    HttpMethod.POST,
+                    request,
+                    String.class
+            );
+
+            log.info(
+                    "SMS sent via Africa's Talking"
+            );
+
+            return true;
+
+        } catch (Exception e) {
+
+            log.warn(
+                    "Africa's Talking SMS failed: {}",
+                    e.getMessage()
+            );
+
+            return false;
+        }
+    }
+
+    // ================================================================
+    // TWILIO
+    // ================================================================
+
+    private boolean trySendTwilio(
+            String to,
+            String msg
+    ) {
+
+        if (
+                twilioAccountSid == null
+                        || twilioAccountSid.isBlank()
+        ) {
+
+            return false;
+        }
+
+        if (
+                twilioAuthToken == null
+                        || twilioAuthToken.isBlank()
+        ) {
+
+            log.warn(
+                    "Twilio SMS skipped because auth token "
+                            + "is not configured"
+            );
+
+            return false;
+        }
+
+        if (
+                twilioFromNumber == null
+                        || twilioFromNumber.isBlank()
+        ) {
+
+            log.warn(
+                    "Twilio SMS skipped because from-number "
+                            + "is not configured"
+            );
+
+            return false;
+        }
+
+        try {
+
+            String url =
+                    "https://api.twilio.com/2010-04-01/Accounts/"
+                            + twilioAccountSid
+                            + "/Messages.json";
+
+            HttpHeaders headers =
+                    new HttpHeaders();
+
+            headers.setBasicAuth(
+                    twilioAccountSid,
+                    twilioAuthToken
+            );
+
+            headers.setContentType(
+                    MediaType.APPLICATION_FORM_URLENCODED
+            );
+
+            String body =
+                    "To="
+                            + enc(to)
+                            + "&From="
+                            + enc(twilioFromNumber)
+                            + "&Body="
+                            + enc(msg);
+
+            HttpEntity<String> request =
+                    new HttpEntity<>(
+                            body,
+                            headers
+                    );
+
+            restTemplate.exchange(
+                    url,
+                    HttpMethod.POST,
+                    request,
+                    String.class
+            );
+
+            log.info(
+                    "SMS sent via Twilio successfully"
+            );
+
+            return true;
+
+        } catch (Exception e) {
+
+            log.warn(
+                    "Twilio SMS failed: {}",
+                    e.getMessage()
+            );
+
+            return false;
+        }
+    }
+
+    // ================================================================
+    // URL ENCODING
+    // ================================================================
+
+    private String enc(
+            String value
+    ) {
+
+        if (value == null) {
+            return "";
+        }
+
+        try {
+
+            return URLEncoder.encode(
+                    value,
+                    StandardCharsets.UTF_8
+            );
+
+        } catch (Exception e) {
+
+            log.warn(
+                    "Unable to URL encode SMS value",
+                    e
+            );
+
+            return value;
+        }
+    }
+
+    // ================================================================
+    // MONEY HELPERS
+    // ================================================================
+
+    private BigDecimal money(
+            BigDecimal value
+    ) {
+
+        if (value == null) {
+
+            return BigDecimal.ZERO
+                    .setScale(
+                            2,
+                            RoundingMode.HALF_UP
+                    );
+        }
+
+        return value.setScale(
+                2,
+                RoundingMode.HALF_UP
+        );
+    }
+
+    private String formatMoney(
+            BigDecimal value
+    ) {
+
+        return String.format(
+                Locale.ROOT,
+                "%,.2f",
+                money(value)
+        );
+    }
+
+    private String formatMoney(
+            double value
+    ) {
+
+        if (
+                Double.isNaN(value)
+                        || Double.isInfinite(value)
+        ) {
+
+            value = 0.0;
+        }
+
+        return String.format(
+                Locale.ROOT,
+                "%,.2f",
+                value
+        );
+    }
+
+    // ================================================================
+    // SAFE STRING
+    // ================================================================
+
+    private String value(
+            String value
+    ) {
+
+        return value == null
+                || value.isBlank()
+                ? ""
+                : value.trim();
+    }
+
+    // ================================================================
+    // BORROWER PHONE
+    // ================================================================
+
+    private String phone(
+            Loan loan
+    ) {
+
+        if (loan == null
+                || loan.getBorrower() == null) {
+
+            return null;
+        }
+
+        String borrowerPhone =
+                loan.getBorrower().getPhone();
+
+        if (
+                borrowerPhone == null
+                        || borrowerPhone.isBlank()
+        ) {
+
+            return null;
+        }
+
+        return borrowerPhone.trim();
+    }
+
+    // ================================================================
+    // ORGANIZATION NAME
+    // ================================================================
+
+    private String orgName(
+            Loan loan
+    ) {
+
+        if (
+                loan == null
+                        || loan.getOrganization() == null
+        ) {
+
+            return "LoanSaaS";
+        }
+
+        String name =
+                loan.getOrganization().getName();
+
+        return name == null
+                || name.isBlank()
+                ? "LoanSaaS"
+                : name.trim();
+    }
 }

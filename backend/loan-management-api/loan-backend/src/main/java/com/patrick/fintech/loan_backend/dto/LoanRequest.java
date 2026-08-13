@@ -1,4 +1,3 @@
-
 package com.patrick.fintech.loan_backend.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -19,23 +18,23 @@ import lombok.NoArgsConstructor;
 @Builder
 public class LoanRequest {
 
-    @NotNull
+    @NotNull(message = "Borrower ID is required")
     private Long borrowerId;
 
-    @NotNull
-    @Positive
+    @NotNull(message = "Loan amount is required")
+    @Positive(message = "Loan amount must be greater than zero")
     @JsonProperty("amount")
     private BigDecimal amount;
 
     @JsonProperty("interestRate")
     private BigDecimal interestRate;
 
-   
     private String interestRateType;
 
-    @NotNull
-    @Min(1)
-    @Max(12)
+
+    @NotNull(message = "Loan duration is required")
+    @Min(value = 1, message = "Loan duration must be at least 1 month")
+    @Max(value = 6, message = "Loan duration cannot exceed 6 months")
     private Integer durationMonths;
 
     private String currency;
