@@ -9,15 +9,6 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-/**
- * Parses an uploaded borrower/loan ledger (CSV or XLSX) into a list of
- * normalized row maps
- * (header -> cell value, both trimmed). Header matching is forgiving —
- * "National ID",
- * "national_id", and "NationalID" all normalize to the same key — because this
- * is reading
- * files real people export from Excel, not a fixed machine-generated format.
- */
 public final class LedgerFileParser {
 
     private LedgerFileParser() {
@@ -43,14 +34,14 @@ public final class LedgerFileParser {
     private static List<Map<String, String>> parseCsv(InputStream in) throws IOException {
         List<Map<String, String>> rows = new ArrayList<>();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
-            String headerLine = reader.readLine();
+            String headerLine = readLogicalLine(reader);
             if (headerLine == null)
                 return rows;
             List<String> headers = splitCsvLine(headerLine).stream()
                     .map(LedgerFileParser::normalizeHeader).toList();
 
             String line;
-            while ((line = reader.readLine()) != null) {
+            while ((line = readLogicalLine(reader)) != null) {
                 if (line.isBlank())
                     continue;
                 List<String> cells = splitCsvLine(line);
@@ -64,11 +55,29 @@ public final class LedgerFileParser {
         return rows;
     }
 
-    /**
-     * Minimal RFC4180-ish CSV line splitter — handles quoted fields containing
-     * commas/quotes,
-     * which a plain String.split(",") would silently corrupt.
-     */
+    private static String readLogicalLine(BufferedReader reader) throws IOException {
+        String line = reader.readLine();
+        if (line == null)
+            return null;
+        StringBuilder buf = new StringBuilder(line);
+        while (!isQuoteBalanced(buf)) {
+            String next = reader.readLine();
+            if (next == null)
+                break; // malformed trailing quote — stop rather than loop forever
+            buf.append('\n').append(next);
+        }
+        return buf.toString();
+    }
+
+    private static boolean isQuoteBalanced(CharSequence s) {
+        int count = 0;
+        for (int i = 0; i < s.length(); i++) {
+            if (s.charAt(i) == '"')
+                count++;
+        }
+        return count % 2 == 0;
+    }
+
     private static List<String> splitCsvLine(String line) {
         List<String> out = new ArrayList<>();
         StringBuilder cur = new StringBuilder();
@@ -101,7 +110,17 @@ public final class LedgerFileParser {
 
     private static List<Map<String, String>> parseExcel(InputStream in) throws IOException {
         List<Map<String, String>> rows = new ArrayList<>();
-        try (Workbook wb = WorkbookFactory.create(in)) {
+
+        Workbook wb;
+        try {
+            wb = WorkbookFactory.create(in);
+        } catch (RuntimeException e) {
+
+            throw new IOException("The uploaded Excel file could not be opened. " +
+                    "It may be password-protected, corrupted, or not a valid .xlsx/.xls file.", e);
+        }
+
+        try (wb) {
             Sheet sheet = wb.getSheetAt(0);
             DataFormatter formatter = new DataFormatter();
             FormulaEvaluator evaluator = wb.getCreationHelper().createFormulaEvaluator();
@@ -110,9 +129,7 @@ public final class LedgerFileParser {
                 return rows;
 
             Row headerRow = it.next();
-            List<String> headers = new ArrayList<>();
-            for (Cell c : headerRow)
-                headers.add(normalizeHeader(formatter.formatCellValue(c, evaluator)));
+            List<String> headers = readHeaderRow(headerRow, formatter, evaluator);
 
             while (it.hasNext()) {
                 Row r = it.next();
@@ -130,5 +147,15 @@ public final class LedgerFileParser {
             }
         }
         return rows;
+    }
+
+    private static List<String> readHeaderRow(Row headerRow, DataFormatter formatter, FormulaEvaluator evaluator) {
+        List<String> headers = new ArrayList<>();
+        short lastCol = headerRow.getLastCellNum();
+        for (int i = 0; i < lastCol; i++) {
+            Cell c = headerRow.getCell(i, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+            headers.add(normalizeHeader(c == null ? "" : formatter.formatCellValue(c, evaluator)));
+        }
+        return headers;
     }
 }

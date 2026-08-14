@@ -27,7 +27,29 @@ export default function CreditBureauPage() {
   // PREVIEW
   // ==========================================================
 
+  const validateFilters = useCallback((): string | null => {
+    if (borrowerId) {
+      const id = Number(borrowerId);
+      if (!Number.isInteger(id) || id <= 0) {
+        return "Borrower ID must be a positive whole number.";
+      }
+    }
+
+    if (from && to && from > to) {
+      return "Start date cannot be after end date.";
+    }
+
+    return null;
+  }, [borrowerId, from, to]);
+
   const loadPreview = useCallback(async () => {
+    const validationError = validateFilters();
+
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
@@ -55,13 +77,20 @@ export default function CreditBureauPage() {
     } finally {
       setLoading(false);
     }
-  }, [borrowerId, from, to]);
+  }, [borrowerId, from, to, validateFilters]);
 
   // ==========================================================
   // EXPORT (FIXED: Safely invokes pipeline without extra logic)
   // ==========================================================
 
   const exportRecords = async (format: ExportFormat) => {
+    const validationError = validateFilters();
+
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     try {
       setExporting(format);
       setError(null);
@@ -211,17 +240,26 @@ export default function CreditBureauPage() {
                 <thead className="bg-slate-50">
                   <tr>
                     <Header>Borrower</Header>
+
                     <Header>National ID</Header>
+
                     <Header>Loan Number</Header>
+
                     <Header>Loan Type</Header>
-                    <Header>Status</Header>
+
                     <Header>Classification</Header>
-                    <Header>Outstanding Balance</Header>
+
                     <Header>Days Past Due</Header>
+
                     <Header>Credit Score</Header>
+
+                    <Header>Loan Amount</Header>
+
+                    <Header>Outstanding Balance</Header>
+
+                    <Header>Date Opened</Header>
+
                     <Header>Last Payment</Header>
-                    <Header>Maturity</Header>
-                    <Header>Branch</Header>
                   </tr>
                 </thead>
 
@@ -240,31 +278,34 @@ export default function CreditBureauPage() {
                       <td className="px-6 py-4 whitespace-nowrap text-slate-500">
                         {record.loanType || "N/A"}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
-                        {record.loanStatus || "N/A"}
+                      <td className="px-6 py-4 whitespace-nowrap font-semibold text-slate-700">
+                        {(
+                          record as CreditRecord & {
+                            repaymentClassification?: string;
+                          }
+                        ).repaymentClassification || "N/A"}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
-                        {record.repaymentClassification || "N/A"}
+                      <td className="px-6 py-4 whitespace-nowrap text-slate-700">
+                        {record.daysPastDue ?? 0}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-slate-700">
+                        {record.creditScore ?? "N/A"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-slate-900 font-semibold">
+                        {record.loanAmount != null
+                          ? record.loanAmount.toFixed(2)
+                          : "0.00"}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-slate-900 font-semibold">
                         {record.outstandingBalance != null
-                          ? Number(record.outstandingBalance).toFixed(2)
+                          ? record.outstandingBalance.toFixed(2)
                           : "0.00"}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-slate-500">
-                        {record.daysPastDue ?? 0}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
-                        {record.creditScore ?? "N/A"}
+                        {record.dateOpened || "N/A"}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-slate-500">
                         {record.lastPaymentDate || "N/A"}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
-                        {record.maturityDate || "N/A"}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
-                        {record.branchName || "N/A"}
                       </td>
                     </tr>
                   ))}

@@ -13,6 +13,17 @@ import {
   type RegulatoryPeriod,
 } from "@/services/regulatoryService";
 
+function Indicator({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-bold text-slate-800">{value}</p>
+    </div>
+  );
+}
+
 // ============================================================
 // PAGE
 // ============================================================
@@ -667,6 +678,72 @@ export default function BnrReportPage() {
             />
           </div>
         </Section>
+
+        {/* ================================================== */}
+        {/* ADDITIONAL REGULATORY INDICATORS */}
+        {/* ================================================== */}
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <h2 className="text-lg font-bold text-slate-900">
+              Regulatory Quality Indicators
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Additional indicators exposed by the BNR reporting service.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Indicator
+              label="Total outstanding"
+              value={money(summary?.totalOutstanding)}
+            />
+            <Indicator
+              label="Outstanding interest"
+              value={money(summary?.outstandingInterest)}
+            />
+            <Indicator
+              label="Outstanding fees"
+              value={money(summary?.outstandingFees)}
+            />
+            <Indicator
+              label="NPL loan count"
+              value={String(summary?.nplLoanCount ?? 0)}
+            />
+            <Indicator
+              label="Loans > 30 days"
+              value={String(summary?.loansOver30Days ?? 0)}
+            />
+            <Indicator
+              label="Loans > 60 days"
+              value={String(summary?.loansOver60Days ?? 0)}
+            />
+            <Indicator
+              label="Loans > 90 days"
+              value={String(summary?.loansOver90Days ?? 0)}
+            />
+            <Indicator
+              label="Written off"
+              value={money(summary?.writtenOffAmount)}
+            />
+            <Indicator
+              label="Required provision"
+              value={money(summary?.requiredProvision)}
+            />
+            <Indicator
+              label="Existing provision"
+              value={money(summary?.existingProvision)}
+            />
+            <Indicator
+              label="Provision shortfall"
+              value={money(summary?.provisionShortfall)}
+            />
+            <Indicator
+              label="Borrowers with defaults"
+              value={String(summary?.borrowersWithDefaultHistory ?? 0)}
+            />
+          </div>
+        </section>
 
         {/* ================================================== */}
         {/* FINANCIAL STATEMENT */}

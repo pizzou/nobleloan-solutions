@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { loanApi } from "@/services/api";
 import { Loan, LoanStatus } from "@/types";
@@ -32,9 +32,12 @@ const STATUSES: LoanStatus[] = [
   "ACTIVE",
   "OVERDUE",
   "DEFAULTED",
+  "RESTRUCTURED",
+  "WRITTEN_OFF",
   "PAID",
   "CLOSED",
   "REJECTED",
+  "CANCELLED",
 ];
 
 const TYPES = [
@@ -52,38 +55,44 @@ const TYPES = [
   "GROUP",
 ];
 
-const safeNumber = (value: unknown): number => {
-  const n = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(n) ? n : 0;
-};
+function safeNumber(value?: number | null): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
 
-const label = (value?: string | null): string =>
-  value ? value.replace(/_/g, " ") : "—";
+function percent(value?: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${value.toFixed(2)}%`;
+}
 
-const classificationClass = (value?: string | null): string => {
+function label(value?: string | null): string {
+  if (!value) return "—";
+  return value.replace(/_/g, " ");
+}
+
+function classificationTone(value?: string | null): string {
   switch (value) {
     case "CURRENT":
     case "NOT_DUE":
     case "NORMAL":
-      return "bg-emerald-50 text-emerald-700";
+      return "text-emerald-700";
     case "WATCH":
     case "REMINDER":
-      return "bg-amber-50 text-amber-700";
+      return "text-amber-700";
     case "SUBSTANDARD":
     case "COLLECTION":
-      return "bg-orange-50 text-orange-700";
+      return "text-orange-700";
     case "DOUBTFUL":
     case "LEGAL":
-      return "bg-red-50 text-red-700";
+      return "text-red-700";
     case "WRITTEN_OFF":
     case "RECOVERY":
-      return "bg-slate-900 text-white";
+      return "text-rose-800";
     case "PAST_DUE":
-      return "bg-red-50 text-red-700";
+      return "text-red-700";
     default:
-      return "bg-gray-100 text-gray-600";
+      return "text-gray-500";
   }
-};
+}
 
 export default function LoansPage() {
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -93,53 +102,80 @@ export default function LoansPage() {
   const [status, setStatus] = useState("");
   const [type, setType] = useState("");
   const [actionId, setActionId] = useState<number | null>(null);
-  const [search, setSearch] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
   const { currency, locale, isOfficer } = useAuth();
   const router = useRouter();
-  const fc = (n?: number) => formatCurrency(safeNumber(n), currency, locale);
 
-  const load = useCallback(() => {
+  const fc = (n?: number | null) =>
+    formatCurrency(
+      n == null || !Number.isFinite(n) ? undefined : n,
+      currency,
+      locale,
+    );
+
+  const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
 
-    loanApi
-      .list(page, 20, status, type)
-      .then((r: any) => {
-        const content = Array.isArray(r?.content)
-          ? r.content
-          : Array.isArray(r)
-            ? r
-            : [];
+    try {
+      const response = await loanApi.list(page, 20, status, type);
 
-        setLoans(content);
-        setTotal(safeNumber(r?.totalElements ?? content.length));
-      })
-      .catch((error) => {
-        console.error("Failed to load loans:", error);
-        setLoans([]);
-        setTotal(0);
-      })
-      .finally(() => setLoading(false));
+      const result = response ?? {};
+
+      setLoans(
+        Array.isArray(result)
+          ? result
+          : Array.isArray(result.content)
+            ? result.content
+            : [],
+      );
+
+      setTotal(
+        Array.isArray(result)
+          ? result.length
+          : safeNumber(result.totalElements),
+      );
+    } catch (err: unknown) {
+      console.error("Failed to load loan portfolio:", err);
+      setLoans([]);
+      setTotal(0);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load the loan portfolio.",
+      );
+    } finally {
+      setLoading(false);
+    }
   }, [page, status, type]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const quickAction = async (
-    e: React.MouseEvent,
+    event: React.MouseEvent,
     loanId: number,
-    action: string,
+    action: "approve" | "disburse",
   ) => {
-    e.stopPropagation();
+    event.stopPropagation();
     setActionId(loanId);
+    setError(null);
 
     try {
-      if (action === "approve") await loanApi.approve(loanId);
-      if (action === "disburse")
+      if (action === "approve") {
+        await loanApi.approve(loanId);
+      } else {
         await loanApi.disburse(loanId, "BANK_TRANSFER");
-      load();
-    } catch (err: any) {
-      alert(err?.message ?? "Unable to complete the loan action.");
+      }
+
+      await load();
+    } catch (err: unknown) {
+      console.error(`Failed to ${action} loan:`, err);
+      setError(
+        err instanceof Error ? err.message : `Unable to ${action} the loan.`,
+      );
     } finally {
       setActionId(null);
     }
@@ -147,26 +183,9 @@ export default function LoansPage() {
 
   const totalPages = Math.ceil(total / 20);
 
-  const filteredLoans = search.trim()
-    ? loans.filter((loan) => {
-        const query = search.trim().toLowerCase();
-        const borrower =
-          `${loan.borrower?.firstName ?? ""} ${loan.borrower?.lastName ?? ""}`.toLowerCase();
-        return (
-          String(loan.referenceNumber ?? "")
-            .toLowerCase()
-            .includes(query) ||
-          borrower.includes(query) ||
-          String(loan.borrower?.nationalId ?? "")
-            .toLowerCase()
-            .includes(query)
-        );
-      })
-    : loans;
-
   return (
-    <div>
-      <div className="flex items-start justify-between mb-6">
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-extrabold text-gray-900">
             Loan Portfolio
@@ -175,6 +194,7 @@ export default function LoansPage() {
             {formatNumber(total)} loans total
           </p>
         </div>
+
         {isOfficer && (
           <Button icon="+" onClick={() => router.push("/dashboard/loans/new")}>
             New Loan
@@ -182,59 +202,62 @@ export default function LoansPage() {
         )}
       </div>
 
+      {error && (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
+          {error}
+        </div>
+      )}
+
       <div className="flex gap-3 mb-4 flex-wrap items-center">
         <div className="relative">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
             🔍
           </span>
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search loans…"
-            className="pl-9 w-52"
-          />
+          <Input placeholder="Search loans…" className="pl-9 w-52" />
         </div>
 
         <Select
           value={status}
-          onChange={(e) => {
-            setStatus(e.target.value);
+          onChange={(event) => {
+            setStatus(event.target.value);
             setPage(0);
           }}
           className="w-40"
         >
           <option value="">All Statuses</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {label(s)}
+          {STATUSES.map((item) => (
+            <option key={item} value={item}>
+              {label(item)}
             </option>
           ))}
         </Select>
 
         <Select
           value={type}
-          onChange={(e) => {
-            setType(e.target.value);
+          onChange={(event) => {
+            setType(event.target.value);
             setPage(0);
           }}
           className="w-44"
         >
           <option value="">All Types</option>
-          {TYPES.map((t) => (
-            <option key={t} value={t}>
-              {LOAN_TYPE_META[t]?.label ?? label(t)}
+          {TYPES.map((item) => (
+            <option key={item} value={item}>
+              {LOAN_TYPE_META[item]?.label ?? label(item)}
             </option>
           ))}
         </Select>
 
-        {(status || type || search) && (
+        {(status || type) && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
               setStatus("");
               setType("");
-              setSearch("");
               setPage(0);
             }}
           >
@@ -256,30 +279,28 @@ export default function LoansPage() {
                   <Th>Reference</Th>
                   <Th>Borrower</Th>
                   <Th>Type</Th>
-                  <Th>Principal</Th>
+                  <Th>Amount</Th>
                   <Th>Rate</Th>
-                  <Th>Fees</Th>
-                  <Th>Outstanding</Th>
                   <Th>Term</Th>
-                  <Th>Credit Quality</Th>
-                  <Th>Arrears</Th>
-                  <Th>Days Overdue</Th>
-                  <Th>Collection Stage</Th>
+                  <Th>Progress</Th>
                   <Th>Risk</Th>
+                  <Th>Classification</Th>
+                  <Th>Financials</Th>
                   <Th>Status</Th>
-                  <Th>Classified</Th>
+                  <Th>Officer</Th>
+                  <Th>Date</Th>
                   {isOfficer && <Th>Actions</Th>}
                 </tr>
               </Thead>
 
               <Tbody>
-                {filteredLoans.length === 0 ? (
+                {loans.length === 0 ? (
                   <EmptyRow
-                    cols={isOfficer ? 16 : 15}
+                    cols={isOfficer ? 14 : 13}
                     message="No loans match your filters"
                   />
                 ) : (
-                  filteredLoans.map((loan) => {
+                  loans.map((loan) => {
                     const totalRepayable = safeNumber(loan.totalRepayable);
                     const totalPaid = safeNumber(loan.totalPaid);
                     const prog =
@@ -289,10 +310,6 @@ export default function LoansPage() {
                             Math.round((totalPaid / totalRepayable) * 100),
                           )
                         : 0;
-
-                    const totalFees =
-                      safeNumber(loan.processingFee) +
-                      safeNumber(loan.managementFee);
 
                     return (
                       <Tr
@@ -327,59 +344,33 @@ export default function LoansPage() {
                         </Td>
 
                         <Td className="text-gray-500 whitespace-nowrap">
-                          {safeNumber(loan.interestRate).toFixed(2)}%{" "}
-                          {loan.interestRateType === "MONTHLY" ? "mo" : ""}
-                        </Td>
-
-                        <Td className="whitespace-nowrap">
-                          <div className="font-semibold text-gray-700">
-                            {fc(totalFees)}
-                          </div>
-                          <div className="text-[10px] text-gray-400">
-                            Processing {fc(loan.processingFee)} · Mgmt{" "}
-                            {fc(loan.managementFee)}
-                          </div>
-                        </Td>
-
-                        <Td className="whitespace-nowrap">
-                          <div className="font-bold text-gray-900">
-                            {fc(loan.outstandingBalance)}
-                          </div>
-                          <div className="text-[10px] text-gray-400">
-                            Paid {fc(loan.totalPaid)}
-                          </div>
+                          {percent(loan.interestRate)}
                         </Td>
 
                         <Td className="text-gray-500 whitespace-nowrap">
                           {loan.durationMonths}mo
                         </Td>
 
-                        <Td>
-                          <span
-                            className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${classificationClass(loan.creditQuality)}`}
-                          >
-                            {label(loan.creditQuality)}
-                          </span>
-                        </Td>
-
-                        <Td>
-                          <span
-                            className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${classificationClass(loan.arrearsStatus)}`}
-                          >
-                            {label(loan.arrearsStatus)}
-                          </span>
-                        </Td>
-
-                        <Td className="text-center font-semibold text-gray-700">
-                          {safeNumber(loan.daysOverdue)}
-                        </Td>
-
-                        <Td>
-                          <span
-                            className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${classificationClass(loan.collectionsStage)}`}
-                          >
-                            {label(loan.collectionsStage)}
-                          </span>
+                        <Td className="min-w-[130px]">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                              <div
+                                className="h-1.5 rounded-full transition-all"
+                                style={{
+                                  width: `${prog}%`,
+                                  background:
+                                    prog >= 100
+                                      ? "#0D9488"
+                                      : prog > 50
+                                        ? "#3B82F6"
+                                        : "#F59E0B",
+                                }}
+                              />
+                            </div>
+                            <span className="text-xs text-gray-400 w-8 text-right">
+                              {prog}%
+                            </span>
+                          </div>
                         </Td>
 
                         <Td>
@@ -393,26 +384,96 @@ export default function LoansPage() {
                           )}
                         </Td>
 
+                        <Td className="min-w-[150px]">
+                          <div className="space-y-0.5 text-xs">
+                            <div
+                              className={`font-semibold ${classificationTone(
+                                loan.creditQuality,
+                              )}`}
+                            >
+                              Credit: {label(loan.creditQuality)}
+                            </div>
+                            <div
+                              className={classificationTone(loan.arrearsStatus)}
+                            >
+                              Arrears: {label(loan.arrearsStatus)}
+                            </div>
+                            <div
+                              className={classificationTone(
+                                loan.collectionsStage,
+                              )}
+                            >
+                              Stage: {label(loan.collectionsStage)}
+                            </div>
+                            <div className="text-gray-500">
+                              Days overdue: {loan.daysOverdue ?? 0}
+                            </div>
+                            <div className="text-gray-400 whitespace-nowrap">
+                              Classified:{" "}
+                              {formatDate(loan.classifiedAt, locale)}
+                            </div>
+                          </div>
+                        </Td>
+
+                        <Td className="min-w-[210px]">
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                            <span className="text-gray-400">Outstanding</span>
+                            <span className="font-semibold text-right text-gray-800">
+                              {fc(loan.outstandingBalance)}
+                            </span>
+
+                            <span className="text-gray-400">Net disbursed</span>
+                            <span className="font-semibold text-right text-gray-800">
+                              {fc(
+                                loan.netDisbursedAmount ?? loan.disbursedAmount,
+                              )}
+                            </span>
+
+                            <span className="text-gray-400">Repayable</span>
+                            <span className="font-semibold text-right text-gray-800">
+                              {fc(loan.totalRepayable)}
+                            </span>
+
+                            <span className="text-gray-400">Interest</span>
+                            <span className="text-right text-gray-700">
+                              {fc(loan.totalInterest)}
+                            </span>
+
+                            <span className="text-gray-400">Mgmt fee</span>
+                            <span className="text-right text-gray-700">
+                              {fc(loan.managementFee)}
+                            </span>
+
+                            <span className="text-gray-400">
+                              Processing fee
+                            </span>
+                            <span className="text-right text-gray-700">
+                              {fc(loan.processingFee)}
+                            </span>
+                          </div>
+                        </Td>
+
                         <Td>
                           <StatusBadge status={loan.status} />
                         </Td>
 
                         <Td className="text-xs text-gray-400 whitespace-nowrap">
-                          {formatDate(
-                            loan.classifiedAt ?? loan.startDate,
-                            locale,
-                          )}
+                          {loan.loanOfficer?.name ?? "—"}
+                        </Td>
+
+                        <Td className="text-xs text-gray-400 whitespace-nowrap">
+                          {formatDate(loan.startDate, locale)}
                         </Td>
 
                         {isOfficer && (
-                          <Td onClick={(e) => e.stopPropagation()}>
+                          <Td onClick={(event) => event.stopPropagation()}>
                             <div className="flex gap-1.5">
                               {loan.status === "PENDING" && (
                                 <Button
                                   size="xs"
                                   loading={actionId === loan.id}
-                                  onClick={(e) =>
-                                    quickAction(e, loan.id, "approve")
+                                  onClick={(event) =>
+                                    void quickAction(event, loan.id, "approve")
                                   }
                                 >
                                   Approve
@@ -424,8 +485,8 @@ export default function LoansPage() {
                                   size="xs"
                                   variant="secondary"
                                   loading={actionId === loan.id}
-                                  onClick={(e) =>
-                                    quickAction(e, loan.id, "disburse")
+                                  onClick={(event) =>
+                                    void quickAction(event, loan.id, "disburse")
                                   }
                                 >
                                   Disburse
@@ -435,8 +496,8 @@ export default function LoansPage() {
                               <Button
                                 size="xs"
                                 variant="ghost"
-                                onClick={(e) => {
-                                  e.stopPropagation();
+                                onClick={(event) => {
+                                  event.stopPropagation();
                                   router.push(`/dashboard/loans/${loan.id}`);
                                 }}
                               >
@@ -455,38 +516,43 @@ export default function LoansPage() {
         )}
 
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-xl">
+          <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-xl gap-3">
             <span className="text-xs text-gray-500">
               Showing {page * 20 + 1}–{Math.min((page + 1) * 20, total)} of{" "}
               {formatNumber(total)}
             </span>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap justify-end">
               <Button
                 variant="secondary"
                 size="xs"
                 disabled={page === 0}
-                onClick={() => setPage((p) => p - 1)}
+                onClick={() => setPage((current) => current - 1)}
               >
                 ← Prev
               </Button>
 
-              {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => (
-                <Button
-                  key={i}
-                  size="xs"
-                  variant={i === page ? "primary" : "secondary"}
-                  onClick={() => setPage(i)}
-                >
-                  {i + 1}
-                </Button>
-              ))}
+              {Array.from(
+                {
+                  length: Math.min(totalPages, 5),
+                },
+                (_, index) => (
+                  <Button
+                    key={index}
+                    size="xs"
+                    variant={index === page ? "primary" : "secondary"}
+                    onClick={() => setPage(index)}
+                  >
+                    {index + 1}
+                  </Button>
+                ),
+              )}
 
               <Button
                 variant="secondary"
                 size="xs"
                 disabled={page >= totalPages - 1}
-                onClick={() => setPage((p) => p + 1)}
+                onClick={() => setPage((current) => current + 1)}
               >
                 Next →
               </Button>

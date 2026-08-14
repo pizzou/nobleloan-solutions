@@ -228,26 +228,18 @@ export interface Loan {
   currency: string;
 
   processingFee?: number;
-
   processingFeeRate?: number;
-
   processingFeePaid?: number;
 
   disbursedAmount?: number;
-
   netDisbursedAmount?: number;
 
   totalRepayable?: number;
-
-  managementFeeRate?: number;
-
-  managementFee?: number;
-
-  managementFeePaid?: number;
-
   totalInterest?: number;
-
   interestPaid?: number;
+  managementFee?: number;
+  managementFeeRate?: number;
+  managementFeePaid?: number;
 
   totalPaid?: number;
 
@@ -289,23 +281,15 @@ export interface Loan {
 
   daysOverdue?: number;
 
-  creditQuality?: string;
+  creditQuality?:
+    "CURRENT" | "WATCH" | "SUBSTANDARD" | "DOUBTFUL" | "WRITTEN_OFF";
 
-  arrearsStatus?: string;
+  arrearsStatus?: "NOT_DUE" | "PAST_DUE";
 
-  collectionsStage?: string;
+  collectionsStage?:
+    "NORMAL" | "REMINDER" | "COLLECTION" | "LEGAL" | "RECOVERY";
 
   classifiedAt?: string;
-
-  nextInstallmentAmount?: number;
-
-  nextPaymentDate?: string;
-
-  imported?: boolean;
-
-  importBatchId?: number;
-
-  termsAcceptedAt?: string;
 
   createdAt?: string;
 
