@@ -38,7 +38,7 @@ import java.util.regex.Pattern;
 @Slf4j
 public class LegacyLoanImportRowService {
 
-        private static final Pattern LEADING_APOSTROPHES = Pattern.compile("^['\"`]+");
+        private static final Pattern LEADING_APOSTROPHES = Pattern.compile("^['\"`‘’“”_ \\s]+");
 
         private static final int MONEY_SCALE = 2;
 
