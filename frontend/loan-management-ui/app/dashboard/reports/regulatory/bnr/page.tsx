@@ -13,6 +13,10 @@ import {
   type RegulatoryPeriod,
 } from "@/services/regulatoryService";
 
+/* ============================================================
+   CONSTANTS
+   ============================================================ */
+
 const PERIODS: RegulatoryPeriod[] = [
   "DAILY",
   "WEEKLY",
@@ -22,20 +26,81 @@ const PERIODS: RegulatoryPeriod[] = [
   "CUSTOM",
 ];
 
-const safeNumber = (value: unknown): number => {
+const EXPORT_FORMATS: ExportFormat[] = ["pdf", "xlsx", "csv"];
+
+/* ============================================================
+   FLEXIBLE BACKEND RESPONSE SUPPORT
+   ============================================================ */
+
+/**
+ * The frontend regulatoryService currently exposes BnrSummary
+ * with one naming convention while the backend BnrSummaryReport
+ * contains additional regulatory-specific names such as:
+ *
+ * totalLoansIssued
+ * disbursedLoans
+ * loansCurrent
+ * loans1To30DaysPastDue
+ * femaleLoanCount
+ * maleLoanCount
+ *
+ * Keep the imported BnrSummary type while safely supporting the
+ * actual backend response without forcing unsafe property access.
+ */
+type FlexibleBnrSummary = BnrSummary & Record<string, unknown>;
+
+type FlexibleFinancialStatement = BnrFinancialStatementReport &
+  Record<string, unknown>;
+
+type FlexibleBreakdownRow = BreakdownRow & Record<string, unknown>;
+
+/* ============================================================
+   SAFE VALUE HELPERS
+   ============================================================ */
+
+function safeNumber(value: unknown): number {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : 0;
+  }
+
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+
+  if (value === null || value === undefined) {
+    return 0;
   }
 
   const parsed = Number(value);
 
   return Number.isFinite(parsed) ? parsed : 0;
-};
+}
 
-const labelize = (value?: string | null): string =>
-  value ? value.replace(/_/g, " ") : "—";
+function safeString(value: unknown, fallback = "—"): string {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value.trim();
+  }
 
-const percentageOf = (value: unknown, total: number): number => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  return fallback;
+}
+
+function labelize(value?: string | null): string {
+  if (!value) {
+    return "—";
+  }
+
+  return value
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function percentageOf(value: unknown, total: number): number {
   const numerator = safeNumber(value);
 
   if (total <= 0) {
@@ -43,9 +108,11 @@ const percentageOf = (value: unknown, total: number): number => {
   }
 
   return (numerator / total) * 100;
-};
+}
 
-const moneyValue = (value: unknown): number => safeNumber(value);
+function moneyValue(value: unknown): number {
+  return safeNumber(value);
+}
 
 function formatMoney(value: unknown, currency = "RWF"): string {
   const amount = moneyValue(value);
@@ -69,9 +136,67 @@ function formatNumber(value: unknown): string {
   return new Intl.NumberFormat("en-US").format(safeNumber(value));
 }
 
-function formatPercent(value: number): string {
-  return `${value.toFixed(2)}%`;
+function formatPercent(value: unknown): string {
+  return `${safeNumber(value).toFixed(2)}%`;
 }
+
+function formatDateTime(value: unknown): string {
+  if (!value) {
+    return "—";
+  }
+
+  const date = new Date(String(value));
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat("en-RW", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+/* ============================================================
+   GENERIC BACKEND FIELD READER
+   ============================================================ */
+
+function readField(
+  source: Record<string, unknown> | null | undefined,
+  ...keys: string[]
+): unknown {
+  if (!source) {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    const value = source[key];
+
+    if (value !== undefined && value !== null) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function numberField(
+  source: Record<string, unknown> | null | undefined,
+  ...keys: string[]
+): number {
+  return safeNumber(readField(source, ...keys));
+}
+
+function stringField(
+  source: Record<string, unknown> | null | undefined,
+  ...keys: string[]
+): string {
+  return safeString(readField(source, ...keys));
+}
+
+/* ============================================================
+   BREAKDOWN NORMALIZATION
+   ============================================================ */
 
 function unwrapRows(rows: unknown): BreakdownRow[] {
   if (!Array.isArray(rows)) {
@@ -79,18 +204,33 @@ function unwrapRows(rows: unknown): BreakdownRow[] {
   }
 
   return rows
-    .filter((row): row is BreakdownRow =>
+    .filter((row): row is Record<string, unknown> =>
       Boolean(row && typeof row === "object"),
     )
-    .map((row: any) => ({
-      label:
-        typeof row.label === "string"
-          ? row.label
-          : String(row.category ?? row.name ?? "Unknown"),
-      count: safeNumber(row.count ?? row.total ?? 0),
-      amount: safeNumber(row.amount ?? 0),
+    .map((row) => ({
+      label: safeString(
+        row.label ??
+          row.category ??
+          row.name ??
+          row.type ??
+          row.gender ??
+          "Unknown",
+        "Unknown",
+      ),
+
+      count: safeNumber(
+        row.count ?? row.total ?? row.loanCount ?? row.borrowerCount ?? 0,
+      ),
+
+      amount: safeNumber(
+        row.amount ?? row.totalAmount ?? row.loanAmount ?? row.value ?? 0,
+      ),
     }));
 }
+
+/* ============================================================
+   COMPONENTS
+   ============================================================ */
 
 function ExportButton({
   format,
@@ -138,7 +278,9 @@ function Kpi({
         {value}
       </p>
 
-      {secondary && <p className="mt-1 text-xs text-slate-400">{secondary}</p>}
+      {secondary ? (
+        <p className="mt-1 text-xs text-slate-400">{secondary}</p>
+      ) : null}
     </div>
   );
 }
@@ -158,7 +300,9 @@ function Metric({
 
       <p className="mt-2 text-lg font-bold text-slate-900">{value}</p>
 
-      {secondary && <p className="mt-1 text-xs text-slate-400">{secondary}</p>}
+      {secondary ? (
+        <p className="mt-1 text-xs text-slate-400">{secondary}</p>
+      ) : null}
     </div>
   );
 }
@@ -178,6 +322,10 @@ function Section({
     </section>
   );
 }
+
+/* ============================================================
+   BREAKDOWN TABLE
+   ============================================================ */
 
 function Breakdown({
   title,
@@ -225,11 +373,11 @@ function Breakdown({
                   Count
                 </th>
 
-                {showPercentage && (
+                {showPercentage ? (
                   <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     %
                   </th>
-                )}
+                ) : null}
 
                 <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">
                   Amount
@@ -254,11 +402,11 @@ function Breakdown({
                       {formatNumber(row.count)}
                     </td>
 
-                    {showPercentage && (
+                    {showPercentage ? (
                       <td className="px-5 py-3 text-right font-semibold text-indigo-600">
                         {formatPercent(percentage)}
                       </td>
-                    )}
+                    ) : null}
 
                     <td className="px-5 py-3 text-right font-semibold text-slate-800">
                       {formatMoney(row.amount, currency)}
@@ -274,11 +422,11 @@ function Breakdown({
                   {formatNumber(totalCount)}
                 </td>
 
-                {showPercentage && (
+                {showPercentage ? (
                   <td className="px-5 py-3 text-right font-bold text-indigo-700">
                     100.00%
                   </td>
-                )}
+                ) : null}
 
                 <td className="px-5 py-3 text-right font-bold text-slate-900">
                   {formatMoney(totalAmount, currency)}
@@ -292,6 +440,10 @@ function Breakdown({
   );
 }
 
+/* ============================================================
+   FINANCIAL STATEMENT
+   ============================================================ */
+
 function FinancialStatement({
   report,
   currency,
@@ -302,6 +454,8 @@ function FinancialStatement({
   if (!report) {
     return null;
   }
+
+  const financial = report as FlexibleFinancialStatement;
 
   const renderRows = (rows?: FinancialStatementRow[]) => {
     if (!rows?.length) {
@@ -343,9 +497,9 @@ function FinancialStatement({
                     {row.name ?? "Unnamed Account"}
                   </div>
 
-                  {row.code && (
+                  {row.code ? (
                     <div className="text-xs text-slate-400">{row.code}</div>
-                  )}
+                  ) : null}
                 </td>
 
                 <td className="px-5 py-3 text-right text-slate-600">
@@ -372,23 +526,23 @@ function FinancialStatement({
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric
           label="Total Assets"
-          value={formatMoney(report.totalAssets, currency)}
+          value={formatMoney(financial.totalAssets, currency)}
         />
 
         <Metric
           label="Total Liabilities"
-          value={formatMoney(report.totalLiabilities, currency)}
+          value={formatMoney(financial.totalLiabilities, currency)}
         />
 
         <Metric
           label="Total Equity"
-          value={formatMoney(report.totalEquity, currency)}
+          value={formatMoney(financial.totalEquity, currency)}
         />
 
         <Metric
           label="Net Income"
           value={formatMoney(
-            report.netIncome ?? report.currentPeriodNetIncome,
+            financial.netIncome ?? financial.currentPeriodNetIncome,
             currency,
           )}
         />
@@ -400,7 +554,7 @@ function FinancialStatement({
             <h3 className="font-semibold text-slate-900">Assets</h3>
           </div>
 
-          {renderRows(report.assets)}
+          {renderRows(financial.assets)}
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-slate-200">
@@ -408,7 +562,7 @@ function FinancialStatement({
             <h3 className="font-semibold text-slate-900">Liabilities</h3>
           </div>
 
-          {renderRows(report.liabilities)}
+          {renderRows(financial.liabilities)}
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-slate-200">
@@ -416,34 +570,614 @@ function FinancialStatement({
             <h3 className="font-semibold text-slate-900">Equity</h3>
           </div>
 
-          {renderRows(report.equity)}
+          {renderRows(financial.equity)}
         </div>
       </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
         <Metric
           label="Cash Used for Lending"
-          value={formatMoney(report.cashUsedForLending, currency)}
+          value={formatMoney(financial.cashUsedForLending, currency)}
         />
 
         <Metric
           label="Cash From Collections"
-          value={formatMoney(report.cashFromCollections, currency)}
+          value={formatMoney(financial.cashFromCollections, currency)}
         />
 
         <Metric
           label="Cash From Fees"
-          value={formatMoney(report.cashFromFees, currency)}
+          value={formatMoney(financial.cashFromFees, currency)}
         />
 
         <Metric
           label="Net Change in Cash"
-          value={formatMoney(report.netChangeInCash, currency)}
+          value={formatMoney(financial.netChangeInCash, currency)}
         />
       </div>
     </Section>
   );
 }
+
+/* ============================================================
+   CREDIT QUALITY
+   ============================================================ */
+
+type CreditQualityRow = {
+  label: string;
+  count: number;
+  percentage: number;
+  amount: number;
+  tone: string;
+};
+
+function CreditQualitySection({
+  summary,
+  currency,
+}: {
+  summary: FlexibleBnrSummary;
+  currency: string;
+}) {
+  const totalLoans = numberField(summary, "totalLoansIssued", "totalLoans");
+
+  const current = numberField(summary, "loansCurrent");
+
+  const watch = numberField(summary, "loans1To30DaysPastDue");
+
+  const substandard = numberField(summary, "loans31To60DaysPastDue");
+
+  const doubtful = numberField(summary, "loans61To90DaysPastDue");
+
+  const writtenOff = numberField(
+    summary,
+    "loansOver90DaysPastDue",
+    "writtenOffLoans",
+  );
+
+  /**
+   * The backend BNR DTO exposes regulatory aging buckets:
+   *
+   * CURRENT
+   * 1–30 DAYS
+   * 31–60 DAYS
+   * 61–90 DAYS
+   * OVER 90 DAYS
+   *
+   * The Loan model's credit-quality enum is:
+   *
+   * CURRENT
+   * WATCH
+   * SUBSTANDARD
+   * DOUBTFUL
+   * WRITTEN_OFF
+   *
+   * Therefore the page must not pretend the backend supplied a
+   * separate credit-quality endpoint. It displays the available
+   * regulatory classification buckets and maps them safely.
+   */
+
+  const rows: CreditQualityRow[] = [
+    {
+      label: "Current",
+      count: current,
+      percentage: percentageOf(current, totalLoans),
+      amount: numberField(summary, "currentAmount", "currentLoanAmount"),
+      tone: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    },
+    {
+      label: "Watch",
+      count: watch,
+      percentage: percentageOf(watch, totalLoans),
+      amount: numberField(summary, "par1Amount", "par1To30Amount"),
+      tone: "border-amber-200 bg-amber-50 text-amber-800",
+    },
+    {
+      label: "Substandard",
+      count: substandard,
+      percentage: percentageOf(substandard, totalLoans),
+      amount: numberField(
+        summary,
+        "par30Amount",
+        "par31To60Amount",
+        "par31To60Amount",
+      ),
+      tone: "border-orange-200 bg-orange-50 text-orange-800",
+    },
+    {
+      label: "Doubtful",
+      count: doubtful,
+      percentage: percentageOf(doubtful, totalLoans),
+      amount: numberField(summary, "par60Amount", "par61To90Amount"),
+      tone: "border-red-200 bg-red-50 text-red-800",
+    },
+    {
+      label: "Written Off / Severe Default",
+      count: writtenOff,
+      percentage: percentageOf(writtenOff, totalLoans),
+      amount: numberField(summary, "writtenOffPrincipal", "writtenOffAmount"),
+      tone: "border-rose-200 bg-rose-50 text-rose-900",
+    },
+  ];
+
+  const displayedTotal = rows.reduce((sum, row) => sum + row.count, 0);
+
+  return (
+    <Section title="Credit Quality">
+      <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Metric
+          label="Total Loans Classified"
+          value={formatNumber(totalLoans)}
+          secondary={
+            totalLoans > 0 ? "100% reporting base" : "No loan population"
+          }
+        />
+
+        <Metric
+          label="Current Loans"
+          value={formatNumber(current)}
+          secondary={formatPercent(percentageOf(current, totalLoans))}
+        />
+
+        <Metric
+          label="Loans Past Due"
+          value={formatNumber(Math.max(0, totalLoans - current))}
+          secondary={formatPercent(
+            percentageOf(Math.max(0, totalLoans - current), totalLoans),
+          )}
+        />
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Credit Quality
+              </th>
+
+              <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Loans
+              </th>
+
+              <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                %
+              </th>
+
+              <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Amount
+              </th>
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((row) => (
+              <tr key={row.label}>
+                <td className="px-5 py-4">
+                  <span
+                    className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${row.tone}`}
+                  >
+                    {row.label}
+                  </span>
+                </td>
+
+                <td className="px-5 py-4 text-right font-semibold text-slate-800">
+                  {formatNumber(row.count)}
+                </td>
+
+                <td className="px-5 py-4 text-right font-bold text-indigo-600">
+                  {formatPercent(row.percentage)}
+                </td>
+
+                <td className="px-5 py-4 text-right font-semibold text-slate-800">
+                  {formatMoney(row.amount, currency)}
+                </td>
+              </tr>
+            ))}
+
+            <tr className="bg-slate-50">
+              <td className="px-5 py-4 font-bold text-slate-900">Total</td>
+
+              <td className="px-5 py-4 text-right font-bold text-slate-900">
+                {formatNumber(Math.max(totalLoans, displayedTotal))}
+              </td>
+
+              <td className="px-5 py-4 text-right font-bold text-indigo-700">
+                100.00%
+              </td>
+
+              <td className="px-5 py-4 text-right font-bold text-slate-900">
+                {formatMoney(
+                  rows.reduce((sum, row) => sum + row.amount, 0),
+                  currency,
+                )}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p className="mt-4 text-xs leading-5 text-slate-400">
+        Credit-quality presentation uses the regulatory ageing information
+        supplied by the BNR reporting backend. It does not invent a separate
+        credit-quality API that the backend does not expose.
+      </p>
+    </Section>
+  );
+}
+
+/* ============================================================
+   GENDER DISTRIBUTION
+   ============================================================ */
+
+function GenderDistribution({
+  genders,
+  summary,
+  currency,
+}: {
+  genders: BreakdownRow[];
+  summary: FlexibleBnrSummary;
+  currency: string;
+}) {
+  const backendMale = numberField(summary, "maleLoanCount", "maleBorrowers");
+
+  const backendFemale = numberField(
+    summary,
+    "femaleLoanCount",
+    "femaleBorrowers",
+  );
+
+  const backendOther = numberField(
+    summary,
+    "otherGenderLoanCount",
+    "otherGenderBorrowers",
+  );
+
+  const backendMaleAmount = numberField(summary, "maleLoanAmount");
+
+  const backendFemaleAmount = numberField(summary, "femaleLoanAmount");
+
+  const backendOtherAmount = numberField(summary, "otherGenderLoanAmount");
+
+  const maleFromBreakdown = genders.find(
+    (row) => row.label?.toLowerCase().trim() === "male",
+  );
+
+  const femaleFromBreakdown = genders.find(
+    (row) => row.label?.toLowerCase().trim() === "female",
+  );
+
+  const otherFromBreakdown = genders.find((row) => {
+    const label = row.label?.toLowerCase().trim();
+
+    return label === "other" || label === "unknown" || label === "other gender";
+  });
+
+  const male = maleFromBreakdown
+    ? safeNumber(maleFromBreakdown.count)
+    : backendMale;
+
+  const female = femaleFromBreakdown
+    ? safeNumber(femaleFromBreakdown.count)
+    : backendFemale;
+
+  const other = otherFromBreakdown
+    ? safeNumber(otherFromBreakdown.count)
+    : backendOther;
+
+  const maleAmount = maleFromBreakdown
+    ? safeNumber(maleFromBreakdown.amount)
+    : backendMaleAmount;
+
+  const femaleAmount = femaleFromBreakdown
+    ? safeNumber(femaleFromBreakdown.amount)
+    : backendFemaleAmount;
+
+  const otherAmount = otherFromBreakdown
+    ? safeNumber(otherFromBreakdown.amount)
+    : backendOtherAmount;
+
+  const total = male + female + other;
+
+  return (
+    <Section title="Gender Distribution">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric
+          label="Total"
+          value={formatNumber(total)}
+          secondary="100.00% of gender population"
+        />
+
+        <Metric
+          label="Male"
+          value={formatNumber(male)}
+          secondary={formatPercent(percentageOf(male, total))}
+        />
+
+        <Metric
+          label="Female"
+          value={formatNumber(female)}
+          secondary={formatPercent(percentageOf(female, total))}
+        />
+
+        <Metric
+          label="Other / Unknown"
+          value={formatNumber(other)}
+          secondary={formatPercent(percentageOf(other, total))}
+        />
+      </div>
+
+      <div className="mt-6 overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Gender
+              </th>
+
+              <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Total
+              </th>
+
+              <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Percentage
+              </th>
+
+              <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Loan Amount
+              </th>
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-slate-100">
+            <tr>
+              <td className="px-5 py-4 font-semibold text-slate-800">Male</td>
+
+              <td className="px-5 py-4 text-right">{formatNumber(male)}</td>
+
+              <td className="px-5 py-4 text-right font-bold text-indigo-600">
+                {formatPercent(percentageOf(male, total))}
+              </td>
+
+              <td className="px-5 py-4 text-right font-semibold">
+                {formatMoney(maleAmount, currency)}
+              </td>
+            </tr>
+
+            <tr>
+              <td className="px-5 py-4 font-semibold text-slate-800">Female</td>
+
+              <td className="px-5 py-4 text-right">{formatNumber(female)}</td>
+
+              <td className="px-5 py-4 text-right font-bold text-indigo-600">
+                {formatPercent(percentageOf(female, total))}
+              </td>
+
+              <td className="px-5 py-4 text-right font-semibold">
+                {formatMoney(femaleAmount, currency)}
+              </td>
+            </tr>
+
+            <tr>
+              <td className="px-5 py-4 font-semibold text-slate-800">
+                Other / Unknown
+              </td>
+
+              <td className="px-5 py-4 text-right">{formatNumber(other)}</td>
+
+              <td className="px-5 py-4 text-right font-bold text-indigo-600">
+                {formatPercent(percentageOf(other, total))}
+              </td>
+
+              <td className="px-5 py-4 text-right font-semibold">
+                {formatMoney(otherAmount, currency)}
+              </td>
+            </tr>
+
+            <tr className="bg-slate-50">
+              <td className="px-5 py-4 font-bold text-slate-900">Total</td>
+
+              <td className="px-5 py-4 text-right font-bold text-slate-900">
+                {formatNumber(total)}
+              </td>
+
+              <td className="px-5 py-4 text-right font-bold text-indigo-700">
+                100.00%
+              </td>
+
+              <td className="px-5 py-4 text-right font-bold text-slate-900">
+                {formatMoney(maleAmount + femaleAmount + otherAmount, currency)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  );
+}
+
+/* ============================================================
+   LOAN TYPE DISTRIBUTION
+   ============================================================ */
+
+function LoanTypeDistribution({
+  rows,
+  summary,
+  currency,
+}: {
+  rows: BreakdownRow[];
+  summary: FlexibleBnrSummary;
+  currency: string;
+}) {
+  const normalizedRows =
+    rows.length > 0
+      ? rows
+      : unwrapRows(readField(summary, "loanTypeBreakdown"));
+
+  const totalCount = normalizedRows.reduce(
+    (sum, row) => sum + safeNumber(row.count),
+    0,
+  );
+
+  const totalAmount = normalizedRows.reduce(
+    (sum, row) => sum + safeNumber(row.amount),
+    0,
+  );
+
+  return (
+    <Section title="Loan Type Distribution">
+      {normalizedRows.length === 0 ? (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400">
+          No loan-type data available for this reporting period.
+        </div>
+      ) : (
+        <>
+          <div className="mb-5 grid gap-4 sm:grid-cols-2">
+            <Metric
+              label="Total Loans by Type"
+              value={formatNumber(totalCount)}
+              secondary="100.00% of loan-type population"
+            />
+
+            <Metric
+              label="Total Loan Amount"
+              value={formatMoney(totalAmount, currency)}
+              secondary="Combined amount across all loan types"
+            />
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Loan Type
+                  </th>
+
+                  <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Total Loans
+                  </th>
+
+                  <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    %
+                  </th>
+
+                  <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Loan Amount
+                  </th>
+
+                  <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Amount %
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-100">
+                {normalizedRows.map((row, index) => {
+                  const count = safeNumber(row.count);
+
+                  const amount = safeNumber(row.amount);
+
+                  const countPct = percentageOf(count, totalCount);
+
+                  const amountPct = percentageOf(amount, totalAmount);
+
+                  return (
+                    <tr
+                      key={`${row.label}-${index}`}
+                      className="hover:bg-slate-50"
+                    >
+                      <td className="px-5 py-4 font-semibold text-slate-800">
+                        {labelize(row.label)}
+                      </td>
+
+                      <td className="px-5 py-4 text-right font-semibold text-slate-700">
+                        {formatNumber(count)}
+                      </td>
+
+                      <td className="px-5 py-4 text-right font-bold text-indigo-600">
+                        {formatPercent(countPct)}
+                      </td>
+
+                      <td className="px-5 py-4 text-right font-semibold text-slate-800">
+                        {formatMoney(amount, currency)}
+                      </td>
+
+                      <td className="px-5 py-4 text-right font-bold text-blue-600">
+                        {formatPercent(amountPct)}
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                <tr className="bg-slate-50">
+                  <td className="px-5 py-4 font-bold text-slate-900">Total</td>
+
+                  <td className="px-5 py-4 text-right font-bold text-slate-900">
+                    {formatNumber(totalCount)}
+                  </td>
+
+                  <td className="px-5 py-4 text-right font-bold text-indigo-700">
+                    100.00%
+                  </td>
+
+                  <td className="px-5 py-4 text-right font-bold text-slate-900">
+                    {formatMoney(totalAmount, currency)}
+                  </td>
+
+                  <td className="px-5 py-4 text-right font-bold text-blue-700">
+                    100.00%
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-6 space-y-3">
+            {normalizedRows.map((row, index) => {
+              const percentage = percentageOf(row.count, totalCount);
+
+              return (
+                <div
+                  key={`bar-${row.label}-${index}`}
+                  className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="font-semibold text-slate-800">
+                      {labelize(row.label)}
+                    </span>
+
+                    <span className="font-bold text-indigo-600">
+                      {formatPercent(percentage)}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className="h-full rounded-full bg-indigo-500"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, percentage))}%`,
+                      }}
+                    />
+                  </div>
+
+                  <div className="mt-2 flex justify-between text-xs text-slate-400">
+                    <span>{formatNumber(row.count)} loans</span>
+
+                    <span>{formatMoney(row.amount, currency)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </Section>
+  );
+}
+
+/* ============================================================
+   PAGE
+   ============================================================ */
 
 export default function BnrReportPage() {
   const [period, setPeriod] = useState<RegulatoryPeriod>("MONTHLY");
@@ -469,6 +1203,10 @@ export default function BnrReportPage() {
 
   const [downloading, setDownloading] = useState<ExportFormat | null>(null);
 
+  /* ==========================================================
+     PARAMETERS
+     ========================================================== */
+
   const params = useMemo<BnrReportParams>(() => {
     const result: BnrReportParams = {
       period,
@@ -487,7 +1225,11 @@ export default function BnrReportPage() {
     return result;
   }, [period, from, to]);
 
-  const validate = useCallback(() => {
+  /* ==========================================================
+     VALIDATION
+     ========================================================== */
+
+  const validate = useCallback((): string | null => {
     if (period !== "CUSTOM") {
       return null;
     }
@@ -506,6 +1248,10 @@ export default function BnrReportPage() {
 
     return null;
   }, [period, from, to]);
+
+  /* ==========================================================
+     LOAD REPORT
+     ========================================================== */
 
   const loadReport = useCallback(async () => {
     const validationError = validate();
@@ -527,9 +1273,13 @@ export default function BnrReportPage() {
         genderResponse,
       ] = await Promise.all([
         regulatoryApi.bnrSummary(params),
+
         regulatoryApi.bnrFinancialStatement(params),
+
         regulatoryApi.bnrByLoanType(params),
+
         regulatoryApi.bnrByBranch(params),
+
         regulatoryApi.bnrByGender(params),
       ]);
 
@@ -557,6 +1307,10 @@ export default function BnrReportPage() {
     void loadReport();
   }, [loadReport]);
 
+  /* ==========================================================
+     EXPORT
+     ========================================================== */
+
   const exportReport = useCallback(
     async (format: ExportFormat) => {
       const validationError = validate();
@@ -568,6 +1322,7 @@ export default function BnrReportPage() {
 
       try {
         setDownloading(format);
+
         setError(null);
 
         await regulatoryApi.bnrExport(format, params);
@@ -587,20 +1342,125 @@ export default function BnrReportPage() {
     [params, validate],
   );
 
-  const currency = summary?.currency ?? financialStatement?.currency ?? "RWF";
+  /* ==========================================================
+     FLEXIBLE SUMMARY
+     ========================================================== */
 
-  const genderTotal = genders.reduce(
-    (sum, row) => sum + safeNumber(row.count),
-    0,
+  const flexibleSummary = summary as FlexibleBnrSummary | null;
+
+  const currency =
+    stringField(flexibleSummary, "currency") ||
+    financialStatement?.currency ||
+    "RWF";
+
+  /* ==========================================================
+     BACKEND COMPATIBLE SUMMARY VALUES
+     ========================================================== */
+
+  const totalLoans = numberField(
+    flexibleSummary,
+    "totalLoansIssued",
+    "totalLoans",
   );
 
-  const maleRow = genders.find(
-    (row) => row.label?.toLowerCase().trim() === "male",
+  const disbursedLoans = numberField(
+    flexibleSummary,
+    "disbursedLoans",
+    "loansDisbursedDuringPeriod",
   );
 
-  const femaleRow = genders.find(
-    (row) => row.label?.toLowerCase().trim() === "female",
+  const activeLoans = numberField(flexibleSummary, "activeLoans");
+
+  const overdueLoans = numberField(flexibleSummary, "overdueLoans");
+
+  const principalDisbursed = numberField(
+    flexibleSummary,
+    "totalLoanAmount",
+    "totalPrincipalDisbursed",
   );
+
+  const outstandingPrincipal = numberField(
+    flexibleSummary,
+    "outstandingPrincipal",
+  );
+
+  const totalCollected = numberField(
+    flexibleSummary,
+    "principalCollected",
+    "totalAmountCollected",
+  );
+
+  const interestPaid = numberField(
+    flexibleSummary,
+    "interestPaid",
+    "totalInterestCollected",
+  );
+
+  const parRatio = numberField(flexibleSummary, "par1Ratio", "parRatio");
+
+  const par30Ratio = numberField(flexibleSummary, "par30Ratio");
+
+  const par60Ratio = numberField(flexibleSummary, "par60Ratio");
+
+  const par90Ratio = numberField(flexibleSummary, "par90Ratio");
+
+  const nplRatio = numberField(flexibleSummary, "nplRatio");
+
+  const nplAmount = numberField(
+    flexibleSummary,
+    "nplAmount",
+    "defaultedPrincipal",
+  );
+
+  const nplCount = numberField(flexibleSummary, "nplLoanCount");
+
+  const totalBorrowers = numberField(
+    flexibleSummary,
+    "totalBorrowers",
+    "individualBorrowers",
+  );
+
+  const activeBorrowers = numberField(flexibleSummary, "activeBorrowers");
+
+  const missingBorrower = numberField(flexibleSummary, "loansMissingBorrower");
+
+  const missingNationalId = numberField(
+    flexibleSummary,
+    "borrowersMissingNationalId",
+  );
+
+  const missingBranch = numberField(flexibleSummary, "loansMissingBranch");
+
+  const missingCurrency = numberField(flexibleSummary, "loansMissingCurrency");
+
+  const missingSchedule = numberField(
+    flexibleSummary,
+    "loansMissingRepaymentSchedule",
+  );
+
+  const organizationName = stringField(flexibleSummary, "organizationName");
+
+  const institutionCode = stringField(
+    flexibleSummary,
+    "bnrInstitutionCode",
+    "branchCode",
+  );
+
+  const reportReference = stringField(flexibleSummary, "reportReference");
+
+  const periodStart = stringField(flexibleSummary, "periodStart");
+
+  const periodEnd = stringField(flexibleSummary, "periodEnd");
+
+  const dataQualityWarnings = Array.isArray(
+    flexibleSummary?.dataQualityWarnings,
+  )
+    ? flexibleSummary.dataQualityWarnings
+    : [];
+
+  /* ==========================================================
+     LOADING
+     ========================================================== */
 
   if (loading) {
     return (
@@ -625,9 +1485,17 @@ export default function BnrReportPage() {
     );
   }
 
+  /* ==========================================================
+     PAGE
+     ========================================================== */
+
   return (
     <main className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-[1600px] space-y-6 p-4 md:p-6 lg:p-8">
+        {/* ======================================================
+            HEADER
+        ====================================================== */}
+
         <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6 text-white shadow-xl md:p-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -647,7 +1515,7 @@ export default function BnrReportPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {(["pdf", "xlsx", "csv"] as ExportFormat[]).map((format) => (
+              {EXPORT_FORMATS.map((format) => (
                 <ExportButton
                   key={format}
                   format={format}
@@ -659,7 +1527,11 @@ export default function BnrReportPage() {
           </div>
         </section>
 
-        {error && (
+        {/* ======================================================
+            ERROR
+        ====================================================== */}
+
+        {error ? (
           <div className="flex items-start justify-between gap-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             <div>
               <p className="font-semibold">Report Error</p>
@@ -675,7 +1547,11 @@ export default function BnrReportPage() {
               Dismiss
             </button>
           </div>
-        )}
+        ) : null}
+
+        {/* ======================================================
+            FILTERS
+        ====================================================== */}
 
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
           <div className="grid gap-4 md:grid-cols-3">
@@ -739,7 +1615,11 @@ export default function BnrReportPage() {
           </div>
         </section>
 
-        {summary && (
+        {/* ======================================================
+            INSTITUTION
+        ====================================================== */}
+
+        {flexibleSummary ? (
           <>
             <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -749,13 +1629,13 @@ export default function BnrReportPage() {
                   </p>
 
                   <h2 className="mt-1 text-2xl font-bold text-slate-900">
-                    {summary.organizationName ?? "Organization"}
+                    {organizationName || "Organization"}
                   </h2>
 
                   <p className="mt-1 text-sm text-slate-500">
                     BNR Institution Code:{" "}
                     <span className="font-semibold text-slate-700">
-                      {summary.bnrInstitutionCode ?? "Not configured"}
+                      {institutionCode || "Not configured"}
                     </span>
                   </p>
                 </div>
@@ -764,230 +1644,370 @@ export default function BnrReportPage() {
                   <p className="text-slate-400">Reporting Period</p>
 
                   <p className="font-semibold text-slate-800">
-                    {summary.periodStart ?? "—"} → {summary.periodEnd ?? "—"}
+                    {periodStart || "—"} → {periodEnd || "—"}
                   </p>
 
                   <p className="mt-1 text-xs text-slate-400">
-                    {summary.reportReference ?? "No report reference"}
+                    {reportReference || "No report reference"}
                   </p>
                 </div>
               </div>
             </section>
 
+            {/* ==================================================
+                MAIN KPI
+            ================================================== */}
+
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <Kpi
-                title="Total Loans"
-                value={formatNumber(summary.totalLoans)}
-              />
+              <Kpi title="Total Loans" value={formatNumber(totalLoans)} />
 
               <Kpi
                 title="Loans Disbursed"
-                value={formatNumber(summary.loansDisbursedDuringPeriod)}
+                value={formatNumber(disbursedLoans)}
               />
 
-              <Kpi
-                title="Active Loans"
-                value={formatNumber(summary.activeLoans)}
-              />
+              <Kpi title="Active Loans" value={formatNumber(activeLoans)} />
 
               <Kpi
                 title="Principal Disbursed"
-                value={formatMoney(summary.totalPrincipalDisbursed, currency)}
+                value={formatMoney(principalDisbursed, currency)}
               />
 
               <Kpi
                 title="Outstanding Principal"
-                value={formatMoney(summary.outstandingPrincipal, currency)}
+                value={formatMoney(outstandingPrincipal, currency)}
               />
 
               <Kpi
                 title="Total Collected"
-                value={formatMoney(summary.totalAmountCollected, currency)}
+                value={formatMoney(totalCollected, currency)}
               />
 
               <Kpi
                 title="Interest Collected"
-                value={formatMoney(summary.totalInterestCollected, currency)}
+                value={formatMoney(interestPaid, currency)}
               />
 
               <Kpi
                 title="Overdue Loans"
-                value={formatNumber(summary.overdueLoans)}
+                value={formatNumber(overdueLoans)}
                 danger
               />
             </div>
+
+            {/* ==================================================
+                CREDIT QUALITY
+            ================================================== */}
+
+            <CreditQualitySection
+              summary={flexibleSummary}
+              currency={currency}
+            />
+
+            {/* ==================================================
+                PORTFOLIO QUALITY
+            ================================================== */}
 
             <Section title="Portfolio Quality">
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Metric
                   label="PAR"
-                  value={formatPercent(safeNumber(summary.parRatio))}
-                  secondary={formatMoney(summary.parAmount, currency)}
+                  value={formatPercent(parRatio)}
+                  secondary={formatMoney(
+                    numberField(flexibleSummary, "parAmount", "par1Amount"),
+                    currency,
+                  )}
                 />
 
                 <Metric
                   label="PAR > 30 Days"
-                  value={formatPercent(safeNumber(summary.par30Ratio))}
+                  value={formatPercent(par30Ratio)}
+                  secondary={formatMoney(
+                    numberField(flexibleSummary, "par30Amount"),
+                    currency,
+                  )}
                 />
 
                 <Metric
                   label="PAR > 60 Days"
-                  value={formatPercent(safeNumber(summary.par60Ratio))}
+                  value={formatPercent(par60Ratio)}
+                  secondary={formatMoney(
+                    numberField(flexibleSummary, "par60Amount"),
+                    currency,
+                  )}
                 />
 
                 <Metric
                   label="PAR > 90 Days"
-                  value={formatPercent(safeNumber(summary.par90Ratio))}
+                  value={formatPercent(par90Ratio)}
+                  secondary={formatMoney(
+                    numberField(flexibleSummary, "par90Amount"),
+                    currency,
+                  )}
                 />
 
                 <Metric
                   label="NPL Ratio"
-                  value={formatPercent(safeNumber(summary.nplRatio))}
-                  secondary={formatMoney(summary.nplAmount, currency)}
+                  value={formatPercent(nplRatio)}
+                  secondary={formatMoney(nplAmount, currency)}
                 />
 
-                <Metric
-                  label="NPL Loans"
-                  value={formatNumber(summary.nplLoanCount)}
-                />
+                <Metric label="NPL Loans" value={formatNumber(nplCount)} />
 
                 <Metric
                   label="Loans > 30 DPD"
-                  value={formatNumber(summary.loansOver30Days)}
+                  value={formatNumber(
+                    numberField(
+                      flexibleSummary,
+                      "loansOver30Days",
+                      "loans1To30DaysPastDue",
+                      "loans31To60DaysPastDue",
+                      "loans61To90DaysPastDue",
+                      "loansOver90DaysPastDue",
+                    ),
+                  )}
                 />
 
                 <Metric
                   label="Loans > 90 DPD"
-                  value={formatNumber(summary.loansOver90Days)}
+                  value={formatNumber(
+                    numberField(
+                      flexibleSummary,
+                      "loansOver90Days",
+                      "loansOver90DaysPastDue",
+                    ),
+                  )}
                 />
               </div>
             </Section>
+
+            {/* ==================================================
+                BORROWER STATISTICS
+            ================================================== */}
 
             <Section title="Borrower Statistics">
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Metric
                   label="Total Borrowers"
-                  value={formatNumber(summary.totalBorrowers)}
+                  value={formatNumber(totalBorrowers)}
                 />
 
                 <Metric
                   label="Active Borrowers"
-                  value={formatNumber(summary.activeBorrowers)}
+                  value={formatNumber(activeBorrowers)}
                 />
 
                 <Metric
-                  label="Male Borrowers"
-                  value={formatNumber(summary.maleBorrowers)}
-                  secondary={`${formatPercent(
-                    percentageOf(
-                      summary.maleBorrowers,
-                      safeNumber(summary.totalBorrowers),
+                  label="Male Borrowers / Loans"
+                  value={formatNumber(
+                    numberField(
+                      flexibleSummary,
+                      "maleLoanCount",
+                      "maleBorrowers",
                     ),
-                  )} of borrowers`}
+                  )}
+                  secondary={formatPercent(
+                    percentageOf(
+                      numberField(
+                        flexibleSummary,
+                        "maleLoanCount",
+                        "maleBorrowers",
+                      ),
+                      totalBorrowers,
+                    ),
+                  )}
                 />
 
                 <Metric
-                  label="Female Borrowers"
-                  value={formatNumber(summary.femaleBorrowers)}
-                  secondary={`${formatPercent(
-                    percentageOf(
-                      summary.femaleBorrowers,
-                      safeNumber(summary.totalBorrowers),
+                  label="Female Borrowers / Loans"
+                  value={formatNumber(
+                    numberField(
+                      flexibleSummary,
+                      "femaleLoanCount",
+                      "femaleBorrowers",
                     ),
-                  )} of borrowers`}
+                  )}
+                  secondary={formatPercent(
+                    percentageOf(
+                      numberField(
+                        flexibleSummary,
+                        "femaleLoanCount",
+                        "femaleBorrowers",
+                      ),
+                      totalBorrowers,
+                    ),
+                  )}
                 />
 
                 <Metric
                   label="Other Gender"
-                  value={formatNumber(summary.otherGenderBorrowers)}
-                  secondary={`${formatPercent(
-                    percentageOf(
-                      summary.otherGenderBorrowers,
-                      safeNumber(summary.totalBorrowers),
+                  value={formatNumber(
+                    numberField(
+                      flexibleSummary,
+                      "otherGenderLoanCount",
+                      "otherGenderBorrowers",
                     ),
-                  )} of borrowers`}
+                  )}
+                  secondary={formatPercent(
+                    percentageOf(
+                      numberField(
+                        flexibleSummary,
+                        "otherGenderLoanCount",
+                        "otherGenderBorrowers",
+                      ),
+                      totalBorrowers,
+                    ),
+                  )}
                 />
 
                 <Metric
                   label="Youth Borrowers"
-                  value={formatNumber(summary.youthBorrowers)}
+                  value={formatNumber(
+                    numberField(flexibleSummary, "youthBorrowers"),
+                  )}
                 />
 
                 <Metric
                   label="Adult Borrowers"
-                  value={formatNumber(summary.adultBorrowers)}
+                  value={formatNumber(
+                    numberField(flexibleSummary, "adultBorrowers"),
+                  )}
                 />
 
                 <Metric
                   label="Senior Borrowers"
-                  value={formatNumber(summary.seniorBorrowers)}
+                  value={formatNumber(
+                    numberField(flexibleSummary, "seniorBorrowers"),
+                  )}
                 />
               </div>
             </Section>
+
+            {/* ==================================================
+                REPAYMENT PERFORMANCE
+            ================================================== */}
 
             <Section title="Repayment Performance">
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Metric
                   label="Principal Collected"
-                  value={formatMoney(summary.totalPrincipalCollected, currency)}
+                  value={formatMoney(
+                    numberField(
+                      flexibleSummary,
+                      "principalCollected",
+                      "totalPrincipalCollected",
+                    ),
+                    currency,
+                  )}
                 />
 
                 <Metric
                   label="Interest Collected"
-                  value={formatMoney(summary.totalInterestCollected, currency)}
+                  value={formatMoney(
+                    numberField(
+                      flexibleSummary,
+                      "interestPaid",
+                      "totalInterestCollected",
+                    ),
+                    currency,
+                  )}
                 />
 
                 <Metric
                   label="Fees Collected"
-                  value={formatMoney(summary.totalFeesCollected, currency)}
+                  value={formatMoney(
+                    numberField(
+                      flexibleSummary,
+                      "totalProcessingFees",
+                      "totalFeesCollected",
+                    ),
+                    currency,
+                  )}
                 />
 
                 <Metric
                   label="Total Collected"
-                  value={formatMoney(summary.totalAmountCollected, currency)}
+                  value={formatMoney(
+                    numberField(
+                      flexibleSummary,
+                      "totalAmountCollected",
+                      "principalCollected",
+                    ),
+                    currency,
+                  )}
                 />
 
                 <Metric
                   label="Unpaid Interest"
-                  value={formatMoney(summary.interestAccruedUnpaid, currency)}
+                  value={formatMoney(
+                    numberField(
+                      flexibleSummary,
+                      "interestAccruedUnpaid",
+                      "overdueInterest",
+                    ),
+                    currency,
+                  )}
                 />
 
                 <Metric
                   label="Unpaid Fees"
-                  value={formatMoney(summary.feesAccruedUnpaid, currency)}
+                  value={formatMoney(
+                    numberField(
+                      flexibleSummary,
+                      "feesAccruedUnpaid",
+                      "totalFeesOutstanding",
+                    ),
+                    currency,
+                  )}
                 />
 
                 <Metric
                   label="Missed Payments"
-                  value={formatNumber(summary.missedPayments)}
+                  value={formatNumber(
+                    numberField(flexibleSummary, "missedPayments"),
+                  )}
                 />
 
                 <Metric
                   label="Overdue Payments"
-                  value={formatNumber(summary.overduePayments)}
+                  value={formatNumber(
+                    numberField(flexibleSummary, "overduePayments"),
+                  )}
                 />
               </div>
             </Section>
           </>
-        )}
+        ) : null}
+
+        {/* ======================================================
+            FINANCIAL STATEMENT
+        ====================================================== */}
 
         <FinancialStatement report={financialStatement} currency={currency} />
 
-        <div className="grid gap-6 xl:grid-cols-2">
-          <Breakdown
-            title="Loans by Loan Type"
-            rows={loanTypes}
-            currency={currency}
-            showPercentage
-          />
+        {/* ======================================================
+            LOAN TYPE
+        ====================================================== */}
 
-          <Breakdown
-            title="Borrowers by Gender"
-            rows={genders}
-            currency={currency}
-            showPercentage
-          />
-        </div>
+        <LoanTypeDistribution
+          rows={loanTypes}
+          summary={flexibleSummary ?? ({} as FlexibleBnrSummary)}
+          currency={currency}
+        />
+
+        {/* ======================================================
+            GENDER
+        ====================================================== */}
+
+        <GenderDistribution
+          genders={genders}
+          summary={flexibleSummary ?? ({} as FlexibleBnrSummary)}
+          currency={currency}
+        />
+
+        {/* ======================================================
+            BRANCH
+        ====================================================== */}
 
         <Breakdown
           title="Loans by Branch"
@@ -996,177 +2016,154 @@ export default function BnrReportPage() {
           showPercentage={false}
         />
 
-        {summary && (
+        {/* ======================================================
+            PORTFOLIO AGING
+        ====================================================== */}
+
+        {flexibleSummary ? (
           <Section title="Portfolio Aging">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Metric
                 label="1–30 Days"
-                value={formatMoney(summary.par1To30Amount, currency)}
+                value={formatMoney(
+                  numberField(flexibleSummary, "par1To30Amount", "par1Amount"),
+                  currency,
+                )}
               />
 
               <Metric
                 label="31–60 Days"
-                value={formatMoney(summary.par31To60Amount, currency)}
+                value={formatMoney(
+                  numberField(flexibleSummary, "par31To60Amount"),
+                  currency,
+                )}
               />
 
               <Metric
                 label="61–90 Days"
-                value={formatMoney(summary.par61To90Amount, currency)}
+                value={formatMoney(
+                  numberField(flexibleSummary, "par61To90Amount"),
+                  currency,
+                )}
               />
 
               <Metric
                 label="91–180 Days"
-                value={formatMoney(summary.par91To180Amount, currency)}
+                value={formatMoney(
+                  numberField(flexibleSummary, "par91To180Amount"),
+                  currency,
+                )}
               />
 
               <Metric
                 label="181–365 Days"
-                value={formatMoney(summary.par181To365Amount, currency)}
+                value={formatMoney(
+                  numberField(flexibleSummary, "par181To365Amount"),
+                  currency,
+                )}
               />
 
               <Metric
                 label="Over 365 Days"
-                value={formatMoney(summary.parOver365Amount, currency)}
+                value={formatMoney(
+                  numberField(flexibleSummary, "parOver365Amount"),
+                  currency,
+                )}
               />
             </div>
           </Section>
-        )}
+        ) : null}
 
-        {summary && (
+        {/* ======================================================
+            DATA QUALITY
+        ====================================================== */}
+
+        {flexibleSummary ? (
           <Section title="Data Quality">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
               <Metric
                 label="Missing Borrower"
-                value={formatNumber(summary.loansMissingBorrower)}
+                value={formatNumber(missingBorrower)}
               />
 
               <Metric
                 label="Missing National ID"
-                value={formatNumber(summary.borrowersMissingNationalId)}
+                value={formatNumber(missingNationalId)}
               />
 
               <Metric
                 label="Missing Branch"
-                value={formatNumber(summary.loansMissingBranch)}
+                value={formatNumber(missingBranch)}
               />
 
               <Metric
                 label="Missing Currency"
-                value={formatNumber(summary.loansMissingCurrency)}
+                value={formatNumber(missingCurrency)}
               />
 
               <Metric
                 label="Missing Schedule"
-                value={formatNumber(summary.loansMissingRepaymentSchedule)}
+                value={formatNumber(missingSchedule)}
               />
             </div>
 
-            {summary.dataQualityWarnings?.length ? (
+            {dataQualityWarnings.length > 0 ? (
               <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
                 <p className="font-semibold text-amber-900">
                   Data quality warnings
                 </p>
 
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-800">
-                  {summary.dataQualityWarnings.map((warning, index) => (
+                  {dataQualityWarnings.map((warning, index) => (
                     <li key={index}>{warning}</li>
                   ))}
                 </ul>
               </div>
             ) : null}
           </Section>
-        )}
+        ) : null}
 
-        <div className="grid gap-6 xl:grid-cols-2">
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-bold text-slate-900">
-              Gender Distribution
-            </h2>
+        {/* ======================================================
+            REGULATORY STATUS
+        ====================================================== */}
 
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        {flexibleSummary ? (
+          <Section title="Regulatory Report Status">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <Metric
-                label="Male"
-                value={formatNumber(maleRow?.count ?? summary?.maleBorrowers)}
-                secondary={`${formatPercent(
-                  percentageOf(
-                    maleRow?.count ?? summary?.maleBorrowers,
-                    genderTotal || safeNumber(summary?.totalBorrowers),
-                  ),
-                )}`}
-              />
-
-              <Metric
-                label="Female"
+                label="Records Included"
                 value={formatNumber(
-                  femaleRow?.count ?? summary?.femaleBorrowers,
+                  numberField(flexibleSummary, "recordsIncluded"),
                 )}
-                secondary={`${formatPercent(
-                  percentageOf(
-                    femaleRow?.count ?? summary?.femaleBorrowers,
-                    genderTotal || safeNumber(summary?.totalBorrowers),
-                  ),
-                )}`}
+              />
+
+              <Metric
+                label="Records With Missing Data"
+                value={formatNumber(
+                  numberField(flexibleSummary, "recordsWithMissingData"),
+                )}
+              />
+
+              <Metric
+                label="Validation"
+                value={
+                  Boolean(readField(flexibleSummary, "validated"))
+                    ? "VALIDATED"
+                    : "REVIEW"
+                }
+              />
+
+              <Metric
+                label="Report Status"
+                value={stringField(flexibleSummary, "reportStatus")}
               />
             </div>
-          </section>
+          </Section>
+        ) : null}
 
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-bold text-slate-900">
-              Loan Type Distribution
-            </h2>
-
-            <div className="mt-5 space-y-3">
-              {loanTypes.length === 0 ? (
-                <p className="text-sm text-slate-400">
-                  No loan-type data available.
-                </p>
-              ) : (
-                (() => {
-                  const total = loanTypes.reduce(
-                    (sum, row) => sum + safeNumber(row.count),
-                    0,
-                  );
-
-                  return loanTypes.map((row, index) => {
-                    const percentage = percentageOf(row.count, total);
-
-                    return (
-                      <div
-                        key={`${row.label}-${index}`}
-                        className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
-                      >
-                        <div className="flex items-center justify-between gap-4">
-                          <span className="font-semibold text-slate-800">
-                            {labelize(row.label)}
-                          </span>
-
-                          <span className="font-bold text-indigo-600">
-                            {formatPercent(percentage)}
-                          </span>
-                        </div>
-
-                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
-                          <div
-                            className="h-full rounded-full bg-indigo-500"
-                            style={{
-                              width: `${Math.min(100, percentage)}%`,
-                            }}
-                          />
-                        </div>
-
-                        <div className="mt-2 flex justify-between text-xs text-slate-400">
-                          <span>{formatNumber(row.count)} loans</span>
-
-                          <span>{formatMoney(row.amount, currency)}</span>
-                        </div>
-                      </div>
-                    );
-                  });
-                })()
-              )}
-            </div>
-          </section>
-        </div>
+        {/* ======================================================
+            FOOTER
+        ====================================================== */}
 
         <div className="pb-8 text-center text-xs text-slate-400">
           BNR regulatory report • {labelize(period)}
