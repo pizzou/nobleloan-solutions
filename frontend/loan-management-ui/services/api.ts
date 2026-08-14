@@ -220,6 +220,9 @@ export const loanApi = {
   documentRequirements: (id: number) =>
     get(`/loans/${id}/document-requirements`),
 
+  extend: (id: number, data: { extensionMonths: number; reason: string }) =>
+    post(`/loans/${id}/extend`, data),
+
   restructure: (id: number, data: unknown) =>
     post(`/loans/${id}/restructure`, data),
 

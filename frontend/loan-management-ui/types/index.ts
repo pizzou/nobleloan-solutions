@@ -240,6 +240,11 @@ export interface Loan {
   managementFee?: number;
   managementFeeRate?: number;
   managementFeePaid?: number;
+  extensionFeeAssessed?: number;
+  extensionFeePaid?: number;
+  extensionFeeOutstanding?: number;
+  extensionCount?: number;
+  lastExtensionDate?: string;
 
   totalPaid?: number;
 

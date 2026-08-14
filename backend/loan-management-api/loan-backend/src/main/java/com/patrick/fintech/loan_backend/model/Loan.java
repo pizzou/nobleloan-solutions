@@ -472,6 +472,44 @@ public class Loan {
         private BigDecimal processingFeePaid = BigDecimal.ZERO;
 
         // ================================================================
+        // EXTENSION / RESTRUCTURING FEES
+        // ================================================================
+
+        /**
+         * Cumulative extension fees assessed on this loan.
+         *
+         * Extension fees are separate from principal, interest, management
+         * fees and the one-time processing fee.
+         */
+        @Column(name = "extension_fee_assessed", precision = 19, scale = 2, nullable = false)
+        @Builder.Default
+        @JsonProperty("extensionFeeAssessed")
+        private BigDecimal extensionFeeAssessed = BigDecimal.ZERO;
+
+        /** Amount of extension fees actually collected. */
+        @Column(name = "extension_fee_paid", precision = 19, scale = 2, nullable = false)
+        @Builder.Default
+        @JsonProperty("extensionFeePaid")
+        private BigDecimal extensionFeePaid = BigDecimal.ZERO;
+
+        /** Extension fees currently outstanding. */
+        @Column(name = "extension_fee_outstanding", precision = 19, scale = 2, nullable = false)
+        @Builder.Default
+        @JsonProperty("extensionFeeOutstanding")
+        private BigDecimal extensionFeeOutstanding = BigDecimal.ZERO;
+
+        /** Number of approved extensions/restructuring extensions. */
+        @Column(name = "extension_count", nullable = false)
+        @Builder.Default
+        @JsonProperty("extensionCount")
+        private Integer extensionCount = 0;
+
+        /** Date of the most recent approved extension. */
+        @Column(name = "last_extension_date")
+        @JsonProperty("lastExtensionDate")
+        private LocalDate lastExtensionDate;
+
+        // ================================================================
         // LOAN PURPOSE / NOTES
         // ================================================================
 
@@ -1125,6 +1163,18 @@ public class Loan {
                 return processingFeePaid;
         }
 
+        public BigDecimal getExtensionFeeAssessedDecimal() {
+                return extensionFeeAssessed == null ? MoneyMath.ZERO : extensionFeeAssessed;
+        }
+
+        public BigDecimal getExtensionFeePaidDecimal() {
+                return extensionFeePaid == null ? MoneyMath.ZERO : extensionFeePaid;
+        }
+
+        public BigDecimal getExtensionFeeOutstandingDecimal() {
+                return extensionFeeOutstanding == null ? MoneyMath.ZERO : extensionFeeOutstanding;
+        }
+
         @JsonIgnore
         public BigDecimal getDisbursedAmountDecimal() {
                 return disbursedAmount;
@@ -1308,6 +1358,18 @@ public class Loan {
 
         public void setProcessingFeePaid(BigDecimal value) {
                 this.processingFeePaid = normalizeMoney(value);
+        }
+
+        public void setExtensionFeeAssessed(BigDecimal value) {
+                this.extensionFeeAssessed = normalizeMoney(value);
+        }
+
+        public void setExtensionFeePaid(BigDecimal value) {
+                this.extensionFeePaid = normalizeMoney(value);
+        }
+
+        public void setExtensionFeeOutstanding(BigDecimal value) {
+                this.extensionFeeOutstanding = normalizeMoney(value);
         }
 
         public void setDisbursedAmount(BigDecimal value) {

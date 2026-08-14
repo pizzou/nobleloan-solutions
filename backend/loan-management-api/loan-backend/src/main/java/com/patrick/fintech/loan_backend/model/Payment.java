@@ -132,6 +132,12 @@ public class Payment {
         @Builder.Default
         private BigDecimal managementFeeComponent = BigDecimal.ZERO;
 
+        /** Extension/restructuring fee allocated to this payment. */
+        @Column(name = "extension_fee_component", precision = 19, scale = 2, nullable = false)
+        @JsonProperty("extensionFeeComponent")
+        @Builder.Default
+        private BigDecimal extensionFeeComponent = BigDecimal.ZERO;
+
         @Column(name = "amount_paid", precision = 19, scale = 2)
         @JsonProperty("amountPaid")
         @Builder.Default
@@ -363,6 +369,9 @@ public class Payment {
                 managementFeeComponent = normalizeMoney(
                                 managementFeeComponent);
 
+                extensionFeeComponent = normalizeMoney(
+                                extensionFeeComponent);
+
                 amountPaid = normalizeMoney(
                                 amountPaid);
 
@@ -438,6 +447,14 @@ public class Payment {
         public BigDecimal getManagementFeeComponentDecimal() {
 
                 return managementFeeComponent;
+        }
+
+        @JsonIgnore
+        public BigDecimal getExtensionFeeComponentDecimal() {
+
+                return extensionFeeComponent == null
+                                ? BigDecimal.ZERO
+                                : extensionFeeComponent;
         }
 
         @JsonIgnore

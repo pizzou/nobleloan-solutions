@@ -61,6 +61,7 @@ public class AccountingService {
                         { "1100", "Loans Receivable", "ASSET", "DEBIT" },
                         { "1150", "Interest Receivable", "ASSET", "DEBIT" },
                         { "1160", "Management Fees Receivable", "ASSET", "DEBIT" },
+                        { "1170", "Extension Fees Receivable", "ASSET", "DEBIT" },
 
                         // CONTRA ASSET
                         { "1200", "Loan Loss Reserve", "ASSET", "CREDIT" },
@@ -1339,6 +1340,142 @@ public class AccountingService {
         }
 
         // ============================================================
+        // EXTENSION FEE ASSESSMENT
+        // ============================================================
+
+        /**
+         * Record a 10% extension/restructuring fee as a receivable and
+         * fee income. The fee is never added to loan principal.
+         */
+        @Transactional
+        public JournalEntry postExtensionFeeAssessment(
+                        Loan loan,
+                        BigDecimal extensionFeeAmount) {
+
+                if (loan == null || loan.getId() == null) {
+                        throw new IllegalArgumentException("Loan is required");
+                }
+
+                Organization org = loan.getOrganization();
+                requireOrganization(org);
+                ensureChartOfAccounts(org);
+
+                BigDecimal fee = maxZero(extensionFeeAmount);
+
+                if (fee.compareTo(ZERO) <= 0) {
+                        return null;
+                }
+
+                String sourceId = loan.getId() + "-" +
+                                loan.getExtensionCount() + "-EXTENSION-FEE";
+
+                JournalEntry existing = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(),
+                                                "LOAN_EXTENSION_FEE",
+                                                sourceId)
+                                .orElse(null);
+
+                if (existing != null) {
+                        return existing;
+                }
+
+                String reference = loan.getReferenceNumber() != null
+                                && !loan.getReferenceNumber().isBlank()
+                                                ? loan.getReferenceNumber().trim()
+                                                : "LOAN-" + loan.getId();
+
+                return post(
+                                org,
+                                loan.getBranch(),
+                                "LOAN_EXTENSION_FEE",
+                                sourceId,
+                                reference,
+                                "10% extension fee assessed for " + reference,
+                                List.of(
+                                                JournalLine.builder()
+                                                                .account(account(org, "1170"))
+                                                                .debit(fee)
+                                                                .credit(ZERO)
+                                                                .description(
+                                                                                "Extension fee receivable — "
+                                                                                                + reference)
+                                                                .build(),
+                                                JournalLine.builder()
+                                                                .account(account(org, "4100"))
+                                                                .debit(ZERO)
+                                                                .credit(fee)
+                                                                .description(
+                                                                                "Extension fee income — "
+                                                                                                + reference)
+                                                                .build()));
+        }
+
+        // ============================================================
+        // EXTENSION FEE COLLECTION
+        // ============================================================
+
+        @Transactional
+        public JournalEntry postExtensionFeeCollection(
+                        Payment payment,
+                        BigDecimal extensionFeeAmount) {
+
+                if (payment == null || payment.getLoan() == null) {
+                        throw new IllegalArgumentException("Payment with loan is required");
+                }
+
+                Loan loan = payment.getLoan();
+                Organization org = loan.getOrganization();
+                requireOrganization(org);
+                ensureChartOfAccounts(org);
+
+                BigDecimal amount = maxZero(extensionFeeAmount);
+                if (amount.compareTo(ZERO) <= 0) {
+                        return null;
+                }
+
+                String sourceId = payment.getId() + "-EXTENSION-FEE-COLLECTION";
+                JournalEntry existing = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(),
+                                                "LOAN_EXTENSION_FEE_COLLECTION",
+                                                sourceId)
+                                .orElse(null);
+
+                if (existing != null) {
+                        return existing;
+                }
+
+                String reference = loan.getReferenceNumber() != null
+                                && !loan.getReferenceNumber().isBlank()
+                                                ? loan.getReferenceNumber().trim()
+                                                : "LOAN-" + loan.getId();
+
+                return post(
+                                org,
+                                loan.getBranch(),
+                                "LOAN_EXTENSION_FEE_COLLECTION",
+                                sourceId,
+                                reference,
+                                "Extension fee collection for " + reference,
+                                List.of(
+                                                JournalLine.builder()
+                                                                .account(account(org, "1000"))
+                                                                .debit(amount)
+                                                                .credit(ZERO)
+                                                                .description("Extension fee cash collection — "
+                                                                                + reference)
+                                                                .build(),
+                                                JournalLine.builder()
+                                                                .account(account(org, "1170"))
+                                                                .debit(ZERO)
+                                                                .credit(amount)
+                                                                .description("Extension fee receivable cleared — "
+                                                                                + reference)
+                                                                .build()));
+        }
+
+        // ============================================================
         // PAYMENT RECEIVED
         // ============================================================
 
@@ -1363,6 +1500,7 @@ public class AccountingService {
                                 money(interestAmount),
                                 ZERO,
                                 money(penaltyAmount),
+                                ZERO,
                                 money(overpaymentAmount));
         }
 
@@ -1387,6 +1525,7 @@ public class AccountingService {
                         BigDecimal interestAmount,
                         BigDecimal managementFeeAmount,
                         BigDecimal penaltyAmount,
+                        BigDecimal extensionFeeAmount,
                         BigDecimal overpaymentAmount) {
 
                 if (payment == null) {
@@ -1467,6 +1606,9 @@ public class AccountingService {
                 BigDecimal penalty = maxZero(
                                 penaltyAmount);
 
+                BigDecimal extensionFee = maxZero(
+                                extensionFeeAmount);
+
                 BigDecimal overpayment = maxZero(
                                 overpaymentAmount);
 
@@ -1478,6 +1620,7 @@ public class AccountingService {
                                 .add(interest)
                                 .add(managementFee)
                                 .add(penalty)
+                                .add(extensionFee)
                                 .add(overpayment);
 
                 allocated = money(
@@ -1679,6 +1822,23 @@ public class AccountingService {
                 }
 
                 // ============================================================
+                // EXTENSION FEE
+                // ============================================================
+
+                if (extensionFee.compareTo(ZERO) > 0) {
+
+                        lines.add(
+                                        JournalLine.builder()
+                                                        .account(account(org, "1170"))
+                                                        .debit(ZERO)
+                                                        .credit(extensionFee)
+                                                        .description(
+                                                                        "Extension fee receivable settlement — "
+                                                                                        + loanReference)
+                                                        .build());
+                }
+
+                // ============================================================
                 // OVERPAYMENT
                 // ============================================================
 
@@ -1767,44 +1927,40 @@ public class AccountingService {
                         Payment payment) {
 
                 if (payment == null) {
-
-                        throw new IllegalArgumentException(
-                                        "Payment is required");
+                        throw new IllegalArgumentException("Payment is required");
                 }
 
                 BigDecimal amount = payment.getAmountPaid() != null
-                                ? money(
-                                                payment.getAmountPaid())
+                                ? money(payment.getAmountPaid())
                                 : ZERO;
 
                 BigDecimal principal = payment.getPrincipalComponent() != null
-                                ? money(
-                                                payment.getPrincipalComponent())
+                                ? money(payment.getPrincipalComponent())
                                 : ZERO;
 
                 BigDecimal interest = payment.getInterestComponent() != null
-                                ? money(
-                                                payment.getInterestComponent())
+                                ? money(payment.getInterestComponent())
                                 : ZERO;
 
                 BigDecimal managementFee = payment.getManagementFeeComponent() != null
-                                ? money(
-                                                payment.getManagementFeeComponent())
+                                ? money(payment.getManagementFeeComponent())
                                 : ZERO;
 
                 BigDecimal penalty = payment.getPenaltyPaid() != null
-                                ? money(
-                                                payment.getPenaltyPaid())
+                                ? money(payment.getPenaltyPaid())
                                 : ZERO;
 
-                BigDecimal derivedOverpayment = amount
-                                .subtract(principal)
-                                .subtract(interest)
-                                .subtract(managementFee)
-                                .subtract(penalty);
+                BigDecimal extensionFee = payment.getExtensionFeeComponent() != null
+                                ? money(payment.getExtensionFeeComponent())
+                                : ZERO;
 
-                derivedOverpayment = maxZero(
-                                derivedOverpayment);
+                BigDecimal derivedOverpayment = maxZero(
+                                amount
+                                                .subtract(principal)
+                                                .subtract(interest)
+                                                .subtract(managementFee)
+                                                .subtract(penalty)
+                                                .subtract(extensionFee));
 
                 return postPaymentReceived(
                                 payment,
@@ -1813,9 +1969,9 @@ public class AccountingService {
                                 interest,
                                 managementFee,
                                 penalty,
+                                extensionFee,
                                 derivedOverpayment);
         }
-
         // ============================================================
         // OVERPAYMENT REFUND PAYABLE
         // ============================================================

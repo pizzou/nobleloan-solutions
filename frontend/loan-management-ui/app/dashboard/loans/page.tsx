@@ -1,2895 +1,882 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
-import {
-  loanApi,
-  paymentApi,
-  creditBureauApi,
-  esignatureApi,
-} from "@/services/api";
-
-import { Loan, Payment } from "@/types";
-
-import { Card, CardHeader, CardBody } from "@/components/ui/Card";
-
-import { Button } from "@/components/ui/Button";
-
-import { StatusBadge, RiskBadge, Pill } from "@/components/ui/Badge";
-
-import { Table, Thead, Th, Tbody, Tr, Td } from "@/components/ui/Table";
-
-import { Modal } from "@/components/ui/Modal";
-
-import {
-  FormGroup,
-  Input,
-  Select,
-  Textarea,
-  Alert,
-} from "@/components/ui/Form";
-
+import { loanApi } from "@/services/api";
+import { Loan, LoanStatus, LoanType } from "@/types";
 import { formatCurrency, formatDate, LOAN_TYPE_META } from "@/lib/utils";
-
+import { useAuth } from "@/hooks/useAuth";
+import { cacheGet, cacheSet } from "@/lib/offlineDb";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { StatusBadge, RiskBadge, Pill } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { PageSpinner } from "@/components/ui/Skeleton";
 import {
-  IconBank,
-  IconSignature,
+  IconAlertTriangle,
   IconCard,
-  IconCoins,
-  IconSend,
   IconCheckCircle,
   IconClock,
+  IconCoins,
   IconFileText,
-  IconAlertTriangle,
-  IconFileEdit,
   IconSearch,
-  IconCalendar,
-  IconFlag,
+  IconSend,
 } from "@/components/ui/Icons";
 
-import { useAuth } from "@/hooks/useAuth";
+const PAGE_SIZE = 25;
 
-import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+const STATUS_OPTIONS: Array<{ value: "" | LoanStatus; label: string }> = [
+  { value: "", label: "All statuses" },
+  { value: "PENDING", label: "Pending" },
+  { value: "UNDER_REVIEW", label: "Under review" },
+  { value: "APPROVED", label: "Approved" },
+  { value: "REJECTED", label: "Rejected" },
+  { value: "DISBURSED", label: "Disbursed" },
+  { value: "ACTIVE", label: "Active" },
+  { value: "OVERDUE", label: "Overdue" },
+  { value: "DEFAULTED", label: "Defaulted" },
+  { value: "RESTRUCTURED", label: "Restructured" },
+  { value: "WRITTEN_OFF", label: "Written off" },
+  { value: "PAID", label: "Paid" },
+  { value: "CLOSED", label: "Closed" },
+  { value: "CANCELLED", label: "Cancelled" },
+];
 
-import { queueAction, cacheGet, cacheSet } from "@/lib/offlineDb";
+const TYPE_OPTIONS: Array<{ value: "" | LoanType; label: string }> = [
+  { value: "", label: "All loan types" },
+  ...Object.entries(LOAN_TYPE_META).map(([value, meta]) => ({
+    value: value as LoanType,
+    label: meta.label,
+  })),
+];
 
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
+type LoanPageResponse = {
+  content?: Loan[];
+  items?: Loan[];
+  data?: Loan[];
+  totalElements?: number;
+  totalPages?: number;
+  page?: number;
+  number?: number;
+  size?: number;
+  numberOfElements?: number;
+  last?: boolean;
+};
 
-import DocumentsPanel from "@/components/DocumentsPanel";
+type LoanDashboardResponse = {
+  totalDisbursed?: number | string;
+  totalCollected?: number | string;
+  outstandingBalance?: number | string;
+  activeLoans?: number | string;
+  overdueLoans?: number | string;
+  pendingLoans?: number | string;
+  completedLoans?: number | string;
+  totalLoans?: number | string;
+};
 
-import { DOCUMENT_TYPE_LABELS } from "@/services/fileService";
+type Summary = {
+  totalLoans: number;
+  active: number;
+  overdue: number;
+  pending: number;
+  disbursed: number;
+  outstanding: number;
+};
 
-const TABS = [
-  "Overview",
-  "Borrower",
-  "Documents",
-  "Schedule",
-  "Timeline",
-  "Comments",
-] as const;
+const toNumber = (value: unknown): number => {
+  const result = Number(value);
+  return Number.isFinite(result) ? result : 0;
+};
 
-type Tab = (typeof TABS)[number];
+const humanize = (value?: string): string =>
+  value ? value.replace(/_/g, " ") : "—";
 
-// ============================================================
-// FIELD
-// ============================================================
+const getBorrowerName = (loan: Loan): string => {
+  const first = loan.borrower?.firstName?.trim() ?? "";
+  const last = loan.borrower?.lastName?.trim() ?? "";
+  return `${first} ${last}`.trim() || "Unnamed borrower";
+};
 
-function daysInMonth(date = new Date()) {
-  return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-}
+const getLoanTypeLabel = (loan: Loan): string =>
+  LOAN_TYPE_META[loan.loanType]?.label ?? humanize(loan.loanType);
 
-function dailyRateFromMonthly(monthlyRate?: number, date = new Date()) {
-  if (monthlyRate == null || !Number.isFinite(monthlyRate)) {
-    return 0;
+const getPageLoans = (response: unknown): Loan[] => {
+  if (Array.isArray(response)) {
+    return response as Loan[];
   }
 
-  return monthlyRate / daysInMonth(date);
-}
-
-function dailyAmountFromMonthlyRate(
-  principal?: number,
-  monthlyRate?: number,
-  date = new Date(),
-) {
-  if (
-    principal == null ||
-    monthlyRate == null ||
-    !Number.isFinite(principal) ||
-    !Number.isFinite(monthlyRate)
-  ) {
-    return 0;
+  if (!response || typeof response !== "object") {
+    return [];
   }
 
-  return (principal * (monthlyRate / 100)) / daysInMonth(date);
-}
+  const root = response as LoanPageResponse;
 
-function getScheduleManagementFee(p: Payment) {
-  const row = p as Payment & {
-    managementFeeComponent?: number;
-    managementFeeAmount?: number;
-    managementFee?: number;
+  if (Array.isArray(root.content)) return root.content;
+  if (Array.isArray(root.items)) return root.items;
+  if (Array.isArray(root.data)) return root.data;
+
+  return [];
+};
+
+const getPageMeta = (response: unknown) => {
+  if (!response || typeof response !== "object") {
+    return {
+      totalElements: 0,
+      totalPages: 0,
+      page: 0,
+      size: PAGE_SIZE,
+      last: true,
+    };
+  }
+
+  const root = response as LoanPageResponse;
+  const totalElements = Math.max(0, toNumber(root.totalElements));
+  const size = Math.max(1, toNumber(root.size) || PAGE_SIZE);
+  const totalPages = Math.max(
+    0,
+    toNumber(root.totalPages) ||
+      (totalElements ? Math.ceil(totalElements / size) : 0),
+  );
+  const page = Math.max(0, toNumber(root.number ?? root.page ?? 0));
+
+  return {
+    totalElements,
+    totalPages,
+    page,
+    size,
+    last: root.last ?? (totalPages === 0 || page >= totalPages - 1),
+  };
+};
+
+function MetricCard({
+  label,
+  value,
+  description,
+  icon,
+  tone,
+}: {
+  label: string;
+  value: string;
+  description: string;
+  icon: React.ReactNode;
+  tone: "blue" | "teal" | "amber" | "red" | "violet" | "slate";
+}) {
+  const tones = {
+    blue: "border-blue-100 bg-blue-50/60 text-blue-700",
+    teal: "border-teal-100 bg-teal-50/60 text-teal-700",
+    amber: "border-amber-100 bg-amber-50/60 text-amber-700",
+    red: "border-red-100 bg-red-50/60 text-red-700",
+    violet: "border-violet-100 bg-violet-50/60 text-violet-700",
+    slate: "border-slate-200 bg-slate-50 text-slate-700",
   };
 
   return (
-    row.managementFeeComponent ??
-    row.managementFeeAmount ??
-    row.managementFee ??
-    0
-  );
-}
-
-function Field({ label, value }: { label: string; value?: ReactNode }) {
-  return (
-    <div>
-      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
-        {label}
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+            {label}
+          </p>
+          <p className="mt-2 text-2xl font-black tracking-tight text-slate-950">
+            {value}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+        </div>
+        <div
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${tones[tone]}`}
+        >
+          {icon}
+        </div>
       </div>
-
-      <div className="text-sm font-medium text-gray-800">{value ?? "—"}</div>
     </div>
   );
 }
 
-// ============================================================
-// CREDIT BUREAU TYPE
-// ============================================================
-
-type CreditBureauCheck = {
-  id?: number;
-  reference?: string;
-  provider?: string;
-  status?: string;
-  creditScore?: number;
-  riskGrade?: string;
-  activeFacilities?: number;
-  delinquentAccounts?: number;
-  totalOutstandingDebt?: number;
-  totalMonthlyObligations?: number;
-  hasDefaultHistory?: boolean;
-  hasActiveListing?: boolean;
-  listingReason?: string;
-  failureReason?: string;
-  requestedBy?: string;
-  createdAt?: string;
-  checkedAt?: string;
-};
-
-// ============================================================
-// CREDIT SCORE HELPERS
-// ============================================================
-
-function creditScoreColor(score?: number) {
-  if (score == null) {
-    return "text-gray-500";
-  }
-
-  if (score >= 750) {
-    return "text-teal-600";
-  }
-
-  if (score >= 680) {
-    return "text-blue-600";
-  }
-
-  if (score >= 600) {
-    return "text-yellow-600";
-  }
-
-  if (score >= 500) {
-    return "text-orange-600";
-  }
-
-  return "text-red-600";
+function EmptyState({ searching }: { searching: boolean }) {
+  return (
+    <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+        <IconSearch className="h-6 w-6" />
+      </div>
+      <h3 className="mt-4 text-sm font-bold text-slate-900">
+        {searching ? "No matching loans" : "No loans in this portfolio"}
+      </h3>
+      <p className="mt-1 max-w-md text-sm leading-6 text-slate-500">
+        {searching
+          ? "Try a different reference number, borrower name or national ID."
+          : "Once loans are created or imported, they will appear here with their current financial position."}
+      </p>
+    </div>
+  );
 }
 
-function creditScoreLabel(score?: number) {
-  if (score == null) {
-    return "Unknown";
-  }
-
-  if (score >= 750) {
-    return "Excellent";
-  }
-
-  if (score >= 680) {
-    return "Good";
-  }
-
-  if (score >= 600) {
-    return "Fair";
-  }
-
-  if (score >= 500) {
-    return "Poor";
-  }
-
-  return "Very Poor";
-}
-
-function creditScoreBarColor(score?: number) {
-  if (score == null) {
-    return "bg-gray-300";
-  }
-
-  if (score >= 750) {
-    return "bg-teal-500";
-  }
-
-  if (score >= 680) {
-    return "bg-blue-500";
-  }
-
-  if (score >= 600) {
-    return "bg-yellow-500";
-  }
-
-  if (score >= 500) {
-    return "bg-orange-500";
-  }
-
-  return "bg-red-500";
-}
-
-function creditScorePercentage(score?: number) {
-  if (score == null) {
-    return 0;
-  }
-
-  const min = 300;
-  const max = 850;
-
-  return Math.max(0, Math.min(100, ((score - min) / (max - min)) * 100));
-}
-
-// ============================================================
-// CREDIT BUREAU REPORT
-// ============================================================
-
-function CreditBureauReport({
-  report,
-  history,
+function LoanRow({
+  loan,
   currency,
   locale,
-  loading,
 }: {
-  report: CreditBureauCheck | null;
-  history: CreditBureauCheck[];
+  loan: Loan;
   currency: string;
   locale: string;
-  loading: boolean;
 }) {
-  const fc = (n?: number) => formatCurrency(n, currency, locale);
-
-  // ==========================================================
-  // EMPTY STATE
-  // ==========================================================
-
-  if (!report) {
-    return (
-      <Card className="mt-5 overflow-hidden">
-        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-teal-900 px-6 py-5">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
-              <IconBank className="w-5 h-5 text-white" />
-            </div>
-
-            <div>
-              <div className="text-white font-bold text-lg">
-                Credit Bureau Report
-              </div>
-
-              <div className="text-slate-300 text-xs mt-0.5">
-                External credit profile and risk information
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <CardBody>
-          <div className="py-10 text-center">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
-              <IconBank className="w-8 h-8 text-slate-400" />
-            </div>
-
-            <div className="font-bold text-gray-800">
-              No Credit Bureau Report
-            </div>
-
-            <p className="text-sm text-gray-500 max-w-md mx-auto mt-2">
-              No credit bureau information has been retrieved for this borrower
-              yet. Run a Credit Bureau Check to retrieve the latest available
-              credit information.
-            </p>
-          </div>
-        </CardBody>
-      </Card>
-    );
-  }
-
-  const simulated = report.provider === "INTERNAL_SIMULATED";
-
-  const score = report.creditScore;
-
-  const scorePercent = creditScorePercentage(score);
-
-  const scoreLabel = creditScoreLabel(score);
-
-  const delinquent = (report.delinquentAccounts ?? 0) > 0;
-
-  const defaultHistory = !!report.hasDefaultHistory;
-
-  const activeListing = !!report.hasActiveListing;
-
-  const bureauCompleted = report.status === "COMPLETED";
-
-  // ==========================================================
-  // REPORT
-  // ==========================================================
+  const borrowerName = getBorrowerName(loan);
+  const loanTypeLabel = getLoanTypeLabel(loan);
+  const outstanding = loan.outstandingBalance ?? 0;
+  const totalPaid = loan.totalPaid ?? 0;
+  const repayable = loan.totalRepayable ?? 0;
+  const progress =
+    repayable > 0
+      ? Math.min(100, Math.round((totalPaid / repayable) * 100))
+      : 0;
 
   return (
-    <Card className="mt-5 overflow-hidden">
-      {/* ======================================================
-          REPORT HEADER
-      ====================================================== */}
-
-      <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-teal-950 px-5 sm:px-6 py-5">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-white/10 border border-white/10 flex items-center justify-center">
-              <IconBank className="w-5 h-5 text-white" />
-            </div>
-
-            <div>
-              <div className="text-white font-bold text-lg">
-                Credit Bureau Report
-              </div>
-
-              <div className="text-slate-300 text-xs mt-0.5">
-                Borrower credit profile &amp; bureau assessment
-              </div>
-            </div>
+    <tr className="group border-b border-slate-100 last:border-0 hover:bg-slate-50/80">
+      <td className="px-4 py-4 align-top">
+        <Link
+          href={`/dashboard/loans/${loan.id}`}
+          className="block min-w-[180px]"
+        >
+          <div className="font-bold text-slate-900 transition group-hover:text-teal-700">
+            {loan.referenceNumber}
           </div>
+          <div className="mt-1 text-[11px] text-slate-400">
+            {loan.disbursedAt
+              ? `Disbursed ${formatDate(loan.disbursedAt, locale)}`
+              : loan.createdAt
+                ? `Created ${formatDate(loan.createdAt, locale)}`
+                : "—"}
+          </div>
+        </Link>
+      </td>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <span
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold ${
-                bureauCompleted
-                  ? "bg-teal-500/20 text-teal-200 border border-teal-400/20"
-                  : "bg-white/10 text-slate-200 border border-white/10"
-              }`}
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  bureauCompleted ? "bg-teal-400" : "bg-slate-400"
-                }`}
-              />
-
-              {report.status ?? "UNKNOWN"}
-            </span>
-
-            {simulated && (
-              <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold bg-amber-400/15 text-amber-200 border border-amber-300/20">
-                Internal Estimate
-              </span>
-            )}
+      <td className="px-4 py-4 align-top">
+        <div className="min-w-[170px]">
+          <div className="font-semibold text-slate-800">{borrowerName}</div>
+          <div className="mt-1 text-xs text-slate-400">
+            {loan.borrower?.nationalId ??
+              loan.borrower?.phone ??
+              "No identifier"}
           </div>
         </div>
-      </div>
-
-      <CardBody className="!p-0">
-        {/* ====================================================
-            SIMULATION NOTICE
-        ==================================================== */}
-
-        {simulated && (
-          <div className="mx-5 sm:mx-6 mt-5 bg-amber-50 border border-amber-200 rounded-xl p-4">
-            <div className="flex gap-3">
-              <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
-                <IconAlertTriangle className="w-5 h-5 text-amber-600" />
-              </div>
-
-              <div>
-                <div className="font-bold text-amber-900 text-sm">
-                  Internal Credit Estimate
-                </div>
-
-                <div className="text-xs sm:text-sm text-amber-800 mt-1 leading-relaxed">
-                  No live licensed Credit Bureau is currently connected. This
-                  result was generated by the internal simulation and must not
-                  be treated as an official Credit Bureau report.
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ====================================================
-            SCORE + RISK HERO
-        ==================================================== */}
-
-        <div className="p-5 sm:p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* ==================================================
-                CREDIT SCORE
-            ================================================== */}
-
-            <div className="lg:col-span-1 rounded-2xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                    Credit Score
-                  </div>
-
-                  <div className="text-xs text-gray-400 mt-1">
-                    Bureau assessment
-                  </div>
-                </div>
-
-                <div
-                  className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                    score == null
-                      ? "bg-gray-100 text-gray-500"
-                      : score >= 750
-                        ? "bg-teal-50 text-teal-700"
-                        : score >= 680
-                          ? "bg-blue-50 text-blue-700"
-                          : score >= 600
-                            ? "bg-yellow-50 text-yellow-700"
-                            : score >= 500
-                              ? "bg-orange-50 text-orange-700"
-                              : "bg-red-50 text-red-700"
-                  }`}
-                >
-                  {scoreLabel}
-                </div>
-              </div>
-
-              <div className="flex items-end gap-3 mt-5">
-                <div
-                  className={`text-5xl font-black tracking-tight ${creditScoreColor(
-                    score,
-                  )}`}
-                >
-                  {score ?? "—"}
-                </div>
-
-                {score != null && (
-                  <div className="text-xs text-gray-400 pb-2">/ 850</div>
-                )}
-              </div>
-
-              <div className="mt-5">
-                <div className="flex justify-between text-[10px] text-gray-400 mb-1.5">
-                  <span>300</span>
-
-                  <span>850</span>
-                </div>
-
-                <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${creditScoreBarColor(
-                      score,
-                    )}`}
-                    style={{
-                      width: `${scorePercent}%`,
-                    }}
-                  />
-                </div>
-
-                <div className="flex justify-between mt-2 text-[10px] font-medium text-gray-400">
-                  <span>High Risk</span>
-
-                  <span>Low Risk</span>
-                </div>
-              </div>
-            </div>
-
-            {/* ==================================================
-                RISK ASSESSMENT
-            ================================================== */}
-
-            <div className="rounded-2xl border border-gray-200 bg-white p-5">
-              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                Risk Assessment
-              </div>
-
-              <div className="text-xs text-gray-400 mt-1">
-                Bureau risk classification
-              </div>
-
-              <div className="mt-5 flex items-center gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center">
-                  <span className="text-xl font-black text-slate-800">
-                    {report.riskGrade ?? "—"}
-                  </span>
-                </div>
-
-                <div>
-                  <div className="text-lg font-extrabold text-gray-900">
-                    {report.riskGrade ?? "Not Rated"}
-                  </div>
-
-                  <div className="text-xs text-gray-500 mt-0.5">
-                    Bureau risk grade
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-5 pt-4 border-t border-gray-100">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-500">Overall bureau status</span>
-
-                  <span
-                    className={`font-bold ${
-                      activeListing || defaultHistory || delinquent
-                        ? "text-red-600"
-                        : "text-teal-600"
-                    }`}
-                  >
-                    {activeListing || defaultHistory || delinquent
-                      ? "Attention Required"
-                      : "No Major Alerts"}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* ==================================================
-                BUREAU SOURCE
-            ================================================== */}
-
-            <div className="rounded-2xl border border-gray-200 bg-white p-5">
-              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                Bureau Source
-              </div>
-
-              <div className="text-xs text-gray-400 mt-1">
-                Provider and verification reference
-              </div>
-
-              <div className="mt-5">
-                <div className="text-base font-extrabold text-gray-900 break-words">
-                  {report.provider ?? "Unknown Provider"}
-                </div>
-
-                <div className="text-xs text-gray-500 mt-1">
-                  {simulated
-                    ? "Internal simulation"
-                    : "External bureau provider"}
-                </div>
-              </div>
-
-              <div className="mt-5 pt-4 border-t border-gray-100">
-                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                  Reference
-                </div>
-
-                <div className="text-xs font-mono font-semibold text-gray-700 mt-1 break-all">
-                  {report.reference ?? "—"}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ==================================================
-              FINANCIAL EXPOSURE
-          ================================================== */}
-
-          <div className="mt-5">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <div className="font-bold text-gray-900">Credit Exposure</div>
-
-                <div className="text-xs text-gray-400 mt-0.5">
-                  Current obligations reported by the bureau
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
-                <div className="flex items-center justify-between">
-                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                    Active Facilities
-                  </div>
-
-                  <IconFileText className="w-4 h-4 text-gray-400" />
-                </div>
-
-                <div className="text-2xl font-black text-gray-900 mt-2">
-                  {report.activeFacilities ?? 0}
-                </div>
-
-                <div className="text-[11px] text-gray-400 mt-1">
-                  Open credit facilities
-                </div>
-              </div>
-
-              <div
-                className={`rounded-xl border p-4 ${
-                  delinquent
-                    ? "bg-red-50 border-red-200"
-                    : "bg-teal-50 border-teal-200"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div
-                    className={`text-[10px] font-bold uppercase tracking-wider ${
-                      delinquent ? "text-red-500" : "text-teal-600"
-                    }`}
-                  >
-                    Delinquent
-                  </div>
-
-                  {delinquent ? (
-                    <IconAlertTriangle className="w-4 h-4 text-red-500" />
-                  ) : (
-                    <IconCheckCircle className="w-4 h-4 text-teal-500" />
-                  )}
-                </div>
-
-                <div
-                  className={`text-2xl font-black mt-2 ${
-                    delinquent ? "text-red-700" : "text-teal-700"
-                  }`}
-                >
-                  {report.delinquentAccounts ?? 0}
-                </div>
-
-                <div
-                  className={`text-[11px] mt-1 ${
-                    delinquent ? "text-red-600" : "text-teal-600"
-                  }`}
-                >
-                  {delinquent
-                    ? "Accounts require attention"
-                    : "No delinquent accounts"}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
-                <div className="flex items-center justify-between">
-                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                    Outstanding Debt
-                  </div>
-
-                  <IconCoins className="w-4 h-4 text-gray-400" />
-                </div>
-
-                <div className="text-lg sm:text-xl font-black text-gray-900 mt-2 break-words">
-                  {fc(report.totalOutstandingDebt)}
-                </div>
-
-                <div className="text-[11px] text-gray-400 mt-1">
-                  Total reported balance
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
-                <div className="flex items-center justify-between">
-                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                    Monthly Obligations
-                  </div>
-
-                  <IconCalendar className="w-4 h-4 text-gray-400" />
-                </div>
-
-                <div className="text-lg sm:text-xl font-black text-gray-900 mt-2 break-words">
-                  {fc(report.totalMonthlyObligations)}
-                </div>
-
-                <div className="text-[11px] text-gray-400 mt-1">
-                  Reported monthly commitments
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ==================================================
-              CREDIT ALERTS
-          ================================================== */}
-
-          <div className="mt-5">
-            <div className="font-bold text-gray-900 mb-3">Credit Alerts</div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              {/* DEFAULT HISTORY */}
-
-              <div
-                className={`rounded-xl border p-4 ${
-                  defaultHistory
-                    ? "bg-red-50 border-red-200"
-                    : "bg-teal-50 border-teal-200"
-                }`}
-              >
-                <div className="flex gap-3">
-                  <div
-                    className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                      defaultHistory ? "bg-red-100" : "bg-teal-100"
-                    }`}
-                  >
-                    {defaultHistory ? (
-                      <IconAlertTriangle className="w-5 h-5 text-red-600" />
-                    ) : (
-                      <IconCheckCircle className="w-5 h-5 text-teal-600" />
-                    )}
-                  </div>
-
-                  <div className="min-w-0">
-                    <div
-                      className={`text-[10px] font-bold uppercase tracking-wider ${
-                        defaultHistory ? "text-red-600" : "text-teal-600"
-                      }`}
-                    >
-                      Default History
-                    </div>
-
-                    <div
-                      className={`font-bold text-sm mt-1 ${
-                        defaultHistory ? "text-red-800" : "text-teal-800"
-                      }`}
-                    >
-                      {defaultHistory
-                        ? "Default history detected"
-                        : "No default history detected"}
-                    </div>
-
-                    <div
-                      className={`text-xs mt-1 ${
-                        defaultHistory ? "text-red-700" : "text-teal-700"
-                      }`}
-                    >
-                      {defaultHistory
-                        ? "Review historical repayment performance before making a lending decision."
-                        : "No previous default indicator was reported."}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* ACTIVE LISTING */}
-
-              <div
-                className={`rounded-xl border p-4 ${
-                  activeListing
-                    ? "bg-red-50 border-red-200"
-                    : "bg-teal-50 border-teal-200"
-                }`}
-              >
-                <div className="flex gap-3">
-                  <div
-                    className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                      activeListing ? "bg-red-100" : "bg-teal-100"
-                    }`}
-                  >
-                    {activeListing ? (
-                      <IconAlertTriangle className="w-5 h-5 text-red-600" />
-                    ) : (
-                      <IconCheckCircle className="w-5 h-5 text-teal-600" />
-                    )}
-                  </div>
-
-                  <div className="min-w-0">
-                    <div
-                      className={`text-[10px] font-bold uppercase tracking-wider ${
-                        activeListing ? "text-red-600" : "text-teal-600"
-                      }`}
-                    >
-                      Active Listing
-                    </div>
-
-                    <div
-                      className={`font-bold text-sm mt-1 ${
-                        activeListing ? "text-red-800" : "text-teal-800"
-                      }`}
-                    >
-                      {activeListing
-                        ? "Active listing detected"
-                        : "No active listing"}
-                    </div>
-
-                    <div
-                      className={`text-xs mt-1 ${
-                        activeListing ? "text-red-700" : "text-teal-700"
-                      }`}
-                    >
-                      {activeListing
-                        ? (report.listingReason ??
-                          "The bureau has reported an active listing.")
-                        : "No current adverse listing was reported."}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ==================================================
-              PROVIDER NOTICE
-          ================================================== */}
-
-          {report.failureReason && (
-            <div className="mt-4 bg-orange-50 border border-orange-200 rounded-xl p-4">
-              <div className="flex gap-3">
-                <IconAlertTriangle className="w-5 h-5 text-orange-600 shrink-0" />
-
-                <div>
-                  <div className="font-bold text-orange-900 text-sm">
-                    Provider Notice
-                  </div>
-
-                  <div className="text-xs sm:text-sm text-orange-800 mt-1">
-                    {report.failureReason}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ==================================================
-              REPORT INFORMATION
-          ================================================== */}
-
-          <div className="mt-6 pt-5 border-t border-gray-100">
-            <div className="font-bold text-gray-900 mb-4">
-              Report Information
-            </div>
-
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <Field label="Requested By" value={report.requestedBy} />
-
-              <Field
-                label="Check Date"
-                value={formatDate(report.createdAt ?? report.checkedAt, locale)}
-              />
-
-              <Field
-                label="Status"
-                value={
-                  <Pill
-                    label={report.status ?? "UNKNOWN"}
-                    color={report.status === "COMPLETED" ? "teal" : "gray"}
-                  />
-                }
-              />
-
-              <Field
-                label="Report Type"
-                value={simulated ? "Internal Simulation" : "Live Bureau"}
-              />
-            </div>
-          </div>
-
-          {/* ==================================================
-              HISTORY
-          ================================================== */}
-
-          {history.length > 0 && (
-            <div className="mt-6 pt-5 border-t border-gray-100">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <div className="font-bold text-gray-900">
-                    Previous Credit Checks
-                  </div>
-
-                  <div className="text-xs text-gray-400 mt-0.5">
-                    Historical bureau checks for this borrower
-                  </div>
-                </div>
-
-                <span className="text-xs font-bold bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full">
-                  {history.length} check{history.length === 1 ? "" : "s"}
-                </span>
-              </div>
-
-              <div className="overflow-x-auto rounded-xl border border-gray-200">
-                <Table>
-                  <Thead>
-                    <tr>
-                      <Th>Date</Th>
-
-                      <Th>Provider</Th>
-
-                      <Th>Score</Th>
-
-                      <Th>Risk</Th>
-
-                      <Th>Facilities</Th>
-
-                      <Th>Delinquent</Th>
-
-                      <Th>Status</Th>
-
-                      <Th>Requested By</Th>
-                    </tr>
-                  </Thead>
-
-                  <Tbody>
-                    {history.map((item, index) => (
-                      <Tr key={item.id ?? index}>
-                        <Td className="whitespace-nowrap">
-                          {formatDate(item.createdAt ?? item.checkedAt, locale)}
-                        </Td>
-
-                        <Td>
-                          <span className="font-medium text-gray-700">
-                            {item.provider ?? "—"}
-                          </span>
-                        </Td>
-
-                        <Td>
-                          <span
-                            className={`font-black ${creditScoreColor(
-                              item.creditScore,
-                            )}`}
-                          >
-                            {item.creditScore ?? "—"}
-                          </span>
-                        </Td>
-
-                        <Td>
-                          <span className="font-semibold text-gray-700">
-                            {item.riskGrade ?? "—"}
-                          </span>
-                        </Td>
-
-                        <Td>{item.activeFacilities ?? 0}</Td>
-
-                        <Td>
-                          <span
-                            className={
-                              (item.delinquentAccounts ?? 0) > 0
-                                ? "font-bold text-red-600"
-                                : "font-medium text-teal-600"
-                            }
-                          >
-                            {item.delinquentAccounts ?? 0}
-                          </span>
-                        </Td>
-
-                        <Td>
-                          <span
-                            className={`inline-flex px-2 py-1 rounded-full text-[10px] font-bold ${
-                              item.status === "COMPLETED"
-                                ? "bg-teal-50 text-teal-700"
-                                : "bg-gray-100 text-gray-600"
-                            }`}
-                          >
-                            {item.status ?? "—"}
-                          </span>
-                        </Td>
-
-                        <Td>{item.requestedBy ?? "—"}</Td>
-                      </Tr>
-                    ))}
-                  </Tbody>
-                </Table>
-              </div>
-            </div>
-          )}
+      </td>
+
+      <td className="px-4 py-4 align-top">
+        <div className="flex min-w-[160px] flex-wrap gap-1.5">
+          <StatusBadge status={loan.status} />
+          {loan.riskCategory ? (
+            <RiskBadge category={loan.riskCategory} score={loan.riskScore} />
+          ) : null}
         </div>
-      </CardBody>
-    </Card>
+      </td>
+
+      <td className="px-4 py-4 align-top">
+        <div className="min-w-[130px]">
+          <div className="font-semibold text-slate-900">
+            {formatCurrency(loan.amount, currency, locale)}
+          </div>
+          <div className="mt-1 text-xs text-slate-400">
+            {loan.durationMonths} mo · {loan.repaymentFrequency.toLowerCase()}
+          </div>
+        </div>
+      </td>
+
+      <td className="px-4 py-4 align-top">
+        <div className="min-w-[150px]">
+          <div className="font-semibold text-slate-900">
+            {formatCurrency(loan.disbursedAmount ?? 0, currency, locale)}
+          </div>
+          <div className="mt-1 text-xs text-slate-400">Cash released</div>
+        </div>
+      </td>
+
+      <td className="px-4 py-4 align-top">
+        <div className="min-w-[150px]">
+          <div className="font-semibold text-slate-900">
+            {formatCurrency(outstanding, currency, locale)}
+          </div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full rounded-full bg-teal-600 transition-all"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <div className="mt-1 text-[11px] text-slate-400">
+            {progress}% repaid · {formatCurrency(totalPaid, currency, locale)}{" "}
+            collected
+          </div>
+        </div>
+      </td>
+
+      <td className="px-4 py-4 align-top text-right">
+        <div className="flex min-w-[120px] justify-end">
+          <Pill label={loanTypeLabel} color="blue" />
+        </div>
+        {loan.daysOverdue && loan.daysOverdue > 0 ? (
+          <div className="mt-2 flex items-center justify-end gap-1 text-xs font-semibold text-red-600">
+            <IconAlertTriangle className="h-3.5 w-3.5" />
+            {loan.daysOverdue}d overdue
+          </div>
+        ) : loan.nextDueDate ? (
+          <div className="mt-2 text-xs text-slate-400">
+            Next due {formatDate(loan.nextDueDate, locale)}
+          </div>
+        ) : null}
+      </td>
+    </tr>
   );
 }
 
-// ============================================================
-// MAIN PAGE
-// ============================================================
-
-export default function LoanDetailPage() {
-  const params = useParams<{ id?: string | string[] }>();
-
-  const router = useRouter();
-
-  const rawId = params?.id;
-
-  const routeId = Array.isArray(rawId) ? rawId[0] : rawId;
-
-  const loanId = routeId ? Number(routeId) : Number.NaN;
-
-  const hasValidLoanId = Number.isInteger(loanId) && loanId > 0;
-
+export default function LoanListPage() {
   const { currency, locale, isOfficer } = useAuth();
-
-  const fc = (n?: number) => formatCurrency(n, currency, locale);
-
-  // ==========================================================
-  // LOAN
-  // ==========================================================
-
-  const [loan, setLoan] = useState<Loan | null>(null);
-
-  const [schedule, setSchedule] = useState<Payment[]>([]);
-
-  const [loading, setLoading] = useState(true);
-
-  const [tab, setTab] = useState<Tab>("Overview");
-
-  const [msg, setMsg] = useState<{
-    type: "error" | "success";
-    text: string;
-  } | null>(null);
-
-  // ==========================================================
-  // CREDIT BUREAU
-  // ==========================================================
-
-  const [creditReport, setCreditReport] = useState<CreditBureauCheck | null>(
-    null,
-  );
-
-  const [creditHistory, setCreditHistory] = useState<CreditBureauCheck[]>([]);
-
-  const [cbBusy, setCbBusy] = useState(false);
-
-  const [cbHistoryLoading, setCbHistoryLoading] = useState(false);
-
-  // ==========================================================
-  // PAYMENT
-  // ==========================================================
-
-  const [payOpen, setPayOpen] = useState(false);
-
-  const [payForm, setPayForm] = useState({
-    amount: "",
-    paymentMethod: "BANK_TRANSFER",
-    transactionId: "",
-    channel: "",
-    notes: "",
-  });
-
-  const [paying, setPaying] = useState(false);
-
-  // ==========================================================
-  // STATUS
-  // ==========================================================
-
-  const [stOpen, setStOpen] = useState(false);
-
-  const [stForm, setStForm] = useState({
-    status: "",
-    rejectionReason: "",
-    internalNotes: "",
-    interestRate: "",
-  });
-
-  const [stSaving, setStSaving] = useState(false);
-
-  // ==========================================================
-  // E-SIGNATURE
-  // ==========================================================
-
-  const [esignBusy, setEsignBusy] = useState(false);
-
-  // ==========================================================
-  // LOAD LOAN
-  // ==========================================================
-
-  const load = () => {
-    if (!hasValidLoanId) {
-      setLoan(null);
-      setSchedule([]);
-      setMsg({
-        type: "error",
-        text: "This loan link is invalid or incomplete. Please open the loan from the Loans list.",
-      });
-      setLoading(false);
-      return;
-    }
-
-    Promise.all([loanApi.get(loanId), loanApi.schedule(loanId)])
-
-      .then(([l, s]: [any, any]) => {
-        setLoan(l);
-
-        setSchedule(Array.isArray(s) ? s : []);
-
-        cacheSet(`/loans/${loanId}`, {
-          loan: l,
-          schedule: s,
-        });
-      })
-
-      .catch(async (e) => {
-        const cached = await cacheGet<{
-          loan: Loan;
-          schedule: Payment[];
-        }>(`/loans/${loanId}`);
-
-        if (cached) {
-          setLoan(cached.loan);
-
-          setSchedule(cached.schedule);
-
-          setMsg({
-            type: "error",
-            text: "You're offline — showing the last saved version of this loan.",
-          });
-        } else {
-          setMsg({
-            type: "error",
-            text: e.message,
-          });
-        }
-      })
-
-      .finally(() => {
-        setLoading(false);
-      });
-  };
-
-  useEffect(() => {
-    load();
-  }, [loanId]);
-
-  // ==========================================================
-  // LOAD CREDIT HISTORY
-  // ==========================================================
-
-  const loadCreditHistory = async (borrowerId?: number) => {
-    if (!borrowerId) {
-      return;
-    }
-
-    setCbHistoryLoading(true);
-
-    try {
-      const history = await creditBureauApi.history(borrowerId);
-
-      const list = Array.isArray(history) ? history : [];
-
-      setCreditHistory(list);
-
-      if (list.length > 0) {
-        setCreditReport(list[0]);
-      }
-    } catch (error) {
-      console.error("Failed to load credit bureau history", error);
-    } finally {
-      setCbHistoryLoading(false);
-    }
-  };
-
-  // ==========================================================
-  // LOAD LATEST CREDIT REPORT
-  // ==========================================================
-
-  const loadLatestCreditReport = async (borrowerId?: number) => {
-    if (!borrowerId) {
-      return;
-    }
-
-    try {
-      const latest = await creditBureauApi.latest(borrowerId);
-
-      if (latest) {
-        setCreditReport(latest);
-      }
-    } catch (error) {
-      console.error("Failed to load latest credit bureau report", error);
-    }
-  };
-
-  // ==========================================================
-  // LOAD CREDIT DATA WHEN LOAN LOADS
-  // ==========================================================
-
-  useEffect(() => {
-    if (loan?.borrower?.id && isOfficer) {
-      loadLatestCreditReport(loan.borrower.id);
-
-      loadCreditHistory(loan.borrower.id);
-    }
-  }, [loan?.borrower?.id, isOfficer]);
-
-  // ==========================================================
-  // CREDIT BUREAU CHECK
-  // ==========================================================
-
-  const handleCreditBureauCheck = async () => {
-    if (!loan?.borrower?.id) {
-      setMsg({
-        type: "error",
-        text: "No borrower is linked to this loan.",
-      });
-
-      return;
-    }
-
-    const borrowerId = loan.borrower.id;
-
-    setCbBusy(true);
-
-    setMsg(null);
-
-    try {
-      const result = await creditBureauApi.check(borrowerId);
-
-      const report = result as CreditBureauCheck;
-
-      setCreditReport(report);
-
-      await loadLatestCreditReport(borrowerId);
-
-      await loadCreditHistory(borrowerId);
-
-      const simulated = report?.provider === "INTERNAL_SIMULATED";
-
-      setMsg({
-        type: simulated ? "error" : "success",
-
-        text: simulated
-          ? `⚠️ Internal credit estimate generated. Score ${
-              report?.creditScore ?? "N/A"
-            } (${report?.riskGrade ?? "N/A"}).`
-          : `Credit Bureau check completed via ${
-              report?.provider ?? "provider"
-            }. Score ${report?.creditScore ?? "N/A"} (${
-              report?.riskGrade ?? "N/A"
-            }).`,
-      });
-    } catch (err: any) {
-      setMsg({
-        type: "error",
-        text: err?.message ?? "Credit Bureau check failed.",
-      });
-    } finally {
-      setCbBusy(false);
-    }
-  };
-
-  // ==========================================================
-  // COMMENTS
-  // ==========================================================
-
-  const [comments, setComments] = useState<any[]>([]);
-
-  const [commentText, setCommentText] = useState("");
-
-  const [commentVisible, setCommentVisible] = useState(true);
-
-  const [commentSaving, setCommentSaving] = useState(false);
-
-  const loadComments = () => {
-    if (!hasValidLoanId) {
-      setComments([]);
-      return;
-    }
-
-    return loanApi
-      .getComments(loanId)
-      .then((c) => setComments(Array.isArray(c) ? c : []))
-      .catch(() => {});
-  };
-
-  useEffect(() => {
-    loadComments();
-  }, [loanId]);
-
-  const handleAddComment = async () => {
-    if (!commentText.trim()) {
-      return;
-    }
-
-    setCommentSaving(true);
-
-    try {
-      await loanApi.addComment(loanId, commentText.trim(), commentVisible);
-
-      setCommentText("");
-
-      loadComments();
-    } catch (e: any) {
-      setMsg({
-        type: "error",
-        text: e.message,
-      });
-    } finally {
-      setCommentSaving(false);
-    }
-  };
-
-  // ==========================================================
-  // DOCUMENT REQUIREMENTS
-  // ==========================================================
-
-  const [docReq, setDocReq] = useState<{
-    required: string[];
-    missing: string[];
-    unverified: string[];
-    readyToApprove: boolean;
-    readyToDisburse: boolean;
-  } | null>(null);
-
-  const loadDocReq = () => {
-    if (!hasValidLoanId) {
-      setDocReq(null);
-      return;
-    }
-
-    return loanApi
-      .documentRequirements(loanId)
-      .then((r: any) => setDocReq(r))
-      .catch(() => setDocReq(null));
-  };
-
-  useEffect(() => {
-    loadDocReq();
-  }, [loanId]);
-
-  // ==========================================================
-  // ONLINE
-  // ==========================================================
-
   const online = useOnlineStatus();
 
-  // ==========================================================
-  // PAYMENT
-  // ==========================================================
+  const [loans, setLoans] = useState<Loan[]>([]);
+  const [dashboard, setDashboard] = useState<LoanDashboardResponse | null>(
+    null,
+  );
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handlePay = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
 
-    if (!hasValidLoanId) {
-      setMsg({
-        type: "error",
-        text: "This loan link is invalid. Please reopen the loan from the Loans list.",
-      });
-      return;
-    }
+  const [status, setStatus] = useState<"" | LoanStatus>("");
+  const [type, setType] = useState<"" | LoanType>("");
+  const [query, setQuery] = useState("");
 
-    setPaying(true);
+  const loadPortfolio = useCallback(async () => {
+    const cacheKey = `/loans/list?page=${page}&size=${PAGE_SIZE}&status=${status}&type=${type}`;
 
-    setMsg(null);
-
-    if (!online) {
-      try {
-        await queueAction({
-          url: `/loans/${loanId}/payments`,
-          method: "POST",
-          body: {
-            ...payForm,
-            amount: Number(payForm.amount),
-          },
-          label: `Payment — ${loan?.borrower?.firstName ?? "Loan"} ${
-            loan?.referenceNumber ?? ""
-          } (${payForm.amount})`,
-        });
-
-        setMsg({
-          type: "success",
-          text: "Saved offline — you're not connected. This payment will submit automatically once you're back online.",
-        });
-
-        setPayOpen(false);
-      } catch (err: any) {
-        setMsg({
-          type: "error",
-          text: "Could not save offline: " + err.message,
-        });
-      }
-
-      setPaying(false);
-
-      return;
-    }
+    setError(null);
 
     try {
-      await paymentApi.record(loanId, {
-        ...payForm,
-        amount: Number(payForm.amount),
-      });
+      const [listResponse, dashboardResponse] = await Promise.all([
+        loanApi.list(page, PAGE_SIZE, status, type),
+        page === 0 && !status && !type
+          ? loanApi.dashboard()
+          : Promise.resolve(null),
+      ]);
 
-      setMsg({
-        type: "success",
-        text: "Payment recorded successfully!",
-      });
+      const pageLoans = getPageLoans(listResponse);
+      const meta = getPageMeta(listResponse);
 
-      setPayOpen(false);
+      setLoans(pageLoans);
+      setTotalPages(meta.totalPages);
+      setTotalElements(meta.totalElements || pageLoans.length);
 
-      load();
-    } catch (err: any) {
-      setMsg({
-        type: "error",
-        text: err.message,
-      });
-    }
-
-    setPaying(false);
-  };
-
-  const handleStatus = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!hasValidLoanId) {
-      setMsg({
-        type: "error",
-        text: "This loan link is invalid. Please reopen the loan from the Loans list.",
-      });
-      return;
-    }
-
-    setStSaving(true);
-
-    setMsg(null);
-
-    try {
-      if (stForm.status === "APPROVED") {
-        await loanApi.approve(
-          loanId,
-          stForm.internalNotes,
-          stForm.interestRate ? Number(stForm.interestRate) : undefined,
+      if (dashboardResponse) {
+        setDashboard(
+          (dashboardResponse ?? null) as LoanDashboardResponse | null,
         );
-      } else if (stForm.status === "REJECTED") {
-        await loanApi.reject(loanId, stForm.rejectionReason);
-      } else if (stForm.status === "DISBURSED") {
-        await loanApi.disburse(loanId, "BANK_TRANSFER");
-      } else if (stForm.status) {
-        await loanApi.updateStatus(loanId, stForm.status, stForm.internalNotes);
-      } else {
-        throw new Error("Select a status first");
       }
 
-      setMsg({
-        type: "success",
-        text: "Status updated!",
+      await cacheSet(cacheKey, {
+        loans: pageLoans,
+        meta,
+        dashboard: dashboardResponse ?? undefined,
       });
+    } catch (requestError) {
+      console.error("Failed to load loan portfolio", requestError);
 
-      setStOpen(false);
+      try {
+        const cached = await cacheGet<{
+          loans: Loan[];
+          meta: ReturnType<typeof getPageMeta>;
+          dashboard?: LoanDashboardResponse;
+        }>(cacheKey);
 
-      load();
-
-      loadDocReq();
-    } catch (err: any) {
-      setMsg({
-        type: "error",
-        text: err.message,
-      });
+        if (cached) {
+          setLoans(Array.isArray(cached.loans) ? cached.loans : []);
+          setTotalPages(cached.meta.totalPages);
+          setTotalElements(cached.meta.totalElements || cached.loans.length);
+          if (cached.dashboard) setDashboard(cached.dashboard);
+          setError("You're offline — showing the last saved loan portfolio.");
+        } else {
+          setLoans([]);
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Unable to load the loan portfolio.",
+          );
+        }
+      } catch (cacheError) {
+        console.error("Failed to load cached loan portfolio", cacheError);
+        setLoans([]);
+        setError("Unable to load the loan portfolio.");
+      }
     }
+  }, [page, status, type]);
 
-    setStSaving(false);
+  useEffect(() => {
+    let mounted = true;
+
+    const run = async () => {
+      if (mounted) setLoading(true);
+      await loadPortfolio();
+      if (mounted) setLoading(false);
+    };
+
+    void run();
+    return () => {
+      mounted = false;
+    };
+  }, [loadPortfolio]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadPortfolio();
+    setRefreshing(false);
   };
 
-  const handleSendForSignature = async () => {
-    if (!hasValidLoanId) {
-      setMsg({
-        type: "error",
-        text: "This loan link is invalid. Please reopen the loan from the Loans list.",
-      });
-      return;
-    }
+  const visibleLoans = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return loans;
 
-    setEsignBusy(true);
+    return loans.filter((loan) => {
+      const haystack = [
+        loan.referenceNumber,
+        getBorrowerName(loan),
+        loan.borrower?.nationalId,
+        loan.borrower?.phone,
+        loan.loanType,
+        loan.status,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
 
-    setMsg(null);
+      return haystack.includes(needle);
+    });
+  }, [loans, query]);
 
-    try {
-      await esignatureApi.initiate(loanId);
+  const summary = useMemo<Summary>(() => {
+    const fallback = loans.reduce(
+      (acc, loan) => {
+        acc.totalLoans += 1;
+        acc.disbursed += loan.disbursedAmount ?? 0;
+        acc.outstanding += loan.outstandingBalance ?? 0;
+        if (loan.status === "ACTIVE" || loan.status === "RESTRUCTURED")
+          acc.active += 1;
+        if (loan.status === "OVERDUE") acc.overdue += 1;
+        if (loan.status === "PENDING" || loan.status === "UNDER_REVIEW")
+          acc.pending += 1;
+        return acc;
+      },
+      {
+        totalLoans: 0,
+        active: 0,
+        overdue: 0,
+        pending: 0,
+        disbursed: 0,
+        outstanding: 0,
+      },
+    );
 
-      setMsg({
-        type: "success",
-        text: "Signing link + verification code sent to the borrower by SMS.",
-      });
-    } catch (err: any) {
-      setMsg({
-        type: "error",
-        text: err.message,
-      });
-    }
+    return {
+      totalLoans:
+        dashboard?.totalLoans != null
+          ? toNumber(dashboard.totalLoans)
+          : totalElements || fallback.totalLoans,
+      active:
+        dashboard?.activeLoans != null
+          ? toNumber(dashboard.activeLoans)
+          : fallback.active,
+      overdue:
+        dashboard?.overdueLoans != null
+          ? toNumber(dashboard.overdueLoans)
+          : fallback.overdue,
+      pending:
+        dashboard?.pendingLoans != null
+          ? toNumber(dashboard.pendingLoans)
+          : fallback.pending,
+      disbursed:
+        dashboard?.totalDisbursed != null
+          ? toNumber(dashboard.totalDisbursed)
+          : fallback.disbursed,
+      outstanding:
+        dashboard?.outstandingBalance != null
+          ? toNumber(dashboard.outstandingBalance)
+          : fallback.outstanding,
+    };
+  }, [dashboard, loans, totalElements]);
 
-    setEsignBusy(false);
+  const resetFilters = () => {
+    setQuery("");
+    setStatus("");
+    setType("");
+    setPage(0);
   };
+
+  const startItem = totalElements === 0 ? 0 : page * PAGE_SIZE + 1;
+  const endItem = Math.min(
+    totalElements,
+    page * PAGE_SIZE + visibleLoans.length,
+  );
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <PageSpinner />;
   }
-
-  if (!hasValidLoanId) {
-    return (
-      <div className="min-h-[60vh] bg-slate-50/70 p-4 sm:p-6 lg:p-8">
-        <div className="mx-auto max-w-2xl rounded-3xl border border-amber-200 bg-white p-8 text-center shadow-sm">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
-            <IconAlertTriangle className="h-6 w-6" />
-          </div>
-
-          <h1 className="text-lg font-bold text-slate-900">
-            Invalid loan link
-          </h1>
-
-          <p className="mt-2 text-sm leading-6 text-slate-500">
-            This page was opened without a valid numeric loan ID. No request was
-            sent to the loan API. Please return to the Loans list and open the
-            loan again.
-          </p>
-
-          <button
-            type="button"
-            onClick={() => router.push("/dashboard/loans")}
-            className="mt-5 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-          >
-            Back to Loans
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!loan) {
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-red-700">
-        Loan not found
-      </div>
-    );
-  }
-
-  const prog =
-    loan.totalRepayable && loan.totalPaid
-      ? Math.min(100, Math.round((loan.totalPaid / loan.totalRepayable) * 100))
-      : 0;
-
-  const chartData = schedule
-    .filter((p) => p.paid)
-    .slice(-12)
-    .map((p) => ({
-      n: `#${p.installmentNumber}`,
-
-      balance: p.outstandingAfter ?? 0,
-
-      principal: p.principalComponent,
-
-      interest: p.interestComponent,
-    }));
-
-  const totalPenalty = schedule.reduce((sum, p) => sum + (p.penalty ?? 0), 0);
-
-  const managementFeeRate = loan.managementFeeRate ?? 5;
-  const interestRate = loan.interestRate ?? 5;
-
-  const managementFeeDailyRate = dailyRateFromMonthly(managementFeeRate);
-  const interestDailyRate = dailyRateFromMonthly(interestRate);
-
-  const dailyManagementFeeAmount = dailyAmountFromMonthlyRate(
-    loan.amount,
-    managementFeeRate,
-  );
-
-  const dailyInterestAmount = dailyAmountFromMonthlyRate(
-    loan.outstandingBalance ?? loan.amount,
-    interestRate,
-  );
-
-  const managementFeePaid = loan.managementFeePaid ?? 0;
-  const managementFeeScheduled = loan.managementFee ?? 0;
-  const managementFeeRemaining = Math.max(
-    0,
-    managementFeeScheduled - managementFeePaid,
-  );
-
-  const totalMonthlyChargeRate = interestRate + managementFeeRate;
-
-  const totalDailyChargeRate = interestDailyRate + managementFeeDailyRate;
 
   return (
-    <div>
-      <div className="flex items-start justify-between mb-6 gap-4">
-        <div>
-          <button
-            onClick={() => router.back()}
-            className="text-sm text-gray-400 hover:text-gray-600 mb-2 flex items-center gap-1"
-          >
-            ← Back
-          </button>
+    <div className="min-h-full bg-slate-50/40 pb-10">
+      <div className="mx-auto max-w-[1680px] space-y-6">
+        <section className="rounded-3xl border border-slate-200/80 bg-slate-950 p-6 text-white shadow-[0_18px_50px_rgba(15,23,42,0.12)] sm:p-8">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-teal-200">
+                <span className="h-1.5 w-1.5 rounded-full bg-teal-400" />
+                Lending Operations
+              </div>
+              <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
+                Loan Portfolio
+              </h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+                One place to review loan balances, collections, risk, arrears
+                and repayment progress without mixing operational figures with
+                accounting journals.
+              </p>
+            </div>
 
-          <h1 className="text-2xl font-extrabold text-gray-900">
-            {loan.referenceNumber}
-          </h1>
-
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            <StatusBadge status={loan.status} />
-
-            {loan.riskCategory && (
-              <RiskBadge category={loan.riskCategory} score={loan.riskScore} />
-            )}
-
-            <Pill
-              label={`${LOAN_TYPE_META[loan.loanType]?.icon} ${
-                LOAN_TYPE_META[loan.loanType]?.label ?? loan.loanType
-              }`}
-              color="blue"
-            />
-
-            <Pill label={loan.currency} color="teal" />
-
-            {loan.daysOverdue && loan.daysOverdue > 0 ? (
-              <Pill
-                label={
-                  <span className="inline-flex items-center gap-1">
-                    <IconAlertTriangle className="w-3 h-3" />
-                    {loan.daysOverdue}d overdue
-                  </span>
-                }
-                color="red"
-              />
-            ) : null}
-
-            {loan.creditQuality && (
-              <Pill label={`Credit: ${loan.creditQuality}`} color="blue" />
-            )}
-
-            {loan.arrearsStatus && (
-              <Pill label={`Arrears: ${loan.arrearsStatus}`} color="gray" />
-            )}
-
-            {loan.collectionsStage && (
-              <Pill
-                label={`Collections: ${loan.collectionsStage}`}
-                color="teal"
-              />
-            )}
-          </div>
-        </div>
-
-        <div className="flex gap-2 flex-wrap justify-end">
-          {isOfficer && loan.borrower && (
-            <Button
-              variant="outline"
-              onClick={handleCreditBureauCheck}
-              disabled={cbBusy}
-            >
-              <IconBank className="w-4 h-4" />
-
-              {cbBusy ? "Checking…" : "Credit Bureau Check"}
-            </Button>
-          )}
-
-          {isOfficer &&
-            (loan.status === "APPROVED" ||
-              loan.status === "DISBURSED" ||
-              loan.status === "ACTIVE") && (
-              <Button
-                variant="outline"
-                onClick={handleSendForSignature}
-                disabled={esignBusy}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void handleRefresh()}
+                disabled={refreshing}
+                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <IconSignature className="w-4 h-4" />
+                {refreshing ? "Refreshing…" : "Refresh portfolio"}
+              </button>
+              {isOfficer ? (
+                <Link
+                  href="/dashboard/loans/new"
+                  className="rounded-xl bg-teal-500 px-4 py-2.5 text-xs font-bold text-slate-950 transition hover:bg-teal-400"
+                >
+                  + New loan
+                </Link>
+              ) : null}
+            </div>
+          </div>
 
-                {esignBusy ? "Sending…" : "Send for E-Signature"}
-              </Button>
-            )}
+          <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                Total loans
+              </div>
+              <div className="mt-2 text-2xl font-black">
+                {summary.totalLoans.toLocaleString()}
+              </div>
+              <div className="mt-1 text-xs text-slate-400">
+                Current portfolio count
+              </div>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                Disbursed
+              </div>
+              <div className="mt-2 text-2xl font-black">
+                {formatCurrency(summary.disbursed, currency, locale)}
+              </div>
+              <div className="mt-1 text-xs text-slate-400">
+                Cash released to borrowers
+              </div>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                Outstanding
+              </div>
+              <div className="mt-2 text-2xl font-black">
+                {formatCurrency(summary.outstanding, currency, locale)}
+              </div>
+              <div className="mt-1 text-xs text-slate-400">
+                Current principal exposure
+              </div>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                Portfolio attention
+              </div>
+              <div className="mt-2 flex items-center gap-2 text-2xl font-black">
+                <span>{summary.overdue}</span>
+                <span className="text-sm font-semibold text-slate-400">
+                  overdue
+                </span>
+              </div>
+              <div className="mt-1 text-xs text-slate-400">
+                {summary.active} active · {summary.pending} pending
+              </div>
+            </div>
+          </div>
+        </section>
 
-          {isOfficer && (
-            <Button variant="outline" onClick={() => setStOpen(true)}>
-              Update Status
-            </Button>
-          )}
+        {!online ? (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="font-bold">Offline mode</div>
+            <div className="mt-0.5 text-xs text-amber-800">
+              The portfolio remains readable from the latest cached version.
+              Actions that require the server are not assumed to have completed.
+            </div>
+          </div>
+        ) : null}
 
-          {loan.status === "ACTIVE" && (
-            <Button
-              onClick={() => {
-                setPayForm((f) => ({
-                  ...f,
-
-                  amount: String(
-                    loan.totalRepayable
-                      ? Math.round(
-                          (loan.totalRepayable / loan.durationMonths!) * 100,
-                        ) / 100
-                      : "",
-                  ),
-                }));
-
-                setPayOpen(true);
-              }}
-            >
-              <IconCard className="w-4 h-4" />
-              Record Payment
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {msg && (
-        <div className="mb-5">
-          <Alert type={msg.type}>{msg.text}</Alert>
-        </div>
-      )}
-
-      {isOfficer && loan.borrower && (
-        <CreditBureauReport
-          report={creditReport}
-
-          history={creditHistory}
-
-          currency={currency}
-
-          locale={locale}
-
-          loading={cbBusy || cbHistoryLoading}
-        />
-      )}
-
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5 mt-5">
-        {[
-          {
-            label: "Principal",
-            value: fc(loan.amount),
-            Icon: IconCoins,
-            color: "#3B82F6",
-          },
-
-          {
-            label: "Disbursed",
-            value: fc(loan.disbursedAmount),
-            Icon: IconSend,
-            color: "#8B5CF6",
-          },
-
-          {
-            label: "Total Paid",
-            value: fc(loan.totalPaid),
-            Icon: IconCheckCircle,
-            color: "#0D9488",
-          },
-
-          {
-            label: "Outstanding",
-            value: fc(loan.outstandingBalance),
-            Icon: IconClock,
-            color: "#F59E0B",
-          },
-
-          {
-            label: "Management Fee",
-            value: fc(loan.managementFee),
-            Icon: IconFileText,
-            color: "#7C3AED",
-          },
-
-          {
-            label: "Penalty",
-            value: fc(totalPenalty),
-            Icon: IconFileText,
-            color: "#6B7280",
-          },
-        ].map(({ label, value, Icon, color }) => (
+        {error ? (
           <div
-            key={label}
-            className="bg-white rounded-xl border border-gray-200 p-4"
+            className={`rounded-2xl border px-4 py-3 text-sm ${error.startsWith("You're offline") ? "border-amber-200 bg-amber-50 text-amber-900" : "border-red-200 bg-red-50 text-red-900"}`}
           >
-            <Icon
-              className="w-5 h-5 mb-1.5"
-              style={{
-                color,
-              }}
-            />
-
-            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-              {label}
-            </div>
-
-            <div className="text-lg font-extrabold text-gray-900 font-mono mt-0.5">
-              {value}
-            </div>
+            {error}
           </div>
-        ))}
-      </div>
-
-      <Card className="mb-5">
-        <CardHeader title="Loan Charges" />
-
-        <CardBody>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="rounded-xl border border-purple-100 bg-purple-50/60 p-4">
-              <div className="text-[10px] font-bold text-purple-500 uppercase tracking-wider">
-                Monthly Management Fee
-              </div>
-              <div className="text-xl font-extrabold text-purple-800 mt-1">
-                {managementFeeRate.toFixed(2)}%
-              </div>
-              <div className="text-xs text-purple-700 mt-1">
-                {managementFeeDailyRate.toFixed(6)}% per day
-              </div>
-              <div className="text-xs text-purple-600 mt-1">
-                Approx. {fc(dailyManagementFeeAmount)} per day on the original
-                principal
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
-              <div className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">
-                Monthly Interest
-              </div>
-              <div className="text-xl font-extrabold text-blue-800 mt-1">
-                {interestRate.toFixed(2)}%
-              </div>
-              <div className="text-xs text-blue-700 mt-1">
-                {interestDailyRate.toFixed(6)}% per day
-              </div>
-              <div className="text-xs text-blue-600 mt-1">
-                Current daily interest basis: {fc(dailyInterestAmount)}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
-              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                Total Monthly Charge
-              </div>
-              <div className="text-xl font-extrabold text-gray-900 mt-1">
-                {totalMonthlyChargeRate.toFixed(2)}%
-              </div>
-              <div className="text-xs text-gray-500 mt-1">
-                {totalDailyChargeRate.toFixed(6)}% per day on a 30-day basis
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
-              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                Management Fee Balance
-              </div>
-              <div className="text-xl font-extrabold text-gray-900 mt-1">
-                {fc(managementFeeRemaining)}
-              </div>
-              <div className="text-xs text-gray-500 mt-1">
-                {fc(managementFeePaid)} paid of {fc(managementFeeScheduled)}{" "}
-                scheduled
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <Field
-              label="Processing Fee"
-              value={`${fc(loan.processingFee)} (${(loan.processingFeeRate ?? 2).toFixed(2)}%)`}
-            />
-            <Field label="Net Disbursed" value={fc(loan.netDisbursedAmount)} />
-            <Field label="Total Repayable" value={fc(loan.totalRepayable)} />
-            <Field label="Interest Paid" value={fc(loan.interestPaid)} />
-          </div>
-        </CardBody>
-      </Card>
-
-      <Card className="mb-5">
-        <CardBody>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-semibold text-gray-700">
-              Repayment Progress
-            </span>
-
-            <span className="text-lg font-extrabold text-teal-600">
-              {prog}%
-            </span>
-          </div>
-
-          <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
-            <div
-              className="h-3 rounded-full transition-all duration-500"
-              style={{
-                width: `${prog}%`,
-
-                background:
-                  prog >= 100 ? "#0D9488" : prog > 50 ? "#3B82F6" : "#F59E0B",
-              }}
-            />
-          </div>
-          <div className="flex justify-between text-xs text-gray-400 mt-1.5">
-            <span>{fc(loan.totalPaid)} paid</span>
-
-            <span>{fc(loan.outstandingBalance)} remaining</span>
-
-            <span>{fc(loan.totalRepayable)} total</span>
-          </div>
-          {loan.status === "PAID" && (
-            <div className="mt-2 bg-teal-50 border border-teal-200 text-teal-700 text-xs rounded-lg px-3 py-2 flex items-center gap-1.5">
-              <IconCheckCircle className="w-4 h-4" />
-              Loan fully repaid
-            </div>
-          )}
-        </CardBody>
-      </Card>
-      {docReq &&
-        (docReq.missing.length > 0 || docReq.unverified.length > 0) && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5 text-sm">
-            <div className="font-bold text-amber-800 mb-1 flex items-center gap-1.5">
-              <IconAlertTriangle className="w-4 h-4" />
-              Required documents not yet in order
-            </div>
-
-            {docReq.missing.length > 0 && (
-              <div className="text-amber-700">
-                Not uploaded (blocks <strong>Approve</strong>):{" "}
-                {docReq.missing
-                  .map((t) => DOCUMENT_TYPE_LABELS[t] ?? t)
-                  .join(", ")}
-              </div>
-            )}
-
-            {docReq.missing.length === 0 && docReq.unverified.length > 0 && (
-              <div className="text-amber-700">
-                Uploaded but not yet staff-verified (blocks{" "}
-                <strong>Disburse</strong>):{" "}
-                {docReq.unverified
-                  .map((t) => DOCUMENT_TYPE_LABELS[t] ?? t)
-                  .join(", ")}
-              </div>
-            )}
-
-            <button
-              onClick={() => setTab("Documents")}
-              className="text-xs font-bold text-amber-800 underline mt-1"
-            >
-              Go to Documents →
-            </button>
-          </div>
-        )}
-
-      <div className="flex border-b border-gray-200 mb-5 gap-0 overflow-x-auto">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors -mb-px whitespace-nowrap ${
-              tab === t
-                ? "border-teal-500 text-teal-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            }`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {tab === "Overview" && (
-        <Card>
-          <CardHeader title="Loan Details" />
-
-          <CardBody>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-5">
-              <Field
-                label="Loan Type"
-                value={`${LOAN_TYPE_META[loan.loanType]?.icon} ${
-                  LOAN_TYPE_META[loan.loanType]?.label
-                }`}
-              />
-
-              <Field
-                label="Interest Rate"
-                value={`${interestRate.toFixed(2)}% monthly · ${interestDailyRate.toFixed(6)}% daily`}
-              />
-
-              <Field
-                label="Management Fee"
-                value={`${managementFeeRate.toFixed(2)}% monthly · ${managementFeeDailyRate.toFixed(6)}% daily`}
-              />
-
-              <Field
-                label="Total Monthly Charge"
-                value={`${totalMonthlyChargeRate.toFixed(2)}% · ${totalDailyChargeRate.toFixed(6)}% daily`}
-              />
-
-              <Field label="Term" value={`${loan.durationMonths} months`} />
-
-              <Field label="Schedule" value={loan.repaymentFrequency} />
-
-              <Field
-                label="Processing Fee"
-                value={`${fc(loan.processingFee)} · ${(loan.processingFeeRate ?? 2).toFixed(2)}%`}
-              />
-
-              <Field
-                label="Net Disbursed Amount"
-                value={fc(loan.netDisbursedAmount)}
-              />
-
-              <Field label="Total Repayable" value={fc(loan.totalRepayable)} />
-
-              <Field
-                label="Management Fee Scheduled"
-                value={fc(loan.managementFee)}
-              />
-
-              <Field
-                label="Management Fee Paid"
-                value={fc(loan.managementFeePaid)}
-              />
-
-              <Field
-                label="Interest Scheduled"
-                value={fc(loan.totalInterest)}
-              />
-
-              <Field label="Interest Paid" value={fc(loan.interestPaid)} />
-
-              <Field
-                label="Outstanding Balance"
-                value={fc(loan.outstandingBalance)}
-              />
-
-              <Field
-                label="DTI Ratio"
-                value={
-                  loan.debtToIncomeRatio != null
-                    ? `${loan.debtToIncomeRatio.toFixed(1)}%`
-                    : undefined
-                }
-              />
-
-              <Field label="Credit Score" value={loan.creditScoreSnapshot} />
-
-              <Field label="Risk Category" value={loan.riskCategory} />
-
-              <Field label="Risk Score" value={loan.riskScore} />
-
-              <Field label="Credit Quality" value={loan.creditQuality} />
-
-              <Field label="Arrears Status" value={loan.arrearsStatus} />
-
-              <Field label="Collections Stage" value={loan.collectionsStage} />
-
-              <Field label="Days Overdue" value={loan.daysOverdue ?? 0} />
-
-              <Field
-                label="Classified At"
-                value={formatDate(loan.classifiedAt, locale)}
-              />
-
-              <Field
-                label="Start Date"
-                value={formatDate(loan.startDate, locale)}
-              />
-
-              <Field
-                label="Approved"
-                value={formatDate(loan.approvedAt, locale)}
-              />
-
-              <Field
-                label="Disbursed"
-                value={formatDate(loan.disbursedAt, locale)}
-              />
-
-              <Field
-                label="Maturity"
-                value={formatDate(loan.maturityDate, locale)}
-              />
-
-              <Field
-                label="Purpose"
-                value={
-                  <span className="whitespace-pre-wrap">{loan.purpose}</span>
-                }
-              />
-
-              <Field label="Collateral" value={loan.collateralDescription} />
-
-              <Field
-                label="Collateral Value"
-                value={fc(loan.collateralValue)}
-              />
-
-              <Field label="Currency" value={loan.currency} />
-            </div>
-
-            {(loan.rejectionReason || loan.internalNotes) && (
-              <>
-                <hr className="my-4 border-gray-100" />
-
-                {loan.rejectionReason && (
-                  <Field
-                    label="Rejection Reason"
-                    value={
-                      <span className="text-red-600">
-                        {loan.rejectionReason}
-                      </span>
-                    }
-                  />
-                )}
-
-                {loan.internalNotes && (
-                  <div className="mt-3">
-                    <Field label="Internal Notes" value={loan.internalNotes} />
-                  </div>
-                )}
-              </>
-            )}
-
-            <hr className="my-4 border-gray-100" />
-
-            <div className="flex gap-3 flex-wrap text-xs text-gray-500">
-              {loan.loanOfficer && (
-                <span className="bg-gray-100 px-3 py-1.5 rounded-lg">
-                  👤 Officer: <strong>{loan.loanOfficer.name}</strong>
-                </span>
-              )}
-
-              {loan.approvedBy && (
-                <span className="bg-gray-100 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5">
-                  <IconCheckCircle className="w-3.5 h-3.5 text-teal-600" />
-                  Approved by: <strong>{loan.approvedBy.name}</strong>
-                </span>
-              )}
-            </div>
-          </CardBody>
-        </Card>
-      )}
-
-      {tab === "Borrower" && loan.borrower && (
-        <Card>
-          <CardHeader title="Borrower Profile" />
-
-          <CardBody>
-            <div className="flex items-center gap-4 mb-5">
-              <div className="w-14 h-14 bg-teal-100 rounded-full flex items-center justify-center text-2xl font-bold text-teal-700">
-                {loan.borrower.firstName?.[0]}
-
-                {loan.borrower.lastName?.[0]}
-              </div>
-
-              <div>
-                <div className="font-bold text-lg text-gray-900">
-                  {loan.borrower.firstName} {loan.borrower.lastName}
-                </div>
-
-                <div className="text-sm text-gray-500">
-                  {loan.borrower.email}
-
-                  {" · "}
-
-                  {loan.borrower.phone}
-                </div>
-              </div>
-
-              <div className="ml-auto flex items-center gap-6">
-                <div>
-                  <div className="text-xs text-gray-400 mb-0.5">
-                    Credit Score
-                  </div>
-
-                  <div
-                    className={`text-2xl font-extrabold ${
-                      (loan.borrower.creditScore ?? 0) >= 700
-                        ? "text-teal-600"
-                        : "text-orange-500"
-                    }`}
-                  >
-                    {loan.borrower.creditScore ?? "—"}
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setTab("Documents")}
-                  className="text-xs font-bold px-3 py-2 rounded-lg border border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100 transition whitespace-nowrap"
-                >
-                  View KYC Documents →
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-4">
-              <Field label="National ID" value={loan.borrower.nationalId} />
-
-              <Field label="Nationality" value={loan.borrower.nationality} />
-
-              <Field
-                label="Date of Birth"
-                value={formatDate(loan.borrower.dateOfBirth, locale)}
-              />
-
-              <Field label="Gender" value={loan.borrower.gender} />
-
-              <Field label="Employer" value={loan.borrower.employerName} />
-
-              <Field label="Job Title" value={loan.borrower.jobTitle} />
-
-              <Field
-                label="Employment Type"
-                value={loan.borrower.employmentType}
-              />
-
-              <Field
-                label="Monthly Income"
-                value={fc(loan.borrower.monthlyIncome)}
-              />
-
-              <Field
-                label="Monthly Expenses"
-                value={fc(loan.borrower.monthlyExpenses)}
-              />
-
-              <Field label="Net Worth" value={fc(loan.borrower.netWorth)} />
-
-              <Field label="City" value={loan.borrower.city} />
-
-              <Field label="Country" value={loan.borrower.country} />
-
-              <Field label="Bank" value={loan.borrower.bankName} />
-
-              <Field
-                label="Account Number"
-                value={loan.borrower.bankAccountNumber}
-              />
-            </div>
-          </CardBody>
-        </Card>
-      )}
-      {tab === "Documents" &&
-        (loan.borrower?.id ? (
-          <DocumentsPanel
-            borrowerId={loan.borrower.id}
-            key={loan.borrower.id}
+        ) : null}
+
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+          <MetricCard
+            label="Active"
+            value={summary.active.toLocaleString()}
+            description="Loans currently performing."
+            icon={<IconCheckCircle className="h-5 w-5" />}
+            tone="teal"
           />
-        ) : (
-          <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-400 text-sm">
-            No borrower record is linked to this loan, so documents can't be
-            shown.
-          </div>
-        ))}
+          <MetricCard
+            label="Overdue"
+            value={summary.overdue.toLocaleString()}
+            description="Loans requiring collections attention."
+            icon={<IconAlertTriangle className="h-5 w-5" />}
+            tone="red"
+          />
+          <MetricCard
+            label="Pending"
+            value={summary.pending.toLocaleString()}
+            description="Applications awaiting action."
+            icon={<IconClock className="h-5 w-5" />}
+            tone="amber"
+          />
+          <MetricCard
+            label="Disbursed"
+            value={formatCurrency(summary.disbursed, currency, locale)}
+            description="Total cash released."
+            icon={<IconSend className="h-5 w-5" />}
+            tone="blue"
+          />
+          <MetricCard
+            label="Outstanding"
+            value={formatCurrency(summary.outstanding, currency, locale)}
+            description="Current principal still due."
+            icon={<IconCoins className="h-5 w-5" />}
+            tone="violet"
+          />
+          <MetricCard
+            label="Portfolio size"
+            value={summary.totalLoans.toLocaleString()}
+            description="Loans in the current portfolio."
+            icon={<IconFileText className="h-5 w-5" />}
+            tone="slate"
+          />
+        </section>
 
-      {tab === "Schedule" && (
-        <>
-          {chartData.length > 1 && (
-            <Card className="mb-4">
-              <CardHeader title="Outstanding Balance Over Time" />
-
-              <CardBody>
-                <ResponsiveContainer width="100%" height={180}>
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop
-                          offset="5%"
-                          stopColor="#0D9488"
-                          stopOpacity={0.15}
-                        />
-
-                        <stop
-                          offset="95%"
-                          stopColor="#0D9488"
-                          stopOpacity={0}
-                        />
-                      </linearGradient>
-                    </defs>
-
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke="#F3F4F6"
-                      vertical={false}
-                    />
-
-                    <XAxis
-                      dataKey="n"
-                      tick={{
-                        fontSize: 11,
-                        fill: "#9CA3AF",
-                      }}
-                    />
-
-                    <YAxis
-                      tick={{
-                        fontSize: 11,
-                        fill: "#9CA3AF",
-                      }}
-                      tickFormatter={(v) => fc(v)}
-                    />
-
-                    <Tooltip formatter={(v: number) => fc(v)} />
-
-                    <Area
-                      type="monotone"
-                      dataKey="balance"
-                      stroke="#0D9488"
-                      fill="url(#balGrad)"
-                      strokeWidth={2}
-                      name="Balance"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </CardBody>
-            </Card>
-          )}
-
-          <Card>
-            <CardHeader
-              title={`Repayment Schedule (${schedule.length} installments)`}
-            />
-
-            <Table>
-              <Thead>
-                <tr>
-                  <Th>#</Th>
-
-                  <Th>Due Date</Th>
-
-                  <Th>Amount</Th>
-
-                  <Th>Principal</Th>
-
-                  <Th>Interest</Th>
-
-                  <Th>Management Fee</Th>
-
-                  <Th>Penalty</Th>
-
-                  <Th>Balance After</Th>
-
-                  <Th>Status</Th>
-
-                  <Th>Paid Date</Th>
-
-                  <Th>Method</Th>
-                </tr>
-              </Thead>
-
-              <Tbody>
-                {schedule.length === 0 ? (
-                  <Tr>
-                    <Td className="text-center py-10 text-gray-400">
-                      No schedule generated yet
-                    </Td>
-                  </Tr>
-                ) : (
-                  schedule.map((p) => (
-                    <Tr key={p.id} className={p.isLate ? "bg-orange-50" : ""}>
-                      <Td className="font-mono text-xs text-gray-500">
-                        {p.installmentNumber}
-                      </Td>
-
-                      <Td>{formatDate(p.dueDate, locale)}</Td>
-
-                      <Td className="font-semibold">{fc(p.amount)}</Td>
-
-                      <Td className="text-blue-600">
-                        {fc(p.principalComponent)}
-                      </Td>
-
-                      <Td className="text-purple-600">
-                        {fc(p.interestComponent)}
-                      </Td>
-
-                      <Td className="text-indigo-600">
-                        {getScheduleManagementFee(p) > 0
-                          ? fc(getScheduleManagementFee(p))
-                          : "—"}
-                      </Td>
-
-                      <Td className="text-red-500">
-                        {p.penalty && p.penalty > 0 ? fc(p.penalty) : "—"}
-                      </Td>
-
-                      <Td>{fc(p.outstandingAfter)}</Td>
-
-                      <Td>
-                        {p.paid ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full">
-                            ✓ Paid
-                          </span>
-                        ) : p.isLate ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-orange-700 bg-orange-50 px-2 py-0.5 rounded-full">
-                            ⚠ Overdue
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full">
-                            Pending
-                          </span>
-                        )}
-                      </Td>
-
-                      <Td className="text-gray-400 text-xs">
-                        {formatDate(p.paidDate, locale)}
-                      </Td>
-
-                      <Td className="text-xs">
-                        {p.paid && p.paymentMethod ? (
-                          <span
-                            title={
-                              p.transactionId ? `Ref: ${p.transactionId}` : ""
-                            }
-                            className="text-gray-600 font-medium"
-                          >
-                            {p.paymentMethod.replace(/_/g, " ")}
-                          </span>
-                        ) : (
-                          <span className="text-gray-300">—</span>
-                        )}
-                      </Td>
-                    </Tr>
-                  ))
-                )}
-              </Tbody>
-            </Table>
-          </Card>
-        </>
-      )}
-
-      {/* ======================================================
-          TIMELINE
-      ====================================================== */}
-
-      {tab === "Timeline" && (
-        <Card>
-          <CardHeader title="Loan Timeline" />
-
-          <CardBody>
-            <div className="relative">
-              {[
-                {
-                  icon: IconFileEdit,
-                  label: "Application Submitted",
-                  date: loan.startDate,
-                  done: true,
-                },
-
-                {
-                  icon: IconSearch,
-                  label: "Under Review",
-                  date: loan.startDate,
-                  done: loan.status !== "PENDING",
-                },
-
-                {
-                  icon: IconCheckCircle,
-                  label: "Approved",
-                  date: loan.approvedAt,
-                  done: !!loan.approvedAt,
-                },
-
-                {
-                  icon: IconCoins,
-                  label: "Disbursed",
-                  date: loan.disbursedAt,
-                  done: !!loan.disbursedAt,
-                },
-
-                {
-                  icon: IconCalendar,
-                  label: "Next Payment Due",
-                  date: loan.nextDueDate,
-                  done: false,
-                },
-
-                {
-                  icon: IconFlag,
-                  label: "Maturity Date",
-                  date: loan.maturityDate,
-                  done: loan.status === "PAID",
-                },
-              ].map((step, i, arr) => (
-                <div key={i} className="flex gap-4 pb-6 relative">
-                  <div className="flex flex-col items-center">
-                    <div
-                      className={`w-9 h-9 rounded-full flex items-center justify-center text-lg border-2 z-10 ${
-                        step.done
-                          ? "bg-teal-500 border-teal-500 text-white"
-                          : "bg-white border-gray-200 text-gray-400"
-                      }`}
-                    >
-                      <step.icon className="w-4 h-4" />
-                    </div>
-
-                    {i < arr.length - 1 && (
-                      <div
-                        className={`w-0.5 flex-1 mt-1 ${
-                          step.done ? "bg-teal-300" : "bg-gray-200"
-                        }`}
-                        style={{
-                          minHeight: 28,
-                        }}
-                      />
-                    )}
-                  </div>
-
-                  <div className="pt-1.5">
-                    <div
-                      className={`font-semibold text-sm ${
-                        step.done ? "text-gray-900" : "text-gray-400"
-                      }`}
-                    >
-                      {step.label}
-                    </div>
-
-                    <div className="text-xs text-gray-400 mt-0.5">
-                      {formatDate(step.date, locale)}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardBody>
-        </Card>
-      )}
-
-      {/* ======================================================
-          COMMENTS
-      ====================================================== */}
-
-      {tab === "Comments" && (
-        <Card>
-          <CardHeader title="Comments & Document Requests" />
-
-          <CardBody>
-            <div className="mb-6 bg-gray-50 rounded-xl p-4">
-              <Textarea
-                placeholder="e.g. Please upload your land title document, or a recent utility bill as proof of address."
-                value={commentText}
-                onChange={(e) => setCommentText(e.target.value)}
-                rows={3}
-              />
-
-              <div className="flex items-center justify-between mt-3">
-                <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={commentVisible}
-                    onChange={(e) => setCommentVisible(e.target.checked)}
-                  />
-                  Visible to applicant on the tracking page
-                </label>
-
-                <Button
-                  loading={commentSaving}
-                  disabled={!commentText.trim()}
-                  onClick={handleAddComment}
-                >
-                  Post
-                </Button>
-              </div>
-
-              {!commentVisible && (
-                <p className="text-xs text-amber-600 mt-2">
-                  This note will be internal-only — the applicant won't see it.
+        <section className="rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+          <div className="border-b border-slate-100 p-5 sm:p-6">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <h2 className="text-base font-bold text-slate-950">
+                  Find a loan
+                </h2>
+                <p className="mt-1 text-xs text-slate-400">
+                  Search the current page and narrow the server-side portfolio
+                  by status or loan type.
                 </p>
-              )}
-            </div>
-
-            {comments.length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-6">
-                No comments yet.
-              </p>
-            )}
-
-            <div className="space-y-4">
-              {comments
-                .slice()
-                .reverse()
-                .map((c: any) => (
-                  <div key={c.id} className="flex gap-3">
-                    <div className="w-8 h-8 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center text-xs font-bold shrink-0">
-                      {(c.author?.name || "S")[0]}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold text-gray-800">
-                          {c.author?.name || "Staff"}
-                        </span>
-
-                        <span className="text-xs text-gray-400">
-                          {formatDate(c.createdAt, locale)}
-                        </span>
-
-                        {c.visibleToApplicant ? (
-                          <Pill label="Visible to applicant" color="blue" />
-                        ) : (
-                          <Pill label="Internal only" color="gray" />
-                        )}
-                      </div>
-
-                      <p className="text-sm text-gray-700 mt-1">{c.message}</p>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </CardBody>
-        </Card>
-      )}
-
-      {/* ======================================================
-          PAYMENT MODAL
-      ====================================================== */}
-
-      <Modal
-        open={payOpen}
-        onClose={() => setPayOpen(false)}
-        title="Record Payment"
-
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setPayOpen(false)}>
-              Cancel
-            </Button>
-
-            <Button loading={paying} onClick={handlePay as any}>
-              Confirm Payment
-            </Button>
-          </>
-        }
-      >
-        <form onSubmit={handlePay}>
-          <div className="bg-gray-50 rounded-xl p-4 mb-4 grid grid-cols-2 gap-3 text-sm">
-            {[
-              ["Outstanding", fc(loan.outstandingBalance)],
-
-              ["Next Due", formatDate(loan.nextDueDate, locale)],
-
-              ["Penalty", fc(0)],
-
-              ["Currency", loan.currency],
-            ].map(([l, v]) => (
-              <div key={l}>
-                <div className="text-xs text-gray-400">{l}</div>
-
-                <div className="font-bold">{v}</div>
               </div>
-            ))}
-          </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <FormGroup label="Amount" required>
-              <Input
-                type="number"
-                min="1"
-                required
-                value={payForm.amount}
-                onChange={(e) =>
-                  setPayForm((f) => ({
-                    ...f,
-                    amount: e.target.value,
-                  }))
-                }
-              />
-            </FormGroup>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="relative min-w-[260px]">
+                  <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Reference, borrower, ID…"
+                    className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm text-slate-900 outline-none transition focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
+                  />
+                </div>
 
-            <FormGroup label="Method" required>
-              <Select
-                value={payForm.paymentMethod}
-                onChange={(e) =>
-                  setPayForm((f) => ({
-                    ...f,
-                    paymentMethod: e.target.value,
-                  }))
-                }
-              >
-                {[
-                  "BANK_TRANSFER",
-                  "MOBILE_MONEY",
-                  "CASH",
-                  "CARD",
-                  "CHEQUE",
-                  "DIRECT_DEBIT",
-                ].map((m) => (
-                  <option key={m} value={m}>
-                    {m.replace(/_/g, " ")}
-                  </option>
-                ))}
-              </Select>
-            </FormGroup>
-
-            <FormGroup label="Transaction ID">
-              <Input
-                placeholder="e.g. MPesa code"
-                value={payForm.transactionId}
-                onChange={(e) =>
-                  setPayForm((f) => ({
-                    ...f,
-                    transactionId: e.target.value,
-                  }))
-                }
-              />
-            </FormGroup>
-
-            <FormGroup label="Channel">
-              <Input
-                placeholder="e.g. Mobile, Branch"
-                value={payForm.channel}
-                onChange={(e) =>
-                  setPayForm((f) => ({
-                    ...f,
-                    channel: e.target.value,
-                  }))
-                }
-              />
-            </FormGroup>
-          </div>
-
-          <FormGroup label="Notes">
-            <Textarea
-              value={payForm.notes}
-              onChange={(e) =>
-                setPayForm((f) => ({
-                  ...f,
-                  notes: e.target.value,
-                }))
-              }
-            />
-          </FormGroup>
-        </form>
-      </Modal>
-
-      {/* ======================================================
-          STATUS MODAL
-      ====================================================== */}
-
-      <Modal
-        open={stOpen}
-        onClose={() => setStOpen(false)}
-        title="Update Loan Status"
-
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setStOpen(false)}>
-              Cancel
-            </Button>
-
-            <Button loading={stSaving} onClick={handleStatus as any}>
-              Update
-            </Button>
-          </>
-        }
-      >
-        <form onSubmit={handleStatus}>
-          <div className="bg-gray-50 rounded-xl p-3 mb-4 text-sm flex items-center gap-2">
-            Current:
-            <StatusBadge status={loan.status} />
-          </div>
-          <FormGroup label="New Status" required>
-            <Select
-              value={stForm.status}
-              onChange={(e) =>
-                setStForm((f) => ({
-                  ...f,
-                  status: e.target.value,
-                }))
-              }
-              required
-            >
-              <option value="">Select status…</option>
-
-              {(() => {
-                const VALID_FROM: Record<string, string[]> = {
-                  PENDING: ["UNDER_REVIEW", "APPROVED", "REJECTED"],
-
-                  UNDER_REVIEW: ["APPROVED", "REJECTED"],
-
-                  APPROVED: ["DISBURSED"],
-
-                  ACTIVE: ["DEFAULTED"],
-
-                  OVERDUE: ["DEFAULTED"],
-
-                  PAID: ["CLOSED"],
-
-                  WRITTEN_OFF: ["CLOSED"],
-                };
-                const options = VALID_FROM[loan.status] ?? [];
-
-                if (options.length === 0) {
-                  return (
-                    <option disabled>
-                      No status changes available from{" "}
-                      {loan.status.replace(/_/g, " ")}
+                <select
+                  value={status}
+                  onChange={(event) => {
+                    setStatus(event.target.value as "" | LoanStatus);
+                    setPage(0);
+                  }}
+                  className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10"
+                >
+                  {STATUS_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
                     </option>
-                  );
-                }
+                  ))}
+                </select>
 
-                return options.map((s) => (
-                  <option key={s} value={s}>
-                    {s.replace(/_/g, " ")}
-                  </option>
-                ));
-              })()}
-            </Select>
-          </FormGroup>
-          {stForm.status === "APPROVED" && (
-            <FormGroup
-              label={`Interest Rate ${
-                loan.interestRateType === "MONTHLY" ? "(monthly)" : "(annual)"
-              }`}
-            >
-              <p className="text-xs text-gray-400 mb-2">
-                Applied on the website at <strong>{loan.interestRate}%</strong>.
-                Loans are flexible — adjust it here if this borrower should get
-                a different rate; leave it as-is to keep the original.
-              </p>
-
-              <div className="flex gap-2 flex-wrap">
-                {["6", "8", "10"].map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() =>
-                      setStForm((f) => ({
-                        ...f,
-                        interestRate: r,
-                      }))
-                    }
-                    className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${
-                      stForm.interestRate === r
-                        ? "bg-teal-600 text-white border-teal-600"
-                        : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                    }`}
-                  >
-                    {r}%
-                  </button>
-                ))}
+                <select
+                  value={type}
+                  onChange={(event) => {
+                    setType(event.target.value as "" | LoanType);
+                    setPage(0);
+                  }}
+                  className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10"
+                >
+                  {TYPE_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
 
                 <button
                   type="button"
-                  onClick={() =>
-                    setStForm((f) => ({
-                      ...f,
-                      interestRate: "",
-                    }))
-                  }
-                  className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${
-                    stForm.interestRate === ""
-                      ? "bg-teal-600 text-white border-teal-600"
-                      : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                  }`}
+                  onClick={resetFilters}
+                  className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 transition hover:bg-slate-50"
                 >
-                  Keep {loan.interestRate}%
+                  Reset
                 </button>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  placeholder="Custom %"
-                  value={
-                    ["6", "8", "10", ""].includes(stForm.interestRate)
-                      ? ""
-                      : stForm.interestRate
-                  }
-                  onChange={(e) =>
-                    setStForm((f) => ({
-                      ...f,
-                      interestRate: e.target.value,
-                    }))
-                  }
-                  className="w-28 px-3 py-2 rounded-lg text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                />
               </div>
-            </FormGroup>
-          )}
-          {stForm.status === "REJECTED" && (
-            <FormGroup label="Rejection Reason" required>
-              <Textarea
-                required
-                value={stForm.rejectionReason}
-                onChange={(e) =>
-                  setStForm((f) => ({
-                    ...f,
-                    rejectionReason: e.target.value,
-                  }))
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-[1180px] w-full text-sm">
+              <thead className="border-b border-slate-100 bg-slate-50/80 text-left">
+                <tr>
+                  {[
+                    "Loan",
+                    "Borrower",
+                    "Status & risk",
+                    "Original principal",
+                    "Disbursed",
+                    "Outstanding",
+                    "Type / due",
+                  ].map((label) => (
+                    <th
+                      key={label}
+                      className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400"
+                    >
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {visibleLoans.length === 0 ? (
+                  <tr>
+                    <td colSpan={7}>
+                      <EmptyState
+                        searching={Boolean(query || status || type)}
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  visibleLoans.map((loan) => (
+                    <LoanRow
+                      key={loan.id}
+                      loan={loan}
+                      currency={currency}
+                      locale={locale}
+                    />
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-xs text-slate-400">
+              Showing{" "}
+              <span className="font-semibold text-slate-700">{startItem}</span>–
+              <span className="font-semibold text-slate-700">{endItem}</span> of{" "}
+              <span className="font-semibold text-slate-700">
+                {totalElements}
+              </span>{" "}
+              loans
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.max(0, current - 1))}
+                disabled={page <= 0}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <div className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white">
+                Page {page + 1}
+                {totalPages ? ` of ${totalPages}` : ""}
+              </div>
+              <button
+                type="button"
+                onClick={() => setPage((current) => current + 1)}
+                disabled={
+                  totalPages > 0
+                    ? page >= totalPages - 1
+                    : loans.length < PAGE_SIZE
                 }
-              />
-            </FormGroup>
-          )}{" "}
-          <FormGroup label="Internal Notes">
-            <Textarea
-              placeholder="For internal records only"
-              value={stForm.internalNotes}
-              onChange={(e) =>
-                setStForm((f) => ({
-                  ...f,
-                  internalNotes: e.target.value,
-                }))
-              }
-            />
-          </FormGroup>
-        </form>
-      </Modal>
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-4 lg:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                <IconCard className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-sm font-bold text-slate-900">
+                  Original principal
+                </div>
+                <div className="text-xs text-slate-400">
+                  The amount approved for lending.
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
+                <IconSend className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-sm font-bold text-slate-900">
+                  Disbursed
+                </div>
+                <div className="text-xs text-slate-400">
+                  Cash actually released to the borrower.
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+                <IconCoins className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-sm font-bold text-slate-900">
+                  Outstanding
+                </div>
+                <div className="text-xs text-slate-400">
+                  Current principal exposure, separate from future interest and
+                  fees.
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <footer className="border-t border-slate-200 pt-5 text-xs text-slate-400">
+          Portfolio figures are operational loan metrics. Financial statements
+          and journal-level balances remain the responsibility of the accounting
+          workspace.
+        </footer>
+      </div>
     </div>
   );
 }

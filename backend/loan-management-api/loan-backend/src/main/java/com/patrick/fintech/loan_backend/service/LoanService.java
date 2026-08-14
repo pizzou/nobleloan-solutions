@@ -546,9 +546,51 @@ public class LoanService {
                 BigDecimal monthlyIncome = moneyValue(
                                 borrower.getMonthlyIncome());
 
+                BigDecimal existingMonthlyObligations = ZERO;
+                BigDecimal existingOutstandingPrincipal = ZERO;
+
+                List<Loan> borrowerLoans = loanRepo.findByBorrowerIdAndOrganizationId(
+                                borrower.getId(),
+                                organizationId);
+
+                if (borrowerLoans != null) {
+                        for (Loan existingLoan : borrowerLoans) {
+
+                                if (existingLoan == null
+                                                || existingLoan.getId() == null) {
+                                        continue;
+                                }
+
+                                LoanStatus existingStatus = existingLoan.getStatus();
+
+                                if (existingStatus != LoanStatus.ACTIVE
+                                                && existingStatus != LoanStatus.OVERDUE
+                                                && existingStatus != LoanStatus.DISBURSED) {
+                                        continue;
+                                }
+
+                                BigDecimal outstanding = existingLoan.getOutstandingBalanceDecimal();
+
+                                if (outstanding != null) {
+                                        existingOutstandingPrincipal = money(
+                                                        existingOutstandingPrincipal.add(outstanding));
+                                }
+
+                                BigDecimal installment = existingLoan.getNextInstallmentAmountDecimal();
+
+                                if (installment != null) {
+                                        existingMonthlyObligations = money(
+                                                        existingMonthlyObligations.add(installment));
+                                }
+                        }
+                }
+
+                BigDecimal totalProposedMonthlyObligation = money(
+                                existingMonthlyObligations.add(monthlyInstallment));
+
                 BigDecimal dti = monthlyIncome.compareTo(ZERO) > 0
                                 ? money(
-                                                monthlyInstallment
+                                                totalProposedMonthlyObligation
                                                                 .divide(
                                                                                 monthlyIncome,
                                                                                 16,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import {
@@ -1649,6 +1649,9 @@ export default function LoanDetailPage() {
     loan.outstandingBalance ?? loan.amount,
     managementFeeRate,
   );
+
+  const currentOutstandingPrincipal =
+    loan.outstandingBalance ?? loan.amount ?? 0;
 
   const dailyInterestAmount = dailyAmountFromMonthlyRate(
     currentOutstandingPrincipal,

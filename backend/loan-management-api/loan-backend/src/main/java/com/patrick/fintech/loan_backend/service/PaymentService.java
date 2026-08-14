@@ -720,7 +720,32 @@ public class PaymentService {
                 BigDecimal paymentRemaining = amount;
 
                 // ============================================================
-                // 1. PENALTY
+                // 1. EXTENSION / RESTRUCTURING FEE
+                // ============================================================
+
+                BigDecimal extensionFeeOutstandingBeforePayment = roundMoney(
+                                safe(loan.getExtensionFeeOutstandingDecimal()))
+                                .max(ZERO);
+
+                BigDecimal extensionFeePaidThisPayment = roundMoney(
+                                paymentRemaining.min(extensionFeeOutstandingBeforePayment));
+
+                paymentRemaining = roundMoney(
+                                paymentRemaining
+                                                .subtract(extensionFeePaidThisPayment)
+                                                .max(ZERO));
+
+                BigDecimal extensionFeeOutstandingAfterPayment = roundMoney(
+                                extensionFeeOutstandingBeforePayment
+                                                .subtract(extensionFeePaidThisPayment)
+                                                .max(ZERO));
+
+                BigDecimal extensionFeePaidTotal = roundMoney(
+                                safe(loan.getExtensionFeePaidDecimal())
+                                                .add(extensionFeePaidThisPayment));
+
+                // ============================================================
+                // 2. PENALTY
                 // ============================================================
 
                 BigDecimal penaltyPaidThisPayment = roundMoney(
@@ -843,6 +868,14 @@ public class PaymentService {
                                                 .add(
                                                                 managementFeePaidThisPayment));
 
+                BigDecimal existingExtensionFeeComponent = roundMoney(
+                                safe(installment.getExtensionFeeComponentDecimal()))
+                                .max(ZERO);
+
+                BigDecimal totalExtensionFeePaid = roundMoney(
+                                existingExtensionFeeComponent
+                                                .add(extensionFeePaidThisPayment));
+
                 // ============================================================
                 // REMAINING INTEREST
                 // ============================================================
@@ -883,6 +916,9 @@ public class PaymentService {
                                 .compareTo(
                                                 ONE_CENT) <= 0;
 
+                boolean extensionFeeCovered = extensionFeeOutstandingAfterPayment
+                                .compareTo(ONE_CENT) <= 0;
+
                 boolean principalCovered = newBalance.compareTo(
                                 ONE_CENT) <= 0;
 
@@ -896,7 +932,8 @@ public class PaymentService {
                 if (principalCovered
                                 && interestCovered
                                 && managementFeeCovered
-                                && penaltyCovered) {
+                                && penaltyCovered
+                                && extensionFeeCovered) {
 
                         cycleCompleted = true;
 
@@ -905,13 +942,15 @@ public class PaymentService {
                         cycleCompleted = scheduledAmountCovered
                                         && interestCovered
                                         && managementFeeCovered
-                                        && penaltyCovered;
+                                        && penaltyCovered
+                                        && extensionFeeCovered;
                 }
 
                 if (principalCovered
                                 && (!interestCovered
                                                 || !managementFeeCovered
-                                                || !penaltyCovered)) {
+                                                || !penaltyCovered
+                                                || !extensionFeeCovered)) {
 
                         cycleCompleted = false;
                 }
@@ -920,9 +959,9 @@ public class PaymentService {
                 // PAYMENT TOTAL VALIDATION
                 // ============================================================
 
-                BigDecimal allocated = penaltyPaidThisPayment
+                BigDecimal allocated = extensionFeePaidThisPayment
                                 .add(
-                                                interestPaidThisPayment)
+                                                penaltyPaidThisPayment)
                                 .add(
                                                 managementFeePaidThisPayment)
                                 .add(
@@ -957,6 +996,9 @@ public class PaymentService {
 
                 installment.setManagementFeeComponent(
                                 totalManagementFeePaid);
+
+                installment.setExtensionFeeComponent(
+                                totalExtensionFeePaid);
 
                 installment.setPrincipalComponent(
                                 totalPrincipalPaid);
@@ -1134,6 +1176,9 @@ public class PaymentService {
                 loan.setManagementFeePaid(
                                 newLoanManagementFeePaid);
 
+                loan.setExtensionFeePaid(extensionFeePaidTotal);
+                loan.setExtensionFeeOutstanding(extensionFeeOutstandingAfterPayment);
+
                 // Keep historical/current unpaid component balances coherent.
                 BigDecimal oldInterestOutstanding = roundMoney(
                                 safe(loan.getInterestOutstandingDecimal()));
@@ -1284,6 +1329,7 @@ public class PaymentService {
                                 interestPaidThisPayment,
                                 managementFeePaidThisPayment,
                                 penaltyPaidThisPayment,
+                                extensionFeePaidThisPayment,
                                 overpayment);
 
                 // ============================================================
