@@ -17,38 +17,28 @@ public class PaymentScheduleResponse {
 
     private LocalDate dueDate;
 
-    
-
     @JsonProperty("installmentAmount")
-private BigDecimal installmentAmount;
-
-    
+    private BigDecimal installmentAmount;
 
     @JsonProperty("principal")
-private BigDecimal principal;
-
-    
+    private BigDecimal principal;
 
     @JsonProperty("interest")
-private BigDecimal interest;
+    private BigDecimal interest;
 
-    
+    @JsonProperty("managementFee")
+    private BigDecimal managementFee;
 
     @JsonProperty("penalty")
-private BigDecimal penalty;
-
-    
+    private BigDecimal penalty;
 
     @JsonProperty("paid")
-private BigDecimal paid;
-
-    
+    private BigDecimal paid;
 
     @JsonProperty("balance")
-private BigDecimal balance;
+    private BigDecimal balance;
 
     private String status;
-
 
     @Deprecated
     @JsonIgnore
@@ -108,6 +98,25 @@ private BigDecimal balance;
 
     public void setInterest(BigDecimal value) {
         this.interest = value;
+    }
+
+    @Deprecated
+    @JsonIgnore
+    public Double getManagementFee() {
+        return managementFee == null ? null : managementFee.doubleValue();
+    }
+
+    @JsonIgnore
+    public BigDecimal getManagementFeeDecimal() {
+        return managementFee;
+    }
+
+    public void setManagementFee(Double value) {
+        this.managementFee = value == null ? null : BigDecimal.valueOf(value);
+    }
+
+    public void setManagementFee(BigDecimal value) {
+        this.managementFee = value;
     }
 
     @Deprecated
@@ -175,6 +184,7 @@ private BigDecimal balance;
         private BigDecimal balance;
         private BigDecimal installmentAmount;
         private BigDecimal interest;
+        private BigDecimal managementFee;
         private BigDecimal paid;
         private BigDecimal penalty;
         private BigDecimal principal;
@@ -183,46 +193,67 @@ private BigDecimal balance;
             this.installmentAmount = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public PaymentScheduleResponseBuilder installmentAmount(BigDecimal value) {
             this.installmentAmount = value;
             return this;
         }
+
         public PaymentScheduleResponseBuilder principal(Double value) {
             this.principal = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public PaymentScheduleResponseBuilder principal(BigDecimal value) {
             this.principal = value;
             return this;
         }
+
         public PaymentScheduleResponseBuilder interest(Double value) {
             this.interest = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public PaymentScheduleResponseBuilder interest(BigDecimal value) {
             this.interest = value;
             return this;
         }
+
+        public PaymentScheduleResponseBuilder managementFee(Double value) {
+            this.managementFee = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }
+
+        public PaymentScheduleResponseBuilder managementFee(BigDecimal value) {
+            this.managementFee = value;
+            return this;
+        }
+
         public PaymentScheduleResponseBuilder penalty(Double value) {
             this.penalty = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public PaymentScheduleResponseBuilder penalty(BigDecimal value) {
             this.penalty = value;
             return this;
         }
+
         public PaymentScheduleResponseBuilder paid(Double value) {
             this.paid = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public PaymentScheduleResponseBuilder paid(BigDecimal value) {
             this.paid = value;
             return this;
         }
+
         public PaymentScheduleResponseBuilder balance(Double value) {
             this.balance = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public PaymentScheduleResponseBuilder balance(BigDecimal value) {
             this.balance = value;
             return this;

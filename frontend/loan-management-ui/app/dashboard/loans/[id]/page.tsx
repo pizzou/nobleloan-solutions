@@ -83,17 +83,23 @@ type Tab = (typeof TABS)[number];
 // FIELD
 // ============================================================
 
-const FINANCIAL_MONTH_DAYS = 30;
+function daysInMonth(date = new Date()) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+}
 
-function dailyRateFromMonthly(monthlyRate?: number) {
+function dailyRateFromMonthly(monthlyRate?: number, date = new Date()) {
   if (monthlyRate == null || !Number.isFinite(monthlyRate)) {
     return 0;
   }
 
-  return monthlyRate / FINANCIAL_MONTH_DAYS;
+  return monthlyRate / daysInMonth(date);
 }
 
-function dailyAmountFromMonthlyRate(principal?: number, monthlyRate?: number) {
+function dailyAmountFromMonthlyRate(
+  principal?: number,
+  monthlyRate?: number,
+  date = new Date(),
+) {
   if (
     principal == null ||
     monthlyRate == null ||
@@ -103,7 +109,7 @@ function dailyAmountFromMonthlyRate(principal?: number, monthlyRate?: number) {
     return 0;
   }
 
-  return (principal * (monthlyRate / 100)) / FINANCIAL_MONTH_DAYS;
+  return (principal * (monthlyRate / 100)) / daysInMonth(date);
 }
 
 function getScheduleManagementFee(p: Payment) {

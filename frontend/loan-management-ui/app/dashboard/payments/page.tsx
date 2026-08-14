@@ -113,10 +113,6 @@ export default function PaymentsPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const [reverseTransactionId, setReverseTransactionId] = useState("");
-  const [reverseReason, setReverseReason] = useState("");
-  const [reversing, setReversing] = useState(false);
-
   const loadLoan = useCallback(async (id: number) => {
     setLoadingLoan(true);
     setError("");
@@ -195,54 +191,6 @@ export default function PaymentsPage() {
       setError(err?.message || "Payment could not be recorded.");
     } finally {
       setSaving(false);
-    }
-  };
-
-  const reversePayment = async () => {
-    if (!loan) {
-      setError("Load the relevant loan first.");
-      return;
-    }
-
-    const txId = Number(reverseTransactionId);
-
-    if (!Number.isInteger(txId) || txId <= 0) {
-      setError("Enter a valid payment transaction ID.");
-      return;
-    }
-
-    if (!reverseReason.trim()) {
-      setError("A reversal reason is required.");
-      return;
-    }
-
-    setReversing(true);
-    setError("");
-    setSuccess("");
-
-    try {
-      await API.post(
-        `/loans/${loan.id}/payments/transactions/${txId}/reverse`,
-        {
-          reason: reverseReason.trim(),
-        },
-      );
-
-      setSuccess("Payment transaction reversed successfully.");
-
-      setReverseTransactionId("");
-      setReverseReason("");
-
-      await loadLoan(loan.id);
-    } catch (err: any) {
-      setError(
-        err?.response?.data?.error ||
-          err?.response?.data?.message ||
-          err?.message ||
-          "Payment reversal failed.",
-      );
-    } finally {
-      setReversing(false);
     }
   };
 
@@ -399,53 +347,6 @@ export default function PaymentsPage() {
                       className="w-full rounded-xl bg-[#0D6B3E] px-5 py-3.5 text-sm font-black text-white hover:bg-[#095832] disabled:opacity-50"
                     >
                       {saving ? "Posting payment…" : "Record payment"}
-                    </button>
-                  </div>
-                </section>
-
-                <section className="rounded-2xl border border-red-200 bg-white p-6 shadow-sm">
-                  <div className="mb-5">
-                    <div className="text-[10px] font-black uppercase tracking-[0.16em] text-red-600">
-                      Privileged action
-                    </div>
-
-                    <h2 className="mt-1 text-xl font-black text-slate-950">
-                      Reverse payment
-                    </h2>
-
-                    <p className="mt-2 text-xs text-slate-500">
-                      Reversal is a compensating accounting transaction. The
-                      original transaction remains immutable.
-                    </p>
-                  </div>
-
-                  <div className="space-y-4">
-                    <Field
-                      label="Payment transaction ID"
-                      value={reverseTransactionId}
-                      onChange={setReverseTransactionId}
-                      type="number"
-                    />
-
-                    <div>
-                      <label className="mb-2 block text-xs font-black text-slate-600">
-                        Reversal reason
-                      </label>
-
-                      <textarea
-                        rows={3}
-                        value={reverseReason}
-                        onChange={(e) => setReverseReason(e.target.value)}
-                        className="w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-red-500"
-                      />
-                    </div>
-
-                    <button
-                      onClick={reversePayment}
-                      disabled={reversing}
-                      className="w-full rounded-xl bg-red-600 px-5 py-3.5 text-sm font-black text-white hover:bg-red-700 disabled:opacity-50"
-                    >
-                      {reversing ? "Reversing…" : "Reverse transaction"}
                     </button>
                   </div>
                 </section>
