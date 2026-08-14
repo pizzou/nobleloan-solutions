@@ -1029,42 +1029,66 @@ export default function ReportsPage() {
       {/* ==================================================================== */}
 
       <section>
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-sm font-semibold text-gray-900">
               Financial Performance
             </h2>
-
-            <p className="mt-1 text-xs text-gray-400">
-              Official figures sourced from double-entry accounting.
+            <p className="mt-1 text-xs text-gray-500">
+              Plain-language view of the business financial position. Figures
+              come directly from the accounting records.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
+            <AccountingStatus label="Books" balanced={trialBalance?.balanced} />
             <AccountingStatus
-              label="Trial Balance"
-              balanced={trialBalance?.balanced}
-            />
-
-            <AccountingStatus
-              label="Balance Sheet"
+              label="Financial Position"
               balanced={balanceSheet?.balanced}
             />
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-          <Kpi label="Revenue" value={fmt(totalIncome)} />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <Kpi
+            label="Money Earned"
+            value={fmt(totalIncome)}
+            description="Income recognized during the reporting period."
+          />
 
-          <Kpi label="Expenses" value={fmt(totalExpenses)} />
+          <Kpi
+            label="Money Spent"
+            value={fmt(totalExpenses)}
+            description="Expenses recognized during the reporting period."
+          />
 
-          <Kpi label="Net Profit" value={fmt(netIncome)} />
+          <Kpi
+            label="Profit"
+            value={fmt(netIncome)}
+            description={
+              netIncome >= 0
+                ? "Business earned more than it spent."
+                : "Business spent more than it earned."
+            }
+          />
 
-          <Kpi label="Assets" value={fmt(totalAssets)} />
+          <Kpi
+            label="What the Business Owns"
+            value={fmt(totalAssets)}
+            description="Assets recorded in the accounting system."
+          />
 
-          <Kpi label="Liabilities" value={fmt(totalLiabilities)} />
+          <Kpi
+            label="What the Business Owes"
+            value={fmt(totalLiabilities)}
+            description="Liabilities recorded in the accounting system."
+          />
 
-          <Kpi label="Equity" value={fmt(totalEquity)} />
+          <Kpi
+            label="Business Value"
+            value={fmt(totalEquity)}
+            description="Assets minus what the business owes."
+          />
         </div>
       </section>
 
@@ -1073,66 +1097,139 @@ export default function ReportsPage() {
       {/* ==================================================================== */}
 
       {hasAccountingReports ? (
-        <section className="rounded-2xl border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-100 px-6 py-5">
-            <h2 className="text-sm font-semibold text-gray-900">
-              Accounting Control Summary
-            </h2>
+        <section className="rounded-2xl border border-slate-200/80 bg-white shadow-sm overflow-hidden">
+          <div className="border-b border-slate-100 px-6 py-5">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-sm font-semibold text-gray-900">
+                Financial Health Check
+              </h2>
+              <p className="text-xs text-gray-500">
+                These checks help management verify that the books are complete
+                and internally consistent.
+              </p>
+            </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <Kpi label="Total Debits" value={fmtPrecise(totalDebit)} />
+          <div className="grid gap-4 p-6 sm:grid-cols-2 xl:grid-cols-4">
+            <Kpi
+              label="Total Recorded Debits"
+              value={fmtPrecise(totalDebit)}
+              description="Internal accounting control total."
+            />
 
-            <Kpi label="Total Credits" value={fmtPrecise(totalCredit)} />
+            <Kpi
+              label="Total Recorded Credits"
+              value={fmtPrecise(totalCredit)}
+              description="Should match total debits."
+            />
 
             <Kpi
               label="Current Period Profit"
               value={fmtPrecise(currentPeriodNetIncome)}
+              description="Profit carried into the current financial position."
             />
 
-            <Kpi label="Net Cash Movement" value={fmtPrecise(netCashChange)} />
+            <Kpi
+              label="Cash Movement"
+              value={fmtPrecise(netCashChange)}
+              description={
+                netCashChange >= 0
+                  ? "Net cash increased."
+                  : "Net cash decreased."
+              }
+            />
+          </div>
+
+          <div className="border-t border-slate-100 bg-slate-50/50 px-6 py-5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">
+                  Accounting control
+                </p>
+                <p className="text-xs text-slate-500">
+                  A balanced trial balance means the recorded financial entries
+                  are mathematically in balance.
+                </p>
+              </div>
+
+              <span
+                className={`inline-flex w-fit rounded-full px-3 py-1.5 text-xs font-bold ${
+                  trialBalance?.balanced
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-red-50 text-red-700"
+                }`}
+              >
+                {trialBalance?.balanced
+                  ? "✓ Records are balanced"
+                  : "⚠ Review required"}
+              </span>
+            </div>
           </div>
 
           {trialBalance ? (
-            <div className="grid gap-6 border-t border-gray-100 p-6 xl:grid-cols-2">
-              <AccountTable
-                title="Trial Balance Accounts"
-                rows={trialBalance.accounts}
-              />
+            <details className="border-t border-slate-100 px-6 py-5">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+                Show detailed accounting accounts
+              </summary>
+              <p className="mt-2 text-xs text-slate-500">
+                This technical detail is available for authorized finance users
+                without making it the main business view.
+              </p>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Kpi
-                  label="Debit"
-                  value={fmtPrecise(trialBalance.totalDebit)}
+              <div className="mt-4 grid gap-6 xl:grid-cols-2">
+                <AccountTable
+                  title="Trial Balance Accounts"
+                  rows={trialBalance.accounts}
                 />
 
-                <Kpi
-                  label="Credit"
-                  value={fmtPrecise(trialBalance.totalCredit)}
-                />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Kpi
+                    label="Debit"
+                    value={fmtPrecise(trialBalance.totalDebit)}
+                  />
+                  <Kpi
+                    label="Credit"
+                    value={fmtPrecise(trialBalance.totalCredit)}
+                  />
+                </div>
               </div>
-            </div>
+            </details>
           ) : null}
 
           {balanceSheet ? (
-            <div className="grid gap-6 border-t border-gray-100 p-6 xl:grid-cols-3">
-              <AccountTable title="Assets" rows={balanceSheet.assets} />
+            <details className="border-t border-slate-100 px-6 py-5">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+                Show detailed business position
+              </summary>
 
-              <AccountTable
-                title="Liabilities"
-                rows={balanceSheet.liabilities}
-              />
-
-              <AccountTable title="Equity" rows={balanceSheet.equity} />
-            </div>
+              <div className="mt-4 grid gap-6 xl:grid-cols-3">
+                <AccountTable
+                  title="What the Business Owns"
+                  rows={balanceSheet.assets}
+                />
+                <AccountTable
+                  title="What the Business Owes"
+                  rows={balanceSheet.liabilities}
+                />
+                <AccountTable
+                  title="Business Value"
+                  rows={balanceSheet.equity}
+                />
+              </div>
+            </details>
           ) : null}
 
           {profitAndLoss ? (
-            <div className="grid gap-6 border-t border-gray-100 p-6 xl:grid-cols-2">
-              <AccountTable title="Income" rows={profitAndLoss.income} />
+            <details className="border-t border-slate-100 px-6 py-5">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+                Show income and expense accounts
+              </summary>
 
-              <AccountTable title="Expenses" rows={profitAndLoss.expense} />
-            </div>
+              <div className="mt-4 grid gap-6 xl:grid-cols-2">
+                <AccountTable title="Income" rows={profitAndLoss.income} />
+                <AccountTable title="Expenses" rows={profitAndLoss.expense} />
+              </div>
+            </details>
           ) : null}
         </section>
       ) : null}
@@ -1148,7 +1245,8 @@ export default function ReportsPage() {
           </h2>
 
           <p className="mt-1 text-xs text-gray-400">
-            Six-month accounting trend from the general ledger.
+            Six-month trend of income, expenses and profit. Higher bars show
+            larger amounts.
           </p>
         </div>
 
@@ -1255,7 +1353,8 @@ export default function ReportsPage() {
           </h2>
 
           <p className="mt-1 text-xs text-gray-400">
-            Download official financial reports from AccountingService.
+            Download the official reports. Technical accounting detail is
+            available for finance users.
           </p>
         </div>
 
