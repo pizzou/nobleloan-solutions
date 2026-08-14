@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   regulatoryApi,
@@ -8,8 +8,95 @@ import {
   type ExportFormat,
 } from "@/services/regulatoryService";
 
+const safeNumber = (value: unknown): number => {
+  const result = Number(value);
+
+  return Number.isFinite(result) ? result : 0;
+};
+
+const labelize = (value?: string | null): string =>
+  value ? value.replace(/_/g, " ") : "—";
+
+const formatMoney = (value: unknown, currency = "RWF"): string => {
+  const amount = safeNumber(value);
+
+  try {
+    return new Intl.NumberFormat("en-RW", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${currency} ${amount.toLocaleString()}`;
+  }
+};
+
+const formatDate = (value?: string | null): string => {
+  if (!value) {
+    return "—";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-RW", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(date);
+};
+
+const statusClass = (value?: string | null): string => {
+  const normalized = value?.toUpperCase();
+
+  if (
+    normalized === "ACTIVE" ||
+    normalized === "PAID" ||
+    normalized === "CLOSED" ||
+    normalized === "CURRENT"
+  ) {
+    return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  }
+
+  if (
+    normalized === "OVERDUE" ||
+    normalized === "WATCH" ||
+    normalized === "PAST_DUE"
+  ) {
+    return "bg-amber-50 text-amber-700 border-amber-200";
+  }
+
+  if (
+    normalized === "DEFAULTED" ||
+    normalized === "DOUBTFUL" ||
+    normalized === "WRITTEN_OFF"
+  ) {
+    return "bg-red-50 text-red-700 border-red-200";
+  }
+
+  return "bg-slate-100 text-slate-600 border-slate-200";
+};
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        {label}
+      </p>
+
+      <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
+    </div>
+  );
+}
+
 export default function CreditBureauPage() {
   const [borrowerId, setBorrowerId] = useState("");
+
+  const [branchId, setBranchId] = useState("");
 
   const [from, setFrom] = useState("");
 
@@ -19,31 +106,36 @@ export default function CreditBureauPage() {
 
   const [loading, setLoading] = useState(false);
 
-  const [error, setError] = useState<string | null>(null);
-
   const [exporting, setExporting] = useState<ExportFormat | null>(null);
 
-  // ==========================================================
-  // PREVIEW
-  // ==========================================================
+  const [error, setError] = useState<string | null>(null);
 
-  const validateFilters = useCallback((): string | null => {
+  const validate = useCallback(() => {
     if (borrowerId) {
       const id = Number(borrowerId);
+
       if (!Number.isInteger(id) || id <= 0) {
         return "Borrower ID must be a positive whole number.";
       }
     }
 
+    if (branchId) {
+      const id = Number(branchId);
+
+      if (!Number.isInteger(id) || id <= 0) {
+        return "Branch ID must be a positive whole number.";
+      }
+    }
+
     if (from && to && from > to) {
-      return "Start date cannot be after end date.";
+      return "Start date cannot be after the end date.";
     }
 
     return null;
-  }, [borrowerId, from, to]);
+  }, [borrowerId, branchId, from, to]);
 
   const loadPreview = useCallback(async () => {
-    const validationError = validateFilters();
+    const validationError = validate();
 
     if (validationError) {
       setError(validationError);
@@ -60,6 +152,11 @@ export default function CreditBureauPage() {
               borrowerId: Number(borrowerId),
             }
           : {}),
+        ...(branchId
+          ? {
+              branchId: Number(branchId),
+            }
+          : {}),
         ...(from ? { from } : {}),
         ...(to ? { to } : {}),
       });
@@ -67,6 +164,8 @@ export default function CreditBureauPage() {
       setRecords(Array.isArray(result) ? result : []);
     } catch (err) {
       console.error("Credit Bureau preview error:", err);
+
+      setRecords([]);
 
       setError(
         regulatoryApi.getErrorMessage(
@@ -77,14 +176,14 @@ export default function CreditBureauPage() {
     } finally {
       setLoading(false);
     }
-  }, [borrowerId, from, to, validateFilters]);
+  }, [borrowerId, branchId, from, to, validate]);
 
-  // ==========================================================
-  // EXPORT (FIXED: Safely invokes pipeline without extra logic)
-  // ==========================================================
+  useEffect(() => {
+    void loadPreview();
+  }, [loadPreview]);
 
   const exportRecords = async (format: ExportFormat) => {
-    const validationError = validateFilters();
+    const validationError = validate();
 
     if (validationError) {
       setError(validationError);
@@ -99,6 +198,11 @@ export default function CreditBureauPage() {
         ...(borrowerId
           ? {
               borrowerId: Number(borrowerId),
+            }
+          : {}),
+        ...(branchId
+          ? {
+              branchId: Number(branchId),
             }
           : {}),
         ...(from ? { from } : {}),
@@ -116,9 +220,25 @@ export default function CreditBureauPage() {
     }
   };
 
-  useEffect(() => {
-    void loadPreview();
-  }, [loadPreview]);
+  const borrowerCount = useMemo(
+    () => new Set(records.map((record) => record.borrowerId)).size,
+    [records],
+  );
+
+  const overdueCount = useMemo(
+    () => records.filter((record) => safeNumber(record.daysPastDue) > 0).length,
+    [records],
+  );
+
+  const maleCount = records.filter(
+    (record) => record.gender?.toLowerCase() === "male",
+  ).length;
+
+  const femaleCount = records.filter(
+    (record) => record.gender?.toLowerCase() === "female",
+  ).length;
+
+  const totalGender = maleCount + femaleCount;
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -132,7 +252,7 @@ export default function CreditBureauPage() {
 
               <h1 className="text-3xl font-bold md:text-4xl">Credit Bureau</h1>
 
-              <p className="mt-2 max-w-2xl text-sm text-indigo-200 md:text-base">
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-indigo-200 md:text-base">
                 Review borrower credit information, loan history, repayment
                 performance and credit reporting records.
               </p>
@@ -145,10 +265,10 @@ export default function CreditBureauPage() {
                   type="button"
                   onClick={() => void exportRecords(format)}
                   disabled={exporting !== null}
-                  className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold backdrop-blur hover:bg-white/20 disabled:opacity-50"
+                  className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20 disabled:opacity-50"
                 >
                   {exporting === format
-                    ? "Exporting..."
+                    ? "Exporting…"
                     : `Export ${format.toUpperCase()}`}
                 </button>
               ))}
@@ -158,27 +278,42 @@ export default function CreditBureauPage() {
 
         {error && (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            {error}
+            <div className="flex items-center justify-between gap-4">
+              <span>{error}</span>
+
+              <button
+                type="button"
+                onClick={() => setError(null)}
+                className="font-semibold"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
 
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-          <div className="mb-5">
-            <h2 className="text-xl font-bold text-slate-900">
-              Credit Bureau Search
-            </h2>
+          <h2 className="text-xl font-bold text-slate-900">
+            Credit Bureau Search
+          </h2>
 
-            <p className="mt-1 text-sm text-slate-500">
-              Filter the credit records you want to review.
-            </p>
-          </div>
+          <p className="mt-1 text-sm text-slate-500">
+            Filter the credit records you want to review or export.
+          </p>
 
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <Field
               label="Borrower ID"
               value={borrowerId}
               onChange={setBorrowerId}
-              placeholder="e.g. 1024"
+              placeholder="Optional"
+            />
+
+            <Field
+              label="Branch ID"
+              value={branchId}
+              onChange={setBranchId}
+              placeholder="Optional"
             />
 
             <Field label="From" type="date" value={from} onChange={setFrom} />
@@ -192,28 +327,51 @@ export default function CreditBureauPage() {
                 disabled={loading}
                 className="w-full rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
               >
-                {loading ? "Searching..." : "Search Records"}
+                {loading ? "Searching…" : "Search Records"}
               </button>
             </div>
           </div>
         </section>
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          <SummaryCard label="Records" value={records.length} />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Stat label="Records" value={records.length.toLocaleString()} />
 
-          <SummaryCard
-            label="Borrowers"
-            value={new Set(records.map((record) => record.borrowerId)).size}
+          <Stat label="Borrowers" value={borrowerCount.toLocaleString()} />
+
+          <Stat
+            label="Overdue / Delinquent"
+            value={overdueCount.toLocaleString()}
           />
 
-          <SummaryCard
-            label="Default / Delinquent"
-            value={
-              records.filter((record) => Number(record.daysPastDue ?? 0) > 0)
-                .length
-            }
+          <Stat
+            label="Female / Male"
+            value={`${femaleCount.toLocaleString()} / ${maleCount.toLocaleString()}`}
           />
         </div>
+
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-xl font-bold text-slate-900">
+            Gender Distribution
+          </h2>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <Stat
+              label="Female"
+              value={`${femaleCount.toLocaleString()} (${(totalGender > 0
+                ? (femaleCount / totalGender) * 100
+                : 0
+              ).toFixed(2)}%)`}
+            />
+
+            <Stat
+              label="Male"
+              value={`${maleCount.toLocaleString()} (${(totalGender > 0
+                ? (maleCount / totalGender) * 100
+                : 0
+              ).toFixed(2)}%)`}
+            />
+          </div>
+        </section>
 
         <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 p-5">
@@ -236,76 +394,128 @@ export default function CreditBureauPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-[1200px] w-full text-sm">
+              <table className="min-w-[1700px] w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
-                    <Header>Borrower</Header>
-
-                    <Header>National ID</Header>
-
-                    <Header>Loan Number</Header>
-
-                    <Header>Loan Type</Header>
-
-                    <Header>Classification</Header>
-
-                    <Header>Days Past Due</Header>
-
-                    <Header>Credit Score</Header>
-
-                    <Header>Loan Amount</Header>
-
-                    <Header>Outstanding Balance</Header>
-
-                    <Header>Date Opened</Header>
-
-                    <Header>Last Payment</Header>
+                    {[
+                      "Borrower",
+                      "National ID",
+                      "Gender",
+                      "Loan Number",
+                      "Loan Type",
+                      "Loan Status",
+                      "Classification",
+                      "Loan Amount",
+                      "Outstanding",
+                      "Days Past Due",
+                      "Credit Score",
+                      "Date Opened",
+                      "Last Payment",
+                      "Maturity",
+                      "Date Closed",
+                      "Branch",
+                      "Currency",
+                    ].map((header) => (
+                      <th
+                        key={header}
+                        className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400"
+                      >
+                        {header}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-slate-200 bg-white">
+                <tbody className="divide-y divide-slate-100">
                   {records.map((record, index) => (
-                    <tr key={index} className="hover:bg-slate-50">
-                      <td className="px-6 py-4 whitespace-nowrap font-medium text-slate-900">
-                        {record.fullName || "N/A"}
+                    <tr
+                      key={`${record.borrowerId ?? "borrower"}-${record.loanNumber ?? "loan"}-${index}`}
+                      className="hover:bg-slate-50"
+                    >
+                      <td className="px-5 py-4">
+                        <div className="font-semibold text-slate-900">
+                          {record.fullName ?? "N/A"}
+                        </div>
+
+                        <div className="text-xs text-slate-400">
+                          ID: {record.borrowerId ?? "—"}
+                        </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
-                        {record.nationalId || "N/A"}
+
+                      <td className="px-5 py-4 text-slate-600">
+                        {record.nationalId ?? "N/A"}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
-                        {record.loanNumber || "N/A"}
+
+                      <td className="px-5 py-4">{record.gender ?? "—"}</td>
+
+                      <td className="px-5 py-4 font-mono text-xs text-slate-600">
+                        {record.loanNumber ?? "—"}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
-                        {record.loanType || "N/A"}
+
+                      <td className="px-5 py-4">{labelize(record.loanType)}</td>
+
+                      <td className="px-5 py-4">
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-bold uppercase ${statusClass(
+                            record.loanStatus,
+                          )}`}
+                        >
+                          {labelize(record.loanStatus)}
+                        </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap font-semibold text-slate-700">
-                        {(
-                          record as CreditRecord & {
-                            repaymentClassification?: string;
-                          }
-                        ).repaymentClassification || "N/A"}
+
+                      <td className="px-5 py-4">
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-bold uppercase ${statusClass(
+                            record.repaymentClassification,
+                          )}`}
+                        >
+                          {labelize(record.repaymentClassification)}
+                        </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-700">
-                        {record.daysPastDue ?? 0}
+
+                      <td className="px-5 py-4 whitespace-nowrap font-semibold">
+                        {formatMoney(
+                          record.loanAmount,
+                          record.currency ?? "RWF",
+                        )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-700">
-                        {record.creditScore ?? "N/A"}
+
+                      <td className="px-5 py-4 whitespace-nowrap font-semibold">
+                        {formatMoney(
+                          record.outstandingBalance,
+                          record.currency ?? "RWF",
+                        )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-900 font-semibold">
-                        {record.loanAmount != null
-                          ? record.loanAmount.toFixed(2)
-                          : "0.00"}
+
+                      <td className="px-5 py-4 text-center">
+                        {safeNumber(record.daysPastDue)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-900 font-semibold">
-                        {record.outstandingBalance != null
-                          ? record.outstandingBalance.toFixed(2)
-                          : "0.00"}
+
+                      <td className="px-5 py-4 font-semibold">
+                        {record.creditScore ?? "—"}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
-                        {record.dateOpened || "N/A"}
+
+                      <td className="px-5 py-4 whitespace-nowrap text-slate-500">
+                        {formatDate(record.dateOpened)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-slate-500">
-                        {record.lastPaymentDate || "N/A"}
+
+                      <td className="px-5 py-4 whitespace-nowrap text-slate-500">
+                        {formatDate(record.lastPaymentDate)}
+                      </td>
+
+                      <td className="px-5 py-4 whitespace-nowrap text-slate-500">
+                        {formatDate(record.maturityDate)}
+                      </td>
+
+                      <td className="px-5 py-4 whitespace-nowrap text-slate-500">
+                        {formatDate(record.dateClosed)}
+                      </td>
+
+                      <td className="px-5 py-4">{record.branchName ?? "—"}</td>
+
+                      <td className="px-5 py-4 font-semibold">
+                        {record.currency ?? "RWF"}
                       </td>
                     </tr>
                   ))}
@@ -319,40 +529,32 @@ export default function CreditBureauPage() {
   );
 }
 
-// ============================================================
-// LOCAL COMPONENT UI DUMMIES
-// ============================================================
-
-function Field({ label, value, onChange, placeholder, type = "text" }: any) {
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  placeholder?: string;
+}) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-xs font-semibold text-slate-700">{label}</label>
+    <label className="block">
+      <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-400">
+        {label}
+      </span>
+
       <input
         type={type}
         value={value}
         placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
       />
-    </div>
-  );
-}
-
-function SummaryCard({ label, value }: any) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-        {label}
-      </p>
-      <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
-    </div>
-  );
-}
-
-function Header({ children }: { children: React.ReactNode }) {
-  return (
-    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-      {children}
-    </th>
+    </label>
   );
 }

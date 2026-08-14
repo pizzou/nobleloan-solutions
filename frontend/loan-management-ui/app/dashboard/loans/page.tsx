@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+
 import { loanApi } from "@/services/api";
 import { Loan, LoanStatus } from "@/types";
 import { Card } from "@/components/ui/Card";
@@ -32,12 +33,9 @@ const STATUSES: LoanStatus[] = [
   "ACTIVE",
   "OVERDUE",
   "DEFAULTED",
-  "RESTRUCTURED",
-  "WRITTEN_OFF",
   "PAID",
   "CLOSED",
   "REJECTED",
-  "CANCELLED",
 ];
 
 const TYPES = [
@@ -55,103 +53,152 @@ const TYPES = [
   "GROUP",
 ];
 
-function safeNumber(value?: number | null): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
+const PAGE_SIZE = 20;
 
-function percent(value?: number | null): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `${value.toFixed(2)}%`;
-}
+const safeNumber = (value: unknown): number => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
 
-function label(value?: string | null): string {
-  if (!value) return "—";
-  return value.replace(/_/g, " ");
-}
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
 
-function classificationTone(value?: string | null): string {
+  if (value instanceof Number) {
+    const parsed = Number(value.valueOf());
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  return 0;
+};
+
+const label = (value?: string | null): string =>
+  value ? value.replace(/_/g, " ") : "—";
+
+const classificationClass = (value?: string | null): string => {
   switch (value) {
     case "CURRENT":
     case "NOT_DUE":
     case "NORMAL":
-      return "text-emerald-700";
+      return "bg-emerald-50 text-emerald-700 border-emerald-200";
+
     case "WATCH":
     case "REMINDER":
-      return "text-amber-700";
+      return "bg-amber-50 text-amber-700 border-amber-200";
+
     case "SUBSTANDARD":
     case "COLLECTION":
-      return "text-orange-700";
+      return "bg-orange-50 text-orange-700 border-orange-200";
+
     case "DOUBTFUL":
     case "LEGAL":
-      return "text-red-700";
+    case "PAST_DUE":
+      return "bg-red-50 text-red-700 border-red-200";
+
     case "WRITTEN_OFF":
     case "RECOVERY":
-      return "text-rose-800";
-    case "PAST_DUE":
-      return "text-red-700";
+      return "bg-slate-900 text-white border-slate-900";
+
     default:
-      return "text-gray-500";
+      return "bg-gray-100 text-gray-600 border-gray-200";
   }
-}
+};
+
+const safeDate = (value: unknown, locale?: string): string => {
+  if (!value) {
+    return "—";
+  }
+
+  try {
+    return formatDate(String(value), locale);
+  } catch {
+    return String(value);
+  }
+};
 
 export default function LoansPage() {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
+
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("");
   const [type, setType] = useState("");
+  const [search, setSearch] = useState("");
+
   const [actionId, setActionId] = useState<number | null>(null);
+
   const [error, setError] = useState<string | null>(null);
 
   const { currency, locale, isOfficer } = useAuth();
+
   const router = useRouter();
 
-  const fc = (n?: number | null) =>
-    formatCurrency(
-      n == null || !Number.isFinite(n) ? undefined : n,
-      currency,
-      locale,
-    );
+  const fc = useCallback(
+    (value: unknown) => formatCurrency(safeNumber(value), currency, locale),
+    [currency, locale],
+  );
 
-  const load = useCallback(async () => {
+  const load = useCallback(() => {
+    let mounted = true;
+
     setLoading(true);
     setError(null);
 
-    try {
-      const response = await loanApi.list(page, 20, status, type);
+    loanApi
+      .list(page, PAGE_SIZE, status, type)
+      .then((response: any) => {
+        if (!mounted) {
+          return;
+        }
 
-      const result = response ?? {};
+        const content = Array.isArray(response?.content)
+          ? response.content
+          : Array.isArray(response)
+            ? response
+            : [];
 
-      setLoans(
-        Array.isArray(result)
-          ? result
-          : Array.isArray(result.content)
-            ? result.content
-            : [],
-      );
+        setLoans(content);
 
-      setTotal(
-        Array.isArray(result)
-          ? result.length
-          : safeNumber(result.totalElements),
-      );
-    } catch (err: unknown) {
-      console.error("Failed to load loan portfolio:", err);
-      setLoans([]);
-      setTotal(0);
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to load the loan portfolio.",
-      );
-    } finally {
-      setLoading(false);
-    }
+        setTotal(
+          safeNumber(
+            response?.totalElements ?? response?.total ?? content.length,
+          ),
+        );
+      })
+      .catch((err: any) => {
+        if (!mounted) {
+          return;
+        }
+
+        console.error("Failed to load loans:", err);
+
+        setLoans([]);
+
+        setTotal(0);
+
+        setError(
+          err?.response?.data?.message ??
+            err?.message ??
+            "Unable to load the loan portfolio.",
+        );
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, [page, status, type]);
 
   useEffect(() => {
-    void load();
+    const cleanup = load();
+
+    return cleanup;
   }, [load]);
 
   const quickAction = async (
@@ -160,37 +207,74 @@ export default function LoansPage() {
     action: "approve" | "disburse",
   ) => {
     event.stopPropagation();
+
     setActionId(loanId);
     setError(null);
 
     try {
       if (action === "approve") {
         await loanApi.approve(loanId);
-      } else {
+      }
+
+      if (action === "disburse") {
         await loanApi.disburse(loanId, "BANK_TRANSFER");
       }
 
-      await load();
-    } catch (err: unknown) {
-      console.error(`Failed to ${action} loan:`, err);
+      load();
+    } catch (err: any) {
+      console.error(`Loan ${action} failed:`, err);
+
       setError(
-        err instanceof Error ? err.message : `Unable to ${action} the loan.`,
+        err?.response?.data?.message ??
+          err?.message ??
+          `Unable to ${action} loan.`,
       );
     } finally {
       setActionId(null);
     }
   };
 
-  const totalPages = Math.ceil(total / 20);
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  const filteredLoans = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    if (!query) {
+      return loans;
+    }
+
+    return loans.filter((loan: any) => {
+      const borrower = `${loan?.borrower?.firstName ?? ""} ${
+        loan?.borrower?.lastName ?? ""
+      }`.toLowerCase();
+
+      return (
+        String(loan?.referenceNumber ?? "")
+          .toLowerCase()
+          .includes(query) ||
+        borrower.includes(query) ||
+        String(loan?.borrower?.nationalId ?? "")
+          .toLowerCase()
+          .includes(query) ||
+        String(loan?.loanType ?? "")
+          .toLowerCase()
+          .includes(query) ||
+        String(loan?.creditQuality ?? "")
+          .toLowerCase()
+          .includes(query)
+      );
+    });
+  }, [loans, search]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4 mb-6">
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <h1 className="text-2xl font-extrabold text-gray-900">
             Loan Portfolio
           </h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+
+          <p className="mt-0.5 text-sm text-gray-500">
             {formatNumber(total)} loans total
           </p>
         </div>
@@ -203,20 +287,31 @@ export default function LoansPage() {
       </div>
 
       {error && (
-        <div
-          role="alert"
-          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-        >
-          {error}
+        <div className="flex items-start justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{error}</span>
+
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="font-semibold hover:text-red-900"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
-      <div className="flex gap-3 mb-4 flex-wrap items-center">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">
             🔍
           </span>
-          <Input placeholder="Search loans…" className="pl-9 w-52" />
+
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search loans…"
+            className="w-64 pl-9"
+          />
         </div>
 
         <Select
@@ -225,9 +320,10 @@ export default function LoansPage() {
             setStatus(event.target.value);
             setPage(0);
           }}
-          className="w-40"
+          className="w-44"
         >
           <option value="">All Statuses</option>
+
           {STATUSES.map((item) => (
             <option key={item} value={item}>
               {label(item)}
@@ -241,9 +337,10 @@ export default function LoansPage() {
             setType(event.target.value);
             setPage(0);
           }}
-          className="w-44"
+          className="w-48"
         >
-          <option value="">All Types</option>
+          <option value="">All Loan Types</option>
+
           {TYPES.map((item) => (
             <option key={item} value={item}>
               {LOAN_TYPE_META[item]?.label ?? label(item)}
@@ -251,13 +348,14 @@ export default function LoansPage() {
           ))}
         </Select>
 
-        {(status || type) && (
+        {(status || type || search) && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
               setStatus("");
               setType("");
+              setSearch("");
               setPage(0);
             }}
           >
@@ -268,8 +366,8 @@ export default function LoansPage() {
 
       <Card>
         {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+          <div className="flex items-center justify-center py-20">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-teal-500 border-t-transparent" />
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -279,31 +377,46 @@ export default function LoansPage() {
                   <Th>Reference</Th>
                   <Th>Borrower</Th>
                   <Th>Type</Th>
-                  <Th>Amount</Th>
+                  <Th>Principal</Th>
+                  <Th>Net Disbursed</Th>
                   <Th>Rate</Th>
+                  <Th>Processing Fee</Th>
+                  <Th>Management Fee</Th>
+                  <Th>Total Repayable</Th>
+                  <Th>Outstanding</Th>
                   <Th>Term</Th>
-                  <Th>Progress</Th>
+                  <Th>Credit Quality</Th>
+                  <Th>Arrears</Th>
+                  <Th>Days Overdue</Th>
+                  <Th>Collection Stage</Th>
                   <Th>Risk</Th>
-                  <Th>Classification</Th>
-                  <Th>Financials</Th>
                   <Th>Status</Th>
-                  <Th>Officer</Th>
-                  <Th>Date</Th>
+                  <Th>Classified</Th>
                   {isOfficer && <Th>Actions</Th>}
                 </tr>
               </Thead>
 
               <Tbody>
-                {loans.length === 0 ? (
+                {filteredLoans.length === 0 ? (
                   <EmptyRow
-                    cols={isOfficer ? 14 : 13}
+                    cols={isOfficer ? 19 : 18}
                     message="No loans match your filters"
                   />
                 ) : (
-                  loans.map((loan) => {
+                  filteredLoans.map((loan: any) => {
                     const totalRepayable = safeNumber(loan.totalRepayable);
+
                     const totalPaid = safeNumber(loan.totalPaid);
-                    const prog =
+
+                    const outstanding = safeNumber(loan.outstandingBalance);
+
+                    const processingFee = safeNumber(loan.processingFee);
+
+                    const managementFee = safeNumber(loan.managementFee);
+
+                    const netDisbursed = safeNumber(loan.netDisbursedAmount);
+
+                    const progress =
                       totalRepayable > 0
                         ? Math.min(
                             100,
@@ -319,58 +432,113 @@ export default function LoansPage() {
                         }
                       >
                         <Td>
-                          <code className="text-xs bg-gray-100 px-2 py-0.5 rounded font-mono">
-                            {loan.referenceNumber}
+                          <code className="rounded bg-gray-100 px-2 py-1 font-mono text-xs">
+                            {loan.referenceNumber ?? "—"}
                           </code>
                         </Td>
 
                         <Td>
                           <div className="font-semibold text-sm text-gray-900">
-                            {loan.borrower?.firstName} {loan.borrower?.lastName}
+                            {loan.borrower?.firstName ?? ""}{" "}
+                            {loan.borrower?.lastName ?? ""}
                           </div>
+
                           <div className="text-xs text-gray-400">
                             Score: {loan.creditScoreSnapshot ?? "—"}
                           </div>
                         </Td>
 
-                        <Td className="text-sm whitespace-nowrap">
+                        <Td className="whitespace-nowrap text-sm">
                           {LOAN_TYPE_META[loan.loanType]?.icon}{" "}
                           {LOAN_TYPE_META[loan.loanType]?.label ??
                             label(loan.loanType)}
                         </Td>
 
-                        <Td className="font-bold text-gray-900 whitespace-nowrap">
+                        <Td className="whitespace-nowrap font-bold text-gray-900">
                           {fc(loan.amount)}
                         </Td>
 
-                        <Td className="text-gray-500 whitespace-nowrap">
-                          {percent(loan.interestRate)}
+                        <Td className="whitespace-nowrap font-semibold text-emerald-700">
+                          {fc(netDisbursed)}
                         </Td>
 
-                        <Td className="text-gray-500 whitespace-nowrap">
-                          {loan.durationMonths}mo
+                        <Td className="whitespace-nowrap text-gray-600">
+                          {safeNumber(loan.interestRate).toFixed(2)}%
+                          <span className="ml-1 text-xs text-gray-400">
+                            {loan.interestRateType === "MONTHLY"
+                              ? "monthly"
+                              : label(loan.interestRateType)}
+                          </span>
                         </Td>
 
-                        <Td className="min-w-[130px]">
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                              <div
-                                className="h-1.5 rounded-full transition-all"
-                                style={{
-                                  width: `${prog}%`,
-                                  background:
-                                    prog >= 100
-                                      ? "#0D9488"
-                                      : prog > 50
-                                        ? "#3B82F6"
-                                        : "#F59E0B",
-                                }}
-                              />
-                            </div>
-                            <span className="text-xs text-gray-400 w-8 text-right">
-                              {prog}%
-                            </span>
+                        <Td className="whitespace-nowrap">
+                          {fc(processingFee)}
+                        </Td>
+
+                        <Td className="whitespace-nowrap">
+                          {fc(managementFee)}
+                        </Td>
+
+                        <Td className="whitespace-nowrap font-semibold">
+                          {fc(totalRepayable)}
+                        </Td>
+
+                        <Td className="whitespace-nowrap">
+                          <div className="font-bold text-gray-900">
+                            {fc(outstanding)}
                           </div>
+
+                          <div className="mt-1 h-1.5 w-24 overflow-hidden rounded-full bg-gray-100">
+                            <div
+                              className="h-full rounded-full bg-teal-500"
+                              style={{
+                                width: `${progress}%`,
+                              }}
+                            />
+                          </div>
+
+                          <div className="mt-1 text-[10px] text-gray-400">
+                            Paid {fc(totalPaid)}
+                          </div>
+                        </Td>
+
+                        <Td className="whitespace-nowrap text-gray-500">
+                          {loan.durationMonths ?? "—"}
+                          mo
+                        </Td>
+
+                        <Td>
+                          <span
+                            className={`inline-flex whitespace-nowrap rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${classificationClass(
+                              loan.creditQuality,
+                            )}`}
+                          >
+                            {label(loan.creditQuality)}
+                          </span>
+                        </Td>
+
+                        <Td>
+                          <span
+                            className={`inline-flex whitespace-nowrap rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${classificationClass(
+                              loan.arrearsStatus,
+                            )}`}
+                          >
+                            {label(loan.arrearsStatus)}
+                          </span>
+                        </Td>
+
+                        <Td className="text-center font-semibold">
+                          {safeNumber(loan.daysOverdue)}
+                        </Td>
+
+                        <Td>
+                          <span
+                            className={`inline-flex whitespace-nowrap rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${classificationClass(
+                              loan.collectionsStage,
+                            )}`}
+                          >
+                            {label(loan.collectionsStage)}
+                          </span>
                         </Td>
 
                         <Td>
@@ -380,89 +548,24 @@ export default function LoansPage() {
                               score={loan.riskScore}
                             />
                           ) : (
-                            <span className="text-gray-300">—</span>
+                            <div>
+                              <span className="text-xs text-gray-400">—</span>
+
+                              {loan.riskScore != null && (
+                                <div className="text-[10px] text-gray-400">
+                                  Score: {safeNumber(loan.riskScore).toFixed(2)}
+                                </div>
+                              )}
+                            </div>
                           )}
-                        </Td>
-
-                        <Td className="min-w-[150px]">
-                          <div className="space-y-0.5 text-xs">
-                            <div
-                              className={`font-semibold ${classificationTone(
-                                loan.creditQuality,
-                              )}`}
-                            >
-                              Credit: {label(loan.creditQuality)}
-                            </div>
-                            <div
-                              className={classificationTone(loan.arrearsStatus)}
-                            >
-                              Arrears: {label(loan.arrearsStatus)}
-                            </div>
-                            <div
-                              className={classificationTone(
-                                loan.collectionsStage,
-                              )}
-                            >
-                              Stage: {label(loan.collectionsStage)}
-                            </div>
-                            <div className="text-gray-500">
-                              Days overdue: {loan.daysOverdue ?? 0}
-                            </div>
-                            <div className="text-gray-400 whitespace-nowrap">
-                              Classified:{" "}
-                              {formatDate(loan.classifiedAt, locale)}
-                            </div>
-                          </div>
-                        </Td>
-
-                        <Td className="min-w-[210px]">
-                          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                            <span className="text-gray-400">Outstanding</span>
-                            <span className="font-semibold text-right text-gray-800">
-                              {fc(loan.outstandingBalance)}
-                            </span>
-
-                            <span className="text-gray-400">Net disbursed</span>
-                            <span className="font-semibold text-right text-gray-800">
-                              {fc(
-                                loan.netDisbursedAmount ?? loan.disbursedAmount,
-                              )}
-                            </span>
-
-                            <span className="text-gray-400">Repayable</span>
-                            <span className="font-semibold text-right text-gray-800">
-                              {fc(loan.totalRepayable)}
-                            </span>
-
-                            <span className="text-gray-400">Interest</span>
-                            <span className="text-right text-gray-700">
-                              {fc(loan.totalInterest)}
-                            </span>
-
-                            <span className="text-gray-400">Mgmt fee</span>
-                            <span className="text-right text-gray-700">
-                              {fc(loan.managementFee)}
-                            </span>
-
-                            <span className="text-gray-400">
-                              Processing fee
-                            </span>
-                            <span className="text-right text-gray-700">
-                              {fc(loan.processingFee)}
-                            </span>
-                          </div>
                         </Td>
 
                         <Td>
                           <StatusBadge status={loan.status} />
                         </Td>
 
-                        <Td className="text-xs text-gray-400 whitespace-nowrap">
-                          {loan.loanOfficer?.name ?? "—"}
-                        </Td>
-
-                        <Td className="text-xs text-gray-400 whitespace-nowrap">
-                          {formatDate(loan.startDate, locale)}
+                        <Td className="whitespace-nowrap text-xs text-gray-400">
+                          {safeDate(loan.classifiedAt, locale)}
                         </Td>
 
                         {isOfficer && (
@@ -496,10 +599,9 @@ export default function LoansPage() {
                               <Button
                                 size="xs"
                                 variant="ghost"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  router.push(`/dashboard/loans/${loan.id}`);
-                                }}
+                                onClick={() =>
+                                  router.push(`/dashboard/loans/${loan.id}`)
+                                }
                               >
                                 →
                               </Button>
@@ -516,18 +618,18 @@ export default function LoansPage() {
         )}
 
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-xl gap-3">
+          <div className="flex flex-col gap-3 border-t border-gray-100 bg-gray-50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-xs text-gray-500">
-              Showing {page * 20 + 1}–{Math.min((page + 1) * 20, total)} of{" "}
-              {formatNumber(total)}
+              Showing {total === 0 ? 0 : page * PAGE_SIZE + 1}–
+              {Math.min((page + 1) * PAGE_SIZE, total)} of {formatNumber(total)}
             </span>
 
-            <div className="flex gap-2 flex-wrap justify-end">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="secondary"
                 size="xs"
                 disabled={page === 0}
-                onClick={() => setPage((current) => current - 1)}
+                onClick={() => setPage((current) => Math.max(0, current - 1))}
               >
                 ← Prev
               </Button>
@@ -552,7 +654,9 @@ export default function LoansPage() {
                 variant="secondary"
                 size="xs"
                 disabled={page >= totalPages - 1}
-                onClick={() => setPage((current) => current + 1)}
+                onClick={() =>
+                  setPage((current) => Math.min(totalPages - 1, current + 1))
+                }
               >
                 Next →
               </Button>
