@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import {
@@ -83,7 +83,45 @@ type Tab = (typeof TABS)[number];
 // FIELD
 // ============================================================
 
-function Field({ label, value }: { label: string; value?: React.ReactNode }) {
+const FINANCIAL_MONTH_DAYS = 30;
+
+function dailyRateFromMonthly(monthlyRate?: number) {
+  if (monthlyRate == null || !Number.isFinite(monthlyRate)) {
+    return 0;
+  }
+
+  return monthlyRate / FINANCIAL_MONTH_DAYS;
+}
+
+function dailyAmountFromMonthlyRate(principal?: number, monthlyRate?: number) {
+  if (
+    principal == null ||
+    monthlyRate == null ||
+    !Number.isFinite(principal) ||
+    !Number.isFinite(monthlyRate)
+  ) {
+    return 0;
+  }
+
+  return (principal * (monthlyRate / 100)) / FINANCIAL_MONTH_DAYS;
+}
+
+function getScheduleManagementFee(p: Payment) {
+  const row = p as Payment & {
+    managementFeeComponent?: number;
+    managementFeeAmount?: number;
+    managementFee?: number;
+  };
+
+  return (
+    row.managementFeeComponent ??
+    row.managementFeeAmount ??
+    row.managementFee ??
+    0
+  );
+}
+
+function Field({ label, value }: { label: string; value?: ReactNode }) {
   return (
     <div>
       <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
@@ -1434,6 +1472,33 @@ export default function LoanDetailPage() {
 
   const totalPenalty = schedule.reduce((sum, p) => sum + (p.penalty ?? 0), 0);
 
+  const managementFeeRate = loan.managementFeeRate ?? 5;
+  const interestRate = loan.interestRate ?? 5;
+
+  const managementFeeDailyRate = dailyRateFromMonthly(managementFeeRate);
+  const interestDailyRate = dailyRateFromMonthly(interestRate);
+
+  const dailyManagementFeeAmount = dailyAmountFromMonthlyRate(
+    loan.amount,
+    managementFeeRate,
+  );
+
+  const dailyInterestAmount = dailyAmountFromMonthlyRate(
+    loan.outstandingBalance ?? loan.amount,
+    interestRate,
+  );
+
+  const managementFeePaid = loan.managementFeePaid ?? 0;
+  const managementFeeScheduled = loan.managementFee ?? 0;
+  const managementFeeRemaining = Math.max(
+    0,
+    managementFeeScheduled - managementFeePaid,
+  );
+
+  const totalMonthlyChargeRate = interestRate + managementFeeRate;
+
+  const totalDailyChargeRate = interestDailyRate + managementFeeDailyRate;
+
   return (
     <div>
       <div className="flex items-start justify-between mb-6 gap-4">
@@ -1476,6 +1541,21 @@ export default function LoanDetailPage() {
                 color="red"
               />
             ) : null}
+
+            {loan.creditQuality && (
+              <Pill label={`Credit: ${loan.creditQuality}`} color="blue" />
+            )}
+
+            {loan.arrearsStatus && (
+              <Pill label={`Arrears: ${loan.arrearsStatus}`} color="gray" />
+            )}
+
+            {loan.collectionsStage && (
+              <Pill
+                label={`Collections: ${loan.collectionsStage}`}
+                color="teal"
+              />
+            )}
           </div>
         </div>
 
@@ -1589,6 +1669,13 @@ export default function LoanDetailPage() {
           },
 
           {
+            label: "Management Fee",
+            value: fc(loan.managementFee),
+            Icon: IconFileText,
+            color: "#7C3AED",
+          },
+
+          {
             label: "Penalty",
             value: fc(totalPenalty),
             Icon: IconFileText,
@@ -1616,6 +1703,80 @@ export default function LoanDetailPage() {
           </div>
         ))}
       </div>
+
+      <Card className="mb-5">
+        <CardHeader title="Loan Charges" />
+
+        <CardBody>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="rounded-xl border border-purple-100 bg-purple-50/60 p-4">
+              <div className="text-[10px] font-bold text-purple-500 uppercase tracking-wider">
+                Monthly Management Fee
+              </div>
+              <div className="text-xl font-extrabold text-purple-800 mt-1">
+                {managementFeeRate.toFixed(2)}%
+              </div>
+              <div className="text-xs text-purple-700 mt-1">
+                {managementFeeDailyRate.toFixed(6)}% per day
+              </div>
+              <div className="text-xs text-purple-600 mt-1">
+                Approx. {fc(dailyManagementFeeAmount)} per day on the original
+                principal
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+              <div className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">
+                Monthly Interest
+              </div>
+              <div className="text-xl font-extrabold text-blue-800 mt-1">
+                {interestRate.toFixed(2)}%
+              </div>
+              <div className="text-xs text-blue-700 mt-1">
+                {interestDailyRate.toFixed(6)}% per day
+              </div>
+              <div className="text-xs text-blue-600 mt-1">
+                Current daily interest basis: {fc(dailyInterestAmount)}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
+              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                Total Monthly Charge
+              </div>
+              <div className="text-xl font-extrabold text-gray-900 mt-1">
+                {totalMonthlyChargeRate.toFixed(2)}%
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {totalDailyChargeRate.toFixed(6)}% per day on a 30-day basis
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
+              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                Management Fee Balance
+              </div>
+              <div className="text-xl font-extrabold text-gray-900 mt-1">
+                {fc(managementFeeRemaining)}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {fc(managementFeePaid)} paid of {fc(managementFeeScheduled)}{" "}
+                scheduled
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <Field
+              label="Processing Fee"
+              value={`${fc(loan.processingFee)} (${(loan.processingFeeRate ?? 2).toFixed(2)}%)`}
+            />
+            <Field label="Net Disbursed" value={fc(loan.netDisbursedAmount)} />
+            <Field label="Total Repayable" value={fc(loan.totalRepayable)} />
+            <Field label="Interest Paid" value={fc(loan.interestPaid)} />
+          </div>
+        </CardBody>
+      </Card>
 
       <Card className="mb-5">
         <CardBody>
@@ -1722,19 +1883,61 @@ export default function LoanDetailPage() {
 
               <Field
                 label="Interest Rate"
-                value={`${loan.interestRate}% p.a.`}
+                value={`${interestRate.toFixed(2)}% monthly · ${interestDailyRate.toFixed(6)}% daily`}
+              />
+
+              <Field
+                label="Management Fee"
+                value={`${managementFeeRate.toFixed(2)}% monthly · ${managementFeeDailyRate.toFixed(6)}% daily`}
+              />
+
+              <Field
+                label="Total Monthly Charge"
+                value={`${totalMonthlyChargeRate.toFixed(2)}% · ${totalDailyChargeRate.toFixed(6)}% daily`}
               />
 
               <Field label="Term" value={`${loan.durationMonths} months`} />
 
               <Field label="Schedule" value={loan.repaymentFrequency} />
 
-              <Field label="Processing Fee" value={fc(loan.processingFee)} />
+              <Field
+                label="Processing Fee"
+                value={`${fc(loan.processingFee)} · ${(loan.processingFeeRate ?? 2).toFixed(2)}%`}
+              />
+
+              <Field
+                label="Net Disbursed Amount"
+                value={fc(loan.netDisbursedAmount)}
+              />
+
+              <Field label="Total Repayable" value={fc(loan.totalRepayable)} />
+
+              <Field
+                label="Management Fee Scheduled"
+                value={fc(loan.managementFee)}
+              />
+
+              <Field
+                label="Management Fee Paid"
+                value={fc(loan.managementFeePaid)}
+              />
+
+              <Field
+                label="Interest Scheduled"
+                value={fc(loan.totalInterest)}
+              />
+
+              <Field label="Interest Paid" value={fc(loan.interestPaid)} />
+
+              <Field
+                label="Outstanding Balance"
+                value={fc(loan.outstandingBalance)}
+              />
 
               <Field
                 label="DTI Ratio"
                 value={
-                  loan.debtToIncomeRatio
+                  loan.debtToIncomeRatio != null
                     ? `${loan.debtToIncomeRatio.toFixed(1)}%`
                     : undefined
                 }
@@ -1743,6 +1946,21 @@ export default function LoanDetailPage() {
               <Field label="Credit Score" value={loan.creditScoreSnapshot} />
 
               <Field label="Risk Category" value={loan.riskCategory} />
+
+              <Field label="Risk Score" value={loan.riskScore} />
+
+              <Field label="Credit Quality" value={loan.creditQuality} />
+
+              <Field label="Arrears Status" value={loan.arrearsStatus} />
+
+              <Field label="Collections Stage" value={loan.collectionsStage} />
+
+              <Field label="Days Overdue" value={loan.daysOverdue ?? 0} />
+
+              <Field
+                label="Classified At"
+                value={formatDate(loan.classifiedAt, locale)}
+              />
 
               <Field
                 label="Start Date"
@@ -2017,6 +2235,8 @@ export default function LoanDetailPage() {
 
                   <Th>Interest</Th>
 
+                  <Th>Management Fee</Th>
+
                   <Th>Penalty</Th>
 
                   <Th>Balance After</Th>
@@ -2053,6 +2273,12 @@ export default function LoanDetailPage() {
 
                       <Td className="text-purple-600">
                         {fc(p.interestComponent)}
+                      </Td>
+
+                      <Td className="text-indigo-600">
+                        {getScheduleManagementFee(p) > 0
+                          ? fc(getScheduleManagementFee(p))
+                          : "—"}
                       </Td>
 
                       <Td className="text-red-500">
