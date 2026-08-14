@@ -310,6 +310,11 @@ public class Loan {
         @JsonProperty("totalPaid")
         private BigDecimal totalPaid = BigDecimal.ZERO;
 
+        @Column(name = "principal_paid", precision = 19, scale = 2, nullable = false)
+        @Builder.Default
+        @JsonProperty("principalPaid")
+        private BigDecimal principalPaid = BigDecimal.ZERO;
+
         /**
          * Current outstanding loan balance.
          *
@@ -394,6 +399,11 @@ public class Loan {
         @JsonProperty("managementFeePaid")
         private BigDecimal managementFeePaid = BigDecimal.ZERO;
 
+        @Column(name = "management_fee_outstanding", precision = 19, scale = 2, nullable = false)
+        @Builder.Default
+        @JsonProperty("managementFeeOutstanding")
+        private BigDecimal managementFeeOutstanding = BigDecimal.ZERO;
+
         // ================================================================
         // INTEREST TOTALS
         // ================================================================
@@ -413,6 +423,21 @@ public class Loan {
         @Builder.Default
         @JsonProperty("interestPaid")
         private BigDecimal interestPaid = BigDecimal.ZERO;
+
+        @Column(name = "interest_outstanding", precision = 19, scale = 2, nullable = false)
+        @Builder.Default
+        @JsonProperty("interestOutstanding")
+        private BigDecimal interestOutstanding = BigDecimal.ZERO;
+
+        @Column(name = "penalties_assessed", precision = 19, scale = 2, nullable = false)
+        @Builder.Default
+        @JsonProperty("penaltiesAssessed")
+        private BigDecimal penaltiesAssessed = BigDecimal.ZERO;
+
+        @Column(name = "penalties_paid", precision = 19, scale = 2, nullable = false)
+        @Builder.Default
+        @JsonProperty("penaltiesPaid")
+        private BigDecimal penaltiesPaid = BigDecimal.ZERO;
 
         @Column(name = "duration_months", nullable = false)
         private Integer durationMonths;
@@ -668,6 +693,21 @@ public class Loan {
 
                 if (interestPaid == null) {
                         interestPaid = MoneyMath.ZERO;
+                }
+                if (principalPaid == null) {
+                        principalPaid = MoneyMath.ZERO;
+                }
+                if (interestOutstanding == null) {
+                        interestOutstanding = MoneyMath.ZERO;
+                }
+                if (managementFeeOutstanding == null) {
+                        managementFeeOutstanding = MoneyMath.ZERO;
+                }
+                if (penaltiesAssessed == null) {
+                        penaltiesAssessed = MoneyMath.ZERO;
+                }
+                if (penaltiesPaid == null) {
+                        penaltiesPaid = MoneyMath.ZERO;
                 }
 
                 if (totalRepayable == null) {
@@ -1038,6 +1078,31 @@ public class Loan {
         @JsonIgnore
         public BigDecimal getTotalInterestDecimal() {
                 return totalInterest;
+        }
+
+        @JsonIgnore
+        public BigDecimal getPrincipalPaidDecimal() {
+                return principalPaid == null ? MoneyMath.ZERO : principalPaid;
+        }
+
+        @JsonIgnore
+        public BigDecimal getManagementFeeOutstandingDecimal() {
+                return managementFeeOutstanding == null ? MoneyMath.ZERO : managementFeeOutstanding;
+        }
+
+        @JsonIgnore
+        public BigDecimal getInterestOutstandingDecimal() {
+                return interestOutstanding == null ? MoneyMath.ZERO : interestOutstanding;
+        }
+
+        @JsonIgnore
+        public BigDecimal getPenaltiesAssessedDecimal() {
+                return penaltiesAssessed == null ? MoneyMath.ZERO : penaltiesAssessed;
+        }
+
+        @JsonIgnore
+        public BigDecimal getPenaltiesPaidDecimal() {
+                return penaltiesPaid == null ? MoneyMath.ZERO : penaltiesPaid;
         }
 
         @JsonIgnore

@@ -167,6 +167,8 @@ export default function AccountingPage() {
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null);
 
+  const [reconcilingLegacy, setReconcilingLegacy] = useState(false);
+
   const [showBankAccountForm, setShowBankAccountForm] = useState(false);
 
   const [showTransactionForm, setShowTransactionForm] = useState(false);
@@ -234,6 +236,35 @@ export default function AccountingPage() {
   useEffect(() => {
     void loadAll();
   }, []);
+
+  /* =======================================================
+     RECONCILE HISTORICAL LOAN ACCOUNTING
+  ======================================================= */
+
+  const handleLegacyReconciliation = async () => {
+    try {
+      setReconcilingLegacy(true);
+      setError("");
+
+      const result = await accountingApi.reconcileLegacyLoans();
+      const created =
+        (result as any)?.created ?? (result as any)?.data?.created ?? 0;
+
+      await loadAll();
+
+      setError(
+        `Historical loan accounting reconciliation completed. ${created} opening journal ${created === 1 ? "entry was" : "entries were"} created.`,
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not reconcile historical loan accounting.",
+      );
+    } finally {
+      setReconcilingLegacy(false);
+    }
+  };
 
   /* =======================================================
      REVERSE JOURNAL ENTRY
@@ -337,13 +368,26 @@ export default function AccountingPage() {
           PAGE HEADER
       =================================================== */}
 
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Accounting</h1>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Accounting</h1>
 
-        <p className="text-gray-500 text-sm mt-1">
-          General ledger, chart of accounts, cash management, and financial
-          reports — {currency}.
-        </p>
+          <p className="text-gray-500 text-sm mt-1">
+            General ledger, chart of accounts, cash management, and financial
+            reports — {currency}.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleLegacyReconciliation}
+          disabled={reconcilingLegacy}
+          className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {reconcilingLegacy
+            ? "Reconciling historical loans…"
+            : "Reconcile Imported Loans"}
+        </button>
       </div>
 
       {/* ===================================================

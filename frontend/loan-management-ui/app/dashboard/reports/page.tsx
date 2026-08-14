@@ -377,7 +377,7 @@ function ReportCard({
   icon: string;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex gap-3">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-50 text-xl">
           {icon}
@@ -413,7 +413,7 @@ function AccountingReportCard({
   icon: string;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex gap-3">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-xl">
           {icon}
@@ -451,7 +451,7 @@ function Kpi({
   description?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
         {label}
       </p>
@@ -923,28 +923,28 @@ export default function ReportsPage() {
   /* ======================================================================== */
 
   return (
-    <div className="min-h-full space-y-7 pb-10">
+    <div className="min-h-full space-y-8 pb-12">
       {/* ==================================================================== */}
       {/* HEADER                                                               */}
       {/* ==================================================================== */}
 
-      <section className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+      <section className="relative overflow-hidden rounded-3xl border border-slate-200/80 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-6 shadow-[0_18px_50px_rgba(15,23,42,0.12)] sm:p-8 lg:flex lg:items-end lg:justify-between">
         <div>
           <div className="mb-2 flex items-center gap-2">
             <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-sm">
               ◫
             </span>
 
-            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-indigo-600">
+            <span className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-300">
               Business Intelligence
             </span>
           </div>
 
-          <h1 className="text-3xl font-bold tracking-tight text-gray-950">
+          <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
             Reports &amp; Analytics
           </h1>
 
-          <p className="mt-1.5 max-w-2xl text-sm text-gray-500">
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
             Portfolio, operational, regulatory and accounting intelligence from
             one reporting workspace.
           </p>
@@ -952,7 +952,7 @@ export default function ReportsPage() {
 
         <Link
           href="/dashboard/reports/regulatory"
-          className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50"
+          className="inline-flex items-center rounded-xl border border-white/15 bg-white/10 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-white/15"
         >
           Regulatory Reports →
         </Link>
@@ -1336,68 +1336,22 @@ export default function ReportsPage() {
         </div>
       </section>
 
-      {/* ==================================================================== */}
-      {/* REGULATORY REPORTING                                                 */}
-      {/* ==================================================================== */}
-
-      <section>
-        <div className="mb-4">
-          <h2 className="text-sm font-semibold text-gray-900">
-            Regulatory Reporting
-          </h2>
-
-          <p className="mt-1 text-xs text-gray-400">
-            BNR portfolio reporting, Credit Bureau exports and secure regulatory
-            API access.
-          </p>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-3">
-          <Link
-            href="/dashboard/reports/regulatory/bnr"
-            className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-          >
-            <div className="text-2xl">🏦</div>
-
-            <h3 className="mt-3 text-sm font-semibold text-gray-900">
-              BNR Reports
-            </h3>
-
-            <p className="mt-1 text-xs leading-5 text-gray-500">
-              Portfolio, PAR, NPL, borrower, financial statement and regulatory
-              breakdown reports.
+      <section className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-5 py-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-indigo-900">
+              Regulatory reporting is available from the dedicated workspace.
             </p>
-          </Link>
-
-          <Link
-            href="/dashboard/reports/regulatory/credit-bureau"
-            className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-          >
-            <div className="text-2xl">🧾</div>
-
-            <h3 className="mt-3 text-sm font-semibold text-gray-900">
-              Credit Bureau
-            </h3>
-
-            <p className="mt-1 text-xs leading-5 text-gray-500">
-              Credit records, repayment history and approved Credit Bureau
-              exports.
+            <p className="mt-1 text-xs text-indigo-700">
+              This page stays focused on operational and accounting analytics.
             </p>
-          </Link>
+          </div>
 
           <Link
             href="/dashboard/reports/regulatory"
-            className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+            className="inline-flex shrink-0 items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-indigo-700"
           >
-            <div className="text-2xl">🔐</div>
-
-            <h3 className="mt-3 text-sm font-semibold text-gray-900">
-              Regulatory API Access
-            </h3>
-
-            <p className="mt-1 text-xs leading-5 text-gray-500">
-              Manage BNR and Credit Bureau API clients and access.
-            </p>
+            Open Regulatory Reports →
           </Link>
         </div>
       </section>
@@ -1406,7 +1360,7 @@ export default function ReportsPage() {
       {/* FOOTER                                                               */}
       {/* ==================================================================== */}
 
-      <footer className="flex flex-col gap-2 border-t border-gray-200 pt-5 text-xs text-gray-400 sm:flex-row sm:items-center sm:justify-between">
+      <footer className="flex flex-col gap-2 border-t border-slate-200 pt-6 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
         <p>Financial figures are sourced from the accounting records.</p>
 
         <p>

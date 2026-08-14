@@ -116,6 +116,8 @@ public class LegacyLoanImportRowService {
 
         private final LoanService loanService;
 
+        private final AccountingService accountingService;
+
         // ================================================================
         // IMPORT ROW
         // ================================================================
@@ -331,6 +333,38 @@ public class LegacyLoanImportRowService {
                                         row,
                                         "total_repayable");
 
+                        BigDecimal principalPaidGiven = optMoney(
+                                        row,
+                                        "principal_paid");
+
+                        BigDecimal interestPaidGiven = optMoney(
+                                        row,
+                                        "interest_paid");
+
+                        BigDecimal interestOutstandingGiven = optMoney(
+                                        row,
+                                        "interest_outstanding");
+
+                        BigDecimal managementFeePaidGiven = optMoney(
+                                        row,
+                                        "management_fee_paid");
+
+                        BigDecimal managementFeeOutstandingGiven = optMoney(
+                                        row,
+                                        "total_management_fee_balance");
+
+                        BigDecimal processingFeePaidGiven = optMoney(
+                                        row,
+                                        "processing_fee_paid");
+
+                        BigDecimal penaltiesAssessedGiven = optMoney(
+                                        row,
+                                        "penalties_assessed");
+
+                        BigDecimal penaltiesPaidGiven = optMoney(
+                                        row,
+                                        "penalties_paid");
+
                         validateOptionalMoney(
                                         totalPaid,
                                         "total_paid");
@@ -343,15 +377,34 @@ public class LegacyLoanImportRowService {
                                         totalRepayableGiven,
                                         "total_repayable");
 
+                        validateOptionalMoney(principalPaidGiven, "principal_paid");
+                        validateOptionalMoney(interestPaidGiven, "interest_paid");
+                        validateOptionalMoney(interestOutstandingGiven, "interest_outstanding");
+                        validateOptionalMoney(managementFeePaidGiven, "management_fee_paid");
+                        validateOptionalMoney(managementFeeOutstandingGiven, "total_management_fee_balance");
+                        validateOptionalMoney(processingFeePaidGiven, "processing_fee_paid");
+                        validateOptionalMoney(penaltiesAssessedGiven, "penalties_assessed");
+                        validateOptionalMoney(penaltiesPaidGiven, "penalties_paid");
+
                         if (totalPaid == null) {
-
                                 totalPaid = ZERO;
-
                         } else {
-
-                                totalPaid = money(
-                                                totalPaid);
+                                totalPaid = money(totalPaid);
                         }
+
+                        BigDecimal penaltiesAssessed = money(
+                                        penaltiesAssessedGiven != null ? penaltiesAssessedGiven : ZERO);
+                        BigDecimal penaltiesPaid = money(
+                                        penaltiesPaidGiven != null ? penaltiesPaidGiven : ZERO);
+
+                        BigDecimal interestPaidHistorical = money(
+                                        interestPaidGiven != null ? interestPaidGiven : ZERO);
+                        BigDecimal interestOutstandingHistorical = money(
+                                        interestOutstandingGiven != null ? interestOutstandingGiven : ZERO);
+                        BigDecimal managementFeePaidHistorical = money(
+                                        managementFeePaidGiven != null ? managementFeePaidGiven : ZERO);
+                        BigDecimal managementFeeOutstandingHistorical = money(
+                                        managementFeeOutstandingGiven != null ? managementFeeOutstandingGiven : ZERO);
 
                         // ========================================================
                         // FINANCIAL CONSISTENCY
@@ -457,6 +510,22 @@ public class LegacyLoanImportRowService {
                         totalRepayable = totalRepayable.max(
                                         ZERO);
 
+                        BigDecimal principalPaidHistorical = principalPaidGiven != null
+                                        ? money(principalPaidGiven)
+                                        : money(amount.subtract(outstandingBalance).max(ZERO));
+
+                        BigDecimal principalReconciled = money(
+                                        principalPaidHistorical.add(outstandingBalance));
+
+                        if (principalReconciled.subtract(amount).abs().compareTo(new BigDecimal("0.01")) > 0) {
+                                return fail(
+                                                rowNumber,
+                                                "principal_paid + outstanding_balance must equal amount. "
+                                                                + "principal_paid=" + principalPaidHistorical
+                                                                + ", outstanding_balance=" + outstandingBalance
+                                                                + ", amount=" + amount);
+                        }
+
                         // ========================================================
                         // PROCESSING FEE
                         // ========================================================
@@ -491,8 +560,14 @@ public class LegacyLoanImportRowService {
                          *
                          * Therefore do not charge the processing fee again.
                          */
-                        boolean processingFeePaid = isHistoricalLoanStatus(
-                                        statusRaw);
+                        boolean processingFeePaid = processingFeePaidGiven != null
+                                        ? processingFeePaidGiven.compareTo(ZERO) > 0
+                                        : isHistoricalLoanStatus(statusRaw);
+
+                        if (processingFeePaidGiven != null
+                                        && processingFeePaidGiven.compareTo(processingFee) > 0) {
+                                return fail(rowNumber, "processing_fee_paid cannot exceed processing_fee.");
+                        }
 
                         // ========================================================
                         // STATUS / BALANCE CONSISTENCY
@@ -708,6 +783,32 @@ public class LegacyLoanImportRowService {
                                         durationMonths);
 
                         // ========================================================
+                        // HISTORICAL TOTALS
+                        // ========================================================
+
+                        BigDecimal totalHistoricalInterest = money(
+                                        interestPaidHistorical.add(interestOutstandingHistorical));
+
+                        BigDecimal totalHistoricalManagementFee = money(
+                                        managementFeePaidHistorical.add(managementFeeOutstandingHistorical));
+
+                        if (interestPaidGiven != null || managementFeePaidGiven != null
+                                        || principalPaidGiven != null) {
+                                totalPaid = money(
+                                                principalPaidHistorical
+                                                                .add(interestPaidHistorical)
+                                                                .add(managementFeePaidHistorical)
+                                                                .add(penaltiesPaid));
+                        }
+
+                        if (totalRepayableGiven == null) {
+                                totalRepayable = money(
+                                                amount
+                                                                .add(totalHistoricalInterest)
+                                                                .add(totalHistoricalManagementFee));
+                        }
+
+                        // ========================================================
                         // BUILD LOAN
                         // ========================================================
 
@@ -777,6 +878,9 @@ public class LegacyLoanImportRowService {
                                         .processingFee(
                                                         processingFee)
 
+                                        .processingFeePaid(
+                                                        processingFeePaid ? processingFee : ZERO)
+
                                         .totalRepayable(
                                                         totalRepayable)
 
@@ -786,25 +890,40 @@ public class LegacyLoanImportRowService {
                                         .outstandingBalance(
                                                         outstandingBalance)
 
+                                        .principalPaid(
+                                                        principalPaidHistorical)
+
+                                        .penaltiesAssessed(
+                                                        penaltiesAssessed)
+
+                                        .penaltiesPaid(
+                                                        penaltiesPaid)
+
                                         // ------------------------------------------------
                                         // MANAGEMENT FEE TOTALS
                                         // ------------------------------------------------
 
                                         .managementFee(
-                                                        ZERO)
+                                                        totalHistoricalManagementFee)
 
                                         .managementFeePaid(
-                                                        ZERO)
+                                                        managementFeePaidHistorical)
+
+                                        .managementFeeOutstanding(
+                                                        managementFeeOutstandingHistorical)
 
                                         // ------------------------------------------------
                                         // INTEREST TOTALS
                                         // ------------------------------------------------
 
                                         .totalInterest(
-                                                        ZERO)
+                                                        totalHistoricalInterest)
 
                                         .interestPaid(
-                                                        ZERO)
+                                                        interestPaidHistorical)
+
+                                        .interestOutstanding(
+                                                        interestOutstandingHistorical)
 
                                         // ------------------------------------------------
                                         // DATES
@@ -839,7 +958,8 @@ public class LegacyLoanImportRowService {
 
                                         .nextDueDate(
                                                         historicalLoan
-                                                                        ? startDate.plusMonths(1)
+                                                                        ? optDate(row, "next_due_date",
+                                                                                        startDate.plusMonths(1))
                                                                         : null)
 
                                         .nextPaymentDate(
@@ -864,7 +984,8 @@ public class LegacyLoanImportRowService {
                                                         buildInternalImportNote(
                                                                         importBatchId,
                                                                         importedInterestRate,
-                                                                        importedRateType))
+                                                                        importedRateType)
+                                                                        + " Historical NLS financial balances were imported as opening loan state; no historical accounting journal was reposted, preventing double-counting.")
 
                                         // ------------------------------------------------
                                         // IMPORT FLAGS
@@ -927,6 +1048,14 @@ public class LegacyLoanImportRowService {
                                                                 + "a conflicting record already exists or "
                                                                 + "the database rejected the record.");
                         }
+
+                        // --------------------------------------------------------
+                        // ACCOUNTING OPENING BALANCE
+                        // --------------------------------------------------------
+                        // Historical loans are already disbursed. Record only the
+                        // remaining receivable position as an opening journal so
+                        // accounting does not replay historical cash movements.
+                        accountingService.postHistoricalLoanOpening(loan);
 
                         // ========================================================
                         // SUCCESS LOG
@@ -1189,31 +1318,54 @@ public class LegacyLoanImportRowService {
                         String value) {
 
                 if (value == null) {
+
                         throw new IllegalArgumentException(
                                         "national_id is required.");
                 }
 
-                // Normalize Excel text prefixes, wrapping quotes, BOM/NBSP and
-                // harmless grouping separators commonly introduced in exports.
-                String normalized = normalizeImportedValue(value)
-                                .replace("\u00A0", " ")
-                                .trim()
-                                .replaceAll("[\\s-]+", "");
+                String normalized = value
+                                .replace(
+                                                "\uFEFF",
+                                                "")
+                                .trim();
 
-                // Some spreadsheet exports leave an unmatched quote at one end.
-                while (!normalized.isEmpty() && isImportQuote(normalized.charAt(0))) {
-                        normalized = normalized.substring(1).trim();
+                if (normalized.startsWith("'")
+                                && normalized.length() > 1) {
+
+                        normalized = normalized.substring(
+                                        1).trim();
+
+                        log.debug(
+                                        "Removed Excel text-prefix apostrophe from national_id.");
                 }
-                while (!normalized.isEmpty() && isImportQuote(normalized.charAt(normalized.length() - 1))) {
-                        normalized = normalized.substring(0, normalized.length() - 1).trim();
+
+                if (normalized.startsWith("’")
+                                && normalized.length() > 1) {
+
+                        normalized = normalized.substring(
+                                        1).trim();
+
+                        log.debug(
+                                        "Removed Unicode Excel-style apostrophe from national_id.");
+                }
+
+                normalized = normalized.replaceAll(
+                                "\\s+",
+                                "");
+
+                if (normalized.length() >= 2
+                                && ((normalized.startsWith("\"")
+                                                && normalized.endsWith("\""))
+                                                ||
+                                                (normalized.startsWith("'")
+                                                                && normalized.endsWith("'")))) {
+
+                        normalized = normalized.substring(
+                                        1,
+                                        normalized.length() - 1).trim();
                 }
 
                 return normalized;
-        }
-
-        private boolean isImportQuote(char c) {
-                return c == '\'' || c == '\"' || c == '`'
-                                || c == '‘' || c == '’' || c == '“' || c == '”';
         }
 
         private void validateNationalId(
@@ -1457,6 +1609,37 @@ public class LegacyLoanImportRowService {
                                                 + "Preferred format is YYYY-MM-DD. Got \""
                                                 + value
                                                 + "\".");
+        }
+
+        // ================================================================
+        // OPTIONAL DATE
+        // ================================================================
+
+        private LocalDate optDate(
+                        Map<String, String> row,
+                        String key,
+                        LocalDate fallback) {
+
+                String raw = row.get(key);
+
+                if (isBlankOrSkipped(raw)) {
+                        return fallback;
+                }
+
+                String value = normalizeImportedValue(raw);
+
+                for (DateTimeFormatter formatter : DATE_FORMATS) {
+                        try {
+                                return LocalDate.parse(value, formatter);
+                        } catch (DateTimeParseException ignored) {
+                                // Try the next supported format.
+                        }
+                }
+
+                throw new IllegalArgumentException(
+                                "\"" + key + "\" isn't a recognized optional date. "
+                                                + "Preferred format is YYYY-MM-DD. Got \""
+                                                + value + "\".");
         }
 
         // ================================================================

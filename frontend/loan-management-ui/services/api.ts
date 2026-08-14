@@ -619,6 +619,8 @@ export const accountingApi = {
 
   journal: () => get("/accounting/journal"),
 
+  reconcileLegacyLoans: () => post("/accounting/legacy-loans/reconcile"),
+
   reverseEntry: (id: number, reason?: string) =>
     post(`/accounting/journal/${id}/reverse`, {
       reason,
