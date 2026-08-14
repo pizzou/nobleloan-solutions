@@ -231,7 +231,10 @@ public class PublicController {
 
         @GetMapping("/borrower/summary")
         public ResponseEntity<DashboardSummaryResponse> borrowerSummary(
+                        @RequestParam String reference,
                         @RequestParam String phone) {
+
+                verifyOwnership(reference, phone);
 
                 return ResponseEntity.ok(
                                 loanService.getBorrowerSummary(
@@ -1177,21 +1180,15 @@ public class PublicController {
                 req.setNetwork(
                                 network);
 
-                req.setCardNumber(
-                                str(
-                                                body.get("cardNumber")));
+                String cardNumber = str(body.get("cardNumber"));
+                String cardCvv = str(body.get("cardCvv"));
+                String cardExpiryMonth = str(body.get("cardExpiryMonth"));
+                String cardExpiryYear = str(body.get("cardExpiryYear"));
 
-                req.setCardCvv(
-                                str(
-                                                body.get("cardCvv")));
-
-                req.setCardExpiryMonth(
-                                str(
-                                                body.get("cardExpiryMonth")));
-
-                req.setCardExpiryYear(
-                                str(
-                                                body.get("cardExpiryYear")));
+                if (cardNumber != null || cardCvv != null || cardExpiryMonth != null || cardExpiryYear != null) {
+                        throw new IllegalArgumentException(
+                                        "Raw card details are not accepted by the public API. Use the payment provider's hosted or tokenized checkout flow.");
+                }
 
                 req.setAccountNumber(
                                 str(
@@ -1573,26 +1570,21 @@ public class PublicController {
         // MASK PHONE
         // ============================================================
 
-    private String maskPhone(
-            String phone
-    ) {
+        private String maskPhone(
+                        String phone) {
 
-        if (
-                phone == null
-                        || phone.length() < 5
-        ) {
+                if (phone == null
+                                || phone.length() < 5) {
 
-            return "***";
+                        return "***";
+                }
+
+                return "***"
+                                + phone.substring(
+                                                Math.max(
+                                                                0,
+                                                                phone.length() - 4));
         }
-
-        return "***"
-                + phone.substring(
-                Math.max(
-                        0,
-                        phone.length() - 4
-                )
-        );
-    }
 
         // ============================================================
         // LOAN AGREEMENT PDF
@@ -1936,7 +1928,7 @@ public class PublicController {
         // ============================================================
 
         private String value(String currency) {
-                
+
                 throw new UnsupportedOperationException("Unimplemented method 'value'");
         }
 
@@ -1972,16 +1964,15 @@ public class PublicController {
                                 "Reference Number",
                                 loan.getReferenceNumber());
 
-      add.accept(
-        "Gross Loan Amount",
-        String.valueOf(loan.getCurrency())
-                + " "
-                + formatMoney(loan.getAmountDecimal())
-);
+                add.accept(
+                                "Gross Loan Amount",
+                                String.valueOf(loan.getCurrency())
+                                                + " "
+                                                + formatMoney(loan.getAmountDecimal()));
 
                 add.accept(
                                 "Processing Fee (2%)",
-                                value(                                                loan.getCurrency())
+                                value(loan.getCurrency())
                                                 + " "
                                                 + formatMoney(
                                                                 loan.getProcessingFeeDecimal()));
@@ -2462,7 +2453,8 @@ public class PublicController {
                 String phone = str(body.get("phone"));
 
                 if (phone == null
-                                || phone.isBlank()) {
+                                || phone.isBlank()
+                                || phone.trim().length() > 40) {
 
                         throw new RuntimeException(
                                         "Phone number is required");
@@ -3436,28 +3428,15 @@ public class PublicController {
 
                 return orgRepo.findAll()
                                 .stream()
-                                .filter(
-                                                o -> {
-
-                                                        String name = o.getName() == null
-                                                                        ? ""
-                                                                        : normalizeTenantKey(
-                                                                                        o.getName());
-
-                                                        String registration = o.getRegistrationNumber() == null
-                                                                        ? ""
-                                                                        : normalizeTenantKey(
-                                                                                        o.getRegistrationNumber());
-
-                                                        return name.equals(
-                                                                        normalized)
-                                                                        || registration.equals(
-                                                                                        normalized)
-                                                                        || name.contains(
-                                                                                        normalized)
-                                                                        || registration.contains(
-                                                                                        normalized);
-                                                })
+                                .filter(o -> {
+                                        String name = o.getName() == null
+                                                        ? ""
+                                                        : normalizeTenantKey(o.getName());
+                                        String registration = o.getRegistrationNumber() == null
+                                                        ? ""
+                                                        : normalizeTenantKey(o.getRegistrationNumber());
+                                        return name.equals(normalized) || registration.equals(normalized);
+                                })
                                 .findFirst()
                                 .orElse(null);
         }
@@ -3492,7 +3471,8 @@ public class PublicController {
                         String phone) {
 
                 if (reference == null
-                                || reference.isBlank()) {
+                                || reference.isBlank()
+                                || reference.trim().length() > 100) {
 
                         throw new RuntimeException(
                                         "Application reference number is required.");

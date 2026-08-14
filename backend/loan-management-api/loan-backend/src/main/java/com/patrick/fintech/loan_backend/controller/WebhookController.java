@@ -1,19 +1,25 @@
 package com.patrick.fintech.loan_backend.controller;
 
+import com.patrick.fintech.loan_backend.dto.PaymentGatewayResponse;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.model.WebhookEndpoint;
-import com.patrick.fintech.loan_backend.dto.PaymentGatewayResponse;
 import com.patrick.fintech.loan_backend.repository.UserRepository;
 import com.patrick.fintech.loan_backend.repository.WebhookRepository;
 import com.patrick.fintech.loan_backend.service.AuditService;
 import com.patrick.fintech.loan_backend.service.MtnMobileMoneyService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -23,445 +29,261 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class WebhookController {
 
-    private final WebhookRepository webhookRepo;
-    private final UserRepository userRepo;
-    private final AuditService auditService;
-    private final MtnMobileMoneyService mtnMobileMoneyService;
+        private final WebhookRepository webhookRepo;
+        private final UserRepository userRepo;
+        private final AuditService auditService;
+        private final MtnMobileMoneyService mtnMobileMoneyService;
 
-    // ============================================================
-    // AUTHENTICATED WEBHOOK MANAGEMENT
-    // ============================================================
+        @Value("${mtn.mobile-money.webhook-secret:}")
+        private String mtnWebhookSecret;
 
-    @GetMapping
-    @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<?> list(Authentication auth) {
+        @GetMapping
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+        public ResponseEntity<?> list(Authentication auth) {
+                User user = currentUser(auth);
 
-        User user =
-                currentUser(auth);
-
-        return ResponseEntity.ok(
-                webhookRepo.findByOrganization(
-                        user.getOrganization()
-                )
-        );
-    }
-
-    // ============================================================
-    // CREATE WEBHOOK ENDPOINT
-    // ============================================================
-
-    @PostMapping
-    @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<?> create(
-            @RequestBody WebhookEndpoint body,
-            Authentication auth
-    ) {
-
-        User user =
-                currentUser(auth);
-
-        body.setOrganization(
-                user.getOrganization()
-        );
-
-        body.setSecret(
-                UUID.randomUUID()
-                        .toString()
-                        .replace("-", "")
-        );
-
-        WebhookEndpoint saved =
-                webhookRepo.save(body);
-
-        auditService.log(
-                user.getOrganization(),
-                user,
-                "WEBHOOK_CREATED",
-                "WEBHOOK",
-                String.valueOf(saved.getId()),
-                "Created webhook endpoint " + saved.getUrl(),
-                null,
-                null,
-                "Webhooks & Integrations"
-        );
-
-        return ResponseEntity.ok(saved);
-    }
-
-    // ============================================================
-    // DELETE WEBHOOK ENDPOINT
-    // ============================================================
-
-    @DeleteMapping("/{id}")
-    @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<?> delete(
-            @PathVariable Long id,
-            Authentication auth
-    ) {
-
-        User user =
-                currentUser(auth);
-
-        WebhookEndpoint ep =
-                webhookRepo.findById(id)
-                        .orElseThrow(
-                                () -> new RuntimeException(
-                                        "Webhook not found"
-                                )
-                        );
-
-        if (ep.getOrganization() == null
-                || user.getOrganization() == null
-                || !ep.getOrganization()
-                .getId()
-                .equals(
-                        user.getOrganization().getId()
-                )) {
-
-            throw new RuntimeException(
-                    "Access denied"
-            );
+                List<Map<String, Object>> result = new ArrayList<>();
+                for (WebhookEndpoint ep : webhookRepo.findByOrganization(user.getOrganization())) {
+                        result.add(sanitize(ep));
+                }
+                return ResponseEntity.ok(result);
         }
 
-        webhookRepo.delete(ep);
+        @PostMapping
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+        public ResponseEntity<?> create(
+                        @RequestBody WebhookEndpoint body,
+                        Authentication auth) {
+                User user = currentUser(auth);
 
-        auditService.log(
-                user.getOrganization(),
-                user,
-                "WEBHOOK_DELETED",
-                "WEBHOOK",
-                String.valueOf(id),
-                "Deleted webhook endpoint " + ep.getUrl(),
-                null,
-                null,
-                "Webhooks & Integrations"
-        );
+                if (body == null) {
+                        return ResponseEntity.badRequest().body(Map.of("error", "Webhook body is required"));
+                }
 
-        return ResponseEntity.ok(
-                Map.of(
-                        "deleted",
-                        true
-                )
-        );
-    }
+                String url = body.getUrl() == null ? null : body.getUrl().trim();
+                validateUrl(url);
 
-    // ============================================================
-    // MTN MOBILE MONEY SANDBOX WEBHOOK
-    // ============================================================
+                WebhookEndpoint endpoint = WebhookEndpoint.builder()
+                                .organization(user.getOrganization())
+                                .url(url)
+                                .description(trimToNull(body.getDescription()))
+                                .secret(UUID.randomUUID().toString().replace("-", ""))
+                                .active(true)
+                                .subscribedEvents(body.getSubscribedEvents() == null
+                                                ? new ArrayList<>()
+                                                : new ArrayList<>(body.getSubscribedEvents()))
+                                .failureCount(0)
+                                .build();
 
-    
+                WebhookEndpoint saved = webhookRepo.save(endpoint);
 
-    @PostMapping("/mtn/momo")
-    @PreAuthorize("permitAll()")
-    public ResponseEntity<PaymentGatewayResponse> receiveMtnWebhook(
-            @RequestBody Map<String, Object> payload
-    ) {
+                auditService.log(
+                                user.getOrganization(),
+                                user,
+                                "WEBHOOK_CREATED",
+                                "WEBHOOK",
+                                String.valueOf(saved.getId()),
+                                "Created webhook endpoint " + saved.getUrl(),
+                                null,
+                                null,
+                                "Webhooks & Integrations");
 
-        log.info(
-                "[MTN WEBHOOK] HTTP callback endpoint reached. payload={}",
-                payload
-        );
-
-        Long loanId =
-                toLong(
-                        payload.get("loanId")
-                );
-
-        String transactionId =
-                firstString(
-                        payload,
-                        "transactionId",
-                        "referenceId",
-                        "financialTransactionId"
-                );
-
-        Double amount =
-                toDouble(
-                        payload.get("amount")
-                );
-
-        String currency =
-                firstString(
-                        payload,
-                        "currency"
-                );
-
-        String status =
-                firstString(
-                        payload,
-                        "status"
-                );
-
-        log.info(
-                "[MTN WEBHOOK] Parsed callback. " +
-                        "loanId={}, transactionId={}, amount={}, " +
-                        "currency={}, status={}",
-                loanId,
-                transactionId,
-                amount,
-                currency,
-                status
-        );
-
-        // ========================================================
-        // VALIDATION
-        // ========================================================
-
-        if (loanId == null) {
-
-            log.warn(
-                    "[MTN WEBHOOK] Missing loanId."
-            );
-
-            return ResponseEntity.badRequest()
-                    .body(
-                            PaymentGatewayResponse.failed(
-                                    "loanId is required",
-                                    "MTN_MOMO"
-                            )
-                    );
+                Map<String, Object> response = sanitize(saved);
+                response.put("secret", saved.getSecret());
+                response.put("secretDisplayedOnce", true);
+                return ResponseEntity.ok(response);
         }
 
-        if (transactionId == null
-                || transactionId.isBlank()) {
+        @DeleteMapping("/{id}")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+        public ResponseEntity<?> delete(
+                        @PathVariable Long id,
+                        Authentication auth) {
+                User user = currentUser(auth);
 
-            log.warn(
-                    "[MTN WEBHOOK] Missing transactionId."
-            );
+                if (id == null || id <= 0) {
+                        return ResponseEntity.badRequest().body(Map.of("error", "Invalid webhook ID"));
+                }
 
-            return ResponseEntity.badRequest()
-                    .body(
-                            PaymentGatewayResponse.failed(
-                                    "transactionId is required",
-                                    "MTN_MOMO"
-                            )
-                    );
+                WebhookEndpoint ep = webhookRepo.findById(id)
+                                .orElseThrow(() -> new RuntimeException("Webhook not found"));
+
+                if (ep.getOrganization() == null || user.getOrganization() == null ||
+                                !ep.getOrganization().getId().equals(user.getOrganization().getId())) {
+                        throw new RuntimeException("Access denied");
+                }
+
+                webhookRepo.delete(ep);
+
+                auditService.log(
+                                user.getOrganization(),
+                                user,
+                                "WEBHOOK_DELETED",
+                                "WEBHOOK",
+                                String.valueOf(id),
+                                "Deleted webhook endpoint " + ep.getUrl(),
+                                null,
+                                null,
+                                "Webhooks & Integrations");
+
+                return ResponseEntity.ok(Map.of("deleted", true));
         }
 
-        if (amount == null
-                || amount <= 0) {
-
-            log.warn(
-                    "[MTN WEBHOOK] Invalid amount. amount={}",
-                    amount
-            );
-
-            return ResponseEntity.badRequest()
-                    .body(
-                            PaymentGatewayResponse.failed(
-                                    "amount must be greater than zero",
-                                    "MTN_MOMO"
-                            )
-                    );
-        }
-
-        /*
-         * Sandbox sends SUCCESSFUL.
-         *
-         * Do not process failed/rejected transactions.
+        /**
+         * Legacy MTN sandbox callback kept for compatibility.
+         * Real MTN callbacks should use PaymentWebhookController.
          */
+        @PostMapping("/mtn/momo")
+        @PreAuthorize("permitAll()")
+        public ResponseEntity<PaymentGatewayResponse> receiveMtnWebhook(
+                        @RequestHeader(value = "X-Webhook-Secret", required = false) String secret,
+                        @RequestBody Map<String, Object> payload) {
+                if (payload == null) {
+                        return ResponseEntity.badRequest()
+                                        .body(PaymentGatewayResponse.failed("Payload is required", "MTN_MOMO"));
+                }
 
-        if (status != null
-                && !status.isBlank()
-                && !"SUCCESSFUL".equalsIgnoreCase(status)
-                && !"SUCCESS".equalsIgnoreCase(status)) {
+                String configured = mtnWebhookSecret;
+                if (configured == null || configured.isBlank()) {
+                        log.error("[MTN WEBHOOK] MTN_WEBHOOK_SECRET is not configured; rejecting callback");
+                        return ResponseEntity.status(503)
+                                        .body(PaymentGatewayResponse.failed("Webhook is not configured", "MTN_MOMO"));
+                }
 
-            log.warn(
-                    "[MTN WEBHOOK] Non-successful callback ignored. " +
-                            "transactionId={}, status={}",
-                    transactionId,
-                    status
-            );
+                if (!java.security.MessageDigest.isEqual(
+                                configured.trim().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                                (secret == null ? "" : secret.trim())
+                                                .getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+                        return ResponseEntity.status(401)
+                                        .body(PaymentGatewayResponse.failed("Invalid webhook secret", "MTN_MOMO"));
+                }
 
-            return ResponseEntity.ok(
-                    PaymentGatewayResponse.failed(
-                            "MTN transaction was not successful",
-                            "MTN_MOMO"
-                    )
-            );
+                Long loanId = toLong(payload.get("loanId"));
+                String transactionId = firstString(payload, "transactionId", "referenceId", "financialTransactionId");
+                Double amount = toDouble(payload.get("amount"));
+                String currency = firstString(payload, "currency");
+                String status = firstString(payload, "status");
+
+                if (loanId == null || transactionId == null || transactionId.isBlank()) {
+                        return ResponseEntity.badRequest()
+                                        .body(PaymentGatewayResponse.failed("loanId and transactionId are required",
+                                                        "MTN_MOMO"));
+                }
+                if (amount == null || amount <= 0) {
+                        return ResponseEntity.badRequest()
+                                        .body(PaymentGatewayResponse.failed("amount must be greater than zero",
+                                                        "MTN_MOMO"));
+                }
+                if (status != null && !status.isBlank() &&
+                                !isSuccessfulStatus(status)) {
+                        return ResponseEntity.ok(
+                                        PaymentGatewayResponse.failed("MTN transaction was not successful",
+                                                        "MTN_MOMO"));
+                }
+
+                try {
+                        PaymentGatewayResponse response = mtnMobileMoneyService.processWebhookConfirmation(
+                                        loanId, transactionId.trim(), amount, currency);
+                        return ResponseEntity.ok(response);
+                } catch (Exception e) {
+                        log.error("[MTN WEBHOOK] Callback processing failed. loanId={}, transactionId={}",
+                                        loanId, transactionId, e);
+                        return ResponseEntity.internalServerError()
+                                        .body(PaymentGatewayResponse.failed("Webhook processing failed", "MTN_MOMO"));
+                }
         }
 
-        // ========================================================
-        // PROCESS PAYMENT
-        // ========================================================
-
-        try {
-
-            PaymentGatewayResponse response =
-                    mtnMobileMoneyService
-                            .processWebhookConfirmation(
-                                    loanId,
-                                    transactionId,
-                                    amount,
-                                    currency
-                            );
-
-            log.info(
-                    "[MTN WEBHOOK] Callback processing completed. " +
-                            "loanId={}, transactionId={}, status={}, message={}",
-                    loanId,
-                    transactionId,
-                    response != null
-                            ? response.getStatus()
-                            : null,
-                    response != null
-                            ? response.getMessage()
-                            : null
-            );
-
-            return ResponseEntity.ok(
-                    response
-            );
-
-        } catch (Exception e) {
-
-            log.error(
-                    "[MTN WEBHOOK] Callback processing failed. " +
-                            "loanId={}, transactionId={}",
-                    loanId,
-                    transactionId,
-                    e
-            );
-
-            return ResponseEntity.internalServerError()
-                    .body(
-                            PaymentGatewayResponse.failed(
-                                    "Webhook processing failed",
-                                    "MTN_MOMO"
-                            )
-                    );
-        }
-    }
-
-    // ============================================================
-    // WEBHOOK HEALTH CHECK
-    // ============================================================
-
-    @GetMapping("/mtn/momo")
-    @PreAuthorize("permitAll()")
-    public ResponseEntity<?> mtnWebhookHealth() {
-
-        return ResponseEntity.ok(
-                Map.of(
-                        "status",
-                        "ok",
-                        "provider",
-                        "MTN_MOMO",
-                        "sandbox",
-                        true,
-                        "message",
-                        "MTN sandbox webhook endpoint is available"
-                )
-        );
-    }
-
-    // ============================================================
-    // CURRENT USER
-    // ============================================================
-
-    private User currentUser(
-            Authentication auth
-    ) {
-
-        if (auth == null
-                || auth.getName() == null) {
-
-            throw new RuntimeException(
-                    "Authentication required"
-            );
+        @GetMapping("/mtn/momo")
+        @PreAuthorize("permitAll()")
+        public ResponseEntity<?> mtnWebhookHealth() {
+                return ResponseEntity.ok(Map.of(
+                                "status", "ok",
+                                "provider", "MTN_MOMO",
+                                "message", "MTN webhook endpoint is available"));
         }
 
-        return userRepo
-                .findByEmail(
-                        auth.getName()
-                )
-                .orElseThrow(
-                        () -> new RuntimeException(
-                                "User not found"
-                        )
-                );
-    }
-
-    // ============================================================
-    // LONG CONVERSION
-    // ============================================================
-
-    private Long toLong(
-            Object value
-    ) {
-
-        if (value == null) {
-            return null;
+        private User currentUser(Authentication auth) {
+                if (auth == null || !auth.isAuthenticated() || auth.getName() == null || auth.getName().isBlank()) {
+                        throw new RuntimeException("Authentication required");
+                }
+                return userRepo.findByEmail(auth.getName())
+                                .orElseThrow(() -> new RuntimeException("User not found"));
         }
 
-        if (value instanceof Number number) {
-
-            return number.longValue();
+        private Map<String, Object> sanitize(WebhookEndpoint ep) {
+                Map<String, Object> out = new LinkedHashMap<>();
+                out.put("id", ep.getId());
+                out.put("url", ep.getUrl());
+                out.put("description", ep.getDescription());
+                out.put("active", ep.isActive());
+                out.put("subscribedEvents", ep.getSubscribedEvents());
+                out.put("failureCount", ep.getFailureCount());
+                out.put("lastDeliveryAt", ep.getLastDeliveryAt());
+                out.put("lastDeliveryStatus", ep.getLastDeliveryStatus());
+                out.put("createdAt", ep.getCreatedAt());
+                return out;
         }
 
-        try {
-
-            return Long.parseLong(
-                    value.toString()
-            );
-
-        } catch (Exception e) {
-
-            return null;
-        }
-    }
-
-    // ============================================================
-    // DOUBLE CONVERSION
-    // ============================================================
-
-    private Double toDouble(
-            Object value
-    ) {
-
-        if (value == null) {
-            return null;
+        private void validateUrl(String url) {
+                if (url == null || url.isBlank()) {
+                        throw new IllegalArgumentException("Webhook URL is required");
+                }
+                if (url.length() > 2048) {
+                        throw new IllegalArgumentException("Webhook URL is too long");
+                }
+                try {
+                        URI uri = new URI(url);
+                        String scheme = uri.getScheme();
+                        if (scheme == null || !("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))) {
+                                throw new IllegalArgumentException("Webhook URL must use HTTP or HTTPS");
+                        }
+                        if (uri.getHost() == null || uri.getHost().isBlank()) {
+                                throw new IllegalArgumentException("Webhook URL host is required");
+                        }
+                } catch (URISyntaxException e) {
+                        throw new IllegalArgumentException("Invalid webhook URL");
+                }
         }
 
-        if (value instanceof Number number) {
-
-            return number.doubleValue();
+        private String trimToNull(String value) {
+                if (value == null)
+                        return null;
+                String v = value.trim();
+                return v.isEmpty() ? null : v;
         }
 
-        try {
-
-            return Double.parseDouble(
-                    value.toString()
-            );
-
-        } catch (Exception e) {
-
-            return null;
-        }
-    }
-
-    // ============================================================
-    // STRING EXTRACTION
-    // ============================================================
-
-    private String firstString(
-            Map<String, Object> payload,
-            String... keys
-    ) {
-
-        for (String key : keys) {
-
-            Object value =
-                    payload.get(key);
-
-            if (value != null
-                    && !value.toString()
-                    .isBlank()) {
-
-                return value.toString().trim();
-            }
+        private boolean isSuccessfulStatus(String status) {
+                String s = status == null ? "" : status.trim().toUpperCase(java.util.Locale.ROOT);
+                return s.equals("SUCCESS") || s.equals("SUCCESSFUL") || s.equals("COMPLETED") || s.equals("200");
         }
 
-        return null;
-    }
+        private Long toLong(Object value) {
+                if (value == null)
+                        return null;
+                try {
+                        return Long.parseLong(String.valueOf(value).trim());
+                } catch (Exception e) {
+                        return null;
+                }
+        }
+
+        private Double toDouble(Object value) {
+                if (value == null)
+                        return null;
+                try {
+                        return Double.parseDouble(String.valueOf(value).trim());
+                } catch (Exception e) {
+                        return null;
+                }
+        }
+
+        private String firstString(Map<String, Object> payload, String... keys) {
+                for (String key : keys) {
+                        Object value = payload.get(key);
+                        if (value != null && !String.valueOf(value).isBlank()) {
+                                return String.valueOf(value).trim();
+                        }
+                }
+                return null;
+        }
 }
