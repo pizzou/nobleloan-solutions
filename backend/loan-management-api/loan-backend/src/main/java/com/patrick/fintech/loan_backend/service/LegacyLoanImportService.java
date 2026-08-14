@@ -620,26 +620,8 @@ public class LegacyLoanImportService {
                         return "";
                 }
 
-                String result = value
-                                .replace(
-                                                "\uFEFF",
-                                                "")
-                                .replace(
-                                                "\u00A0",
-                                                " ")
-                                .trim()
-                                .toLowerCase(
-                                                Locale.ROOT);
-
-                /*
-                 * Excel may produce headers such as:
-                 *
-                 * 'national_id
-                 *
-                 * Remove only the leading apostrophe.
-                 */
-                result = removeLeadingExcelApostrophe(
-                                result);
+                String result = normalizeExcelImportedValue(value)
+                                .toLowerCase(Locale.ROOT);
 
                 return result.trim();
         }
@@ -657,34 +639,7 @@ public class LegacyLoanImportService {
                         return "";
                 }
 
-                String result = value
-                                .replace(
-                                                "\uFEFF",
-                                                "")
-                                .replace(
-                                                "\u00A0",
-                                                " ")
-                                .trim();
-
-                /*
-                 * Remove Excel's leading text apostrophe.
-                 *
-                 * IMPORTANT:
-                 *
-                 * This removes:
-                 *
-                 * '119876543210
-                 *
-                 * but does NOT change:
-                 *
-                 * O'Connor
-                 *
-                 * because the apostrophe is not the first character.
-                 */
-                result = removeLeadingExcelApostrophe(
-                                result);
-
-                return result.trim();
+                return normalizeExcelImportedValue(value);
         }
 
         /*
@@ -712,23 +667,58 @@ public class LegacyLoanImportService {
          */
         private String removeLeadingExcelApostrophe(
                         String value) {
+                return normalizeExcelImportedValue(value);
+        }
+
+        private String normalizeExcelImportedValue(
+                        String value) {
 
                 if (value == null) {
-
                         return "";
                 }
 
-                String result = value.trim();
+                String result = value
+                                .replace("\uFEFF", "")
+                                .replace("\u00A0", " ")
+                                .trim();
 
-                if (result.length() >= 2
-                                && result.charAt(0) == '\'') {
+                // Remove Excel/text-prefix quote markers, even when the source
+                // contains double/smart quotes instead of a straight apostrophe.
+                while (result.length() > 1 && isExcelTextMarker(result.charAt(0))) {
+                        result = result.substring(1).trim();
+                }
 
-                        return result
-                                        .substring(1)
-                                        .trim();
+                // Remove accidental surrounding matching quotes.
+                for (int i = 0; i < 2 && result.length() >= 2; i++) {
+                        char first = result.charAt(0);
+                        char last = result.charAt(result.length() - 1);
+                        if (isQuote(first) && isQuote(last) && matchesQuote(first, last)) {
+                                result = result.substring(1, result.length() - 1).trim();
+                        } else {
+                                break;
+                        }
                 }
 
                 return result;
+        }
+
+        private boolean isExcelTextMarker(char c) {
+                return c == '\'' || c == '\"' || c == '`'
+                                || c == '‘' || c == '’' || c == '“' || c == '”';
+        }
+
+        private boolean isQuote(char c) {
+                return c == '\'' || c == '\"'
+                                || c == '‘' || c == '’' || c == '“' || c == '”';
+        }
+
+        private boolean matchesQuote(char first, char last) {
+                return (first == '\'' && last == '\'')
+                                || (first == '\"' && last == '\"')
+                                || (first == '‘' && last == '’')
+                                || (first == '“' && last == '”')
+                                || (first == '’' && last == '’')
+                                || (first == '”' && last == '”');
         }
 
         /*

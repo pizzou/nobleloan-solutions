@@ -1189,54 +1189,31 @@ public class LegacyLoanImportRowService {
                         String value) {
 
                 if (value == null) {
-
                         throw new IllegalArgumentException(
                                         "national_id is required.");
                 }
 
-                String normalized = value
-                                .replace(
-                                                "\uFEFF",
-                                                "")
-                                .trim();
+                // Normalize Excel text prefixes, wrapping quotes, BOM/NBSP and
+                // harmless grouping separators commonly introduced in exports.
+                String normalized = normalizeImportedValue(value)
+                                .replace("\u00A0", " ")
+                                .trim()
+                                .replaceAll("[\\s-]+", "");
 
-                if (normalized.startsWith("'")
-                                && normalized.length() > 1) {
-
-                        normalized = normalized.substring(
-                                        1).trim();
-
-                        log.debug(
-                                        "Removed Excel text-prefix apostrophe from national_id.");
+                // Some spreadsheet exports leave an unmatched quote at one end.
+                while (!normalized.isEmpty() && isImportQuote(normalized.charAt(0))) {
+                        normalized = normalized.substring(1).trim();
                 }
-
-                if (normalized.startsWith("’")
-                                && normalized.length() > 1) {
-
-                        normalized = normalized.substring(
-                                        1).trim();
-
-                        log.debug(
-                                        "Removed Unicode Excel-style apostrophe from national_id.");
-                }
-
-                normalized = normalized.replaceAll(
-                                "\\s+",
-                                "");
-
-                if (normalized.length() >= 2
-                                && ((normalized.startsWith("\"")
-                                                && normalized.endsWith("\""))
-                                                ||
-                                                (normalized.startsWith("'")
-                                                                && normalized.endsWith("'")))) {
-
-                        normalized = normalized.substring(
-                                        1,
-                                        normalized.length() - 1).trim();
+                while (!normalized.isEmpty() && isImportQuote(normalized.charAt(normalized.length() - 1))) {
+                        normalized = normalized.substring(0, normalized.length() - 1).trim();
                 }
 
                 return normalized;
+        }
+
+        private boolean isImportQuote(char c) {
+                return c == '\'' || c == '\"' || c == '`'
+                                || c == '‘' || c == '’' || c == '“' || c == '”';
         }
 
         private void validateNationalId(

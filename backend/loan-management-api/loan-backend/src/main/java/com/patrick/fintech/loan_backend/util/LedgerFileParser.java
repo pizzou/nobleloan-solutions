@@ -26,7 +26,64 @@ public final class LedgerFileParser {
     public static String normalizeHeader(String header) {
         if (header == null)
             return "";
-        return header.trim().toLowerCase(Locale.ROOT).replaceAll("[\\s\\-]+", "_");
+        return normalizeExcelText(header)
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[\\s\\-]+", "_")
+                .trim();
+    }
+
+    /**
+     * Normalizes text coming from Excel/CSV without changing legitimate
+     * apostrophes inside a value such as O'Connor.
+     *
+     * Handles Excel text-prefix characters and accidental surrounding quotes:
+     * ', ", `, ‘, ’, “, ”, BOM and non-breaking spaces.
+     */
+    private static String normalizeExcelText(String value) {
+        if (value == null)
+            return "";
+
+        String result = value
+                .replace("\uFEFF", "")
+                .replace("\u00A0", " ")
+                .trim();
+
+        // Excel/text exports sometimes leave a prefix quote on a string cell.
+        while (result.length() > 1 && isLeadingExcelTextMarker(result.charAt(0))) {
+            result = result.substring(1).trim();
+        }
+
+        // Remove accidental surrounding matching quotes, but keep internal apostrophes.
+        for (int i = 0; i < 2 && result.length() >= 2; i++) {
+            char first = result.charAt(0);
+            char last = result.charAt(result.length() - 1);
+            if (isQuote(first) && isQuote(last) && matchingQuote(first, last)) {
+                result = result.substring(1, result.length() - 1).trim();
+            } else {
+                break;
+            }
+        }
+
+        return result;
+    }
+
+    private static boolean isLeadingExcelTextMarker(char c) {
+        return c == '\'' || c == '\"' || c == '`'
+                || c == '‘' || c == '’' || c == '“' || c == '”';
+    }
+
+    private static boolean isQuote(char c) {
+        return c == '\'' || c == '\"'
+                || c == '‘' || c == '’' || c == '“' || c == '”';
+    }
+
+    private static boolean matchingQuote(char first, char last) {
+        return (first == '\'' && last == '\'')
+                || (first == '\"' && last == '\"')
+                || (first == '‘' && last == '’')
+                || (first == '“' && last == '”')
+                || (first == '’' && last == '’')
+                || (first == '”' && last == '”');
     }
 
     // ---------- CSV ----------
@@ -137,7 +194,9 @@ public final class LedgerFileParser {
                 Map<String, String> row = new LinkedHashMap<>();
                 for (int i = 0; i < headers.size(); i++) {
                     Cell cell = r.getCell(i, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
-                    String val = cell == null ? "" : formatter.formatCellValue(cell, evaluator).trim();
+                    String val = cell == null
+                            ? ""
+                            : normalizeExcelText(formatter.formatCellValue(cell, evaluator));
                     if (!val.isBlank())
                         allBlank = false;
                     row.put(headers.get(i), val);
