@@ -35,6 +35,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -43,7 +44,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import java.util.Comparator;
 
 @Service
 @RequiredArgsConstructor
@@ -1298,11 +1298,6 @@ public class LoanService {
                                 saved.getReferenceNumber(),
                                 saved.getDisbursedAt());
 
-                // Rebuild the repayment Payment rows from the actual disbursement date.
-                // Approval can occur before disbursement, so an approval-time schedule
-                // must not become the authoritative payment schedule.
-                generateRepaymentSchedule(saved);
-
                 paymentScheduleService.generateSchedule(
                                 saved);
 
@@ -2282,89 +2277,161 @@ public class LoanService {
                         Loan loan) {
 
                 if (loan == null) {
-                        throw new IllegalArgumentException("Loan cannot be null");
+
+                        throw new IllegalArgumentException(
+                                        "Loan cannot be null");
                 }
+
                 if (loan.getId() == null) {
-                        throw new IllegalArgumentException("Loan ID is required before generating repayment schedule");
-                }
-                if (loan.getOrganization() == null || loan.getOrganization().getId() == null) {
-                        throw new IllegalArgumentException("Loan organization is required");
-                }
 
-                List<Payment> existing = paymentRepo.findByLoanId(loan.getId());
-                boolean hasActivity = existing.stream().anyMatch(
-                                p -> p != null && (safeMoneyValue(p.getAmountPaidDecimal()).compareTo(ZERO) > 0
-                                                || Boolean.TRUE.equals(p.getPaid())
-                                                || (p.getTransactionId() != null && !p.getTransactionId().isBlank())));
-
-                if (hasActivity) {
-                        throw new IllegalStateException(
-                                        "Cannot regenerate repayment schedule for loan "
-                                                        + loan.getReferenceNumber()
-                                                        + " because payment activity already exists.");
+                        throw new IllegalArgumentException(
+                                        "Loan ID is required before generating repayment schedule");
                 }
 
-                if (!existing.isEmpty()) {
-                        paymentRepo.deleteAll(existing);
+                if (loan.getOrganization() == null
+                                || loan.getOrganization().getId() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Loan organization is required");
+                }
+
+                // ============================================================
+                // DUPLICATE PROTECTION
+                // ============================================================
+
+                if (!paymentRepo
+                                .findByLoanId(
+                                                loan.getId())
+                                .isEmpty()) {
+
+                        log.warn(
+                                        "Payment schedule already exists for loan {}, skipping generation",
+                                        loan.getId());
+
+                        return;
                 }
 
                 int months = loan.getDurationMonths() != null
                                 ? loan.getDurationMonths()
                                 : DEFAULT_LOAN_DURATION_MONTHS;
+
                 validateLoanDuration(months);
 
                 BigDecimal principal = normalizePrincipal(
-                                moneyValue(loan.getAmountDecimal()));
+                                moneyValue(
+                                                loan.getAmountDecimal()));
+
                 if (principal.compareTo(MIN_LOAN_AMOUNT) < 0) {
+
                         throw new IllegalArgumentException(
-                                        "Loan principal cannot be below " + MIN_LOAN_AMOUNT);
+                                        "Loan principal cannot be below "
+                                                        + MIN_LOAN_AMOUNT);
                 }
 
+                // ============================================================
+                // FIXED BUSINESS RATES
+                // ============================================================
+
                 BigDecimal interestRate = MONTHLY_INTEREST_RATE;
+
                 BigDecimal managementRate = MONTHLY_MANAGEMENT_FEE_RATE;
+
+                BigDecimal combinedMonthlyRate = TOTAL_MONTHLY_CHARGE_RATE;
+
+                loan.setInterestRate(
+                                interestRate);
+
+                loan.setManagementFeeRate(
+                                managementRate);
+
+                loan.setProcessingFeeRate(
+                                PROCESSING_FEE_RATE);
+
+                loan.setInterestRateType(
+                                "MONTHLY");
+
+                // ============================================================
+                // PROCESSING FEE
+                // ============================================================
+
                 BigDecimal processingFee = money(
-                                principal.multiply(PROCESSING_FEE_RATE)
-                                                .divide(ONE_HUNDRED, 16, RoundingMode.HALF_UP));
+                                principal
+                                                .multiply(
+                                                                PROCESSING_FEE_RATE)
+                                                .divide(
+                                                                ONE_HUNDRED,
+                                                                16,
+                                                                RoundingMode.HALF_UP));
 
-                loan.setInterestRate(interestRate);
-                loan.setManagementFeeRate(managementRate);
-                loan.setProcessingFeeRate(PROCESSING_FEE_RATE);
-                loan.setInterestRateType("MONTHLY");
-                loan.setProcessingFee(processingFee);
+                loan.setProcessingFee(
+                                processingFee);
 
-                LocalDate baseDate = loan.getDisbursedAt() != null
-                                ? loan.getDisbursedAt().toLocalDate()
-                                : (loan.getStartDate() != null ? loan.getStartDate() : LocalDate.now());
-                Long orgId = loan.getOrganization().getId();
+                // ============================================================
+                // DAILY-BASIS DECLINING-BALANCE SCHEDULE
+                // ============================================================
 
-                BigDecimal equalPrincipal = money(
-                                principal.divide(BigDecimal.valueOf(months), 16, RoundingMode.HALF_UP));
                 BigDecimal balance = principal;
                 BigDecimal accumulatedInterest = ZERO;
                 BigDecimal accumulatedManagementFee = ZERO;
+                LocalDate firstDueDate = null;
+                Long orgId = loan.getOrganization().getId();
+
+                LocalDate startDate = loan.getDisbursedAt() != null
+                                ? loan.getDisbursedAt().toLocalDate()
+                                : (loan.getStartDate() != null
+                                                ? loan.getStartDate()
+                                                : LocalDate.now());
+
+                int remainingInstallments = months;
 
                 for (int i = 1; i <= months; i++) {
-                        LocalDate rawDueDate = baseDate.plusMonths(1);
-                        LocalDate dueDate = holidayService.adjustToBusinessDay(orgId, rawDueDate);
+                        balance = money(balance);
+
+                        LocalDate rawDueDate = startDate.plusMonths(i);
+                        LocalDate dueDate = holidayService.adjustToBusinessDay(
+                                        orgId,
+                                        rawDueDate);
+
+                        if (firstDueDate == null) {
+                                firstDueDate = dueDate;
+                        }
 
                         BigDecimal principalComponent = i == months
                                         ? money(balance)
-                                        : money(equalPrincipal.min(balance));
+                                        : money(balance.divide(
+                                                        BigDecimal.valueOf(remainingInstallments),
+                                                        16,
+                                                        RoundingMode.HALF_UP));
 
-                        BigDecimal interest = money(
-                                        accrueDaily(balance, baseDate, rawDueDate, interestRate));
-                        BigDecimal managementFee = money(
-                                        accrueDaily(balance, baseDate, rawDueDate, managementRate));
+                        BigDecimal interest = accrueDaily(
+                                        balance,
+                                        startDate,
+                                        dueDate,
+                                        interestRate);
+
+                        BigDecimal managementFee = accrueDaily(
+                                        balance,
+                                        startDate,
+                                        dueDate,
+                                        managementRate);
+
                         BigDecimal installmentAmount = money(
-                                        principalComponent.add(interest).add(managementFee));
+                                        principalComponent
+                                                        .add(interest)
+                                                        .add(managementFee));
 
-                        balance = money(balance.subtract(principalComponent).max(ZERO));
+                        accumulatedInterest = money(
+                                        accumulatedInterest.add(interest));
+
+                        accumulatedManagementFee = money(
+                                        accumulatedManagementFee.add(managementFee));
+
+                        balance = money(
+                                        balance.subtract(principalComponent));
+
                         if (balance.compareTo(MIN_MONEY_UNIT) < 0) {
                                 balance = ZERO;
                         }
-
-                        accumulatedInterest = money(accumulatedInterest.add(interest));
-                        accumulatedManagementFee = money(accumulatedManagementFee.add(managementFee));
 
                         Payment payment = Payment.builder()
                                         .paymentReference(generatePayRef(loan, i))
@@ -2372,59 +2439,76 @@ public class LoanService {
                                         .organization(loan.getOrganization())
                                         .installmentNumber(i)
                                         .amount(installmentAmount)
-                                        .principalComponent(ZERO)
-                                        .interestComponent(ZERO)
-                                        .managementFeeComponent(ZERO)
-                                        .amountPaid(ZERO)
+                                        .principalComponent(principalComponent)
+                                        .interestComponent(interest)
+                                        .managementFeeComponent(managementFee)
                                         .scheduledInterest(interest)
                                         .scheduledManagementFee(managementFee)
-                                        .cycleInterestDue(ZERO)
-                                        .cycleInterestRemaining(ZERO)
-                                        .cycleManagementFeeDue(ZERO)
-                                        .cycleManagementFeeRemaining(ZERO)
+                                        .cycleInterestDue(interest)
+                                        .cycleInterestRemaining(interest)
+                                        .cycleManagementFeeDue(managementFee)
+                                        .cycleManagementFeeRemaining(managementFee)
                                         .interestCalculationDate(null)
+                                        .dueDate(dueDate)
+                                        .paid(false)
+                                        .amountPaid(ZERO)
                                         .penalty(ZERO)
                                         .penaltyPaid(ZERO)
                                         .outstandingAfter(balance)
-                                        .dueDate(dueDate)
-                                        .paid(false)
                                         .status(Payment.PaymentStatus.PENDING)
                                         .build();
 
                         paymentRepo.save(payment);
-                        baseDate = rawDueDate;
+
+                        startDate = dueDate;
+                        remainingInstallments--;
                 }
 
-                loan.setAmount(principal);
-                loan.setOutstandingBalance(principal);
-                loan.setTotalInterest(accumulatedInterest);
-                loan.setManagementFee(accumulatedManagementFee);
-                loan.setManagementFeePaid(ZERO);
-                loan.setInterestPaid(ZERO);
-                loan.setProcessingFeePaid(ZERO);
-                loan.setProcessingFee(processingFee);
+                // ============================================================
+                // STORE LOAN TOTALS
+                // ============================================================
 
-                LocalDate firstDue = holidayService.adjustToBusinessDay(
-                                orgId,
-                                (loan.getDisbursedAt() != null
-                                                ? loan.getDisbursedAt().toLocalDate()
-                                                : (loan.getStartDate() != null ? loan.getStartDate() : LocalDate.now()))
-                                                .plusMonths(1));
-                loan.setNextDueDate(firstDue);
-                loan.setNextPaymentDate(firstDue);
+                loan.setAmount(
+                                principal);
 
-                Payment firstPayment = paymentRepo.findByLoanId(loan.getId()).stream()
-                                .filter(p -> p != null && !Boolean.TRUE.equals(p.getPaid()))
-                                .min(Comparator.comparing(Payment::getInstallmentNumber))
-                                .orElse(null);
-                loan.setNextInstallmentAmount(
-                                firstPayment == null ? ZERO : safeMoneyValue(firstPayment.getAmount()));
+                loan.setOutstandingBalance(
+                                principal);
 
-                loan.setCreditQuality(Loan.CreditQuality.CURRENT);
+                loan.setTotalInterest(
+                                accumulatedInterest);
+
+                loan.setManagementFee(
+                                accumulatedManagementFee);
+
+                loan.setManagementFeePaid(
+                                ZERO);
+
+                loan.setInterestPaid(
+                                ZERO);
+
+                loan.setProcessingFeePaid(
+                                ZERO);
+
+                loan.setProcessingFee(
+                                processingFee);
+
+                loan.setNextDueDate(
+                                firstDueDate != null
+                                                ? firstDueDate
+                                                : holidayService.adjustToBusinessDay(
+                                                                orgId,
+                                                                LocalDate.now().plusMonths(1)));
+
+                loan.setCreditQuality(
+                                Loan.CreditQuality.CURRENT);
+
                 loan.setDaysOverdue(0);
 
                 loan.setTotalRepayable(
-                                money(principal.add(accumulatedInterest).add(accumulatedManagementFee)));
+                                money(
+                                                principal
+                                                                .add(accumulatedInterest)
+                                                                .add(accumulatedManagementFee)));
 
                 loanRepo.save(loan);
         }
@@ -2449,15 +2533,16 @@ public class LoanService {
                 LocalDate cursor = startDate;
 
                 while (cursor.isBefore(endDate)) {
-                        int daysInMonth = cursor.lengthOfMonth();
+                        YearMonth month = YearMonth.from(cursor);
                         BigDecimal dailyRate = monthlyRatePercent
                                         .divide(ONE_HUNDRED, 16, RoundingMode.HALF_UP)
-                                        .divide(BigDecimal.valueOf(daysInMonth), 16, RoundingMode.HALF_UP);
+                                        .divide(BigDecimal.valueOf(month.lengthOfMonth()), 16, RoundingMode.HALF_UP);
+
                         total = total.add(outstandingPrincipal.multiply(dailyRate));
                         cursor = cursor.plusDays(1);
                 }
 
-                return total;
+                return money(total);
         }
 
         // ================================================================
@@ -2497,10 +2582,6 @@ public class LoanService {
                 }
         }
 
-        private BigDecimal safeMoneyValue(BigDecimal value) {
-                return value == null ? ZERO : money(value);
-        }
-
         // ================================================================
         // LOAN CALCULATION
         // ================================================================
@@ -2512,82 +2593,72 @@ public class LoanService {
                         String rateType) {
 
                 principal = normalizePrincipal(principal);
-
                 validateLoanDuration(months);
 
-                if (principal.compareTo(
-                                MIN_LOAN_AMOUNT) < 0) {
-
+                if (principal.compareTo(MIN_LOAN_AMOUNT) < 0) {
                         throw new IllegalArgumentException(
-                                        "Loan principal must be at least "
-                                                        + MIN_LOAN_AMOUNT);
+                                        "Loan principal must be at least " + MIN_LOAN_AMOUNT);
                 }
 
                 if (rate == null) {
-
-                        throw new IllegalArgumentException(
-                                        "Loan rate is required");
+                        throw new IllegalArgumentException("Loan rate is required");
                 }
 
                 validateInterestRate(rate);
-
                 validateRateType(rateType);
 
-                BigDecimal monthlyRate = calculateMonthlyRate(
-                                rate,
-                                rateType);
+                BigDecimal monthlyRatePercent = rate;
+                if ("ANNUAL".equalsIgnoreCase(rateType)) {
+                        monthlyRatePercent = rate.divide(
+                                        TWELVE,
+                                        16,
+                                        RoundingMode.HALF_UP);
+                }
 
-                if (monthlyRate.compareTo(
-                                ZERO) == 0) {
+                LocalDate startDate = LocalDate.now();
+                BigDecimal balance = money(principal);
+                BigDecimal totalRecurringCharges = ZERO;
+                BigDecimal firstInstallment = ZERO;
+                int remainingInstallments = months;
 
-                        BigDecimal monthly = money(
-                                        principal.divide(
-                                                        BigDecimal.valueOf(months),
+                for (int i = 1; i <= months; i++) {
+                        LocalDate dueDate = startDate.plusMonths(1);
+
+                        BigDecimal principalComponent = i == months
+                                        ? money(balance)
+                                        : money(balance.divide(
+                                                        BigDecimal.valueOf(remainingInstallments),
                                                         16,
                                                         RoundingMode.HALF_UP));
 
-                        return new BigDecimal[] {
-                                        monthly,
-                                        money(
-                                                        monthly.multiply(
-                                                                        BigDecimal.valueOf(months)))
-                        };
+                        BigDecimal recurringCharge = accrueDaily(
+                                        balance,
+                                        startDate,
+                                        dueDate,
+                                        monthlyRatePercent);
+
+                        BigDecimal installment = money(
+                                        principalComponent.add(recurringCharge));
+
+                        if (i == 1) {
+                                firstInstallment = installment;
+                        }
+
+                        totalRecurringCharges = money(
+                                        totalRecurringCharges.add(recurringCharge));
+
+                        balance = money(balance.subtract(principalComponent));
+                        if (balance.compareTo(MIN_MONEY_UNIT) < 0) {
+                                balance = ZERO;
+                        }
+
+                        startDate = dueDate;
+                        remainingInstallments--;
                 }
-
-                BigDecimal onePlusMonthlyRate = BigDecimal.ONE.add(
-                                monthlyRate);
-
-                BigDecimal factor = onePlusMonthlyRate.pow(
-                                months,
-                                java.math.MathContext.DECIMAL128);
-
-                BigDecimal numerator = principal
-                                .multiply(monthlyRate)
-                                .multiply(factor);
-
-                BigDecimal denominator = factor.subtract(
-                                BigDecimal.ONE);
-
-                if (denominator.compareTo(
-                                ZERO) == 0) {
-
-                        throw new IllegalArgumentException(
-                                        "Invalid interest calculation");
-                }
-
-                BigDecimal monthly = money(
-                                numerator.divide(
-                                                denominator,
-                                                16,
-                                                RoundingMode.HALF_UP));
-
-                BigDecimal total = money(
-                                monthly.multiply(
-                                                BigDecimal.valueOf(months)));
 
                 return new BigDecimal[] {
-                                monthly,
-                                total
+                                firstInstallment,
+                                money(principal.add(totalRecurringCharges))
                 };
         }
 

@@ -22,7 +22,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -502,8 +501,9 @@ public class PaymentService {
                 // DAILY INTEREST / MANAGEMENT RATES
                 // ============================================================
 
-                // Daily rates vary by calendar month: 5% / actual days in month.
-                // The accrual helpers below handle month boundaries correctly.
+                BigDecimal dailyInterestRate = calculateDailyInterestRate();
+
+                BigDecimal dailyManagementFeeRate = calculateDailyManagementFeeRate();
 
                 // ============================================================
                 // INTEREST START TIMESTAMP
@@ -554,9 +554,8 @@ public class PaymentService {
 
                 BigDecimal newlyAccruedInterest = calculateNewInterest(
                                 currentBalance,
-                                interestStartDateTime.toLocalDate(),
-                                now.toLocalDate(),
-                                MONTHLY_INTEREST_RATE);
+                                dailyInterestRate,
+                                elapsedDays);
 
                 // ============================================================
                 // NEW MANAGEMENT FEE
@@ -564,9 +563,8 @@ public class PaymentService {
 
                 BigDecimal newlyAccruedManagementFee = calculateNewManagementFee(
                                 currentBalance,
-                                interestStartDateTime.toLocalDate(),
-                                now.toLocalDate(),
-                                MONTHLY_MANAGEMENT_FEE_RATE);
+                                dailyManagementFeeRate,
+                                elapsedDays);
 
                 // ============================================================
                 // TOTAL CURRENT CYCLE INTEREST
@@ -1211,20 +1209,6 @@ public class PaymentService {
                         }
                 }
 
-                // Once an installment is completed, rebuild the future unpaid installments
-                // from the NEW outstanding principal. This makes the next installment
-                // decrease when the borrower has paid principal early/extra.
-                if (!principalCovered) {
-                        // No future schedule refresh is needed while the current installment
-                        // remains partially unpaid.
-                } else if (!loan.getStatus().equals(LoanStatus.PAID)) {
-                        refreshFutureInstallments(
-                                        loan,
-                                        today,
-                                        newBalance,
-                                        installment.getId());
-                }
-
                 loanRepo.save(
                                 loan);
 
@@ -1467,11 +1451,11 @@ public class PaymentService {
 
                         paymentWebhook.put(
                                         "dailyInterestRate",
-                                        calculateDailyInterestRate());
+                                        dailyInterestRate);
 
                         paymentWebhook.put(
                                         "dailyManagementFeeRate",
-                                        calculateDailyManagementFeeRate());
+                                        dailyManagementFeeRate);
 
                         paymentWebhook.put(
                                         "newInterest",
@@ -1908,14 +1892,25 @@ public class PaymentService {
                         return 0L;
                 }
 
+                /*
+                 * First payment:
+                 *
+                 * 09 Aug 10:00
+                 * 09 Aug 10:01
+                 *
+                 * = 1 financial interest day.
+                 */
                 if (firstInterestCalculation) {
-                        // Disbursement day is not an extra charge day.
-                        // The first charge is earned only for calendar days actually elapsed.
-                        return interestStart == null || now == null
-                                        ? 0L
-                                        : Math.max(0L, ChronoUnit.DAYS.between(
-                                                        interestStart.toLocalDate(),
-                                                        now.toLocalDate()));
+
+                        log.info(
+                                        "FIRST INTEREST/MANAGEMENT FEE CHARGE. " +
+                                                        "loanId={}, interestStart={}, paymentTime={}, " +
+                                                        "effectiveInterestDays=1",
+                                        loanId,
+                                        interestStart,
+                                        now);
+
+                        return 1L;
                 }
 
                 if (interestStart == null) {
@@ -1971,164 +1966,107 @@ public class PaymentService {
         }
 
         // ================================================================
-        // REFRESH FUTURE INSTALLMENTS FROM OUTSTANDING PRINCIPAL
-        // ================================================================
-
-        private void refreshFutureInstallments(
-                        Loan loan,
-                        LocalDate anchorDate,
-                        BigDecimal outstandingPrincipal,
-                        Long completedPaymentId) {
-                if (loan == null
-                                || loan.getId() == null
-                                || outstandingPrincipal == null
-                                || outstandingPrincipal.compareTo(ZERO) <= 0) {
-                        return;
-                }
-
-                List<Payment> future = paymentRepo.findByLoanId(loan.getId())
-                                .stream()
-                                .filter(p -> p != null)
-                                .filter(p -> !Boolean.TRUE.equals(p.getPaid()))
-                                .filter(p -> completedPaymentId == null
-                                                || p.getId() == null
-                                                || !p.getId().equals(completedPaymentId))
-                                .sorted(Comparator.comparing(
-                                                Payment::getInstallmentNumber,
-                                                Comparator.nullsLast(Comparator.naturalOrder())))
-                                .toList();
-
-                if (future.isEmpty()) {
-                        loan.setNextInstallmentAmount(ZERO);
-                        return;
-                }
-
-                BigDecimal balance = roundMoney(outstandingPrincipal);
-                BigDecimal equalPrincipal = roundMoney(
-                                balance.divide(
-                                                BigDecimal.valueOf(future.size()),
-                                                16,
-                                                RoundingMode.HALF_UP));
-                LocalDate start = anchorDate == null ? LocalDate.now() : anchorDate;
-
-                for (int i = 0; i < future.size(); i++) {
-                        Payment p = future.get(i);
-                        LocalDate dueDate = p.getDueDate() == null ? start.plusMonths(1) : p.getDueDate();
-
-                        if (!start.isBefore(dueDate)) {
-                                start = dueDate.minusDays(1);
-                                if (!start.isBefore(dueDate)) {
-                                        start = dueDate;
-                                }
-                        }
-
-                        BigDecimal principalComponent = (i == future.size() - 1)
-                                        ? roundMoney(balance)
-                                        : roundMoney(equalPrincipal.min(balance));
-
-                        BigDecimal interest = accrueDaily(
-                                        balance,
-                                        start,
-                                        dueDate,
-                                        MONTHLY_INTEREST_RATE);
-                        BigDecimal managementFee = accrueDaily(
-                                        balance,
-                                        start,
-                                        dueDate,
-                                        MONTHLY_MANAGEMENT_FEE_RATE);
-                        BigDecimal projectedAmount = roundMoney(
-                                        principalComponent.add(interest).add(managementFee));
-
-                        p.setAmount(projectedAmount);
-                        p.setScheduledInterest(interest);
-                        p.setScheduledManagementFee(managementFee);
-                        p.setOutstandingAfter(
-                                        roundMoney(balance.subtract(principalComponent).max(ZERO)));
-                        paymentRepo.save(p);
-
-                        balance = roundMoney(balance.subtract(principalComponent).max(ZERO));
-                        start = dueDate;
-                }
-
-                Payment next = future.get(0);
-                loan.setNextDueDate(next.getDueDate());
-                loan.setNextPaymentDate(next.getDueDate());
-                loan.setNextInstallmentAmount(roundMoney(next.getAmount()));
-        }
-
-        // ================================================================
-        // DAILY-BASIS ACCRUAL
+        // DAILY INTEREST RATE
         // ================================================================
 
         private BigDecimal calculateDailyInterestRate() {
-                // Compatibility helper: a daily rate must always be tied to a calendar month.
-                return MONTHLY_INTEREST_RATE.divide(
-                                BigDecimal.valueOf(LocalDate.now().lengthOfMonth()),
-                                16,
-                                RoundingMode.HALF_UP);
+
+                /*
+                 * 5% monthly / 30
+                 */
+                return MONTHLY_INTEREST_RATE
+                                .divide(
+                                                THIRTY,
+                                                16,
+                                                RoundingMode.HALF_UP);
         }
 
+        // ================================================================
+        // DAILY MANAGEMENT FEE RATE
+        // ================================================================
+
         private BigDecimal calculateDailyManagementFeeRate() {
-                return MONTHLY_MANAGEMENT_FEE_RATE.divide(
-                                BigDecimal.valueOf(LocalDate.now().lengthOfMonth()),
-                                16,
-                                RoundingMode.HALF_UP);
+
+                /*
+                 * 5% monthly / 30
+                 */
+                return MONTHLY_MANAGEMENT_FEE_RATE
+                                .divide(
+                                                THIRTY,
+                                                16,
+                                                RoundingMode.HALF_UP);
         }
+
+        // ================================================================
+        // CALCULATE NEW INTEREST
+        // ================================================================
 
         private BigDecimal calculateNewInterest(
                         BigDecimal currentBalance,
-                        LocalDate startDate,
-                        LocalDate endDate,
-                        BigDecimal monthlyRate) {
-                return accrueDaily(currentBalance, startDate, endDate, monthlyRate);
-        }
+                        BigDecimal dailyRate,
+                        long elapsedDays) {
 
-        private BigDecimal calculateNewManagementFee(
-                        BigDecimal currentBalance,
-                        LocalDate startDate,
-                        LocalDate endDate,
-                        BigDecimal monthlyRate) {
-                return accrueDaily(currentBalance, startDate, endDate, monthlyRate);
-        }
+                if (currentBalance == null
+                                || currentBalance.compareTo(
+                                                BigDecimal.ZERO) <= 0) {
 
-        /**
-         * Accrues a monthly percentage daily using the actual calendar day count
-         * of every month crossed by [startDate, endDate).
-         *
-         * Example: 5% monthly in a 30-day month = 5% / 30 per day.
-         * February uses 28/29, April uses 30, January uses 31, etc.
-         */
-        private BigDecimal accrueDaily(
-                        BigDecimal outstandingPrincipal,
-                        LocalDate startDate,
-                        LocalDate endDate,
-                        BigDecimal monthlyRatePercent) {
-                if (outstandingPrincipal == null
-                                || outstandingPrincipal.compareTo(ZERO) <= 0
-                                || startDate == null
-                                || endDate == null
-                                || !startDate.isBefore(endDate)
-                                || monthlyRatePercent == null
-                                || monthlyRatePercent.compareTo(ZERO) <= 0) {
                         return ZERO;
                 }
 
-                BigDecimal total = ZERO;
-                LocalDate cursor = startDate;
+                if (dailyRate == null
+                                || dailyRate.compareTo(
+                                                BigDecimal.ZERO) <= 0) {
 
-                while (cursor.isBefore(endDate)) {
-                        YearMonth yearMonth = YearMonth.from(cursor);
-                        int daysInMonth = yearMonth.lengthOfMonth();
-
-                        BigDecimal dailyRate = monthlyRatePercent
-                                        .divide(ONE_HUNDRED, 16, RoundingMode.HALF_UP)
-                                        .divide(BigDecimal.valueOf(daysInMonth), 16, RoundingMode.HALF_UP);
-
-                        total = total.add(outstandingPrincipal.multiply(dailyRate));
-                        cursor = cursor.plusDays(1);
+                        return ZERO;
                 }
 
-                return roundMoney(total);
+                if (elapsedDays <= 0) {
+                        return ZERO;
+                }
+
+                return roundMoney(
+                                currentBalance
+                                                .multiply(
+                                                                dailyRate)
+                                                .multiply(
+                                                                BigDecimal.valueOf(
+                                                                                elapsedDays)));
+        }
+
+        // ================================================================
+        // CALCULATE NEW MANAGEMENT FEE
+        // ================================================================
+
+        private BigDecimal calculateNewManagementFee(
+                        BigDecimal currentBalance,
+                        BigDecimal dailyRate,
+                        long elapsedDays) {
+
+                if (currentBalance == null
+                                || currentBalance.compareTo(
+                                                BigDecimal.ZERO) <= 0) {
+
+                        return ZERO;
+                }
+
+                if (dailyRate == null
+                                || dailyRate.compareTo(
+                                                BigDecimal.ZERO) <= 0) {
+
+                        return ZERO;
+                }
+
+                if (elapsedDays <= 0) {
+                        return ZERO;
+                }
+
+                return roundMoney(
+                                currentBalance
+                                                .multiply(
+                                                                dailyRate)
+                                                .multiply(
+                                                                BigDecimal.valueOf(
+                                                                                elapsedDays)));
         }
 
         // ================================================================

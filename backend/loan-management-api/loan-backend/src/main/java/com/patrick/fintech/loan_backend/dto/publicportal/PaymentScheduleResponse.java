@@ -111,6 +111,7 @@ public class PaymentScheduleResponse {
         return managementFee;
     }
 
+    @Deprecated
     public void setManagementFee(Double value) {
         this.managementFee = value == null ? null : BigDecimal.valueOf(value);
     }
@@ -184,7 +185,6 @@ public class PaymentScheduleResponse {
         private BigDecimal balance;
         private BigDecimal installmentAmount;
         private BigDecimal interest;
-        private BigDecimal managementFee;
         private BigDecimal paid;
         private BigDecimal penalty;
         private BigDecimal principal;
@@ -216,16 +216,6 @@ public class PaymentScheduleResponse {
 
         public PaymentScheduleResponseBuilder interest(BigDecimal value) {
             this.interest = value;
-            return this;
-        }
-
-        public PaymentScheduleResponseBuilder managementFee(Double value) {
-            this.managementFee = value == null ? null : BigDecimal.valueOf(value);
-            return this;
-        }
-
-        public PaymentScheduleResponseBuilder managementFee(BigDecimal value) {
-            this.managementFee = value;
             return this;
         }
 
