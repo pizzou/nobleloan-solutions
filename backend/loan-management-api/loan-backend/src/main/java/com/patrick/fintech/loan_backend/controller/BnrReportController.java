@@ -33,8 +33,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-
-
+import java.math.BigDecimal;
 
 @RestController
 @RequestMapping("/api/regulatory/bnr")
@@ -42,1304 +41,1098 @@ import java.util.Map;
 @PreAuthorize("hasAnyRole('ADMIN','MANAGER','AUDITOR')")
 public class BnrReportController {
 
+        private final RegulatoryReportingService reportingService;
 
-    
+        private final ReportExportService exportService;
 
-    private final RegulatoryReportingService reportingService;
+        private final AuditService auditService;
 
-    private final ReportExportService exportService;
+        private final CurrentUserUtil currentUserUtil;
 
-    private final AuditService auditService;
+        private final ObjectMapper objectMapper;
 
-    private final CurrentUserUtil currentUserUtil;
+        @GetMapping("/summary")
+        public ResponseEntity<ApiResponse<BnrSummaryReport>> summary(
 
-   
-    private final ObjectMapper objectMapper;
+                        @RequestParam(required = false) Long branchId,
 
+                        @RequestParam(required = false, defaultValue = "MONTHLY") ReportPeriod period,
 
-   
-    @GetMapping("/summary")
-    public ResponseEntity<ApiResponse<BnrSummaryReport>> summary(
+                        @RequestParam(required = false) String from,
 
-            @RequestParam(required = false)
-            Long branchId,
+                        @RequestParam(required = false) String to
 
-            @RequestParam(
-                    required = false,
-                    defaultValue = "MONTHLY"
-            )
-            ReportPeriod period,
-
-            @RequestParam(required = false)
-            String from,
-
-            @RequestParam(required = false)
-            String to
-
-    ) {
-
-        Long organizationId =
-                currentUserUtil.getCurrentOrganizationId();
-
-
-        BnrSummaryReport report =
-                reportingService.buildBnrSummary(
-
-                        organizationId,
-
-                        branchId,
-
-                        period,
-
-                        parseDate(from),
-
-                        parseDate(to)
-                );
-
-
-        auditView(
-
-                "BnrReport",
-
-                period,
-
-                "Viewed BNR portfolio summary"
-        );
-
-
-        return ResponseEntity.ok(
-                ApiResponse.ok(report)
-        );
-    }
-
-
-    
-    @GetMapping("/financial-statement")
-    public ResponseEntity<ApiResponse<BnrFinancialStatementReport>>
-    financialStatement(
-
-            @RequestParam(required = false)
-            Long branchId,
-
-            @RequestParam(
-                    required = false,
-                    defaultValue = "MONTHLY"
-            )
-            ReportPeriod period,
-
-            @RequestParam(required = false)
-            String from,
-
-            @RequestParam(required = false)
-            String to
-
-    ) {
-
-        Long organizationId =
-                currentUserUtil.getCurrentOrganizationId();
-
-
-        BnrFinancialStatementReport report =
-                reportingService.buildBnrFinancialStatement(
-
-                        organizationId,
-
-                        branchId,
-
-                        period,
-
-                        parseDate(from),
-
-                        parseDate(to)
-                );
-
-
-        auditView(
-
-                "BnrFinancialStatement",
-
-                period,
-
-                "Viewed BNR financial statement"
-        );
-
-
-        return ResponseEntity.ok(
-                ApiResponse.ok(report)
-        );
-    }
-
-    @GetMapping("/breakdown/loan-type")
-    public ResponseEntity<ApiResponse<List<BnrBreakdownRow>>>
-    byLoanType(
-
-            @RequestParam(required = false)
-            Long branchId,
-
-            @RequestParam(
-                    required = false,
-                    defaultValue = "MONTHLY"
-            )
-            ReportPeriod period,
-
-            @RequestParam(required = false)
-            String from,
-
-            @RequestParam(required = false)
-            String to
-
-    ) {
-
-        Long organizationId =
-                currentUserUtil.getCurrentOrganizationId();
-
-
-        List<BnrBreakdownRow> result =
-                reportingService.breakdownByLoanType(
-
-                        organizationId,
-
-                        branchId,
-
-                        period,
-
-                        parseDate(from),
-
-                        parseDate(to)
-                );
-
-
-        return ResponseEntity.ok(
-                ApiResponse.ok(result)
-        );
-    }
-
-
-    @GetMapping("/breakdown/branch")
-    public ResponseEntity<ApiResponse<List<BnrBreakdownRow>>>
-    byBranch(
-
-            @RequestParam(
-                    required = false,
-                    defaultValue = "MONTHLY"
-            )
-            ReportPeriod period,
-
-            @RequestParam(required = false)
-            String from,
-
-            @RequestParam(required = false)
-            String to
-
-    ) {
-
-        Long organizationId =
-                currentUserUtil.getCurrentOrganizationId();
-
-
-        List<BnrBreakdownRow> result =
-                reportingService.breakdownByBranch(
-
-                        organizationId,
-
-                        period,
-
-                        parseDate(from),
-
-                        parseDate(to)
-                );
-
-
-        return ResponseEntity.ok(
-                ApiResponse.ok(result)
-        );
-    }
-
-
-    @GetMapping("/breakdown/gender")
-    public ResponseEntity<ApiResponse<List<BnrBreakdownRow>>>
-    byGender(
-
-            @RequestParam(required = false)
-            Long branchId,
-
-            @RequestParam(
-                    required = false,
-                    defaultValue = "MONTHLY"
-            )
-            ReportPeriod period,
-
-            @RequestParam(required = false)
-            String from,
-
-            @RequestParam(required = false)
-            String to
-
-    ) {
-
-        Long organizationId =
-                currentUserUtil.getCurrentOrganizationId();
-
-
-        List<BnrBreakdownRow> result =
-                reportingService.breakdownByGender(
-
-                        organizationId,
-
-                        branchId,
-
-                        period,
-
-                        parseDate(from),
-
-                        parseDate(to)
-                );
-
-
-        return ResponseEntity.ok(
-                ApiResponse.ok(result)
-        );
-    }
-
-
-    @GetMapping("/export")
-    public ResponseEntity<byte[]> exportBnrSummary(
-
-            @RequestParam(
-                    defaultValue = "xlsx"
-            )
-            String format,
-
-            @RequestParam(required = false)
-            Long branchId,
-
-            @RequestParam(
-                    required = false,
-                    defaultValue = "MONTHLY"
-            )
-            ReportPeriod period,
-
-            @RequestParam(required = false)
-            String from,
-
-            @RequestParam(required = false)
-            String to
-
-    ) {
-
-        Long organizationId =
-                currentUserUtil.getCurrentOrganizationId();
-
-
-       
-
-        BnrSummaryReport report =
-                reportingService.buildBnrSummary(
-
-                        organizationId,
-
-                        branchId,
-
-                        period,
-
-                        parseDate(from),
-
-                        parseDate(to)
-                );
-
-
-       
-
-        List<Map<String, Object>> rows =
-                summaryRows(report);
-
-
-       
-
-        List<String> columns =
-                List.of(
-                        "Metric",
-                        "Value"
-                );
-
-
-        String organizationName =
-                currentUserUtil
-                        .getCurrentUser()
-                        .getOrganization()
-                        .getName();
-
-
-        String filename =
-                "BNR-Summary-" +
-                LocalDate.now().format(
-                        DateTimeFormatter.ISO_DATE
-                );
-
-
-       
-
-        auditExport(
-
-                "BnrReport",
-
-                period,
-
-                format
-        );
-
-
-       
-
-        return respond(
-
-                format,
-
-                filename,
-
-                "BNR Regulatory Summary",
-
-                columns,
-
-                rows,
-
-                organizationName
-        );
-    }
-
-
-    @GetMapping("/financial-statement/export")
-    public ResponseEntity<byte[]> exportFinancialStatement(
-
-            @RequestParam(
-                    defaultValue = "xlsx"
-            )
-            String format,
-
-            @RequestParam(required = false)
-            Long branchId,
-
-            @RequestParam(
-                    required = false,
-                    defaultValue = "MONTHLY"
-            )
-            ReportPeriod period,
-
-            @RequestParam(required = false)
-            String from,
-
-            @RequestParam(required = false)
-            String to
-
-    ) {
-
-        Long organizationId =
-                currentUserUtil.getCurrentOrganizationId();
-
-
-        BnrFinancialStatementReport report =
-                reportingService.buildBnrFinancialStatement(
-
-                        organizationId,
-
-                        branchId,
-
-                        period,
-
-                        parseDate(from),
-
-                        parseDate(to)
-                );
-
-
-        List<String> columns =
-                List.of(
-                        "Section",
-                        "Account",
-                        "Value"
-                );
-
-
-        List<Map<String, Object>> rows =
-                financialStatementRows(report);
-
-
-        String organizationName =
-                currentUserUtil
-                        .getCurrentUser()
-                        .getOrganization()
-                        .getName();
-
-
-        String filename =
-                "BNR-Financial-Statement-" +
-                LocalDate.now().format(
-                        DateTimeFormatter.ISO_DATE
-                );
-
-
-        auditExport(
-
-                "BnrFinancialStatement",
-
-                period,
-
-                format
-        );
-
-
-        return respond(
-
-                format,
-
-                filename,
-
-                "BNR Financial Statement",
-
-                columns,
-
-                rows,
-
-                organizationName
-        );
-    }
-
-
-    private List<Map<String, Object>> summaryRows(
-            BnrSummaryReport report
-    ) {
-
-        List<Map<String, Object>> rows =
-                new ArrayList<>();
-
-
-        if (report == null) {
-            return rows;
-        }
-
-
-        Map<String, Object> values =
-                objectMapper.convertValue(
-
-                        report,
-
-                        new TypeReference<
-                                LinkedHashMap<String, Object>
-                                >() {}
-                );
-
-
-        for (
-                Map.Entry<String, Object> entry
-                        : values.entrySet()
         ) {
 
-            String metric =
-                    prettifyMetricName(
-                            entry.getKey()
-                    );
+                Long organizationId = currentUserUtil.getCurrentOrganizationId();
 
+                BnrSummaryReport report = reportingService.buildBnrSummary(
 
-            Object value =
-                    entry.getValue();
+                                organizationId,
 
+                                branchId,
 
-      
+                                period,
 
-            if (
-                    value instanceof Map
-                            ||
-                    value instanceof List
-            ) {
+                                parseDate(from),
 
-                continue;
-            }
+                                parseDate(to));
 
+                auditView(
 
-            Map<String, Object> row =
-                    new LinkedHashMap<>();
+                                "BnrReport",
 
+                                period,
 
-            row.put(
-                    "Metric",
-                    metric
-            );
+                                "Viewed BNR portfolio summary");
 
-
-            row.put(
-                    "Value",
-                    value
-            );
-
-
-            rows.add(row);
+                return ResponseEntity.ok(
+                                ApiResponse.ok(report));
         }
 
+        @GetMapping("/financial-statement")
+        public ResponseEntity<ApiResponse<BnrFinancialStatementReport>> financialStatement(
 
-        return rows;
-    }
+                        @RequestParam(required = false) Long branchId,
 
+                        @RequestParam(required = false, defaultValue = "MONTHLY") ReportPeriod period,
 
-    // ============================================================
-    // FINANCIAL STATEMENT ROWS
-    // ============================================================
+                        @RequestParam(required = false) String from,
 
-    private List<Map<String, Object>> financialStatementRows(
-            BnrFinancialStatementReport report
-    ) {
+                        @RequestParam(required = false) String to
 
-        List<Map<String, Object>> rows =
-                new ArrayList<>();
-
-
-        if (report == null) {
-            return rows;
-        }
-
-
-        addSectionRows(
-                rows,
-                "ASSETS",
-                report.getAssets()
-        );
-
-
-        addSectionRows(
-                rows,
-                "LIABILITIES",
-                report.getLiabilities()
-        );
-
-
-        addSectionRows(
-                rows,
-                "EQUITY",
-                report.getEquity()
-        );
-
-
-        addRow(
-                rows,
-                "BALANCE SHEET",
-                "Total Assets",
-                report.getTotalAssets()
-        );
-
-
-        addRow(
-                rows,
-                "BALANCE SHEET",
-                "Total Liabilities",
-                report.getTotalLiabilities()
-        );
-
-
-        addRow(
-                rows,
-                "BALANCE SHEET",
-                "Total Equity",
-                report.getTotalEquity()
-        );
-
-
-        addRow(
-                rows,
-                "BALANCE SHEET",
-                "Current Period Net Income",
-                report.getCurrentPeriodNetIncome()
-        );
-
-
-        addRow(
-                rows,
-                "BALANCE SHEET",
-                "Balanced",
-                report.isBalanceSheetBalanced()
-        );
-
-
-        addSectionRows(
-                rows,
-                "INCOME",
-                report.getIncome()
-        );
-
-
-        addSectionRows(
-                rows,
-                "EXPENSES",
-                report.getExpenses()
-        );
-
-
-        addRow(
-                rows,
-                "PROFIT AND LOSS",
-                "Total Income",
-                report.getTotalIncome()
-        );
-
-
-        addRow(
-                rows,
-                "PROFIT AND LOSS",
-                "Total Expenses",
-                report.getTotalExpenses()
-        );
-
-
-        addRow(
-                rows,
-                "PROFIT AND LOSS",
-                "Net Income",
-                report.getNetIncome()
-        );
-
-
-        addRow(
-                rows,
-                "TRIAL BALANCE",
-                "Total Debit",
-                report.getTrialBalanceDebit()
-        );
-
-
-        addRow(
-                rows,
-                "TRIAL BALANCE",
-                "Total Credit",
-                report.getTrialBalanceCredit()
-        );
-
-
-        addRow(
-                rows,
-                "TRIAL BALANCE",
-                "Balanced",
-                report.isTrialBalanceBalanced()
-        );
-
-
-        addRow(
-                rows,
-                "CASH FLOW",
-                "Cash Used For Lending",
-                report.getCashUsedForLending()
-        );
-
-
-        addRow(
-                rows,
-                "CASH FLOW",
-                "Cash From Collections",
-                report.getCashFromCollections()
-        );
-
-
-        addRow(
-                rows,
-                "CASH FLOW",
-                "Cash From Fees",
-                report.getCashFromFees()
-        );
-
-
-        addRow(
-                rows,
-                "CASH FLOW",
-                "Other Cash Movement",
-                report.getOtherCashMovement()
-        );
-
-
-        addRow(
-                rows,
-                "CASH FLOW",
-                "Net Change In Cash",
-                report.getNetChangeInCash()
-        );
-
-
-        return rows;
-    }
-
-
-    private void addSectionRows(
-
-            List<Map<String, Object>> rows,
-
-            String section,
-
-            List<Map<String, Object>> sectionRows
-
-    ) {
-
-        if (sectionRows == null) {
-            return;
-        }
-
-
-        for (
-                Map<String, Object> item
-                        : sectionRows
         ) {
 
-            if (item == null) {
-                continue;
-            }
+                Long organizationId = currentUserUtil.getCurrentOrganizationId();
 
+                BnrFinancialStatementReport report = reportingService.buildBnrFinancialStatement(
 
-            String code =
-                    String.valueOf(
-                            item.getOrDefault(
-                                    "code",
-                                    ""
-                            )
-                    );
+                                organizationId,
 
+                                branchId,
 
-            String name =
-                    String.valueOf(
-                            item.getOrDefault(
-                                    "name",
-                                    ""
-                            )
-                    );
+                                period,
 
+                                parseDate(from),
 
-            Object value =
-                    item.get("balance");
+                                parseDate(to));
 
+                auditView(
 
-            String account;
+                                "BnrFinancialStatement",
 
+                                period,
 
-            if (code.isBlank()) {
+                                "Viewed BNR financial statement");
 
-                account = name;
-
-            } else {
-
-                account =
-                        code +
-                        " - " +
-                        name;
-            }
-
-
-            addRow(
-
-                    rows,
-
-                    section,
-
-                    account,
-
-                    value
-            );
+                return ResponseEntity.ok(
+                                ApiResponse.ok(report));
         }
-    }
 
+        @GetMapping("/breakdown/loan-type")
+        public ResponseEntity<ApiResponse<List<BnrBreakdownRow>>> byLoanType(
 
+                        @RequestParam(required = false) Long branchId,
 
-    private void addRow(
+                        @RequestParam(required = false, defaultValue = "MONTHLY") ReportPeriod period,
 
-            List<Map<String, Object>> rows,
+                        @RequestParam(required = false) String from,
 
-            String section,
+                        @RequestParam(required = false) String to
 
-            String account,
+        ) {
 
-            Object value
+                Long organizationId = currentUserUtil.getCurrentOrganizationId();
 
-    ) {
+                List<BnrBreakdownRow> result = reportingService.breakdownByLoanType(
 
-        Map<String, Object> row =
-                new LinkedHashMap<>();
+                                organizationId,
 
+                                branchId,
 
-        row.put(
-                "Section",
-                section
-        );
+                                period,
 
+                                parseDate(from),
 
-        row.put(
-                "Account",
-                account
-        );
+                                parseDate(to));
 
+                return ResponseEntity.ok(
+                                ApiResponse.ok(result));
+        }
 
-        row.put(
-                "Value",
-                value
-        );
+        @GetMapping("/breakdown/branch")
+        public ResponseEntity<ApiResponse<List<BnrBreakdownRow>>> byBranch(
 
+                        @RequestParam(required = false, defaultValue = "MONTHLY") ReportPeriod period,
 
-        rows.add(row);
-    }
+                        @RequestParam(required = false) String from,
 
+                        @RequestParam(required = false) String to
 
-    // ============================================================
-    // FILE RESPONSE
-    // ============================================================
+        ) {
 
-    private ResponseEntity<byte[]> respond(
+                Long organizationId = currentUserUtil.getCurrentOrganizationId();
 
-            String format,
+                List<BnrBreakdownRow> result = reportingService.breakdownByBranch(
 
-            String filename,
+                                organizationId,
 
-            String title,
+                                period,
 
-            List<String> columns,
+                                parseDate(from),
 
-            List<Map<String, Object>> rows,
+                                parseDate(to));
 
-            String organizationName
+                return ResponseEntity.ok(
+                                ApiResponse.ok(result));
+        }
 
-    ) {
+        @GetMapping("/breakdown/gender")
+        public ResponseEntity<ApiResponse<List<BnrBreakdownRow>>> byGender(
 
-        String normalized =
+                        @RequestParam(required = false) Long branchId,
 
-                format == null ||
-                format.isBlank()
+                        @RequestParam(required = false, defaultValue = "MONTHLY") ReportPeriod period,
 
-                        ? "xlsx"
+                        @RequestParam(required = false) String from,
 
-                        : format
-                                .trim()
-                                .toLowerCase();
+                        @RequestParam(required = false) String to
 
+        ) {
 
-        byte[] bytes;
+                Long organizationId = currentUserUtil.getCurrentOrganizationId();
 
-        MediaType contentType;
+                List<BnrBreakdownRow> result = reportingService.breakdownByGender(
 
-        String extension;
+                                organizationId,
 
+                                branchId,
 
-        switch (normalized) {
+                                period,
 
+                                parseDate(from),
 
-            // ----------------------------------------------------
-            // CSV
-            // ----------------------------------------------------
+                                parseDate(to));
 
-            case "csv" -> {
+                return ResponseEntity.ok(
+                                ApiResponse.ok(result));
+        }
 
-                bytes =
-                        toCsv(
-                                columns,
-                                rows
-                        );
+        @GetMapping("/export")
+        public ResponseEntity<byte[]> exportBnrSummary(
 
+                        @RequestParam(defaultValue = "xlsx") String format,
 
-                contentType =
-                        MediaType.parseMediaType(
-                                "text/csv"
-                        );
+                        @RequestParam(required = false) Long branchId,
 
+                        @RequestParam(required = false, defaultValue = "MONTHLY") ReportPeriod period,
 
-                extension = "csv";
-            }
+                        @RequestParam(required = false) String from,
 
+                        @RequestParam(required = false) String to
 
-            // ----------------------------------------------------
-            // PDF
-            // ----------------------------------------------------
+        ) {
 
-            case "pdf" -> {
+                Long organizationId = currentUserUtil.getCurrentOrganizationId();
 
-                bytes =
-                        exportService.toPdf(
+                BnrSummaryReport report = reportingService.buildBnrSummary(
 
-                                title,
+                                organizationId,
+
+                                branchId,
+
+                                period,
+
+                                parseDate(from),
+
+                                parseDate(to));
+
+                List<Map<String, Object>> rows = summaryRows(report);
+
+                List<String> columns = List.of(
+                                "Section",
+                                "Metric",
+                                "Value",
+                                "Percentage");
+
+                String organizationName = currentUserUtil
+                                .getCurrentUser()
+                                .getOrganization()
+                                .getName();
+
+                String filename = "BNR-Summary-" +
+                                LocalDate.now().format(
+                                                DateTimeFormatter.ISO_DATE);
+
+                auditExport(
+
+                                "BnrReport",
+
+                                period,
+
+                                format);
+
+                return respond(
+
+                                format,
+
+                                filename,
+
+                                "BNR Regulatory Summary",
 
                                 columns,
 
                                 rows,
 
-                                organizationName
-                        );
+                                organizationName);
+        }
 
+        @GetMapping("/financial-statement/export")
+        public ResponseEntity<byte[]> exportFinancialStatement(
 
-                contentType =
-                        MediaType.APPLICATION_PDF;
+                        @RequestParam(defaultValue = "xlsx") String format,
 
+                        @RequestParam(required = false) Long branchId,
 
-                extension = "pdf";
-            }
+                        @RequestParam(required = false, defaultValue = "MONTHLY") ReportPeriod period,
 
+                        @RequestParam(required = false) String from,
 
-            // ----------------------------------------------------
-            // XLSX
-            // ----------------------------------------------------
+                        @RequestParam(required = false) String to
 
-            case "xlsx" -> {
+        ) {
 
-                bytes =
-                        exportService.toExcel(
+                Long organizationId = currentUserUtil.getCurrentOrganizationId();
 
-                                title,
+                BnrFinancialStatementReport report = reportingService.buildBnrFinancialStatement(
+
+                                organizationId,
+
+                                branchId,
+
+                                period,
+
+                                parseDate(from),
+
+                                parseDate(to));
+
+                List<String> columns = List.of(
+                                "Section",
+                                "Account",
+                                "Value");
+
+                List<Map<String, Object>> rows = financialStatementRows(report);
+
+                String organizationName = currentUserUtil
+                                .getCurrentUser()
+                                .getOrganization()
+                                .getName();
+
+                String filename = "BNR-Financial-Statement-" +
+                                LocalDate.now().format(
+                                                DateTimeFormatter.ISO_DATE);
+
+                auditExport(
+
+                                "BnrFinancialStatement",
+
+                                period,
+
+                                format);
+
+                return respond(
+
+                                format,
+
+                                filename,
+
+                                "BNR Financial Statement",
 
                                 columns,
 
-                                rows
-                        );
+                                rows,
 
-
-                contentType =
-                        MediaType.parseMediaType(
-
-                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-                        );
-
-
-                extension = "xlsx";
-            }
-
-
-            // ----------------------------------------------------
-            // INVALID
-            // ----------------------------------------------------
-
-            default ->
-
-                    throw new IllegalArgumentException(
-
-                            "Unsupported export format: " +
-
-                            format +
-
-                            ". Supported formats: csv, pdf, xlsx."
-                    );
+                                organizationName);
         }
 
+        private List<Map<String, Object>> summaryRows(
+                        BnrSummaryReport report) {
 
-        return ResponseEntity.ok()
+                List<Map<String, Object>> rows = new ArrayList<>();
 
-                .contentType(
-                        contentType
-                )
-
-                .header(
-
-                        HttpHeaders.CONTENT_DISPOSITION,
-
-                        "attachment; filename=\"" +
-
-                        filename +
-
-                        "." +
-
-                        extension +
-
-                        "\""
-
-                )
-
-                .body(bytes);
-    }
-
-
-    // ============================================================
-    // CSV GENERATOR
-    // ============================================================
-
-    static byte[] toCsv(
-
-            List<String> columns,
-
-            List<Map<String, Object>> rows
-
-    ) {
-
-        StringBuilder sb =
-                new StringBuilder();
-
-
-        // --------------------------------------------------------
-        // Header
-        // --------------------------------------------------------
-
-        sb.append(
-                String.join(
-                        ",",
-                        columns
-                )
-        );
-
-
-        sb.append('\n');
-
-
-        // --------------------------------------------------------
-        // Rows
-        // --------------------------------------------------------
-
-        for (
-                Map<String, Object> row
-                        : rows
-        ) {
-
-            for (
-                    int i = 0;
-                    i < columns.size();
-                    i++
-            ) {
-
-                Object value =
-                        row.get(
-                                columns.get(i)
-                        );
-
-
-                String cell =
-
-                        value == null
-
-                                ? ""
-
-                                : value.toString();
-
-
-                // ------------------------------------------------
-                // CSV formula injection protection
-                // ------------------------------------------------
-
-                cell =
-                        cell.replace(
-                                "\"",
-                                "\"\""
-                        );
-
-
-                if (
-
-                        !cell.isEmpty()
-
-                                &&
-
-                        "=+-@\t".indexOf(
-                                cell.charAt(0)
-                        ) >= 0
-
-                ) {
-
-                    cell =
-                            "'" +
-                            cell;
+                if (report == null) {
+                        return rows;
                 }
 
+                Map<String, Object> values = objectMapper.convertValue(
+                                report,
+                                new TypeReference<LinkedHashMap<String, Object>>() {
+                                });
 
-                // ------------------------------------------------
-                // CSV quoting
-                // ------------------------------------------------
+                for (Map.Entry<String, Object> entry : values.entrySet()) {
 
-                if (
+                        String metric = prettifyMetricName(entry.getKey());
 
-                        cell.contains(",")
+                        Object value = entry.getValue();
 
-                                ||
+                        if (value instanceof Map || value instanceof List) {
+                                continue;
+                        }
 
-                        cell.contains("\"")
-
-                                ||
-
-                        cell.contains("\n")
-
-                                ||
-
-                        cell.contains("\r")
-
-                ) {
-
-                    cell =
-                            "\"" +
-                            cell +
-                            "\"";
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("Section", "SUMMARY");
+                        row.put("Metric", metric);
+                        row.put("Value", value);
+                        row.put("Percentage", null);
+                        rows.add(row);
                 }
 
+                // ------------------------------------------------------------
+                // LOAN TYPE BREAKDOWN
+                // ------------------------------------------------------------
+                addBreakdownRows(
+                                rows,
+                                "LOAN TYPE",
+                                report.getLoanTypeBreakdown(),
+                                report.getTotalLoans(),
+                                true);
 
-                sb.append(cell);
+                // ------------------------------------------------------------
+                // GENDER BREAKDOWN - BORROWER COUNTS
+                // ------------------------------------------------------------
+                addGenderRows(
+                                rows,
+                                report.getMaleBorrowers(),
+                                report.getFemaleBorrowers(),
+                                report.getOtherGenderBorrowers(),
+                                report.getTotalBorrowers());
 
+                return rows;
+        }
 
-                if (
-                        i <
-                        columns.size() - 1
-                ) {
+        /** Adds the authoritative borrower gender totals and percentages. */
+        private void addGenderRows(
+                        List<Map<String, Object>> rows,
+                        long male,
+                        long female,
+                        long other,
+                        long total) {
 
-                    sb.append(',');
+                addGenderRow(rows, "MALE", male, total);
+                addGenderRow(rows, "FEMALE", female, total);
+                addGenderRow(rows, "OTHER / UNSPECIFIED", other, total);
+                addGenderRow(rows, "TOTAL", total, total);
+        }
+
+        private void addGenderRow(
+                        List<Map<String, Object>> rows,
+                        String label,
+                        long count,
+                        long total) {
+
+                BigDecimal percentage = total <= 0
+                                ? BigDecimal.ZERO
+                                : BigDecimal.valueOf(count)
+                                                .multiply(BigDecimal.valueOf(100))
+                                                .divide(
+                                                                BigDecimal.valueOf(total),
+                                                                4,
+                                                                java.math.RoundingMode.HALF_UP);
+
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("Section", "GENDER");
+                row.put("Metric", label);
+                row.put("Value", count);
+                row.put("Percentage", percentage);
+                rows.add(row);
+        }
+
+        /**
+         * Adds regulatory breakdown rows with percentage-of-total calculations.
+         * Loan type exports include both loan-count percentage and disbursed-amount
+         * percentage.
+         * Gender exports include borrower-count percentage.
+         */
+        private void addBreakdownRows(
+                        List<Map<String, Object>> rows,
+                        String section,
+                        List<BnrBreakdownRow> breakdown,
+                        long totalCount,
+                        boolean includeAmountPercentage) {
+
+                if (breakdown == null || breakdown.isEmpty()) {
+                        return;
                 }
-            }
 
+                BigDecimal totalAmount = breakdown.stream()
+                                .map(BnrBreakdownRow::getAmountDecimal)
+                                .filter(java.util.Objects::nonNull)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-            sb.append('\n');
+                for (BnrBreakdownRow item : breakdown) {
+                        if (item == null) {
+                                continue;
+                        }
+
+                        BigDecimal countPercentage = totalCount <= 0
+                                        ? BigDecimal.ZERO
+                                        : BigDecimal.valueOf(item.getCount())
+                                                        .multiply(BigDecimal.valueOf(100))
+                                                        .divide(
+                                                                        BigDecimal.valueOf(totalCount),
+                                                                        4,
+                                                                        java.math.RoundingMode.HALF_UP);
+
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("Section", section);
+                        row.put("Metric", item.getLabel());
+                        row.put("Value", item.getCount());
+                        row.put("Percentage", countPercentage);
+                        rows.add(row);
+
+                        if (includeAmountPercentage) {
+                                BigDecimal amount = item.getAmountDecimal() == null
+                                                ? BigDecimal.ZERO
+                                                : item.getAmountDecimal();
+
+                                BigDecimal amountPercentage = totalAmount.compareTo(BigDecimal.ZERO) <= 0
+                                                ? BigDecimal.ZERO
+                                                : amount
+                                                                .multiply(BigDecimal.valueOf(100))
+                                                                .divide(
+                                                                                totalAmount,
+                                                                                4,
+                                                                                java.math.RoundingMode.HALF_UP);
+
+                                Map<String, Object> amountRow = new LinkedHashMap<>();
+                                amountRow.put("Section", section + " AMOUNT");
+                                amountRow.put("Metric", item.getLabel());
+                                amountRow.put("Value", amount);
+                                amountRow.put("Percentage", amountPercentage);
+                                rows.add(amountRow);
+                        }
+                }
+
+                Map<String, Object> totalRow = new LinkedHashMap<>();
+                totalRow.put("Section", section + " TOTAL");
+                totalRow.put("Metric", "TOTAL");
+                totalRow.put("Value", totalCount);
+                totalRow.put("Percentage", BigDecimal.valueOf(100));
+                rows.add(totalRow);
+
+                if (includeAmountPercentage) {
+                        Map<String, Object> totalAmountRow = new LinkedHashMap<>();
+                        totalAmountRow.put("Section", section + " AMOUNT TOTAL");
+                        totalAmountRow.put("Metric", "TOTAL");
+                        totalAmountRow.put("Value", totalAmount);
+                        totalAmountRow.put("Percentage", BigDecimal.valueOf(100));
+                        rows.add(totalAmountRow);
+                }
         }
 
+        // ============================================================
+        // FINANCIAL STATEMENT ROWS
+        // ============================================================
 
-        return sb
-                .toString()
-                .getBytes(
-                        StandardCharsets.UTF_8
-                );
-    }
+        private List<Map<String, Object>> financialStatementRows(
+                        BnrFinancialStatementReport report) {
 
+                List<Map<String, Object>> rows = new ArrayList<>();
 
-    // ============================================================
-    // AUDIT VIEW
-    // ============================================================
+                if (report == null) {
+                        return rows;
+                }
 
-    private void auditView(
+                addSectionRows(
+                                rows,
+                                "ASSETS",
+                                report.getAssets());
 
-            String entity,
+                addSectionRows(
+                                rows,
+                                "LIABILITIES",
+                                report.getLiabilities());
 
-            ReportPeriod period,
+                addSectionRows(
+                                rows,
+                                "EQUITY",
+                                report.getEquity());
 
-            String description
+                addRow(
+                                rows,
+                                "BALANCE SHEET",
+                                "Total Assets",
+                                report.getTotalAssets());
 
-    ) {
+                addRow(
+                                rows,
+                                "BALANCE SHEET",
+                                "Total Liabilities",
+                                report.getTotalLiabilities());
 
-        auditService.log(
+                addRow(
+                                rows,
+                                "BALANCE SHEET",
+                                "Total Equity",
+                                report.getTotalEquity());
 
-                currentUserUtil
-                        .getCurrentUser()
-                        .getOrganization(),
+                addRow(
+                                rows,
+                                "BALANCE SHEET",
+                                "Current Period Net Income",
+                                report.getCurrentPeriodNetIncome());
 
-                currentUserUtil
-                        .getCurrentUser(),
+                addRow(
+                                rows,
+                                "BALANCE SHEET",
+                                "Balanced",
+                                report.isBalanceSheetBalanced());
 
-                "VIEW",
+                addSectionRows(
+                                rows,
+                                "INCOME",
+                                report.getIncome());
 
-                entity,
+                addSectionRows(
+                                rows,
+                                "EXPENSES",
+                                report.getExpenses());
 
-                period.name(),
+                addRow(
+                                rows,
+                                "PROFIT AND LOSS",
+                                "Total Income",
+                                report.getTotalIncome());
 
-                description +
-                        " (" +
-                        period.name() +
-                        ")",
+                addRow(
+                                rows,
+                                "PROFIT AND LOSS",
+                                "Total Expenses",
+                                report.getTotalExpenses());
 
-                null,
+                addRow(
+                                rows,
+                                "PROFIT AND LOSS",
+                                "Net Income",
+                                report.getNetIncome());
 
-                null,
+                addRow(
+                                rows,
+                                "TRIAL BALANCE",
+                                "Total Debit",
+                                report.getTrialBalanceDebit());
 
-                "Regulatory Reporting"
-        );
-    }
+                addRow(
+                                rows,
+                                "TRIAL BALANCE",
+                                "Total Credit",
+                                report.getTrialBalanceCredit());
 
+                addRow(
+                                rows,
+                                "TRIAL BALANCE",
+                                "Balanced",
+                                report.isTrialBalanceBalanced());
 
-    // ============================================================
-    // AUDIT EXPORT
-    // ============================================================
+                addRow(
+                                rows,
+                                "CASH FLOW",
+                                "Cash Used For Lending",
+                                report.getCashUsedForLending());
 
-    private void auditExport(
+                addRow(
+                                rows,
+                                "CASH FLOW",
+                                "Cash From Collections",
+                                report.getCashFromCollections());
 
-            String entity,
+                addRow(
+                                rows,
+                                "CASH FLOW",
+                                "Cash From Fees",
+                                report.getCashFromFees());
 
-            ReportPeriod period,
+                addRow(
+                                rows,
+                                "CASH FLOW",
+                                "Other Cash Movement",
+                                report.getOtherCashMovement());
 
-            String format
+                addRow(
+                                rows,
+                                "CASH FLOW",
+                                "Net Change In Cash",
+                                report.getNetChangeInCash());
 
-    ) {
+                return rows;
+        }
 
-        auditService.log(
+        private void addSectionRows(
 
-                currentUserUtil
-                        .getCurrentUser()
-                        .getOrganization(),
+                        List<Map<String, Object>> rows,
 
-                currentUserUtil
-                        .getCurrentUser(),
+                        String section,
 
-                "EXPORT",
+                        List<Map<String, Object>> sectionRows
 
-                entity,
-
-                period.name(),
-
-                "Exported " +
-                        entity +
-                        " as " +
-                        format.toUpperCase(),
-
-                null,
-
-                null,
-
-                "Regulatory Reporting"
-        );
-    }
-
-
-    // ============================================================
-    // DATE PARSER
-    // ============================================================
-
-    private LocalDate parseDate(
-            String value
-    ) {
-
-        if (
-                value == null ||
-                value.isBlank()
         ) {
 
-            return null;
+                if (sectionRows == null) {
+                        return;
+                }
+
+                for (Map<String, Object> item : sectionRows) {
+
+                        if (item == null) {
+                                continue;
+                        }
+
+                        String code = String.valueOf(
+                                        item.getOrDefault(
+                                                        "code",
+                                                        ""));
+
+                        String name = String.valueOf(
+                                        item.getOrDefault(
+                                                        "name",
+                                                        ""));
+
+                        Object value = item.get("balance");
+
+                        String account;
+
+                        if (code.isBlank()) {
+
+                                account = name;
+
+                        } else {
+
+                                account = code +
+                                                " - " +
+                                                name;
+                        }
+
+                        addRow(
+
+                                        rows,
+
+                                        section,
+
+                                        account,
+
+                                        value);
+                }
         }
 
+        private void addRow(
 
-        return LocalDate.parse(
-                value
-        );
-    }
+                        List<Map<String, Object>> rows,
 
+                        String section,
 
-    // ============================================================
-    // PRETTY METRIC NAME
-    // ============================================================
+                        String account,
 
-    /**
-     * Converts:
-     *
-     * totalLoans
-     *
-     * into:
-     *
-     * Total Loans
-     */
-    private String prettifyMetricName(
-            String value
-    ) {
+                        Object value
 
-        if (
-                value == null ||
-                value.isBlank()
         ) {
 
-            return "";
+                Map<String, Object> row = new LinkedHashMap<>();
+
+                row.put(
+                                "Section",
+                                section);
+
+                row.put(
+                                "Account",
+                                account);
+
+                row.put(
+                                "Value",
+                                value);
+
+                rows.add(row);
         }
 
+        // ============================================================
+        // FILE RESPONSE
+        // ============================================================
 
-        String result =
-                value.replaceAll(
-                        "([a-z])([A-Z])",
-                        "$1 $2"
-                );
+        private ResponseEntity<byte[]> respond(
 
+                        String format,
 
-        result =
-                result.replace(
-                        "_",
-                        " "
-                );
+                        String filename,
 
+                        String title,
 
-        return Character.toUpperCase(
-                result.charAt(0)
-        )
-                + result.substring(1);
-    }
+                        List<String> columns,
+
+                        List<Map<String, Object>> rows,
+
+                        String organizationName
+
+        ) {
+
+                String normalized =
+
+                                format == null ||
+                                                format.isBlank()
+
+                                                                ? "xlsx"
+
+                                                                : format
+                                                                                .trim()
+                                                                                .toLowerCase();
+
+                byte[] bytes;
+
+                MediaType contentType;
+
+                String extension;
+
+                switch (normalized) {
+
+                        // ----------------------------------------------------
+                        // CSV
+                        // ----------------------------------------------------
+
+                        case "csv" -> {
+
+                                bytes = toCsv(
+                                                columns,
+                                                rows);
+
+                                contentType = MediaType.parseMediaType(
+                                                "text/csv");
+
+                                extension = "csv";
+                        }
+
+                        // ----------------------------------------------------
+                        // PDF
+                        // ----------------------------------------------------
+
+                        case "pdf" -> {
+
+                                bytes = exportService.toPdf(
+
+                                                title,
+
+                                                columns,
+
+                                                rows,
+
+                                                organizationName);
+
+                                contentType = MediaType.APPLICATION_PDF;
+
+                                extension = "pdf";
+                        }
+
+                        // ----------------------------------------------------
+                        // XLSX
+                        // ----------------------------------------------------
+
+                        case "xlsx" -> {
+
+                                bytes = exportService.toExcel(
+
+                                                title,
+
+                                                columns,
+
+                                                rows);
+
+                                contentType = MediaType.parseMediaType(
+
+                                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+                                );
+
+                                extension = "xlsx";
+                        }
+
+                        // ----------------------------------------------------
+                        // INVALID
+                        // ----------------------------------------------------
+
+                        default ->
+
+                                throw new IllegalArgumentException(
+
+                                                "Unsupported export format: " +
+
+                                                                format +
+
+                                                                ". Supported formats: csv, pdf, xlsx.");
+                }
+
+                return ResponseEntity.ok()
+
+                                .contentType(
+                                                contentType)
+
+                                .header(
+
+                                                HttpHeaders.CONTENT_DISPOSITION,
+
+                                                "attachment; filename=\"" +
+
+                                                                filename +
+
+                                                                "." +
+
+                                                                extension +
+
+                                                                "\""
+
+                                )
+
+                                .body(bytes);
+        }
+
+        // ============================================================
+        // CSV GENERATOR
+        // ============================================================
+
+        static byte[] toCsv(
+
+                        List<String> columns,
+
+                        List<Map<String, Object>> rows
+
+        ) {
+
+                StringBuilder sb = new StringBuilder();
+
+                // --------------------------------------------------------
+                // Header
+                // --------------------------------------------------------
+
+                sb.append(
+                                String.join(
+                                                ",",
+                                                columns));
+
+                sb.append('\n');
+
+                // --------------------------------------------------------
+                // Rows
+                // --------------------------------------------------------
+
+                for (Map<String, Object> row : rows) {
+
+                        for (int i = 0; i < columns.size(); i++) {
+
+                                Object value = row.get(
+                                                columns.get(i));
+
+                                String cell =
+
+                                                value == null
+
+                                                                ? ""
+
+                                                                : value.toString();
+
+                                // ------------------------------------------------
+                                // CSV formula injection protection
+                                // ------------------------------------------------
+
+                                cell = cell.replace(
+                                                "\"",
+                                                "\"\"");
+
+                                if (
+
+                                !cell.isEmpty()
+
+                                                &&
+
+                                                "=+-@\t".indexOf(
+                                                                cell.charAt(0)) >= 0
+
+                                ) {
+
+                                        cell = "'" +
+                                                        cell;
+                                }
+
+                                // ------------------------------------------------
+                                // CSV quoting
+                                // ------------------------------------------------
+
+                                if (
+
+                                cell.contains(",")
+
+                                                ||
+
+                                                cell.contains("\"")
+
+                                                ||
+
+                                                cell.contains("\n")
+
+                                                ||
+
+                                                cell.contains("\r")
+
+                                ) {
+
+                                        cell = "\"" +
+                                                        cell +
+                                                        "\"";
+                                }
+
+                                sb.append(cell);
+
+                                if (i < columns.size() - 1) {
+
+                                        sb.append(',');
+                                }
+                        }
+
+                        sb.append('\n');
+                }
+
+                return sb
+                                .toString()
+                                .getBytes(
+                                                StandardCharsets.UTF_8);
+        }
+
+        // ============================================================
+        // AUDIT VIEW
+        // ============================================================
+
+        private void auditView(
+
+                        String entity,
+
+                        ReportPeriod period,
+
+                        String description
+
+        ) {
+
+                auditService.log(
+
+                                currentUserUtil
+                                                .getCurrentUser()
+                                                .getOrganization(),
+
+                                currentUserUtil
+                                                .getCurrentUser(),
+
+                                "VIEW",
+
+                                entity,
+
+                                period.name(),
+
+                                description +
+                                                " (" +
+                                                period.name() +
+                                                ")",
+
+                                null,
+
+                                null,
+
+                                "Regulatory Reporting");
+        }
+
+        // ============================================================
+        // AUDIT EXPORT
+        // ============================================================
+
+        private void auditExport(
+
+                        String entity,
+
+                        ReportPeriod period,
+
+                        String format
+
+        ) {
+
+                auditService.log(
+
+                                currentUserUtil
+                                                .getCurrentUser()
+                                                .getOrganization(),
+
+                                currentUserUtil
+                                                .getCurrentUser(),
+
+                                "EXPORT",
+
+                                entity,
+
+                                period.name(),
+
+                                "Exported " +
+                                                entity +
+                                                " as " +
+                                                format.toUpperCase(),
+
+                                null,
+
+                                null,
+
+                                "Regulatory Reporting");
+        }
+
+        // ============================================================
+        // DATE PARSER
+        // ============================================================
+
+        private LocalDate parseDate(
+                        String value) {
+
+                if (value == null ||
+                                value.isBlank()) {
+
+                        return null;
+                }
+
+                return LocalDate.parse(
+                                value);
+        }
+
+        // ============================================================
+        // PRETTY METRIC NAME
+        // ============================================================
+
+        /**
+         * Converts:
+         *
+         * totalLoans
+         *
+         * into:
+         *
+         * Total Loans
+         */
+        private String prettifyMetricName(
+                        String value) {
+
+                if (value == null ||
+                                value.isBlank()) {
+
+                        return "";
+                }
+
+                String result = value.replaceAll(
+                                "([a-z])([A-Z])",
+                                "$1 $2");
+
+                result = result.replace(
+                                "_",
+                                " ");
+
+                return Character.toUpperCase(
+                                result.charAt(0))
+                                + result.substring(1);
+        }
 }
