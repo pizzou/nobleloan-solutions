@@ -1,4 +1,3 @@
-
 package com.patrick.fintech.loan_backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -67,991 +66,846 @@ import java.util.Map;
 @Slf4j
 public class LegacyLoanImportService {
 
-    /*
-     * ================================================================
-     * CONFIGURATION
-     * ================================================================
-     */
-
-    /**
-     * Maximum number of rows allowed in one import.
-     */
-    private static final int MAX_IMPORT_ROWS = 10_000;
-
-    /**
-     * Maximum filename length stored in the database.
-     */
-    private static final int MAX_FILENAME_LENGTH = 255;
-
-    /**
-     * Maximum number of results retained in memory.
-     */
-    private static final int MAX_RESULTS = MAX_IMPORT_ROWS;
-
-    /**
-     * Import batch statuses.
-     */
-    public static final String STATUS_PROCESSING = "PROCESSING";
-    public static final String STATUS_COMPLETED = "COMPLETED";
-    public static final String STATUS_PARTIAL = "PARTIAL";
-    public static final String STATUS_FAILED = "FAILED";
-
-    private final LegacyLoanImportRowService rowService;
-
-    private final ImportBatchRepository importBatchRepo;
-
-    private final AuditService auditService;
-
-    private final ObjectMapper objectMapper;
-
-
-    /*
-     * ================================================================
-     * PREVIEW
-     * ================================================================
-     *
-     * Preview performs the same validation/business logic as commit,
-     * but does not persist borrowers or loans.
-     *
-     * It does NOT create an ImportBatch.
-     */
-    @Transactional(readOnly = true)
-    public List<ImportRowResult> preview(
-            String filename,
-            InputStream in,
-            Organization org
-    ) throws IOException {
-
-        validateImportRequest(
-                filename,
-                in,
-                org,
-                null
-        );
-
-        String safeFilename =
-                normalizeFilename(filename);
-
-        List<Map<String, String>> rows;
-
-        try {
-
-            rows =
-                    LedgerFileParser.parse(
-                            safeFilename,
-                            in
-                    );
-
-        } catch (IOException e) {
-
-            log.error(
-                    "Legacy loan preview file parsing failed. " +
-                            "organizationId={}, filename={}",
-                    org.getId(),
-                    safeFilename,
-                    e
-            );
-
-            throw new IOException(
-                    "The uploaded ledger could not be read. " +
-                            "Please verify that the file is a valid CSV or Excel ledger.",
-                    e
-            );
-        }
-
         /*
-         * Clean Excel / CSV values before validation and processing.
+         * ================================================================
+         * CONFIGURATION
+         * ================================================================
          */
-        rows = sanitizeParsedRows(rows);
 
-        validateParsedRows(rows);
-
-        Map<String, Borrower> sessionBorrowers =
-                new HashMap<>();
-
-        List<ImportRowResult> results =
-                new ArrayList<>(
-                        Math.min(
-                                rows.size(),
-                                MAX_RESULTS
-                        )
-                );
-
-        long startedAt =
-                System.currentTimeMillis();
-
-        /*
-         * Excel/CSV data normally starts on row 2 because row 1
-         * contains the header.
+        /**
+         * Maximum number of rows allowed in one import.
          */
-        int rowNumber = 1;
+        private static final int MAX_IMPORT_ROWS = 10_000;
 
-        for (
-                Map<String, String> row :
-                rows
-        ) {
+        /**
+         * Maximum filename length stored in the database.
+         */
+        private static final int MAX_FILENAME_LENGTH = 255;
 
-            rowNumber++;
+        /**
+         * Maximum number of results retained in memory.
+         */
+        private static final int MAX_RESULTS = MAX_IMPORT_ROWS;
 
-            ImportRowResult result =
-                    rowService.importRow(
-                            row,
-                            rowNumber,
-                            org,
-                            null,
-                            false,
-                            sessionBorrowers
-                    );
+        /**
+         * Import batch statuses.
+         */
+        public static final String STATUS_PROCESSING = "PROCESSING";
+        public static final String STATUS_COMPLETED = "COMPLETED";
+        public static final String STATUS_PARTIAL = "PARTIAL";
+        public static final String STATUS_FAILED = "FAILED";
 
-            if (result != null) {
+        private final LegacyLoanImportRowService rowService;
 
-                results.add(result);
+        private final ImportBatchRepository importBatchRepo;
 
-            } else {
+        private final AuditService auditService;
 
-                results.add(
-                        ImportRowResult.builder()
-                                .rowNumber(rowNumber)
-                                .success(false)
-                                .error(
-                                        "The import service returned no result for this row."
-                                )
-                                .build()
-                );
-            }
-        }
-
-        long durationMs =
-                System.currentTimeMillis() - startedAt;
-
-        long successful =
-                results.stream()
-                        .filter(ImportRowResult::isSuccess)
-                        .count();
-
-        long failed =
-                results.size() - successful;
-
-        log.info(
-                "Legacy loan preview completed. " +
-                        "organizationId={}, filename={}, rows={}, successful={}, failed={}, durationMs={}",
-                org.getId(),
-                safeFilename,
-                results.size(),
-                successful,
-                failed,
-                durationMs
-        );
-
-        return results;
-    }
-
-
-    /*
-     * ================================================================
-     * COMMIT
-     * ================================================================
-     *
-     * Creates an ImportBatch as PROCESSING.
-     *
-     * Each row is then processed by LegacyLoanImportRowService.
-     *
-     * LegacyLoanImportRowService should use REQUIRES_NEW for the
-     * individual row transaction.
-     */
-    public ImportBatch commit(
-            String filename,
-            InputStream in,
-            Organization org,
-            User importedBy
-    ) throws IOException {
-
-        validateImportRequest(
-                filename,
-                in,
-                org,
-                importedBy
-        );
-
-        String safeFilename =
-                normalizeFilename(filename);
-
-        List<Map<String, String>> rows;
-
-        try {
-
-            rows =
-                    LedgerFileParser.parse(
-                            safeFilename,
-                            in
-                    );
-
-        } catch (IOException e) {
-
-            log.error(
-                    "Legacy loan commit file parsing failed. " +
-                            "organizationId={}, filename={}",
-                    org.getId(),
-                    safeFilename,
-                    e
-            );
-
-            throw new IOException(
-                    "The uploaded ledger could not be read. " +
-                            "Please verify that the file is a valid CSV or Excel ledger.",
-                    e
-            );
-        }
+        private final ObjectMapper objectMapper;
 
         /*
-         * ============================================================
-         * IMPORTANT
-         * ============================================================
+         * ================================================================
+         * PREVIEW
+         * ================================================================
          *
-         * Clean Excel-specific values here.
+         * Preview performs the same validation/business logic as commit,
+         * but does not persist borrowers or loans.
+         *
+         * It does NOT create an ImportBatch.
+         */
+        @Transactional(readOnly = true)
+        public List<ImportRowResult> preview(
+                        String filename,
+                        InputStream in,
+                        Organization org) throws IOException {
+
+                validateImportRequest(
+                                filename,
+                                in,
+                                org,
+                                null);
+
+                String safeFilename = normalizeFilename(filename);
+
+                List<Map<String, String>> rows;
+
+                try {
+
+                        rows = LedgerFileParser.parse(
+                                        safeFilename,
+                                        in);
+
+                } catch (IOException e) {
+
+                        log.error(
+                                        "Legacy loan preview file parsing failed. " +
+                                                        "organizationId={}, filename={}",
+                                        org.getId(),
+                                        safeFilename,
+                                        e);
+
+                        throw new IOException(
+                                        "The uploaded ledger could not be read. " +
+                                                        "Please verify that the file is a valid CSV or Excel ledger.",
+                                        e);
+                }
+
+                /*
+                 * Clean Excel / CSV values before validation and processing.
+                 */
+                rows = sanitizeParsedRows(rows);
+
+                validateParsedRows(rows);
+
+                Map<String, Borrower> sessionBorrowers = new HashMap<>();
+
+                List<ImportRowResult> results = new ArrayList<>(
+                                Math.min(
+                                                rows.size(),
+                                                MAX_RESULTS));
+
+                long startedAt = System.currentTimeMillis();
+
+                /*
+                 * Excel/CSV data normally starts on row 2 because row 1
+                 * contains the header.
+                 */
+                int rowNumber = 1;
+
+                for (Map<String, String> row : rows) {
+
+                        rowNumber++;
+
+                        ImportRowResult result = rowService.importRow(
+                                        row,
+                                        rowNumber,
+                                        org,
+                                        null,
+                                        false,
+                                        sessionBorrowers);
+
+                        if (result != null) {
+
+                                results.add(result);
+
+                        } else {
+
+                                results.add(
+                                                ImportRowResult.builder()
+                                                                .rowNumber(rowNumber)
+                                                                .success(false)
+                                                                .error(
+                                                                                "The import service returned no result for this row.")
+                                                                .build());
+                        }
+                }
+
+                long durationMs = System.currentTimeMillis() - startedAt;
+
+                long successful = results.stream()
+                                .filter(ImportRowResult::isSuccess)
+                                .count();
+
+                long failed = results.size() - successful;
+
+                log.info(
+                                "Legacy loan preview completed. " +
+                                                "organizationId={}, filename={}, rows={}, successful={}, failed={}, durationMs={}",
+                                org.getId(),
+                                safeFilename,
+                                results.size(),
+                                successful,
+                                failed,
+                                durationMs);
+
+                return results;
+        }
+
+        /*
+         * ================================================================
+         * COMMIT
+         * ================================================================
+         *
+         * Creates an ImportBatch as PROCESSING.
+         *
+         * Each row is then processed by LegacyLoanImportRowService.
+         *
+         * LegacyLoanImportRowService should use REQUIRES_NEW for the
+         * individual row transaction.
+         */
+        public ImportBatch commit(
+                        String filename,
+                        InputStream in,
+                        Organization org,
+                        User importedBy) throws IOException {
+
+                validateImportRequest(
+                                filename,
+                                in,
+                                org,
+                                importedBy);
+
+                String safeFilename = normalizeFilename(filename);
+
+                List<Map<String, String>> rows;
+
+                try {
+
+                        rows = LedgerFileParser.parse(
+                                        safeFilename,
+                                        in);
+
+                } catch (IOException e) {
+
+                        log.error(
+                                        "Legacy loan commit file parsing failed. " +
+                                                        "organizationId={}, filename={}",
+                                        org.getId(),
+                                        safeFilename,
+                                        e);
+
+                        throw new IOException(
+                                        "The uploaded ledger could not be read. " +
+                                                        "Please verify that the file is a valid CSV or Excel ledger.",
+                                        e);
+                }
+
+                /*
+                 * ============================================================
+                 * IMPORTANT
+                 * ============================================================
+                 *
+                 * Clean Excel-specific values here.
+                 *
+                 * Example:
+                 *
+                 * Excel cell:
+                 *
+                 * '119876543210
+                 *
+                 * becomes:
+                 *
+                 * 119876543210
+                 *
+                 * But:
+                 *
+                 * O'Connor
+                 *
+                 * remains:
+                 *
+                 * O'Connor
+                 *
+                 * Only a leading apostrophe is removed.
+                 */
+                rows = sanitizeParsedRows(rows);
+
+                validateParsedRows(rows);
+
+                /*
+                 * ============================================================
+                 * CREATE IMPORT BATCH
+                 * ============================================================
+                 */
+
+                ImportBatch batch = ImportBatch.builder()
+                                .organization(org)
+                                .importedBy(importedBy)
+                                .fileName(safeFilename)
+                                .totalRows(rows.size())
+                                .successCount(0)
+                                .failureCount(0)
+                                .status(STATUS_PROCESSING)
+                                .build();
+
+                batch = importBatchRepo.save(batch);
+
+                final Long batchId = batch.getId();
+
+                log.info(
+                                "Legacy loan import started. " +
+                                                "organizationId={}, batchId={}, filename={}, totalRows={}, importedBy={}",
+                                org.getId(),
+                                batchId,
+                                safeFilename,
+                                rows.size(),
+                                importedBy.getId());
+
+                Map<String, Borrower> sessionBorrowers = new HashMap<>();
+
+                List<ImportRowResult> results = new ArrayList<>(
+                                Math.min(
+                                                rows.size(),
+                                                MAX_RESULTS));
+
+                long startedAt = System.currentTimeMillis();
+
+                int rowNumber = 1;
+
+                int success = 0;
+
+                int failed = 0;
+
+                /*
+                 * ============================================================
+                 * PROCESS EVERY ROW
+                 * ============================================================
+                 */
+                for (Map<String, String> row : rows) {
+
+                        rowNumber++;
+
+                        ImportRowResult result;
+
+                        try {
+
+                                result = rowService.importRow(
+                                                row,
+                                                rowNumber,
+                                                org,
+                                                batchId,
+                                                true,
+                                                sessionBorrowers);
+
+                                if (result == null) {
+
+                                        result = ImportRowResult.builder()
+                                                        .rowNumber(rowNumber)
+                                                        .success(false)
+                                                        .error(
+                                                                        "The import service returned no result for this row.")
+                                                        .build();
+                                }
+
+                        } catch (Exception e) {
+
+                                log.error(
+                                                "Unexpected exception while processing legacy loan import row. " +
+                                                                "organizationId={}, batchId={}, rowNumber={}",
+                                                org.getId(),
+                                                batchId,
+                                                rowNumber,
+                                                e);
+
+                                result = ImportRowResult.builder()
+                                                .rowNumber(rowNumber)
+                                                .success(false)
+                                                .error(
+                                                                "Unexpected error while processing this row. " +
+                                                                                "The row was not imported.")
+                                                .build();
+                        }
+
+                        results.add(result);
+
+                        if (result.isSuccess()) {
+
+                                success++;
+
+                        } else {
+
+                                failed++;
+                        }
+                }
+
+                long durationMs = System.currentTimeMillis() - startedAt;
+
+                /*
+                 * ============================================================
+                 * FINALIZE BATCH
+                 * ============================================================
+                 */
+
+                String finalStatus;
+
+                if (failed == 0) {
+
+                        finalStatus = STATUS_COMPLETED;
+
+                } else if (success == 0) {
+
+                        finalStatus = STATUS_FAILED;
+
+                } else {
+
+                        finalStatus = STATUS_PARTIAL;
+                }
+
+                batch.setSuccessCount(success);
+
+                batch.setFailureCount(failed);
+
+                batch.setStatus(finalStatus);
+
+                /*
+                 * ============================================================
+                 * STORE ROW RESULTS
+                 * ============================================================
+                 */
+
+                try {
+
+                        batch.setRowResults(
+                                        objectMapper.writeValueAsString(
+                                                        results));
+
+                } catch (Exception e) {
+
+                        log.error(
+                                        "Unable to serialize legacy loan import row results. " +
+                                                        "organizationId={}, batchId={}",
+                                        org.getId(),
+                                        batchId,
+                                        e);
+
+                        batch.setRowResults(null);
+                }
+
+                batch = importBatchRepo.save(batch);
+
+                /*
+                 * ============================================================
+                 * AUDIT
+                 * ============================================================
+                 */
+
+                try {
+
+                        String auditMessage = "Imported " +
+                                        success +
+                                        "/" +
+                                        results.size() +
+                                        " rows from \"" +
+                                        safeFilename +
+                                        "\"";
+
+                        if (failed > 0) {
+
+                                auditMessage += " (" +
+                                                failed +
+                                                " row(s) failed — see batch detail)";
+                        }
+
+                        auditMessage += ". Batch status: " +
+                                        finalStatus +
+                                        ".";
+
+                        auditService.log(
+                                        org,
+                                        importedBy,
+                                        "LEGACY_LOANS_IMPORTED",
+                                        "IMPORT_BATCH",
+                                        batch.getId().toString(),
+                                        auditMessage);
+
+                } catch (Exception e) {
+
+                        log.error(
+                                        "Legacy loan import completed but audit logging failed. " +
+                                                        "organizationId={}, batchId={}",
+                                        org.getId(),
+                                        batch.getId(),
+                                        e);
+                }
+
+                log.info(
+                                "Legacy loan import completed. " +
+                                                "organizationId={}, batchId={}, filename={}, totalRows={}, " +
+                                                "success={}, failed={}, status={}, durationMs={}",
+                                org.getId(),
+                                batch.getId(),
+                                safeFilename,
+                                results.size(),
+                                success,
+                                failed,
+                                finalStatus,
+                                durationMs);
+
+                return batch;
+        }
+
+        /*
+         * ================================================================
+         * SANITIZE PARSED ROWS
+         * ================================================================
+         *
+         * This is the important Excel compatibility layer.
+         *
+         * It handles:
+         *
+         * 1. Leading Excel apostrophe:
+         *
+         * '119876543210
+         *
+         * -> 119876543210
+         *
+         * 2. Leading/trailing whitespace.
+         *
+         * 3. UTF-8 BOM characters.
+         *
+         * 4. Non-breaking spaces.
+         *
+         * 5. Empty strings.
+         *
+         * 6. Excel-style text values.
+         *
+         * 7. Header normalization.
+         *
+         * We intentionally DO NOT remove apostrophes occurring inside
+         * normal text.
          *
          * Example:
          *
-         * Excel cell:
-         *
-         * '119876543210
-         *
-         * becomes:
-         *
-         * 119876543210
-         *
-         * But:
-         *
          * O'Connor
          *
-         * remains:
+         * stays:
          *
          * O'Connor
-         *
-         * Only a leading apostrophe is removed.
          */
-        rows = sanitizeParsedRows(rows);
+        private List<Map<String, String>> sanitizeParsedRows(
+                        List<Map<String, String>> rows) {
 
-        validateParsedRows(rows);
+                if (rows == null || rows.isEmpty()) {
 
-        /*
-         * ============================================================
-         * CREATE IMPORT BATCH
-         * ============================================================
-         */
-
-        ImportBatch batch =
-                ImportBatch.builder()
-                        .organization(org)
-                        .importedBy(importedBy)
-                        .fileName(safeFilename)
-                        .totalRows(rows.size())
-                        .successCount(0)
-                        .failureCount(0)
-                        .status(STATUS_PROCESSING)
-                        .build();
-
-        batch =
-                importBatchRepo.save(batch);
-
-        final Long batchId =
-                batch.getId();
-
-        log.info(
-                "Legacy loan import started. " +
-                        "organizationId={}, batchId={}, filename={}, totalRows={}, importedBy={}",
-                org.getId(),
-                batchId,
-                safeFilename,
-                rows.size(),
-                importedBy.getId()
-        );
-
-        Map<String, Borrower> sessionBorrowers =
-                new HashMap<>();
-
-        List<ImportRowResult> results =
-                new ArrayList<>(
-                        Math.min(
-                                rows.size(),
-                                MAX_RESULTS
-                        )
-                );
-
-        long startedAt =
-                System.currentTimeMillis();
-
-        int rowNumber = 1;
-
-        int success = 0;
-
-        int failed = 0;
-
-        /*
-         * ============================================================
-         * PROCESS EVERY ROW
-         * ============================================================
-         */
-        for (
-                Map<String, String> row :
-                rows
-        ) {
-
-            rowNumber++;
-
-            ImportRowResult result;
-
-            try {
-
-                result =
-                        rowService.importRow(
-                                row,
-                                rowNumber,
-                                org,
-                                batchId,
-                                true,
-                                sessionBorrowers
-                        );
-
-                if (result == null) {
-
-                    result =
-                            ImportRowResult.builder()
-                                    .rowNumber(rowNumber)
-                                    .success(false)
-                                    .error(
-                                            "The import service returned no result for this row."
-                                    )
-                                    .build();
+                        return rows;
                 }
 
-            } catch (Exception e) {
+                List<Map<String, String>> sanitizedRows = new ArrayList<>(
+                                rows.size());
 
-                log.error(
-                        "Unexpected exception while processing legacy loan import row. " +
-                                "organizationId={}, batchId={}, rowNumber={}",
-                        org.getId(),
-                        batchId,
-                        rowNumber,
-                        e
-                );
+                for (Map<String, String> originalRow : rows) {
 
-                result =
-                        ImportRowResult.builder()
-                                .rowNumber(rowNumber)
-                                .success(false)
-                                .error(
-                                        "Unexpected error while processing this row. " +
-                                                "The row was not imported."
-                                )
-                                .build();
-            }
+                        if (originalRow == null) {
 
-            results.add(result);
+                                sanitizedRows.add(null);
 
-            if (result.isSuccess()) {
+                                continue;
+                        }
 
-                success++;
+                        Map<String, String> sanitizedRow = new HashMap<>();
 
-            } else {
+                        for (Map.Entry<String, String> entry : originalRow.entrySet()) {
 
-                failed++;
-            }
+                                String originalKey = entry.getKey();
+
+                                String originalValue = entry.getValue();
+
+                                String normalizedKey = sanitizeHeader(
+                                                originalKey);
+
+                                String normalizedValue = sanitizeCellValue(
+                                                originalValue);
+
+                                sanitizedRow.put(
+                                                normalizedKey,
+                                                normalizedValue);
+                        }
+
+                        sanitizedRows.add(
+                                        sanitizedRow);
+                }
+
+                return sanitizedRows;
         }
 
-        long durationMs =
-                System.currentTimeMillis() - startedAt;
-
         /*
-         * ============================================================
-         * FINALIZE BATCH
-         * ============================================================
+         * ================================================================
+         * SANITIZE HEADER
+         * ================================================================
          */
+        private String sanitizeHeader(
+                        String value) {
 
-        String finalStatus;
+                if (value == null) {
 
-        if (failed == 0) {
+                        return "";
+                }
 
-            finalStatus =
-                    STATUS_COMPLETED;
+                String result = value
+                                .replace(
+                                                "\uFEFF",
+                                                "")
+                                .replace(
+                                                "\u00A0",
+                                                " ")
+                                .trim()
+                                .toLowerCase(
+                                                Locale.ROOT);
 
-        } else if (success == 0) {
+                /*
+                 * Excel may produce headers such as:
+                 *
+                 * 'national_id
+                 *
+                 * Remove only the leading apostrophe.
+                 */
+                result = removeLeadingExcelApostrophe(
+                                result);
 
-            finalStatus =
-                    STATUS_FAILED;
-
-        } else {
-
-            finalStatus =
-                    STATUS_PARTIAL;
+                return result.trim();
         }
 
-        batch.setSuccessCount(success);
-
-        batch.setFailureCount(failed);
-
-        batch.setStatus(finalStatus);
-
         /*
-         * ============================================================
-         * STORE ROW RESULTS
-         * ============================================================
+         * ================================================================
+         * SANITIZE CELL VALUE
+         * ================================================================
          */
+        private String sanitizeCellValue(
+                        String value) {
 
-        try {
+                if (value == null) {
 
-            batch.setRowResults(
-                    objectMapper.writeValueAsString(
-                            results
-                    )
-            );
+                        return "";
+                }
 
-        } catch (Exception e) {
+                String result = value
+                                .replace(
+                                                "\uFEFF",
+                                                "")
+                                .replace(
+                                                "\u00A0",
+                                                " ")
+                                .trim();
 
-            log.error(
-                    "Unable to serialize legacy loan import row results. " +
-                            "organizationId={}, batchId={}",
-                    org.getId(),
-                    batchId,
-                    e
-            );
+                /*
+                 * Remove Excel's leading text apostrophe.
+                 *
+                 * IMPORTANT:
+                 *
+                 * This removes:
+                 *
+                 * '119876543210
+                 *
+                 * but does NOT change:
+                 *
+                 * O'Connor
+                 *
+                 * because the apostrophe is not the first character.
+                 */
+                result = removeLeadingExcelApostrophe(
+                                result);
 
-            batch.setRowResults(null);
+                return result.trim();
         }
-
-        batch =
-                importBatchRepo.save(batch);
 
         /*
-         * ============================================================
-         * AUDIT
-         * ============================================================
-         */
-
-        try {
-
-            String auditMessage =
-                    "Imported " +
-                            success +
-                            "/" +
-                            results.size() +
-                            " rows from \"" +
-                            safeFilename +
-                            "\"";
-
-            if (failed > 0) {
-
-                auditMessage +=
-                        " (" +
-                                failed +
-                                " row(s) failed — see batch detail)";
-            }
-
-            auditMessage +=
-                    ". Batch status: " +
-                            finalStatus +
-                            ".";
-
-            auditService.log(
-                    org,
-                    importedBy,
-                    "LEGACY_LOANS_IMPORTED",
-                    "IMPORT_BATCH",
-                    batch.getId().toString(),
-                    auditMessage
-            );
-
-        } catch (Exception e) {
-
-            log.error(
-                    "Legacy loan import completed but audit logging failed. " +
-                            "organizationId={}, batchId={}",
-                    org.getId(),
-                    batch.getId(),
-                    e
-            );
-        }
-
-        log.info(
-                "Legacy loan import completed. " +
-                        "organizationId={}, batchId={}, filename={}, totalRows={}, " +
-                        "success={}, failed={}, status={}, durationMs={}",
-                org.getId(),
-                batch.getId(),
-                safeFilename,
-                results.size(),
-                success,
-                failed,
-                finalStatus,
-                durationMs
-        );
-
-        return batch;
-    }
-
-
-    /*
-     * ================================================================
-     * SANITIZE PARSED ROWS
-     * ================================================================
-     *
-     * This is the important Excel compatibility layer.
-     *
-     * It handles:
-     *
-     * 1. Leading Excel apostrophe:
-     *
-     *    '119876543210
-     *
-     *    -> 119876543210
-     *
-     * 2. Leading/trailing whitespace.
-     *
-     * 3. UTF-8 BOM characters.
-     *
-     * 4. Non-breaking spaces.
-     *
-     * 5. Empty strings.
-     *
-     * 6. Excel-style text values.
-     *
-     * 7. Header normalization.
-     *
-     * We intentionally DO NOT remove apostrophes occurring inside
-     * normal text.
-     *
-     * Example:
-     *
-     * O'Connor
-     *
-     * stays:
-     *
-     * O'Connor
-     */
-    private List<Map<String, String>> sanitizeParsedRows(
-            List<Map<String, String>> rows
-    ) {
-
-        if (rows == null || rows.isEmpty()) {
-
-            return rows;
-        }
-
-        List<Map<String, String>> sanitizedRows =
-                new ArrayList<>(
-                        rows.size()
-                );
-
-        for (
-                Map<String, String> originalRow :
-                rows
-        ) {
-
-            if (originalRow == null) {
-
-                sanitizedRows.add(null);
-
-                continue;
-            }
-
-            Map<String, String> sanitizedRow =
-                    new HashMap<>();
-
-            for (
-                    Map.Entry<String, String> entry :
-                    originalRow.entrySet()
-            ) {
-
-                String originalKey =
-                        entry.getKey();
-
-                String originalValue =
-                        entry.getValue();
-
-                String normalizedKey =
-                        sanitizeHeader(
-                                originalKey
-                        );
-
-                String normalizedValue =
-                        sanitizeCellValue(
-                                originalValue
-                        );
-
-                sanitizedRow.put(
-                        normalizedKey,
-                        normalizedValue
-                );
-            }
-
-            sanitizedRows.add(
-                    sanitizedRow
-            );
-        }
-
-        return sanitizedRows;
-    }
-
-
-    /*
-     * ================================================================
-     * SANITIZE HEADER
-     * ================================================================
-     */
-    private String sanitizeHeader(
-            String value
-    ) {
-
-        if (value == null) {
-
-            return "";
-        }
-
-        String result =
-                value
-                        .replace(
-                                "\uFEFF",
-                                ""
-                        )
-                        .replace(
-                                "\u00A0",
-                                " "
-                        )
-                        .trim()
-                        .toLowerCase(
-                                Locale.ROOT
-                        );
-
-        /*
-         * Excel may produce headers such as:
+         * ================================================================
+         * REMOVE LEADING EXCEL APOSTROPHE
+         * ================================================================
          *
-         * 'national_id
+         * Handles:
          *
-         * Remove only the leading apostrophe.
-         */
-        result =
-                removeLeadingExcelApostrophe(
-                        result
-                );
-
-        return result.trim();
-    }
-
-
-    /*
-     * ================================================================
-     * SANITIZE CELL VALUE
-     * ================================================================
-     */
-    private String sanitizeCellValue(
-            String value
-    ) {
-
-        if (value == null) {
-
-            return "";
-        }
-
-        String result =
-                value
-                        .replace(
-                                "\uFEFF",
-                                ""
-                        )
-                        .replace(
-                                "\u00A0",
-                                " "
-                        )
-                        .trim();
-
-        /*
-         * Remove Excel's leading text apostrophe.
+         * '123456789
          *
-         * IMPORTANT:
+         * -> 123456789
          *
-         * This removes:
+         * Also handles whitespace before the apostrophe:
          *
-         * '119876543210
+         * '123456789
          *
-         * but does NOT change:
+         * -> 123456789
+         *
+         * Does NOT modify:
          *
          * O'Connor
-         *
-         * because the apostrophe is not the first character.
+         * Mary's
+         * Borrower's loan
          */
-        result =
-                removeLeadingExcelApostrophe(
-                        result
-                );
+        private String removeLeadingExcelApostrophe(
+                        String value) {
 
-        return result.trim();
-    }
+                if (value == null) {
 
+                        return "";
+                }
 
-    /*
-     * ================================================================
-     * REMOVE LEADING EXCEL APOSTROPHE
-     * ================================================================
-     *
-     * Handles:
-     *
-     * '123456789
-     *
-     * -> 123456789
-     *
-     * Also handles whitespace before the apostrophe:
-     *
-     *   '123456789
-     *
-     * -> 123456789
-     *
-     * Does NOT modify:
-     *
-     * O'Connor
-     * Mary's
-     * Borrower's loan
-     */
-    private String removeLeadingExcelApostrophe(
-            String value
-    ) {
+                String result = value.trim();
 
-        if (value == null) {
+                if (result.length() >= 2
+                                && result.charAt(0) == '\'') {
 
-            return "";
+                        return result
+                                        .substring(1)
+                                        .trim();
+                }
+
+                return result;
         }
 
-        String result =
-                value.trim();
+        /*
+         * ================================================================
+         * VALIDATE IMPORT REQUEST
+         * ================================================================
+         */
+        private void validateImportRequest(
+                        String filename,
+                        InputStream in,
+                        Organization org,
+                        User importedBy) {
 
-        if (
-                result.length() >= 2
-                        && result.charAt(0) == '\''
-        ) {
+                if (org == null) {
 
-            return result
-                    .substring(1)
-                    .trim();
+                        throw new IllegalArgumentException(
+                                        "Organization is required for legacy loan import.");
+                }
+
+                if (org.getId() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "Organization ID is required for legacy loan import.");
+                }
+
+                if (in == null) {
+
+                        throw new IllegalArgumentException(
+                                        "No ledger file was supplied.");
+                }
+
+                if (filename == null
+                                || filename.isBlank()) {
+
+                        throw new IllegalArgumentException(
+                                        "A ledger filename is required.");
+                }
+
+                if (importedBy != null
+                                && importedBy.getId() == null) {
+
+                        throw new IllegalArgumentException(
+                                        "The importing user must have a valid ID.");
+                }
         }
 
-        return result;
-    }
+        /*
+         * ================================================================
+         * VALIDATE PARSED ROWS
+         * ================================================================
+         */
+        private void validateParsedRows(
+                        List<Map<String, String>> rows) {
 
+                if (rows == null
+                                || rows.isEmpty()) {
 
-    /*
-     * ================================================================
-     * VALIDATE IMPORT REQUEST
-     * ================================================================
-     */
-    private void validateImportRequest(
-            String filename,
-            InputStream in,
-            Organization org,
-            User importedBy
-    ) {
+                        throw new IllegalArgumentException(
+                                        "The uploaded ledger contains no data rows.");
+                }
 
-        if (org == null) {
+                if (rows.size() > MAX_IMPORT_ROWS) {
 
-            throw new IllegalArgumentException(
-                    "Organization is required for legacy loan import."
-            );
+                        throw new IllegalArgumentException(
+                                        "The uploaded ledger contains " +
+                                                        rows.size() +
+                                                        " rows. The maximum allowed per import is " +
+                                                        MAX_IMPORT_ROWS +
+                                                        ". Please split the ledger into smaller files.");
+                }
+
+                for (int i = 0; i < rows.size(); i++) {
+
+                        Map<String, String> row = rows.get(i);
+
+                        if (row == null) {
+
+                                throw new IllegalArgumentException(
+                                                "Import row " +
+                                                                (i + 2) +
+                                                                " is empty.");
+                        }
+
+                        if (row.isEmpty()) {
+
+                                throw new IllegalArgumentException(
+                                                "Import row " +
+                                                                (i + 2) +
+                                                                " contains no readable columns.");
+                        }
+                }
         }
 
-        if (org.getId() == null) {
+        /*
+         * ================================================================
+         * FILENAME NORMALIZATION
+         * ================================================================
+         */
+        private String normalizeFilename(
+                        String filename) {
 
-            throw new IllegalArgumentException(
-                    "Organization ID is required for legacy loan import."
-            );
+                String normalized = filename
+                                .trim()
+                                .replace(
+                                                "\\",
+                                                "_")
+                                .replace(
+                                                "/",
+                                                "_");
+
+                if (normalized.isBlank()) {
+
+                        normalized = "legacy-loan-import.csv";
+                }
+
+                if (normalized.length() > MAX_FILENAME_LENGTH) {
+
+                        normalized = normalized.substring(
+                                        0,
+                                        MAX_FILENAME_LENGTH);
+                }
+
+                return normalized;
         }
 
-        if (in == null) {
+        /*
+         * ================================================================
+         * CSV TEMPLATE
+         * ================================================================
+         *
+         * Synthetic example only.
+         */
+        public String buildCsvTemplate() {
 
-            throw new IllegalArgumentException(
-                    "No ledger file was supplied."
-            );
+                return String.join(
+                                ",",
+                                "national_id",
+                                "first_name",
+                                "last_name",
+                                "email",
+                                "phone",
+                                "gender",
+                                "marital_status",
+                                "loan_type",
+                                "amount",
+                                "interest_rate",
+                                "interest_rate_type",
+                                "duration_months",
+                                "start_date",
+                                "status",
+                                "total_paid",
+                                "outstanding_balance",
+                                "currency",
+                                "loan_reference",
+                                "notes")
+                                + "\n"
+                                +
+                                String.join(
+                                                ",",
+                                                "SYNTHETIC-ID-0001",
+                                                "Jean",
+                                                "Uwimana",
+                                                "",
+                                                "0788000000",
+                                                "Male",
+                                                "Married",
+                                                "PERSONAL",
+                                                "500000",
+                                                "10",
+                                                "MONTHLY",
+                                                "6",
+                                                "2025-01-15",
+                                                "ACTIVE",
+                                                "150000",
+                                                "",
+                                                "RWF",
+                                                "OLD-LEDGER-EXAMPLE-0042",
+                                                "Synthetic example - replace with real historical data");
         }
-
-        if (
-                filename == null
-                        || filename.isBlank()
-        ) {
-
-            throw new IllegalArgumentException(
-                    "A ledger filename is required."
-            );
-        }
-
-        if (
-                importedBy != null
-                        && importedBy.getId() == null
-        ) {
-
-            throw new IllegalArgumentException(
-                    "The importing user must have a valid ID."
-            );
-        }
-    }
-
-
-    /*
-     * ================================================================
-     * VALIDATE PARSED ROWS
-     * ================================================================
-     */
-    private void validateParsedRows(
-            List<Map<String, String>> rows
-    ) {
-
-        if (
-                rows == null
-                        || rows.isEmpty()
-        ) {
-
-            throw new IllegalArgumentException(
-                    "The uploaded ledger contains no data rows."
-            );
-        }
-
-        if (
-                rows.size() > MAX_IMPORT_ROWS
-        ) {
-
-            throw new IllegalArgumentException(
-                    "The uploaded ledger contains " +
-                            rows.size() +
-                            " rows. The maximum allowed per import is " +
-                            MAX_IMPORT_ROWS +
-                            ". Please split the ledger into smaller files."
-            );
-        }
-
-        for (
-                int i = 0;
-                i < rows.size();
-                i++
-        ) {
-
-            Map<String, String> row =
-                    rows.get(i);
-
-            if (row == null) {
-
-                throw new IllegalArgumentException(
-                        "Import row " +
-                                (i + 2) +
-                                " is empty."
-                );
-            }
-
-            if (row.isEmpty()) {
-
-                throw new IllegalArgumentException(
-                        "Import row " +
-                                (i + 2) +
-                                " contains no readable columns."
-                );
-            }
-        }
-    }
-
-
-    /*
-     * ================================================================
-     * FILENAME NORMALIZATION
-     * ================================================================
-     */
-    private String normalizeFilename(
-            String filename
-    ) {
-
-        String normalized =
-                filename
-                        .trim()
-                        .replace(
-                                "\\",
-                                "_"
-                        )
-                        .replace(
-                                "/",
-                                "_"
-                        );
-
-        if (
-                normalized.isBlank()
-        ) {
-
-            normalized =
-                    "legacy-loan-import.csv";
-        }
-
-        if (
-                normalized.length() > MAX_FILENAME_LENGTH
-        ) {
-
-            normalized =
-                    normalized.substring(
-                            0,
-                            MAX_FILENAME_LENGTH
-                    );
-        }
-
-        return normalized;
-    }
-
-
-    /*
-     * ================================================================
-     * CSV TEMPLATE
-     * ================================================================
-     *
-     * Synthetic example only.
-     */
-    public String buildCsvTemplate() {
-
-        return String.join(
-                ",",
-                "national_id",
-                "first_name",
-                "last_name",
-                "email",
-                "phone",
-                "gender",
-                "marital_status",
-                "loan_type",
-                "amount",
-                "interest_rate",
-                "interest_rate_type",
-                "duration_months",
-                "start_date",
-                "status",
-                "total_paid",
-                "outstanding_balance",
-                "currency",
-                "loan_reference",
-                "notes"
-        )
-                + "\n"
-                +
-                String.join(
-                        ",",
-                        "SYNTHETIC-ID-0001",
-                        "Jean",
-                        "Uwimana",
-                        "",
-                        "0788000000",
-                        "Male",
-                        "Married",
-                        "PERSONAL",
-                        "500000",
-                        "10",
-                        "MONTHLY",
-                        "6",
-                        "2025-01-15",
-                        "ACTIVE",
-                        "150000",
-                        "",
-                        "RWF",
-                        "OLD-LEDGER-EXAMPLE-0042",
-                        "Synthetic example - replace with real historical data"
-                );
-    }
 }

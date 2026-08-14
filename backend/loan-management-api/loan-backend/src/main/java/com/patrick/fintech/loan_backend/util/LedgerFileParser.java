@@ -10,24 +10,31 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
- * Parses an uploaded borrower/loan ledger (CSV or XLSX) into a list of normalized row maps
- * (header -> cell value, both trimmed). Header matching is forgiving — "National ID",
- * "national_id", and "NationalID" all normalize to the same key — because this is reading
+ * Parses an uploaded borrower/loan ledger (CSV or XLSX) into a list of
+ * normalized row maps
+ * (header -> cell value, both trimmed). Header matching is forgiving —
+ * "National ID",
+ * "national_id", and "NationalID" all normalize to the same key — because this
+ * is reading
  * files real people export from Excel, not a fixed machine-generated format.
  */
 public final class LedgerFileParser {
 
-    private LedgerFileParser() {}
+    private LedgerFileParser() {
+    }
 
     public static List<Map<String, String>> parse(String filename, InputStream in) throws IOException {
         String lower = filename == null ? "" : filename.toLowerCase(Locale.ROOT);
-        if (lower.endsWith(".csv")) return parseCsv(in);
-        if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) return parseExcel(in);
+        if (lower.endsWith(".csv"))
+            return parseCsv(in);
+        if (lower.endsWith(".xlsx") || lower.endsWith(".xls"))
+            return parseExcel(in);
         throw new IllegalArgumentException("Unsupported file type — please upload a .csv or .xlsx file.");
     }
 
     public static String normalizeHeader(String header) {
-        if (header == null) return "";
+        if (header == null)
+            return "";
         return header.trim().toLowerCase(Locale.ROOT).replaceAll("[\\s\\-]+", "_");
     }
 
@@ -37,13 +44,15 @@ public final class LedgerFileParser {
         List<Map<String, String>> rows = new ArrayList<>();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
             String headerLine = reader.readLine();
-            if (headerLine == null) return rows;
+            if (headerLine == null)
+                return rows;
             List<String> headers = splitCsvLine(headerLine).stream()
-                .map(LedgerFileParser::normalizeHeader).toList();
+                    .map(LedgerFileParser::normalizeHeader).toList();
 
             String line;
             while ((line = reader.readLine()) != null) {
-                if (line.isBlank()) continue;
+                if (line.isBlank())
+                    continue;
                 List<String> cells = splitCsvLine(line);
                 Map<String, String> row = new LinkedHashMap<>();
                 for (int i = 0; i < headers.size(); i++) {
@@ -55,8 +64,11 @@ public final class LedgerFileParser {
         return rows;
     }
 
-    /** Minimal RFC4180-ish CSV line splitter — handles quoted fields containing commas/quotes,
-     *  which a plain String.split(",") would silently corrupt. */
+    /**
+     * Minimal RFC4180-ish CSV line splitter — handles quoted fields containing
+     * commas/quotes,
+     * which a plain String.split(",") would silently corrupt.
+     */
     private static List<String> splitCsvLine(String line) {
         List<String> out = new ArrayList<>();
         StringBuilder cur = new StringBuilder();
@@ -64,13 +76,21 @@ public final class LedgerFileParser {
         for (int i = 0; i < line.length(); i++) {
             char c = line.charAt(i);
             if (inQuotes) {
-                if (c == '"' && i + 1 < line.length() && line.charAt(i + 1) == '"') { cur.append('"'); i++; }
-                else if (c == '"') inQuotes = false;
-                else cur.append(c);
+                if (c == '"' && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    cur.append('"');
+                    i++;
+                } else if (c == '"')
+                    inQuotes = false;
+                else
+                    cur.append(c);
             } else {
-                if (c == '"') inQuotes = true;
-                else if (c == ',') { out.add(cur.toString()); cur.setLength(0); }
-                else cur.append(c);
+                if (c == '"')
+                    inQuotes = true;
+                else if (c == ',') {
+                    out.add(cur.toString());
+                    cur.setLength(0);
+                } else
+                    cur.append(c);
             }
         }
         out.add(cur.toString());
@@ -84,12 +104,15 @@ public final class LedgerFileParser {
         try (Workbook wb = WorkbookFactory.create(in)) {
             Sheet sheet = wb.getSheetAt(0);
             DataFormatter formatter = new DataFormatter();
+            FormulaEvaluator evaluator = wb.getCreationHelper().createFormulaEvaluator();
             Iterator<Row> it = sheet.iterator();
-            if (!it.hasNext()) return rows;
+            if (!it.hasNext())
+                return rows;
 
             Row headerRow = it.next();
             List<String> headers = new ArrayList<>();
-            for (Cell c : headerRow) headers.add(normalizeHeader(formatter.formatCellValue(c)));
+            for (Cell c : headerRow)
+                headers.add(normalizeHeader(formatter.formatCellValue(c, evaluator)));
 
             while (it.hasNext()) {
                 Row r = it.next();
@@ -97,11 +120,13 @@ public final class LedgerFileParser {
                 Map<String, String> row = new LinkedHashMap<>();
                 for (int i = 0; i < headers.size(); i++) {
                     Cell cell = r.getCell(i, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
-                    String val = cell == null ? "" : formatter.formatCellValue(cell).trim();
-                    if (!val.isBlank()) allBlank = false;
+                    String val = cell == null ? "" : formatter.formatCellValue(cell, evaluator).trim();
+                    if (!val.isBlank())
+                        allBlank = false;
                     row.put(headers.get(i), val);
                 }
-                if (!allBlank) rows.add(row);
+                if (!allBlank)
+                    rows.add(row);
             }
         }
         return rows;
