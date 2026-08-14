@@ -146,7 +146,7 @@ public final class LedgerFileParser {
     private static List<Map<String, String>> parseExcel(InputStream in) throws IOException {
         try (Workbook wb = WorkbookFactory.create(in)) {
             DataFormatter formatter = new DataFormatter(Locale.ROOT, true);
-            FormulaEvaluator evaluator = wb.getCreationHelper().createFormulaEvaluator();
+            FormulaEvaluator evaluator = null;
 
             SheetCandidate best = null;
             int sheetsScanned = Math.min(wb.getNumberOfSheets(), MAX_SHEETS_TO_SCAN);
@@ -179,8 +179,9 @@ public final class LedgerFileParser {
             throw e;
         } catch (RuntimeException e) {
             throw new IOException(
-                    "The uploaded Excel file could not be opened. It may be password-protected, corrupted, " +
-                            "or not a valid .xlsx/.xls file.",
+                    "The uploaded Excel ledger could not be read. " +
+                            "The workbook may contain unsupported Excel features or may be corrupted. " +
+                            "Formula evaluation is intentionally disabled during import discovery.",
                     e);
         }
     }
@@ -478,6 +479,43 @@ public final class LedgerFileParser {
         if (cell == null) {
             return "";
         }
+
+        // Never evaluate Excel formulas during import discovery. Apache POI's
+        // formula evaluator cannot parse some valid Excel structured-reference
+        // formulas such as Table123[[#This Row],[Column12]], which otherwise
+        // aborts the entire upload.
+        if (cell.getCellType() == CellType.FORMULA) {
+            CellType cachedType = cell.getCachedFormulaResultType();
+
+            switch (cachedType) {
+                case NUMERIC -> {
+                    if (DateUtil.isCellDateFormatted(cell)) {
+                        LocalDate date = cell.getDateCellValue()
+                                .toInstant()
+                                .atZone(ZoneId.systemDefault())
+                                .toLocalDate();
+                        return date.toString();
+                    }
+                    return cleanCell(formatter.formatRawCellContents(
+                            cell.getNumericCellValue(),
+                            cell.getCellStyle().getDataFormat(),
+                            cell.getCellStyle().getDataFormatString()));
+                }
+                case STRING -> {
+                    return cleanCell(cell.getStringCellValue());
+                }
+                case BOOLEAN -> {
+                    return Boolean.toString(cell.getBooleanCellValue());
+                }
+                case ERROR -> {
+                    return "";
+                }
+                default -> {
+                    return "";
+                }
+            }
+        }
+
         if (cell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
             LocalDate date = cell.getDateCellValue()
                     .toInstant()
@@ -485,7 +523,10 @@ public final class LedgerFileParser {
                     .toLocalDate();
             return date.toString();
         }
-        return cleanCell(formatter.formatCellValue(cell, evaluator));
+
+        // No evaluator: this formats ordinary cells without attempting to parse
+        // unsupported Excel formulas.
+        return cleanCell(formatter.formatCellValue(cell));
     }
 
     private static boolean isMeaningfullyBlank(Map<String, String> row) {
