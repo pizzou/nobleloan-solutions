@@ -195,11 +195,19 @@ public class LoanRestructuringService {
                 /*
                  * Keep platform rates fixed.
                  */
-                loan.setInterestRate(
-                                MONTHLY_INTEREST_RATE);
+                BigDecimal existingInterestRate = safe(loan.getInterestRateDecimal());
+                BigDecimal existingManagementFeeRate = safe(loan.getManagementFeeRateDecimal());
 
-                loan.setManagementFeeRate(
-                                MONTHLY_MANAGEMENT_FEE_RATE);
+                if (existingInterestRate.compareTo(ZERO) <= 0) {
+                        existingInterestRate = MONTHLY_INTEREST_RATE;
+                }
+
+                if (existingManagementFeeRate.compareTo(ZERO) < 0) {
+                        existingManagementFeeRate = MONTHLY_MANAGEMENT_FEE_RATE;
+                }
+
+                loan.setInterestRate(existingInterestRate);
+                loan.setManagementFeeRate(existingManagementFeeRate);
 
                 loan.setInterestRateType(
                                 "MONTHLY");
@@ -430,34 +438,38 @@ public class LoanRestructuringService {
                 }
 
                 /*
-                 * Existing callers may still provide newRate.
-                 *
-                 * Platform rate is fixed at 5%.
+                 * Existing loans retain their contractual pricing during
+                 * restructuring. An explicitly supplied newRate is an
+                 * authorized interest-rate override for this restructuring.
                  */
-                if (newRate != null) {
+                BigDecimal restructureInterestRate = safe(loan.getInterestRateDecimal());
+                BigDecimal restructureManagementFeeRate = safe(loan.getManagementFeeRateDecimal());
 
+                if (newRate != null) {
                         if (Double.isNaN(newRate)
-                                        || Double.isInfinite(newRate)) {
+                                        || Double.isInfinite(newRate)
+                                        || newRate < 0) {
                                 throw new IllegalArgumentException(
                                                 "Invalid new interest rate");
                         }
 
-                        BigDecimal requestedRate = money(BigDecimal.valueOf(newRate));
+                        restructureInterestRate = money(
+                                        BigDecimal.valueOf(newRate));
+                }
 
-                        if (requestedRate.compareTo(
-                                        MONTHLY_INTEREST_RATE) != 0) {
-                                throw new IllegalArgumentException(
-                                                "Loan interest rate is fixed at "
-                                                                + MONTHLY_INTEREST_RATE
-                                                                + "% per month");
-                        }
+                if (restructureInterestRate.compareTo(ZERO) <= 0) {
+                        restructureInterestRate = MONTHLY_INTEREST_RATE;
+                }
+
+                if (restructureManagementFeeRate.compareTo(ZERO) < 0) {
+                        restructureManagementFeeRate = MONTHLY_MANAGEMENT_FEE_RATE;
                 }
 
                 loan.setInterestRate(
-                                MONTHLY_INTEREST_RATE);
+                                restructureInterestRate);
 
                 loan.setManagementFeeRate(
-                                MONTHLY_MANAGEMENT_FEE_RATE);
+                                restructureManagementFeeRate);
 
                 /*
                  * Do not create a new processing fee.
@@ -546,13 +558,13 @@ public class LoanRestructuringService {
                                                 + previousRate
                                                 + "% monthly"
                                                 + " | New interest="
-                                                + MONTHLY_INTEREST_RATE
+                                                + finalSaved.getInterestRateDecimal()
                                                 + "% monthly"
                                                 + " | Previous management="
                                                 + previousManagementRate
                                                 + "% monthly"
                                                 + " | New management="
-                                                + MONTHLY_MANAGEMENT_FEE_RATE
+                                                + finalSaved.getManagementFeeRateDecimal()
                                                 + "% monthly"
                                                 + " | Processing fee remains one-time="
                                                 + PROCESSING_FEE_RATE
@@ -573,9 +585,9 @@ public class LoanRestructuringService {
                                                 + " has been restructured. New term: "
                                                 + finalSaved.getDurationMonths()
                                                 + " months. Monthly interest: "
-                                                + MONTHLY_INTEREST_RATE
+                                                + finalSaved.getInterestRateDecimal()
                                                 + "% and management fee: "
-                                                + MONTHLY_MANAGEMENT_FEE_RATE
+                                                + finalSaved.getManagementFeeRateDecimal()
                                                 + "%.");
 
                 return finalSaved;
@@ -804,11 +816,19 @@ public class LoanRestructuringService {
                 loan.setStatus(
                                 LoanStatus.ACTIVE);
 
-                loan.setInterestRate(
-                                MONTHLY_INTEREST_RATE);
+                BigDecimal existingInterestRate = safe(loan.getInterestRateDecimal());
+                BigDecimal existingManagementFeeRate = safe(loan.getManagementFeeRateDecimal());
 
-                loan.setManagementFeeRate(
-                                MONTHLY_MANAGEMENT_FEE_RATE);
+                if (existingInterestRate.compareTo(ZERO) <= 0) {
+                        existingInterestRate = MONTHLY_INTEREST_RATE;
+                }
+
+                if (existingManagementFeeRate.compareTo(ZERO) < 0) {
+                        existingManagementFeeRate = MONTHLY_MANAGEMENT_FEE_RATE;
+                }
+
+                loan.setInterestRate(existingInterestRate);
+                loan.setManagementFeeRate(existingManagementFeeRate);
 
                 loan.setInterestRateType(
                                 "MONTHLY");

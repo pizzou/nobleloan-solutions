@@ -118,12 +118,6 @@ public class PublicController {
 
         private static final int MAX_LOAN_DURATION_MONTHS = 6;
 
-        private static final BigDecimal MONTHLY_INTEREST_RATE = Loan.DEFAULT_MONTHLY_INTEREST_RATE;
-
-        private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = Loan.DEFAULT_MONTHLY_MANAGEMENT_FEE_RATE;
-
-        private static final BigDecimal PROCESSING_FEE_RATE = Loan.DEFAULT_PROCESSING_FEE_RATE;
-
         private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(
                         2,
                         RoundingMode.HALF_UP);
@@ -1720,18 +1714,39 @@ public class PublicController {
                                 "registrationNumber",
                                 org.getRegistrationNumber());
 
+                List<Map<String, Object>> publicServices = servicesFor(org);
+
+                BigDecimal configuredMinimum = org.getMinLoanAmountDecimal() != null
+                                ? org.getMinLoanAmountDecimal()
+                                : null;
+
+                BigDecimal configuredMaximum = org.getMaxLoanAmountDecimal() != null
+                                ? org.getMaxLoanAmountDecimal()
+                                : null;
+
+                if (configuredMinimum == null && !publicServices.isEmpty()) {
+                        configuredMinimum = publicServices.stream()
+                                        .map(item -> decimalFromObject(item.get("minAmount")))
+                                        .filter(Objects::nonNull)
+                                        .min(BigDecimal::compareTo)
+                                        .orElse(null);
+                }
+
+                if (configuredMaximum == null && !publicServices.isEmpty()) {
+                        configuredMaximum = publicServices.stream()
+                                        .map(item -> decimalFromObject(item.get("maxAmount")))
+                                        .filter(Objects::nonNull)
+                                        .max(BigDecimal::compareTo)
+                                        .orElse(null);
+                }
+
                 config.put(
                                 "minLoanAmount",
-                                org.getMinLoanAmount() != null
-                                                ? org.getMinLoanAmount()
-                                                : MIN_LOAN_AMOUNT);
+                                configuredMinimum);
 
-                /*
-                 * Platform has no maximum loan amount.
-                 */
                 config.put(
                                 "maxLoanAmount",
-                                null);
+                                configuredMaximum);
 
                 config.put(
                                 "status",
@@ -1802,7 +1817,7 @@ public class PublicController {
 
                 config.put(
                                 "services",
-                                servicesFor(org));
+                                publicServices);
 
                 Map<String, Object> hero = new LinkedHashMap<>();
                 hero.put(
@@ -1841,41 +1856,55 @@ public class PublicController {
                                 "paymentMethods",
                                 paymentMethods());
 
-                /*
-                 * Explicit platform financial rules for frontend.
-                 */
-                LoanProduct defaultPublicProduct = loanProductRepo
-                                .findByOrganization_IdAndActiveTrueOrderByDisplayOrderAsc(
-                                                org.getId())
-                                .stream()
+                BigDecimal primaryInterestRate = publicServices.stream()
+                                .map(item -> decimalFromObject(item.get("monthlyInterestRate")))
+                                .filter(Objects::nonNull)
                                 .findFirst()
                                 .orElse(null);
 
+                BigDecimal primaryManagementFeeRate = publicServices.stream()
+                                .map(item -> decimalFromObject(item.get("monthlyManagementFeeRate")))
+                                .filter(Objects::nonNull)
+                                .findFirst()
+                                .orElse(null);
+
+                BigDecimal primaryProcessingFeeRate = publicServices.stream()
+                                .map(item -> decimalFromObject(item.get("processingFeeRate")))
+                                .filter(Objects::nonNull)
+                                .findFirst()
+                                .orElse(null);
+
+                Integer minimumTerm = publicServices.stream()
+                                .map(item -> integerFromObject(item.get("minTermMonths")))
+                                .filter(Objects::nonNull)
+                                .min(Integer::compareTo)
+                                .orElse(MIN_LOAN_DURATION_MONTHS);
+
+                Integer maximumTerm = publicServices.stream()
+                                .map(item -> integerFromObject(item.get("maxTermMonths")))
+                                .filter(Objects::nonNull)
+                                .max(Integer::compareTo)
+                                .orElse(MAX_LOAN_DURATION_MONTHS);
+
                 config.put(
                                 "monthlyInterestRate",
-                                defaultPublicProduct != null
-                                                ? defaultPublicProduct.getInterestRateDecimal()
-                                                : MONTHLY_INTEREST_RATE);
+                                primaryInterestRate);
 
                 config.put(
                                 "monthlyManagementFeeRate",
-                                defaultPublicProduct != null
-                                                ? defaultPublicProduct.getManagementFeePercentDecimal()
-                                                : MONTHLY_MANAGEMENT_FEE_RATE);
+                                primaryManagementFeeRate);
 
                 config.put(
                                 "processingFeeRate",
-                                defaultPublicProduct != null
-                                                ? defaultPublicProduct.getProcessingFeePercentDecimal()
-                                                : PROCESSING_FEE_RATE);
+                                primaryProcessingFeeRate);
 
                 config.put(
                                 "minLoanDurationMonths",
-                                MIN_LOAN_DURATION_MONTHS);
+                                minimumTerm);
 
                 config.put(
                                 "maxLoanDurationMonths",
-                                MAX_LOAN_DURATION_MONTHS);
+                                maximumTerm);
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
@@ -2117,13 +2146,21 @@ public class PublicController {
 
                 amount = money(amount);
 
+                /*
+                 * Product-specific minimum amount.
+                 * The backend LoanService remains the final authority.
+                 */
+                BigDecimal publicConfiguredMinimum = org.getMinLoanAmountDecimal() != null
+                                ? org.getMinLoanAmountDecimal()
+                                : MIN_LOAN_AMOUNT;
+
                 if (amount.compareTo(
-                                MIN_LOAN_AMOUNT) < 0) {
+                                publicConfiguredMinimum) < 0) {
 
                         throw new RuntimeException(
                                         "Minimum loan amount is "
                                                         + formatMoney(
-                                                                        MIN_LOAN_AMOUNT));
+                                                                        publicConfiguredMinimum));
                 }
 
                 String inputEmail = str(
@@ -2321,46 +2358,56 @@ public class PublicController {
                                 borrower);
 
                 // ========================================================
-                // PLATFORM DURATION RULE
+                // PRODUCT-SPECIFIC DURATION RULE
                 // ========================================================
 
-                int months = 1;
+                Loan.LoanType loanType = mapLoanType(
+                                str(body.get("loanType")));
 
-                if (body.get(
-                                "durationMonths") != null) {
+                LoanProduct publicProduct = loanProductRepo
+                                .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
+                                                org.getId(),
+                                                loanType)
+                                .orElseThrow(() -> new RuntimeException(
+                                                "This lender has not configured an active product for "
+                                                                + loanType));
 
+                int months = publicProduct.getMinTermMonths() != null
+                                ? publicProduct.getMinTermMonths()
+                                : MIN_LOAN_DURATION_MONTHS;
+
+                if (body.get("durationMonths") != null) {
                         try {
-
                                 months = Integer.parseInt(
-                                                body.get(
-                                                                "durationMonths").toString());
-
+                                                body.get("durationMonths").toString());
                         } catch (NumberFormatException e) {
-
                                 throw new RuntimeException(
                                                 "Duration must be a valid number of months.");
                         }
                 }
 
-                if (months < MIN_LOAN_DURATION_MONTHS
-                                || months > MAX_LOAN_DURATION_MONTHS) {
+                int productMinMonths = publicProduct.getMinTermMonths() != null
+                                ? publicProduct.getMinTermMonths()
+                                : MIN_LOAN_DURATION_MONTHS;
+
+                int productMaxMonths = publicProduct.getMaxTermMonths() != null
+                                ? publicProduct.getMaxTermMonths()
+                                : MAX_LOAN_DURATION_MONTHS;
+
+                if (months < productMinMonths
+                                || months > productMaxMonths) {
 
                         throw new RuntimeException(
                                         "Loan duration must be between "
-                                                        + MIN_LOAN_DURATION_MONTHS
+                                                        + productMinMonths
                                                         + " and "
-                                                        + MAX_LOAN_DURATION_MONTHS
-                                                        + " months.");
+                                                        + productMaxMonths
+                                                        + " months for this product.");
                 }
 
                 BigDecimal collateralValue = decimal(
                                 body.get(
                                                 "collateralValue"));
-
-                Loan.LoanType loanType = mapLoanType(
-                                str(
-                                                body.get(
-                                                                "loanType")));
 
                 /*
                  * The platform currently supports monthly repayment.
@@ -2368,17 +2415,15 @@ public class PublicController {
                 Loan.RepaymentFrequency repaymentFrequency = Loan.RepaymentFrequency.MONTHLY;
 
                 /*
-                 * Ignore user-supplied financial rates.
-                 *
-                 * The platform rule is:
-                 *
-                 * 5% monthly interest
-                 * 5% monthly management fee
-                 * 2% one-time processing fee
+                 * Public applications do not accept client-selected rates.
+                 * Pricing comes exclusively from the organization's active
+                 * LoanProduct and is snapshotted by LoanService.
                  */
-                BigDecimal interestRate = MONTHLY_INTEREST_RATE;
+                BigDecimal interestRate = publicProduct.getInterestRateDecimal();
 
-                String interestRateType = "MONTHLY";
+                String interestRateType = publicProduct.getInterestRateType() != null
+                                ? publicProduct.getInterestRateType()
+                                : "MONTHLY";
 
                 LoanRequest req = LoanRequest.builder()
                                 .borrowerId(
@@ -2428,21 +2473,9 @@ public class PublicController {
                                 null);
 
                 /*
-                 * Enforce the fixed platform terms even if LoanService
-                 * receives old/requested values.
+                 * LoanService resolves and snapshots the selected
+                 * organization's active LoanProduct pricing.
                  */
-                loan.setInterestRate(
-                                MONTHLY_INTEREST_RATE);
-
-                loan.setManagementFeeRate(
-                                MONTHLY_MANAGEMENT_FEE_RATE);
-
-                loan.setProcessingFeeRate(
-                                PROCESSING_FEE_RATE);
-
-                loan.setInterestRateType(
-                                "MONTHLY");
-
                 loan.setTermsAcceptedAt(
                                 LocalDateTime.now());
 
@@ -2471,12 +2504,15 @@ public class PublicController {
                         smsService.sendCustom(
                                         phone,
                                         String.format(
-                                                        "%s: Thank you %s! We received your loan application %s for %s %s. Terms: 5%% monthly interest, 5%% monthly management fee, 2%% processing fee.",
+                                                        "%s: Thank you %s! We received your loan application %s for %s %s. Terms: %s%% monthly interest, %s%% monthly management fee, %s%% processing fee.",
                                                         org.getName(),
                                                         firstName,
                                                         loan.getReferenceNumber(),
                                                         loan.getCurrency(),
-                                                        formatMoney(amount)));
+                                                        formatMoney(amount),
+                                                        loan.getInterestRateDecimal(),
+                                                        loan.getManagementFeeRateDecimal(),
+                                                        loan.getProcessingFeeRateDecimal()));
 
                 } catch (Exception e) {
 
@@ -2513,13 +2549,13 @@ public class PublicController {
                                                 "RECEIVED",
 
                                                 "monthlyInterestRate",
-                                                MONTHLY_INTEREST_RATE,
+                                                loan.getInterestRateDecimal(),
 
                                                 "monthlyManagementFeeRate",
-                                                MONTHLY_MANAGEMENT_FEE_RATE,
+                                                loan.getManagementFeeRateDecimal(),
 
                                                 "processingFeeRate",
-                                                PROCESSING_FEE_RATE));
+                                                loan.getProcessingFeeRateDecimal()));
 
                 idempotencyService.recordSuccess(
                                 idempotencyKey,
@@ -2555,95 +2591,85 @@ public class PublicController {
         private List<Map<String, Object>> servicesFor(
                         Organization org) {
 
+                if (org == null || org.getId() == null) {
+                        return List.of();
+                }
+
                 List<LoanProduct> products = loanProductRepo
                                 .findByOrganization_IdAndActiveTrueOrderByDisplayOrderAsc(
                                                 org.getId());
 
-                if (!products.isEmpty()) {
-
-                        return products
-                                        .stream()
-                                        .map(
-                                                        p -> {
-
-                                                                Map<String, Object> m = new LinkedHashMap<>();
-
-                                                                m.put(
-                                                                                "title",
-                                                                                p.getName());
-
-                                                                m.put(
-                                                                                "icon",
-                                                                                p.getIcon());
-
-                                                                BigDecimal interestRate = p
-                                                                                .getInterestRateDecimal() != null
-                                                                                                ? p.getInterestRateDecimal()
-                                                                                                : MONTHLY_INTEREST_RATE;
-
-                                                                BigDecimal managementFeeRate = p
-                                                                                .getManagementFeePercentDecimal() != null
-                                                                                                ? p.getManagementFeePercentDecimal()
-                                                                                                : MONTHLY_MANAGEMENT_FEE_RATE;
-
-                                                                BigDecimal processingFeeRate = p
-                                                                                .getProcessingFeePercentDecimal() != null
-                                                                                                ? p.getProcessingFeePercentDecimal()
-                                                                                                : PROCESSING_FEE_RATE;
-
-                                                                m.put(
-                                                                                "rate",
-                                                                                interestRate + "% / month");
-
-                                                                m.put(
-                                                                                "monthlyInterestRate",
-                                                                                interestRate);
-
-                                                                m.put(
-                                                                                "monthlyManagementFeeRate",
-                                                                                managementFeeRate);
-
-                                                                m.put(
-                                                                                "processingFeeRate",
-                                                                                processingFeeRate);
-
-                                                                m.put(
-                                                                                "minAmount",
-                                                                                p.getMinAmountDecimal());
-
-                                                                m.put(
-                                                                                "maxAmount",
-                                                                                p.getMaxAmountDecimal() == null
-                                                                                                ? "Unlimited"
-                                                                                                : p.getMaxAmountDecimal());
-
-                                                                m.put(
-                                                                                "minTermMonths",
-                                                                                p.getMinTermMonths());
-
-                                                                m.put(
-                                                                                "maxTermMonths",
-                                                                                p.getMaxTermMonths());
-
-                                                                m.put(
-                                                                                "term",
-                                                                                p.getMinTermMonths()
-                                                                                                + " to "
-                                                                                                + p.getMaxTermMonths()
-                                                                                                + " months");
-
-                                                                m.put(
-                                                                                "description",
-                                                                                p.getDescription());
-
-                                                                return m;
-                                                        })
-                                        .toList();
+                if (products == null || products.isEmpty()) {
+                        return parseListOrDefault(
+                                        org.getServicesJson(),
+                                        List.of());
                 }
 
-                return parseListOrDefault(
-                                org.getServicesJson(),
-                                List.of());
+                return products
+                                .stream()
+                                .filter(Objects::nonNull)
+                                .map(p -> {
+                                        Map<String, Object> m = new LinkedHashMap<>();
+
+                                        BigDecimal interest = p.getInterestRateDecimal();
+                                        BigDecimal management = p.getManagementFeePercentDecimal();
+                                        BigDecimal processing = p.getProcessingFeePercentDecimal();
+                                        BigDecimal minAmount = p.getMinAmountDecimal();
+                                        BigDecimal maxAmount = p.getMaxAmountDecimal();
+
+                                        Integer minTerm = p.getMinTermMonths();
+                                        Integer maxTerm = p.getMaxTermMonths();
+
+                                        m.put("id", p.getId());
+                                        m.put("title", p.getName());
+                                        m.put("icon", p.getIcon());
+                                        m.put("loanType", p.getLoanType());
+                                        m.put("rate", interest != null
+                                                        ? interest + "% / "
+                                                                        + (p.getInterestRateType() == null ? "month"
+                                                                                        : p.getInterestRateType()
+                                                                                                        .toLowerCase())
+                                                        : null);
+                                        m.put("monthlyInterestRate", interest);
+                                        m.put("monthlyManagementFeeRate", management);
+                                        m.put("processingFeeRate", processing);
+                                        m.put("minAmount", minAmount);
+                                        m.put("maxAmount", maxAmount);
+                                        m.put("minTermMonths", minTerm);
+                                        m.put("maxTermMonths", maxTerm);
+                                        m.put("maxAmountLabel",
+                                                        maxAmount == null ? "Unlimited" : maxAmount.toPlainString());
+                                        m.put("term", minTerm != null && maxTerm != null
+                                                        ? minTerm + " to " + maxTerm + " months"
+                                                        : null);
+                                        m.put("description", p.getDescription());
+                                        m.put("displayOrder", p.getDisplayOrder());
+
+                                        return m;
+                                })
+                                .toList();
+        }
+
+        private BigDecimal decimalFromObject(Object value) {
+                if (value == null) {
+                        return null;
+                }
+                try {
+                        return new BigDecimal(String.valueOf(value));
+                } catch (NumberFormatException ex) {
+                        return null;
+                }
+        }
+
+        private Integer integerFromObject(Object value) {
+                if (value == null) {
+                        return null;
+                }
+                try {
+                        return Integer.valueOf(String.valueOf(value));
+                } catch (NumberFormatException ex) {
+                        return null;
+                }
         }
 
         private List<Map<String, Object>> parseListOrDefault(

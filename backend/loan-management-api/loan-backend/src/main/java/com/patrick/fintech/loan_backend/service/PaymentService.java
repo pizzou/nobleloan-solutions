@@ -48,8 +48,14 @@ public class PaymentService {
         private final PaymentEventPublisher paymentEventPublisher;
 
         // ================================================================
-        // PLATFORM FINANCIAL RULES
+        // PLATFORM FALLBACK / NON-CONTRACTUAL RULES
         // ================================================================
+
+        /*
+         * These values are retained only as migration-safe fallbacks for
+         * legacy loans that do not contain a pricing snapshot. New loans
+         * must always carry their organization/product pricing.
+         */
 
         /**
          * Monthly loan interest.
@@ -556,7 +562,7 @@ public class PaymentService {
                                 currentBalance,
                                 interestStartDateTime.toLocalDate(),
                                 now.toLocalDate(),
-                                MONTHLY_INTEREST_RATE);
+                                loanInterestRate(loan));
 
                 // ============================================================
                 // NEW MANAGEMENT FEE
@@ -566,7 +572,7 @@ public class PaymentService {
                                 currentBalance,
                                 interestStartDateTime.toLocalDate(),
                                 now.toLocalDate(),
-                                MONTHLY_MANAGEMENT_FEE_RATE);
+                                loanManagementFeeRate(loan));
 
                 // ============================================================
                 // TOTAL CURRENT CYCLE INTEREST
@@ -1360,8 +1366,12 @@ public class PaymentService {
                                                 + penaltyPaidThisPayment
                                                 + ", overpayment="
                                                 + overpayment
-                                                + ", monthly interest rate=5%"
-                                                + ", monthly management fee rate=5%"
+                                                + ", monthly interest rate="
+                                                + loanInterestRate(loan)
+                                                + "%"
+                                                + ", monthly management fee rate="
+                                                + loanManagementFeeRate(loan)
+                                                + "%"
                                                 + ", monthly penalty rate=15%"
                                                 + ", daily penalty rate=0.5%");
 
@@ -1558,11 +1568,11 @@ public class PaymentService {
 
                         paymentWebhook.put(
                                         "dailyInterestRate",
-                                        calculateDailyInterestRate());
+                                        calculateDailyInterestRate(loan));
 
                         paymentWebhook.put(
                                         "dailyManagementFeeRate",
-                                        calculateDailyManagementFeeRate());
+                                        calculateDailyManagementFeeRate(loan));
 
                         paymentWebhook.put(
                                         "newInterest",
@@ -2121,12 +2131,12 @@ public class PaymentService {
                                         balance,
                                         start,
                                         dueDate,
-                                        MONTHLY_INTEREST_RATE);
+                                        loanInterestRate(loan));
                         BigDecimal managementFee = accrueDaily(
                                         balance,
                                         start,
                                         dueDate,
-                                        MONTHLY_MANAGEMENT_FEE_RATE);
+                                        loanManagementFeeRate(loan));
                         BigDecimal projectedAmount = roundMoney(
                                         principalComponent.add(interest).add(managementFee));
 
@@ -2151,19 +2161,53 @@ public class PaymentService {
         // DAILY-BASIS ACCRUAL
         // ================================================================
 
-        private BigDecimal calculateDailyInterestRate() {
-                // Compatibility helper: a daily rate must always be tied to a calendar month.
-                return MONTHLY_INTEREST_RATE.divide(
+        private BigDecimal calculateDailyInterestRate(Loan loan) {
+                BigDecimal monthlyRate = loanInterestRate(loan);
+                return monthlyRate.divide(
                                 BigDecimal.valueOf(LocalDate.now().lengthOfMonth()),
                                 16,
                                 RoundingMode.HALF_UP);
         }
 
-        private BigDecimal calculateDailyManagementFeeRate() {
-                return MONTHLY_MANAGEMENT_FEE_RATE.divide(
+        private BigDecimal calculateDailyManagementFeeRate(Loan loan) {
+                BigDecimal monthlyRate = loanManagementFeeRate(loan);
+                return monthlyRate.divide(
                                 BigDecimal.valueOf(LocalDate.now().lengthOfMonth()),
                                 16,
                                 RoundingMode.HALF_UP);
+        }
+
+        private BigDecimal loanInterestRate(Loan loan) {
+                if (loan == null) {
+                        return MONTHLY_INTEREST_RATE.multiply(ONE_HUNDRED);
+                }
+
+                BigDecimal raw = loan.getInterestRateDecimal();
+
+                if (raw == null || raw.compareTo(ZERO) <= 0) {
+                        return MONTHLY_INTEREST_RATE.multiply(ONE_HUNDRED);
+                }
+
+                return roundMoney(raw);
+        }
+
+        private BigDecimal loanManagementFeeRate(Loan loan) {
+                if (loan == null) {
+                        return MONTHLY_MANAGEMENT_FEE_RATE.multiply(ONE_HUNDRED);
+                }
+
+                BigDecimal raw = loan.getManagementFeeRateDecimal();
+
+                if (raw == null) {
+                        return MONTHLY_MANAGEMENT_FEE_RATE.multiply(ONE_HUNDRED);
+                }
+
+                if (raw.compareTo(ZERO) < 0) {
+                        throw new IllegalStateException(
+                                        "Loan management fee rate cannot be negative");
+                }
+
+                return roundMoney(raw);
         }
 
         private BigDecimal calculateNewInterest(
