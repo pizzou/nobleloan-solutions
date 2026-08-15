@@ -1,26 +1,42 @@
 "use client";
 
-import Link from "next/link";
 import { useTenant } from "../layout";
-import LoanCalculator from "../../../components/site/LoanCalculator";
-import FxRateBoard from "../../../components/site/FxRateBoard";
+import LoanCalculator from "../../../components/LoanCalculator";
+import FxRatePanel from "../../../components/FxWidget";
 
 export default function CalculatorPage() {
   const tenant = useTenant();
   if (!tenant) return null;
 
   return (
-    <div>
-      <section className="bg-slate-950 px-4 py-16 text-white md:px-6 md:py-24">
-        <div className="mx-auto max-w-4xl text-center">
-          <div className="text-xs font-black uppercase tracking-[0.2em] text-white/45">Planning tools</div>
-          <h1 className="mt-4 text-4xl font-black tracking-tight md:text-6xl">Calculate your borrowing before you apply.</h1>
-          <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-white/65">Use the lender's published pricing as a planning assumption. The approved loan agreement and generated repayment schedule remain the authoritative figures.</p>
+    <div className="bg-slate-50 pb-20">
+      <section
+        className="relative overflow-hidden text-white"
+        style={{
+          background: `linear-gradient(135deg, ${tenant.primaryColor}, #071427)`,
+        }}
+      >
+        <div className="absolute -right-24 top-0 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
+        <div className="relative mx-auto max-w-7xl px-4 py-20 md:py-24">
+          <div className="max-w-3xl">
+            <div className="text-[11px] font-black uppercase tracking-[0.24em] text-white/55">
+              Planning tools
+            </div>
+            <h1 className="mt-4 text-4xl font-black tracking-tight md:text-6xl">
+              Calculate before you commit.
+            </h1>
+            <p className="mt-5 max-w-2xl text-lg leading-8 text-white/70">
+              Compare published loan pricing and use live FX references in one
+              professional workspace from {tenant.name}.
+            </p>
+          </div>
         </div>
       </section>
-      <LoanCalculator tenant={tenant} />
-      <FxRateBoard tenant={tenant} />
-      <section className="px-4 py-16"><div className="mx-auto max-w-4xl rounded-3xl border border-slate-200 bg-slate-50 p-8 text-center"><h2 className="text-2xl font-black text-slate-950">Ready to move forward?</h2><p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-500">Review the available products before beginning an application with {tenant.name}.</p><Link href="/services" className="mt-6 inline-flex rounded-xl px-6 py-3 text-sm font-black text-white" style={{ backgroundColor: tenant.primaryColor }}>View loan products →</Link></div></section>
+
+      <main className="mx-auto max-w-7xl space-y-8 px-4 pt-10">
+        <LoanCalculator tenant={tenant} />
+        <FxRatePanel tenant={tenant} />
+      </main>
     </div>
   );
 }

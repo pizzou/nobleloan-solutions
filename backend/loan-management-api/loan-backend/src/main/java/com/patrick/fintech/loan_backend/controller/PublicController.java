@@ -1720,28 +1720,6 @@ public class PublicController {
                                 "registrationNumber",
                                 org.getRegistrationNumber());
 
-                LoanProduct defaultPublicProduct = loanProductRepo
-                                .findByOrganization_IdAndActiveTrueOrderByDisplayOrderAsc(
-                                                org.getId())
-                                .stream()
-                                .findFirst()
-                                .orElse(null);
-
-                config.put(
-                                "minLoanAmount",
-                                defaultPublicProduct != null
-                                                && defaultPublicProduct.getMinAmountDecimal() != null
-                                                                ? defaultPublicProduct.getMinAmountDecimal()
-                                                                : (org.getMinLoanAmount() != null
-                                                                                ? org.getMinLoanAmount()
-                                                                                : MIN_LOAN_AMOUNT));
-
-                config.put(
-                                "maxLoanAmount",
-                                defaultPublicProduct != null
-                                                ? defaultPublicProduct.getMaxAmountDecimal()
-                                                : org.getMaxLoanAmountDecimal());
-
                 config.put(
                                 "status",
                                 org.getStatus());
@@ -1809,9 +1787,119 @@ public class PublicController {
                                 "socialMedia",
                                 social);
 
+                List<Map<String, Object>> publicServices = servicesFor(org);
+
                 config.put(
                                 "services",
-                                servicesFor(org));
+                                publicServices);
+
+                BigDecimal configuredMinimum = org.getMinLoanAmountDecimal();
+                BigDecimal configuredMaximum = org.getMaxLoanAmountDecimal();
+
+                if (configuredMinimum == null && !publicServices.isEmpty()) {
+                        configuredMinimum = publicServices.stream()
+                                        .map(item -> item.get("minAmount"))
+                                        .filter(Objects::nonNull)
+                                        .map(value -> {
+                                                try {
+                                                        return new BigDecimal(value.toString());
+                                                } catch (Exception ignored) {
+                                                        return null;
+                                                }
+                                        })
+                                        .filter(Objects::nonNull)
+                                        .min(BigDecimal::compareTo)
+                                        .orElse(null);
+                }
+
+                if (configuredMaximum == null && !publicServices.isEmpty()) {
+                        configuredMaximum = publicServices.stream()
+                                        .map(item -> item.get("maxAmount"))
+                                        .filter(Objects::nonNull)
+                                        .map(value -> {
+                                                try {
+                                                        return new BigDecimal(value.toString());
+                                                } catch (Exception ignored) {
+                                                        return null;
+                                                }
+                                        })
+                                        .filter(Objects::nonNull)
+                                        .max(BigDecimal::compareTo)
+                                        .orElse(null);
+                }
+
+                config.put("minLoanAmount", configuredMinimum);
+                config.put("maxLoanAmount", configuredMaximum);
+
+                BigDecimal representativeInterest = publicServices.stream()
+                                .map(item -> item.get("monthlyInterestRate"))
+                                .filter(Objects::nonNull)
+                                .map(value -> {
+                                        try {
+                                                return new BigDecimal(value.toString());
+                                        } catch (Exception ignored) {
+                                                return null;
+                                        }
+                                })
+                                .filter(Objects::nonNull)
+                                .findFirst()
+                                .orElse(null);
+
+                BigDecimal representativeManagement = publicServices.stream()
+                                .map(item -> item.get("monthlyManagementFeeRate"))
+                                .filter(Objects::nonNull)
+                                .map(value -> {
+                                        try {
+                                                return new BigDecimal(value.toString());
+                                        } catch (Exception ignored) {
+                                                return null;
+                                        }
+                                })
+                                .filter(Objects::nonNull)
+                                .findFirst()
+                                .orElse(null);
+
+                BigDecimal representativeProcessing = publicServices.stream()
+                                .map(item -> item.get("processingFeeRate"))
+                                .filter(Objects::nonNull)
+                                .map(value -> {
+                                        try {
+                                                return new BigDecimal(value.toString());
+                                        } catch (Exception ignored) {
+                                                return null;
+                                        }
+                                })
+                                .filter(Objects::nonNull)
+                                .findFirst()
+                                .orElse(null);
+
+                Integer representativeMinTerm = publicServices.stream()
+                                .map(item -> item.get("minTermMonths"))
+                                .filter(Objects::nonNull)
+                                .map(value -> {
+                                        try {
+                                                return Integer.valueOf(value.toString());
+                                        } catch (Exception ignored) {
+                                                return null;
+                                        }
+                                })
+                                .filter(Objects::nonNull)
+                                .min(Integer::compareTo)
+                                .orElse(null);
+
+                Integer representativeMaxTerm = publicServices.stream()
+                                .map(item -> item.get("maxTermMonths"))
+                                .filter(Objects::nonNull)
+                                .map(value -> {
+                                        try {
+                                                return Integer.valueOf(value.toString());
+                                        } catch (Exception ignored) {
+                                                return null;
+                                        }
+                                })
+                                .filter(Objects::nonNull)
+                                .max(Integer::compareTo)
+                                .orElse(null);
 
                 Map<String, Object> hero = new LinkedHashMap<>();
                 hero.put(
@@ -1850,43 +1938,25 @@ public class PublicController {
                                 "paymentMethods",
                                 paymentMethods());
 
-                /*
-                 * Explicit platform financial rules for frontend.
-                 */
                 config.put(
                                 "monthlyInterestRate",
-                                defaultPublicProduct != null
-                                                && defaultPublicProduct.getInterestRateDecimal() != null
-                                                                ? defaultPublicProduct.getInterestRateDecimal()
-                                                                : MONTHLY_INTEREST_RATE);
+                                representativeInterest);
 
                 config.put(
                                 "monthlyManagementFeeRate",
-                                defaultPublicProduct != null
-                                                && defaultPublicProduct.getManagementFeePercentDecimal() != null
-                                                                ? defaultPublicProduct.getManagementFeePercentDecimal()
-                                                                : MONTHLY_MANAGEMENT_FEE_RATE);
+                                representativeManagement);
 
                 config.put(
                                 "processingFeeRate",
-                                defaultPublicProduct != null
-                                                && defaultPublicProduct.getProcessingFeePercentDecimal() != null
-                                                                ? defaultPublicProduct.getProcessingFeePercentDecimal()
-                                                                : PROCESSING_FEE_RATE);
+                                representativeProcessing);
 
                 config.put(
                                 "minLoanDurationMonths",
-                                defaultPublicProduct != null
-                                                && defaultPublicProduct.getMinTermMonths() != null
-                                                                ? defaultPublicProduct.getMinTermMonths()
-                                                                : MIN_LOAN_DURATION_MONTHS);
+                                representativeMinTerm);
 
                 config.put(
                                 "maxLoanDurationMonths",
-                                defaultPublicProduct != null
-                                                && defaultPublicProduct.getMaxTermMonths() != null
-                                                                ? defaultPublicProduct.getMaxTermMonths()
-                                                                : MAX_LOAN_DURATION_MONTHS);
+                                representativeMaxTerm);
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
@@ -2482,7 +2552,7 @@ public class PublicController {
                         smsService.sendCustom(
                                         phone,
                                         String.format(
-                                                        "%s: Thank you %s! We received your loan application %s for %s %s. Terms: 5%% monthly interest, 5%% monthly management fee, 2%% processing fee.",
+                                                        "%s: Thank you %s! We received your loan application %s for %s %s. Please review the official loan offer for your approved interest, management fee, and processing fee.",
                                                         org.getName(),
                                                         firstName,
                                                         loan.getReferenceNumber(),
@@ -2524,13 +2594,13 @@ public class PublicController {
                                                 "RECEIVED",
 
                                                 "monthlyInterestRate",
-                                                MONTHLY_INTEREST_RATE,
+                                                loan.getInterestRateDecimal(),
 
                                                 "monthlyManagementFeeRate",
-                                                MONTHLY_MANAGEMENT_FEE_RATE,
+                                                loan.getManagementFeeRateDecimal(),
 
                                                 "processingFeeRate",
-                                                PROCESSING_FEE_RATE));
+                                                loan.getProcessingFeeRateDecimal()));
 
                 idempotencyService.recordSuccess(
                                 idempotencyKey,
@@ -2566,97 +2636,75 @@ public class PublicController {
         private List<Map<String, Object>> servicesFor(
                         Organization org) {
 
+                if (org == null || org.getId() == null) {
+                        return List.of();
+                }
+
                 List<LoanProduct> products = loanProductRepo
                                 .findByOrganization_IdAndActiveTrueOrderByDisplayOrderAsc(
                                                 org.getId());
 
-                if (!products.isEmpty()) {
+                if (products != null && !products.isEmpty()) {
 
                         return products
                                         .stream()
-                                        .map(
-                                                        p -> {
+                                        .filter(Objects::nonNull)
+                                        .map(p -> {
 
-                                                                Map<String, Object> m = new LinkedHashMap<>();
+                                                Map<String, Object> m = new LinkedHashMap<>();
 
-                                                                m.put(
-                                                                                "title",
-                                                                                p.getName());
+                                                BigDecimal interest = p.getInterestRateDecimal();
+                                                BigDecimal management = p.getManagementFeePercentDecimal();
+                                                BigDecimal processing = p.getProcessingFeePercentDecimal();
 
-                                                                m.put(
-                                                                                "icon",
-                                                                                p.getIcon());
+                                                m.put("id", p.getId());
+                                                m.put("title", p.getName());
+                                                m.put("icon", p.getIcon());
+                                                m.put("loanType", p.getLoanType());
+                                                m.put("description", p.getDescription());
+                                                m.put("interestRateType", p.getInterestRateType());
 
-                                                                BigDecimal interestRate = p
-                                                                                .getInterestRateDecimal() != null
-                                                                                                ? p.getInterestRateDecimal()
-                                                                                                : MONTHLY_INTEREST_RATE;
+                                                m.put("monthlyInterestRate", interest);
+                                                m.put("monthlyManagementFeeRate", management);
+                                                m.put("processingFeeRate", processing);
 
-                                                                BigDecimal managementFeeRate = p
-                                                                                .getManagementFeePercentDecimal() != null
-                                                                                                ? p.getManagementFeePercentDecimal()
-                                                                                                : MONTHLY_MANAGEMENT_FEE_RATE;
+                                                if (interest != null) {
+                                                        m.put(
+                                                                        "rate",
+                                                                        interest.stripTrailingZeros().toPlainString()
+                                                                                        + "% / month");
+                                                } else {
+                                                        m.put("rate", "Published at application");
+                                                }
 
-                                                                BigDecimal processingFeeRate = p
-                                                                                .getProcessingFeePercentDecimal() != null
-                                                                                                ? p.getProcessingFeePercentDecimal()
-                                                                                                : PROCESSING_FEE_RATE;
+                                                m.put("minAmount", p.getMinAmountDecimal());
+                                                m.put("maxAmount", p.getMaxAmountDecimal());
+                                                m.put("minTermMonths", p.getMinTermMonths());
+                                                m.put("maxTermMonths", p.getMaxTermMonths());
 
-                                                                m.put(
-                                                                                "rate",
-                                                                                interestRate + "% / month");
+                                                Integer minTerm = p.getMinTermMonths();
+                                                Integer maxTerm = p.getMaxTermMonths();
 
-                                                                m.put(
-                                                                                "monthlyInterestRate",
-                                                                                interestRate);
+                                                if (minTerm != null && maxTerm != null) {
+                                                        m.put(
+                                                                        "term",
+                                                                        minTerm + " to " + maxTerm + " months");
+                                                } else if (maxTerm != null) {
+                                                        m.put(
+                                                                        "term",
+                                                                        "Up to " + maxTerm + " months");
+                                                } else {
+                                                        m.put("term", "See loan offer");
+                                                }
 
-                                                                m.put(
-                                                                                "monthlyManagementFeeRate",
-                                                                                managementFeeRate);
+                                                if (p.getMaxAmountDecimal() == null) {
+                                                        m.put("maxAmountLabel", "Unlimited");
+                                                } else {
+                                                        m.put("maxAmountLabel", p.getMaxAmountDecimal());
+                                                }
 
-                                                                m.put(
-                                                                                "managementFee",
-                                                                                managementFeeRate + "% / month");
-
-                                                                m.put(
-                                                                                "processingFeeRate",
-                                                                                processingFeeRate);
-
-                                                                m.put(
-                                                                                "processingFee",
-                                                                                processingFeeRate + "%");
-
-                                                                m.put(
-                                                                                "minAmount",
-                                                                                p.getMinAmountDecimal());
-
-                                                                m.put(
-                                                                                "maxAmount",
-                                                                                p.getMaxAmountDecimal() == null
-                                                                                                ? "Unlimited"
-                                                                                                : p.getMaxAmountDecimal());
-
-                                                                m.put(
-                                                                                "minTermMonths",
-                                                                                p.getMinTermMonths());
-
-                                                                m.put(
-                                                                                "maxTermMonths",
-                                                                                p.getMaxTermMonths());
-
-                                                                m.put(
-                                                                                "term",
-                                                                                p.getMinTermMonths()
-                                                                                                + " to "
-                                                                                                + p.getMaxTermMonths()
-                                                                                                + " months");
-
-                                                                m.put(
-                                                                                "description",
-                                                                                p.getDescription());
-
-                                                                return m;
-                                                        })
+                                                return m;
+                                        })
                                         .toList();
                 }
 

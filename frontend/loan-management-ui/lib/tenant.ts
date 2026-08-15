@@ -1,5 +1,4 @@
-export const TENANT_SLUG =
+export const configuredTenantSlug =
   process.env.NEXT_PUBLIC_TENANT_SLUG?.trim() || "nobleloansolutions";
 
-export const NOBLE_TENANT_SLUG = "nobleloansolutions";
-export const NOBLE_LOGO_PATH = "/noble-loan-solutions-logo.svg";
+export const TENANT_SLUG = configuredTenantSlug;
