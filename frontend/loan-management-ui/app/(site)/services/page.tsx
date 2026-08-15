@@ -3,190 +3,186 @@
 import Link from "next/link";
 import { useTenant } from "../layout";
 
+function n(value: unknown, fallback = 0) {
+  const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export default function ServicesPage() {
   const tenant = useTenant();
   if (!tenant) return null;
-
   const primary = tenant.primaryColor;
   const accent = tenant.accentColor;
-  const services = tenant.services ?? [];
+  const products = tenant.services ?? [];
 
   return (
     <div>
-      <section
-        className="text-white"
-        style={{
-          background: `linear-gradient(135deg, ${primary}, ${primary}D9)`,
-        }}
-      >
-        <div className="mx-auto max-w-4xl px-4 py-20 text-center md:py-24">
-          <div className="text-xs font-black uppercase tracking-[0.2em] text-white/60">
-            Services
+      <section className="bg-[#06172D] text-white">
+        <div className="mx-auto max-w-7xl px-4 py-16 sm:py-20">
+          <div className="max-w-3xl">
+            <div
+              className="text-[11px] font-bold uppercase tracking-[0.2em]"
+              style={{ color: accent }}
+            >
+              Financial solutions
+            </div>
+            <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">
+              Solutions designed around real financial goals.
+            </h1>
+            <p className="mt-5 text-base leading-8 text-white/65">
+              Review the products published by {tenant.name}. Pricing, limits
+              and terms are shown before you apply.
+            </p>
           </div>
-          <h1 className="mt-4 text-4xl font-black md:text-6xl">
-            Loan products available from {tenant.name}
-          </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-white/75">
-            Rates, terms, limits, and descriptions below are loaded from the
-            lender's published product configuration.
-          </p>
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 py-20">
-        {services.length === 0 ? (
-          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-10 text-center">
-            <h2 className="text-2xl font-black">
-              No public products are currently published
-            </h2>
-            <p className="mt-3 text-sm text-slate-500">
-              Please contact {tenant.name} for current loan availability.
-            </p>
-            <Link
-              href="/contact"
-              className="mt-6 inline-flex rounded-full px-6 py-3 text-sm font-bold text-white"
-              style={{ backgroundColor: primary }}
+      <section className="mx-auto max-w-7xl px-4 py-12 sm:py-16">
+        <div className="grid gap-5 lg:grid-cols-2">
+          {products.map((product, index) => (
+            <article
+              key={product.title}
+              className="group rounded-[30px] border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-xl sm:p-7"
             >
-              Contact Us
-            </Link>
-          </div>
-        ) : (
-          <div className="space-y-8">
-            {services.map((service, index) => (
-              <article
-                key={service.title}
-                className="grid gap-8 rounded-3xl border border-slate-200 bg-white p-7 shadow-sm md:grid-cols-[1fr_0.9fr] md:p-10"
-              >
-                <div>
-                  <div className="flex items-center gap-4">
-                    <div
-                      className="flex h-16 w-16 items-center justify-center rounded-2xl text-3xl"
-                      style={{ backgroundColor: `${primary}12` }}
-                    >
-                      {service.icon || "💼"}
-                    </div>
-                    <div>
-                      <div
-                        className="text-xs font-black uppercase tracking-[0.18em]"
-                        style={{ color: accent }}
-                      >
-                        Product {String(index + 1).padStart(2, "0")}
-                      </div>
-                      <h2 className="mt-1 text-2xl font-black text-slate-950">
-                        {service.title}
-                      </h2>
-                    </div>
-                  </div>
-                  <p className="mt-6 text-base leading-8 text-slate-600">
-                    {service.description ||
-                      "Product-specific terms are provided during the application and approval process."}
-                  </p>
-                  <div className="mt-7 flex flex-wrap gap-3">
-                    <Link
-                      href={`/apply?type=${encodeURIComponent(service.title)}`}
-                      className="rounded-full px-7 py-3 text-sm font-black text-white"
-                      style={{ backgroundColor: primary }}
-                    >
-                      Apply for {service.title}
-                    </Link>
-                    <Link
-                      href="/contact"
-                      className="rounded-full border px-7 py-3 text-sm font-bold"
-                      style={{ borderColor: primary, color: primary }}
-                    >
-                      Ask a question
-                    </Link>
-                  </div>
+              <div className="flex items-start justify-between gap-5">
+                <div
+                  className="flex h-14 w-14 items-center justify-center rounded-2xl text-2xl"
+                  style={{ backgroundColor: `${primary}0D` }}
+                >
+                  {product.icon || ["◈", "◆", "◇", "✦", "▣", "○"][index % 6]}
                 </div>
+                <div
+                  className="rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-wide"
+                  style={{ backgroundColor: `${accent}16`, color: primary }}
+                >
+                  Available
+                </div>
+              </div>
+              <h2 className="mt-6 text-2xl font-black tracking-tight text-slate-950">
+                {product.title}
+              </h2>
+              <p className="mt-2 min-h-[52px] text-sm leading-6 text-slate-500">
+                {product.description ||
+                  "A structured financing product with clear commercial terms and digital application support."}
+              </p>
+              <div className="mt-7 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-slate-200 bg-slate-200 sm:grid-cols-4">
+                {[
+                  [
+                    "Interest",
+                    product.rate
+                      ? `${product.rate}${product.rateType === "MONTHLY" || product.rateType == null ? " / mo" : ""}`
+                      : "See terms",
+                  ],
+                  [
+                    "Management",
+                    product.managementFeeRate != null
+                      ? `${product.managementFeeRate}% / mo`
+                      : "See terms",
+                  ],
+                  [
+                    "Amount",
+                    product.maxAmount
+                      ? `${tenant.currency} ${product.maxAmount}`
+                      : "Flexible",
+                  ],
+                  ["Term", product.term || "Flexible"],
+                ].map(([label, value]) => (
+                  <div key={label} className="bg-white p-4">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      {label}
+                    </div>
+                    <div className="mt-1 text-sm font-black text-slate-900">
+                      {value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <Link
+                  href={`/apply?type=${encodeURIComponent(product.title)}`}
+                  className="rounded-xl px-5 py-3 text-sm font-black text-white"
+                  style={{ backgroundColor: primary }}
+                >
+                  Apply for this product
+                </Link>
+                <Link
+                  href="/contact"
+                  className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-700"
+                >
+                  Talk to an advisor
+                </Link>
+              </div>
+            </article>
+          ))}
+        </div>
 
-                <div className="rounded-2xl bg-slate-50 p-6">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="rounded-xl bg-white p-4">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Interest rate
-                      </div>
-                      <div
-                        className="mt-2 text-lg font-black"
-                        style={{ color: primary }}
-                      >
-                        {service.rate || "See loan offer"}
-                      </div>
-                    </div>
-                    <div className="rounded-xl bg-white p-4">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Term
-                      </div>
-                      <div
-                        className="mt-2 text-lg font-black"
-                        style={{ color: primary }}
-                      >
-                        {service.term || "See loan offer"}
-                      </div>
-                    </div>
-                    <div className="rounded-xl bg-white p-4">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Maximum amount
-                      </div>
-                      <div
-                        className="mt-2 text-lg font-black"
-                        style={{ color: primary }}
-                      >
-                        {service.maxAmount || "See loan offer"}
-                      </div>
-                    </div>
-                    <div className="rounded-xl bg-white p-4">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Management fee
-                      </div>
-                      <div
-                        className="mt-2 text-lg font-black"
-                        style={{ color: primary }}
-                      >
-                        {tenant.monthlyManagementFeeRate != null
-                          ? `${tenant.monthlyManagementFeeRate}% / month`
-                          : "See loan offer"}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-6 border-t border-slate-200 pt-5 text-xs leading-6 text-slate-500">
-                    Final pricing, eligibility, documentation, and approval are
-                    determined under the lender's applicable credit policy and
-                    individual loan agreement.
-                  </div>
-                </div>
-              </article>
-            ))}
+        {products.length === 0 && (
+          <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500">
+            No public loan products are currently configured.
           </div>
         )}
       </section>
 
-      <section className="px-4 pb-20">
+      <section className="border-y border-slate-200 bg-white">
+        <div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 md:grid-cols-3">
+          {[
+            [
+              "Transparent pricing",
+              "Know the applicable rate, fees and repayment structure before you commit.",
+            ],
+            [
+              "Responsible assessment",
+              "Applications are evaluated using affordability and credit-risk controls.",
+            ],
+            [
+              "Digital convenience",
+              "Start, monitor and communicate through a secure online experience.",
+            ],
+          ].map(([title, text]) => (
+            <div key={title}>
+              <div className="text-sm font-black text-slate-950">{title}</div>
+              <div className="mt-2 text-sm leading-6 text-slate-500">
+                {text}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-4 py-14">
         <div
-          className="mx-auto max-w-4xl rounded-3xl p-10 text-center"
+          className="rounded-[30px] p-8 sm:p-10"
           style={{ backgroundColor: `${primary}08` }}
         >
-          <h2 className="text-3xl font-black text-slate-950">
-            Need help choosing a product?
-          </h2>
-          <p className="mx-auto mt-3 max-w-2xl text-slate-600">
-            Contact {tenant.name} for current eligibility, documentation, and
-            repayment information.
-          </p>
-          <div className="mt-7 flex flex-wrap justify-center gap-3">
-            <Link
-              href="/contact"
-              className="rounded-full px-7 py-3.5 text-sm font-black text-white"
-              style={{ backgroundColor: primary }}
+          <div className="max-w-2xl">
+            <div
+              className="text-[11px] font-bold uppercase tracking-[0.18em]"
+              style={{ color: accent }}
             >
-              Talk to Us
-            </Link>
-            <Link
-              href="/apply"
-              className="rounded-full px-7 py-3.5 text-sm font-black"
-              style={{ backgroundColor: accent, color: primary }}
-            >
-              Apply Online →
-            </Link>
+              Need guidance?
+            </div>
+            <h2 className="mt-2 text-2xl font-black text-slate-950">
+              Not sure which solution fits?
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              Contact the team and explain what you are trying to finance. We
+              can help you understand the available options before you apply.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link
+                href="/contact"
+                className="rounded-xl px-5 py-3 text-sm font-black text-white"
+                style={{ backgroundColor: primary }}
+              >
+                Talk to us
+              </Link>
+              <Link
+                href="/apply"
+                className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-bold text-slate-700"
+              >
+                Start application
+              </Link>
+            </div>
           </div>
         </div>
       </section>

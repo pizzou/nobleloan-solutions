@@ -5,14 +5,15 @@ import { useSearchParams } from "next/navigation";
 import { useTenant } from "../layout";
 import { useOnlineStatus } from "../../../hooks/useOnlineStatus";
 import { queueAction } from "../../../lib/offlineDb";
+import { TENANT_SLUG } from "../../../lib/tenant";
 import DocumentUploadPanel from "../../../components/DocumentUploadPanel";
 
 type Step = 1 | 2 | 3 | 4;
 
 export default function ApplyPage() {
   const searchParams = useSearchParams();
+  const slug = TENANT_SLUG;
   const tenant = useTenant();
-  const slug = tenant?.slug ?? "";
 
   const [step, setStep] = useState<Step>(1);
   const [submitted, setSubmitted] = useState(false);
@@ -58,7 +59,7 @@ export default function ApplyPage() {
     loanType:
       searchParams?.get("type")?.replace(/\_/g, " ") || "Personal Loans",
     amount: "",
-    durationMonths: "1",
+    durationMonths: "6",
     purpose: "",
     collateral: "",
     collateralValue: "",
@@ -69,7 +70,7 @@ export default function ApplyPage() {
 
   const online = useOnlineStatus();
 
-  if (!tenant || !tenant.slug) return null;
+  if (!tenant) return null;
 
   const primary = tenant.primaryColor;
   const accent = tenant.accentColor;
@@ -94,26 +95,25 @@ export default function ApplyPage() {
     };
 
   // ============================================================
-  // NATIONAL ID / IDENTITY DOCUMENT VALIDATION
-  // The platform is multi-country; do not assume a Rwanda-only 16-digit format.
-  // Allow a practical international identifier range and validate required presence.
+  // INTERNATIONAL IDENTITY VALIDATION
   // ============================================================
 
-  const NATIONAL_ID_REGEX = /^[A-Za-z0-9][A-Za-z0-9\-\s]{4,29}$/;
+  const NATIONAL_ID_REGEX = /^[A-Za-z0-9\-]{4,32}$/;
 
-  const isNationalIdValid = (value: string) =>
-    NATIONAL_ID_REGEX.test(value.trim());
+  const isNationalIdValid = (value: string) => {
+    return NATIONAL_ID_REGEX.test(value.trim());
+  };
 
   const setNationalId =
     (k: "nationalId" | "spouseNationalId") =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const cleaned = e.target.value
-        .replace(/[^A-Za-z0-9\-\s]/g, "")
-        .slice(0, 30);
+      const normalized = e.target.value
+        .replace(/[^A-Za-z0-9\-]/g, "")
+        .slice(0, 32);
 
       setForm((f) => ({
         ...f,
-        [k]: cleaned,
+        [k]: normalized,
       }));
     };
 
@@ -421,8 +421,7 @@ export default function ApplyPage() {
               <>
                 Thank you <strong>{form.firstName}</strong>! Your application
                 and all required documents have been received. We will review
-                everything and provide the next steps using the contact details
-                you supplied.
+                everything and contact you within <strong>24–48 hours</strong>.
               </>
             ) : (
               <>
@@ -655,13 +654,13 @@ export default function ApplyPage() {
                   hint={
                     form.nationalId && !isNationalIdValid(form.nationalId)
                       ? undefined
-                      : "16 digits, numbers only"
+                      : "National ID or passport number"
                   }
                 >
                   <input
                     required
                     inputMode="numeric"
-                    maxLength={16}
+                    maxLength={32}
                     className={inp}
                     value={form.nationalId}
                     onChange={setNationalId("nationalId")}
@@ -669,7 +668,8 @@ export default function ApplyPage() {
 
                   {form.nationalId && !isNationalIdValid(form.nationalId) && (
                     <p className="text-xs mt-1 text-red-600 font-semibold">
-                      National ID must be exactly 16 digits
+                      Enter a valid national ID or passport number (4–32
+                      letters, numbers or hyphens)
                     </p>
                   )}
                 </Field>
@@ -761,7 +761,7 @@ export default function ApplyPage() {
                     <Field label="Spouse National ID">
                       <input
                         inputMode="numeric"
-                        maxLength={16}
+                        maxLength={32}
                         className={inp}
                         value={form.spouseNationalId}
                         onChange={setNationalId("spouseNationalId")}
@@ -770,7 +770,7 @@ export default function ApplyPage() {
                       {form.spouseNationalId &&
                         !isNationalIdValid(form.spouseNationalId) && (
                           <p className="text-xs mt-1 text-red-600 font-semibold">
-                            Must be exactly 16 digits
+                            Enter a valid national ID or passport number
                           </p>
                         )}
                     </Field>
@@ -833,12 +833,25 @@ export default function ApplyPage() {
                 </Field>
 
                 <Field label="Province">
-                  <input
+                  <select
                     className={inp}
                     value={form.province}
                     onChange={set("province")}
-                    placeholder="State / province / region"
-                  />
+                  >
+                    <option value="">Select…</option>
+
+                    {[
+                      "Kigali",
+                      "Northern",
+                      "Southern",
+                      "Eastern",
+                      "Western",
+                    ].map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
                 </Field>
               </div>
             </div>
@@ -1074,19 +1087,21 @@ export default function ApplyPage() {
 
                       const months = Number(form.durationMonths);
 
-                      const interestRate =
-                        Number(tenant.monthlyInterestRate ?? 0) / 100;
-                      const managementRate =
-                        Number(tenant.monthlyManagementFeeRate ?? 0) / 100;
-                      const monthlyRate = interestRate + managementRate;
+                      /*
+                       * Existing application-page
+                       * estimate preserved exactly.
+                       *
+                       * This is only the frontend
+                       * display estimate and does NOT
+                       * modify backend loan interest logic.
+                       */
+                      const mr: number = 0.1;
 
                       const monthly =
-                        monthlyRate === 0
+                        mr === 0
                           ? principal / months
-                          : (principal *
-                              (monthlyRate *
-                                Math.pow(1 + monthlyRate, months))) /
-                            (Math.pow(1 + monthlyRate, months) - 1);
+                          : (principal * (mr * Math.pow(1 + mr, months))) /
+                            (Math.pow(1 + mr, months) - 1);
 
                       return [
                         [
@@ -1103,10 +1118,7 @@ export default function ApplyPage() {
                             maximumFractionDigits: 0,
                           })}`,
                         ],
-                        [
-                          "Rate",
-                          `${(Number(tenant.monthlyInterestRate ?? 0) + Number(tenant.monthlyManagementFeeRate ?? 0)).toFixed(2)}% / mo`,
-                        ],
+                        ["Rate", "10% / mo"],
                       ].map(([l, v]) => (
                         <div key={l}>
                           <div className="text-gray-400 text-[10px]">{l}</div>

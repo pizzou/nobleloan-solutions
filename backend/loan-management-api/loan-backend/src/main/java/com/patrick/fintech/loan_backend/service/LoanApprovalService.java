@@ -30,13 +30,6 @@ public class LoanApprovalService {
                         return List.of();
                 }
 
-                /*
-                 * Public/website applications have no internal maker. They use a
-                 * single human checker: either MANAGER or ADMIN may approve.
-                 * This is the intended maker-checker policy for borrower-submitted
-                 * applications and prevents an artificial MANAGER -> ADMIN chain
-                 * that could reject a valid ADMIN approval.
-                 */
                 if (loan.getCreatedBy() == null) {
                         return List.of("MANAGER_OR_ADMIN");
                 }

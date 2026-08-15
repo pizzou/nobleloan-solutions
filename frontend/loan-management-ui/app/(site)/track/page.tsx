@@ -762,7 +762,7 @@ export default function TrackPage() {
       <div
         className="text-white"
         style={{
-          background: `linear-gradient(135deg, ${tenant?.primaryColor ?? "#0F1B3D"} 0%, ${tenant?.primaryColor ?? "#0F1B3D"}DD 100%)`,
+          background: "linear-gradient(135deg, #063B25 0%, #0F1B3D 100%)",
         }}
       >
         <div className="relative max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-14 md:py-20">
@@ -775,12 +775,17 @@ export default function TrackPage() {
                 }}
               />
 
-              {tenant?.name ?? "Official lender website"}
+              {tenant?.name ?? "Your financial institution"}
             </div>
 
             <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-[1.05]">
-              Track your loan
-              <span className="block" style={{ color: accent }}>
+              Track your application
+              <span
+                className="block"
+                style={{
+                  color: accent,
+                }}
+              >
                 with confidence.
               </span>
             </h1>

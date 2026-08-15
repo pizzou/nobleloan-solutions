@@ -2,285 +2,258 @@
 
 import { useState } from "react";
 import { useTenant } from "../layout";
-import { publicApi } from "../../../services/api";
-
-const INITIAL_FORM = {
-  name: "",
-  email: "",
-  phone: "",
-  subject: "",
-  message: "",
-};
+import { TENANT_SLUG } from "../../../lib/tenant";
 
 export default function ContactPage() {
   const tenant = useTenant();
-  const [form, setForm] = useState(INITIAL_FORM);
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    subject: "",
+    message: "",
+  });
+  const [state, setState] = useState<"idle" | "sending" | "sent" | "error">(
+    "idle",
+  );
   const [error, setError] = useState("");
 
   if (!tenant) return null;
-
   const primary = tenant.primaryColor;
   const accent = tenant.accentColor;
-  const socials = tenant.socialMedia || {};
 
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+  async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (sending) return;
-    setSending(true);
+    setState("sending");
     setError("");
     try {
-      await publicApi.submitContact({ ...form, tenantSlug: tenant.slug });
-      setSent(true);
+      const base =
+        process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+      const response = await fetch(`${base}/public/contact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, tenantSlug: TENANT_SLUG }),
+      });
+      const json = await response.json();
+      if (!response.ok || json?.success === false)
+        throw new Error(
+          json?.error || json?.message || "Unable to send your message.",
+        );
+      setState("sent");
+      setForm({ name: "", email: "", phone: "", subject: "", message: "" });
     } catch (err) {
+      setState("error");
       setError(
         err instanceof Error ? err.message : "Unable to send your message.",
       );
-    } finally {
-      setSending(false);
     }
-  };
+  }
 
   return (
     <div>
-      <section
-        className="text-white"
-        style={{
-          background: `linear-gradient(135deg, ${primary}, ${primary}D9)`,
-        }}
-      >
-        <div className="mx-auto max-w-4xl px-4 py-20 text-center md:py-24">
-          <div className="text-xs font-black uppercase tracking-[0.2em] text-white/60">
-            Contact
+      <section className="bg-[#06172D] text-white">
+        <div className="mx-auto max-w-7xl px-4 py-16 sm:py-20">
+          <div className="max-w-3xl">
+            <div
+              className="text-[11px] font-bold uppercase tracking-[0.2em]"
+              style={{ color: accent }}
+            >
+              Contact
+            </div>
+            <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">
+              Let’s talk about what you need.
+            </h1>
+            <p className="mt-5 text-base leading-8 text-white/65">
+              Questions about a loan product, an application, repayment or a
+              partnership? Reach the team using the channels below.
+            </p>
           </div>
-          <h1 className="mt-4 text-4xl font-black md:text-6xl">
-            Talk to {tenant.name}
-          </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-white/75">
-            Use the contact details published by the lender or send a message
-            through the secure form below.
-          </p>
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-7xl gap-10 px-4 py-20 lg:grid-cols-[0.9fr_1.1fr]">
-        <div>
-          <h2 className="text-2xl font-black text-slate-950">
-            Contact Information
-          </h2>
-          <div className="mt-8 space-y-5">
-            {tenant.address && (
-              <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Office
-                </div>
-                <div className="mt-2 font-semibold text-slate-900">
-                  {tenant.address}
-                </div>
-              </div>
-            )}
-            {tenant.contactPhone && (
-              <a
-                href={`tel:${tenant.contactPhone}`}
-                className="block rounded-2xl border border-slate-200 bg-white p-5 hover:shadow-md"
-              >
-                <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
+      <section className="mx-auto grid max-w-7xl gap-6 px-4 py-12 sm:py-16 lg:grid-cols-[.86fr_1.14fr]">
+        <div className="space-y-4">
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div
+              className="text-[11px] font-bold uppercase tracking-[0.18em]"
+              style={{ color: accent }}
+            >
+              Direct contact
+            </div>
+            <div className="mt-5 space-y-5">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                   Phone
                 </div>
-                <div className="mt-2 font-semibold text-slate-900">
-                  {tenant.contactPhone}
-                </div>
-              </a>
-            )}
-            {tenant.contactEmail && (
-              <a
-                href={`mailto:${tenant.contactEmail}`}
-                className="block rounded-2xl border border-slate-200 bg-white p-5 hover:shadow-md"
-              >
-                <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                <a
+                  className="mt-1 block text-sm font-black text-slate-900"
+                  href={`tel:${tenant.contactPhone || ""}`}
+                >
+                  {tenant.contactPhone || "Not published"}
+                </a>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                   Email
                 </div>
-                <div className="mt-2 font-semibold text-slate-900">
-                  {tenant.contactEmail}
+                <a
+                  className="mt-1 block text-sm font-black text-slate-900"
+                  href={`mailto:${tenant.contactEmail || ""}`}
+                >
+                  {tenant.contactEmail || "Not published"}
+                </a>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Office
                 </div>
-              </a>
-            )}
+                <div className="mt-1 text-sm leading-6 text-slate-600">
+                  {tenant.address || "Contact us for office information."}
+                </div>
+              </div>
+            </div>
           </div>
-
-          {Object.values(socials).some(Boolean) && (
-            <div className="mt-8">
-              <div
-                className="text-xs font-black uppercase tracking-[0.18em]"
-                style={{ color: accent }}
-              >
-                Social
-              </div>
-              <div className="mt-4 flex flex-wrap gap-3">
-                {Object.entries(socials)
-                  .filter(([, value]) => Boolean(value))
-                  .map(([label, value]) => (
-                    <a
-                      key={label}
-                      href={value as string}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-full border px-4 py-2 text-xs font-bold capitalize"
-                      style={{ borderColor: primary, color: primary }}
-                    >
-                      {label}
-                    </a>
-                  ))}
-              </div>
+          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+            <div
+              className="text-[11px] font-bold uppercase tracking-[0.18em]"
+              style={{ color: primary }}
+            >
+              Before you contact us
             </div>
-          )}
-
-          {tenant.mapUrl && (
-            <div className="mt-8 overflow-hidden rounded-2xl border border-slate-200">
-              <iframe
-                title="Office location"
-                src={tenant.mapUrl}
-                className="h-72 w-full border-0"
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
-            </div>
-          )}
+            <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
+              <li>
+                Have your application reference ready when asking about an
+                existing application.
+              </li>
+              <li>Never send a full card number, PIN or password by email.</li>
+              <li>
+                For loan enquiries, tell us the amount and purpose so we can
+                guide you faster.
+              </li>
+            </ul>
+          </div>
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm md:p-9">
-          <h2 className="text-2xl font-black text-slate-950">Send a message</h2>
-          {sent ? (
-            <div className="mt-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center">
-              <div className="text-3xl">✓</div>
-              <h3 className="mt-3 text-xl font-black text-emerald-900">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <div className="mb-6">
+            <div
+              className="text-[11px] font-bold uppercase tracking-[0.18em]"
+              style={{ color: accent }}
+            >
+              Message the team
+            </div>
+            <h2 className="mt-2 text-2xl font-black text-slate-950">
+              How can we help?
+            </h2>
+          </div>
+          {state === "sent" ? (
+            <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center">
+              <div className="text-2xl">✓</div>
+              <div className="mt-3 text-lg font-black text-emerald-900">
                 Message received
-              </h3>
+              </div>
               <p className="mt-2 text-sm leading-6 text-emerald-800">
-                Thank you, {form.name}. Your message has been submitted to{" "}
-                {tenant.name}.
+                Your message has been submitted to the organization’s support
+                workflow. We’ll respond using the contact details you provided.
               </p>
               <button
                 type="button"
-                className="mt-5 rounded-full px-6 py-3 text-sm font-bold text-white"
-                style={{ backgroundColor: primary }}
-                onClick={() => {
-                  setForm(INITIAL_FORM);
-                  setSent(false);
-                }}
+                onClick={() => setState("idle")}
+                className="mt-5 rounded-xl bg-white px-5 py-3 text-sm font-black text-emerald-800"
               >
                 Send another message
               </button>
             </div>
           ) : (
-            <form onSubmit={submit} className="mt-7 space-y-5">
+            <form className="space-y-5" onSubmit={submit}>
               <div className="grid gap-5 sm:grid-cols-2">
-                <Field
-                  label="Full name"
-                  required
-                  value={form.name}
-                  onChange={(v) => setForm((f) => ({ ...f, name: v }))}
-                />
-                <Field
-                  label="Phone"
-                  required
-                  value={form.phone}
-                  onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
-                />
-              </div>
-              <Field
-                label="Email"
-                type="email"
-                value={form.email}
-                onChange={(v) => setForm((f) => ({ ...f, email: v }))}
-              />
-              <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Subject <span className="text-red-500">*</span>
+                <label className="text-xs font-bold text-slate-500">
+                  Full name
+                  <input
+                    required
+                    value={form.name}
+                    onChange={(e) =>
+                      setForm((v) => ({ ...v, name: e.target.value }))
+                    }
+                    className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  />
                 </label>
+                <label className="text-xs font-bold text-slate-500">
+                  Phone
+                  <input
+                    required
+                    value={form.phone}
+                    onChange={(e) =>
+                      setForm((v) => ({ ...v, phone: e.target.value }))
+                    }
+                    className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  />
+                </label>
+              </div>
+              <label className="block text-xs font-bold text-slate-500">
+                Email
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) =>
+                    setForm((v) => ({ ...v, email: e.target.value }))
+                  }
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                />
+              </label>
+              <label className="block text-xs font-bold text-slate-500">
+                Subject
                 <select
                   required
                   value={form.subject}
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, subject: e.target.value }))
+                    setForm((v) => ({ ...v, subject: e.target.value }))
                   }
-                  className="mt-1.5 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none"
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
                 >
                   <option value="">Select a topic</option>
-                  <option value="Loan inquiry">Loan inquiry</option>
-                  <option value="Application status">Application status</option>
-                  <option value="Repayment">Repayment</option>
-                  <option value="Complaint or feedback">
-                    Complaint or feedback
-                  </option>
-                  <option value="Partnership">Partnership</option>
-                  <option value="Other">Other</option>
+                  <option>Loan enquiry</option>
+                  <option>Application status</option>
+                  <option>Repayment question</option>
+                  <option>Complaint or feedback</option>
+                  <option>Partnership</option>
+                  <option>Other</option>
                 </select>
-              </div>
-              <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Message <span className="text-red-500">*</span>
-                </label>
+              </label>
+              <label className="block text-xs font-bold text-slate-500">
+                Message
                 <textarea
                   required
                   minLength={10}
                   value={form.message}
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, message: e.target.value }))
+                    setForm((v) => ({ ...v, message: e.target.value }))
                   }
-                  className="mt-1.5 min-h-40 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none"
-                  placeholder="How can we help?"
+                  rows={6}
+                  className="mt-2 w-full resize-y rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                 />
-              </div>
-              <button
-                disabled={sending}
-                type="submit"
-                className="w-full rounded-xl px-5 py-3.5 text-sm font-black text-white disabled:opacity-60"
-                style={{ backgroundColor: primary }}
-              >
-                {sending ? "Sending…" : "Send Message"}
-              </button>
-              {error && (
-                <div
-                  role="alert"
-                  className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-                >
+              </label>
+              {state === "error" && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {error}
                 </div>
               )}
+              <button
+                type="submit"
+                disabled={state === "sending"}
+                className="w-full rounded-xl px-5 py-3.5 text-sm font-black text-white disabled:opacity-60"
+                style={{ backgroundColor: primary }}
+              >
+                {state === "sending" ? "Sending…" : "Send message"}
+              </button>
+              <p className="text-[11px] leading-5 text-slate-400">
+                For your security, do not include passwords, card security codes
+                or other authentication secrets in this form.
+              </p>
             </form>
           )}
         </div>
       </section>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  required,
-  value,
-  onChange,
-  type = "text",
-}: {
-  label: string;
-  required?: boolean;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-}) {
-  return (
-    <div>
-      <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-        {label} {required && <span className="text-red-500">*</span>}
-      </label>
-      <input
-        required={required}
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1.5 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none"
-      />
     </div>
   );
 }
