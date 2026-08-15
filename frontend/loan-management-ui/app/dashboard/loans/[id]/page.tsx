@@ -1511,6 +1511,46 @@ export default function LoanDetailPage() {
     setStSaving(false);
   };
 
+  const handleDisburseLoan = async () => {
+    if (!hasValidLoanId) {
+      setMsg({
+        type: "error",
+        text: "This loan link is invalid. Disbursement cannot be initiated.",
+      });
+      return;
+    }
+
+    if (loan?.status !== "APPROVED") {
+      setMsg({
+        type: "error",
+        text: "Only an approved loan can be disbursed.",
+      });
+      return;
+    }
+
+    setStSaving(true);
+    setMsg(null);
+
+    try {
+      await loanApi.disburse(loanId, "BANK_TRANSFER");
+
+      setMsg({
+        type: "success",
+        text: "Loan disbursed successfully.",
+      });
+
+      await load();
+      await loadDocReq();
+    } catch (err: unknown) {
+      setMsg({
+        type: "error",
+        text: err instanceof Error ? err.message : "Loan disbursement failed.",
+      });
+    } finally {
+      setStSaving(false);
+    }
+  };
+
   const handleSendForSignature = async () => {
     if (!hasValidLoanId) {
       setMsg({
@@ -1761,10 +1801,29 @@ export default function LoanDetailPage() {
                   </Button>
                 )}
 
+              {isOfficer && loan.status === "APPROVED" && (
+                <Button
+                  onClick={handleDisburseLoan}
+                  loading={stSaving}
+                  aria-label={`Disburse loan ${loan.referenceNumber}`}
+                >
+                  <IconSend className="w-4 h-4" />
+                  Disburse Loan
+                </Button>
+              )}
+
               {isOfficer && (
                 <Button
                   variant="outline"
-                  onClick={() => setStOpen(true)}
+                  onClick={() => {
+                    setStForm((current) => ({
+                      ...current,
+                      status: "",
+                      rejectionReason: "",
+                      internalNotes: "",
+                    }));
+                    setStOpen(true);
+                  }}
                   aria-label={`Update status for loan ${loan.referenceNumber}`}
                 >
                   Update Status
