@@ -11,7 +11,9 @@ import com.patrick.fintech.loan_backend.repository.AuditLogRepository;
 import com.patrick.fintech.loan_backend.repository.BorrowerRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
+import com.patrick.fintech.loan_backend.service.BorrowerFileService;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
+import com.patrick.fintech.loan_backend.repository.LoanProductRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,218 +35,227 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class LoanServiceTest {
 
-    @Mock
-    LoanRepository loanRepository;
+        @Mock
+        LoanRepository loanRepository;
 
-    @Mock
-    OrganizationRepository organizationRepository;
+        @Mock
+        OrganizationRepository organizationRepository;
 
-    @Mock
-    PaymentRepository paymentRepository;
+        @Mock
+        PaymentRepository paymentRepository;
 
-    @Mock
-    BorrowerRepository borrowerRepository;
+        @Mock
+        BorrowerRepository borrowerRepository;
 
-    @Mock
-    RiskScoringService riskScoringService;
+        @Mock
+        RiskScoringService riskScoringService;
 
-    @Mock
-    NotificationService notificationService;
+        @Mock
+        NotificationService notificationService;
 
-    @Mock
-    AuditLogRepository auditLogRepository;
+        @Mock
+        AuditLogRepository auditLogRepository;
 
-    @Mock
-    WebhookService webhookService;
+        @Mock
+        WebhookService webhookService;
 
-    @InjectMocks
-    LoanService loanService;
+        @Mock
+        LoanProductRepository loanProductRepo;
 
-    private Organization org;
-    private Borrower borrower;
-    private User officer;
+        @Mock
+        BorrowerFileService fileService;
 
-    @BeforeEach
-    void setUp() {
+        @Mock
+        AuditService auditService;
 
-        org = new Organization();
-        org.setId(1L);
-        org.setName("TestOrg");
-        org.setDefaultCurrency("USD");
+        @Mock
+        MailService mailService;
 
-        borrower = new Borrower();
-        borrower.setId(1L);
-        borrower.setFirstName("John");
-        borrower.setLastName("Doe");
-        borrower.setKycStatus("VERIFIED");
-        borrower.setCreditScore(750);
-        borrower.setOrganization(org);
+        @Mock
+        SmsService smsService;
 
-        officer = new User();
-        officer.setId(1L);
-        officer.setName("Test Officer");
-        officer.setOrganization(org);
-    }
+        @InjectMocks
+        LoanService loanService;
 
-    @Test
-    void createLoan_shouldSaveLoan_withAllFields() {
+        private Organization org;
+        private Borrower borrower;
+        private User officer;
 
-        LoanRequest req = new LoanRequest();
+        @BeforeEach
+        void setUp() {
 
-        req.setBorrowerId(1L);
-        req.setAmount(BigDecimal.valueOf(10_000));
-        req.setInterestRate(BigDecimal.valueOf(12));
-        req.setDurationMonths(12);
-        req.setCurrency("USD");
-        req.setStartDate("2026-01-01");
-        req.setCollateralValue(BigDecimal.valueOf(15_000));
-        req.setCollateralDescription("Land title");
+                org = new Organization();
+                org.setId(1L);
+                org.setName("TestOrg");
+                org.setDefaultCurrency("USD");
 
-        Loan savedLoan = new Loan();
+                borrower = new Borrower();
+                borrower.setId(1L);
+                borrower.setFirstName("John");
+                borrower.setLastName("Doe");
+                borrower.setKycStatus("VERIFIED");
+                borrower.setCreditScore(750);
+                borrower.setOrganization(org);
 
-        savedLoan.setId(1L);
-        savedLoan.setBorrower(borrower);
-        savedLoan.setOrganization(org);
-        savedLoan.setAmount(BigDecimal.valueOf(10_000));
-        savedLoan.setStatus(LoanStatus.PENDING);
+                officer = new User();
+                officer.setId(1L);
+                officer.setName("Test Officer");
+                officer.setOrganization(org);
+        }
 
-        when(organizationRepository.findById(1L))
-                .thenReturn(Optional.of(org));
+        @Test
+        void createLoan_shouldSaveLoan_withAllFields() {
 
-        when(borrowerRepository.findById(1L))
-                .thenReturn(Optional.of(borrower));
+                LoanRequest req = new LoanRequest();
 
-        when(loanRepository.save(any(Loan.class)))
-                .thenReturn(savedLoan);
+                req.setBorrowerId(1L);
+                req.setAmount(BigDecimal.valueOf(500_000));
+                req.setInterestRate(BigDecimal.valueOf(12));
+                req.setDurationMonths(6);
+                req.setCurrency("USD");
+                req.setStartDate("2026-01-01");
+                req.setCollateralValue(BigDecimal.valueOf(15_000));
+                req.setCollateralDescription("Land title");
 
-        /*
-         * RiskResult.score is currently a double.
-         * Therefore 80.0 is intentional here.
-         */
-        when(riskScoringService.score(any(Loan.class)))
-                .thenReturn(
-                        new RiskScoringService.RiskResult(
-                                80.0,
-                                "LOW"
-                        )
-                );
+                Loan savedLoan = new Loan();
 
-        Loan result = loanService.createLoan(
-                req,
-                1L,
-                officer
-        );
+                savedLoan.setId(1L);
+                savedLoan.setBorrower(borrower);
+                savedLoan.setOrganization(org);
+                savedLoan.setAmount(BigDecimal.valueOf(10_000));
+                savedLoan.setStatus(LoanStatus.PENDING);
 
-        assertThat(result).isNotNull();
+                when(organizationRepository.findById(1L))
+                                .thenReturn(Optional.of(org));
 
-        assertThat(result.getStatus())
-                .isEqualTo(LoanStatus.PENDING);
+                when(borrowerRepository.findById(1L))
+                                .thenReturn(Optional.of(borrower));
 
-        verify(loanRepository, atLeastOnce())
-                .save(any(Loan.class));
-    }
+                when(loanRepository.save(any(Loan.class)))
+                                .thenReturn(savedLoan);
 
-    @Test
-    void createLoan_shouldThrow_whenBorrowerNotFound() {
+                when(loanProductRepo.findFirstByOrganization_IdAndLoanTypeAndActiveTrue(any(Long.class),
+                                any(Loan.LoanType.class)))
+                                .thenReturn(Optional.empty());
 
-        LoanRequest req = new LoanRequest();
+                /*
+                 * RiskResult.score is currently a double.
+                 * Therefore 80.0 is intentional here.
+                 */
+                when(riskScoringService.score(any(Loan.class)))
+                                .thenReturn(
+                                                new RiskScoringService.RiskResult(
+                                                                80.0,
+                                                                "LOW"));
 
-        req.setBorrowerId(99L);
-        req.setAmount(BigDecimal.valueOf(1_000));
-        req.setInterestRate(BigDecimal.valueOf(10));
-        req.setDurationMonths(6);
-        req.setCurrency("USD");
-        req.setStartDate("2026-01-01");
+                Loan result = loanService.createLoan(
+                                req,
+                                1L,
+                                officer);
 
-        when(organizationRepository.findById(1L))
-                .thenReturn(Optional.of(org));
+                assertThat(result).isNotNull();
 
-        when(borrowerRepository.findById(99L))
-                .thenReturn(Optional.empty());
+                assertThat(result.getStatus())
+                                .isEqualTo(LoanStatus.PENDING);
 
-        assertThatThrownBy(() ->
-                loanService.createLoan(
-                        req,
-                        1L,
-                        officer
-                )
-        )
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("Borrower not found");
-    }
+                verify(loanRepository, atLeastOnce())
+                                .save(any(Loan.class));
+        }
 
-    @Test
-    void approveLoan_shouldSetStatusApproved_andGenerateSchedule() {
+        @Test
+        void createLoan_shouldThrow_whenBorrowerNotFound() {
 
-        Loan loan = new Loan();
+                LoanRequest req = new LoanRequest();
 
-        loan.setId(1L);
-        loan.setStatus(LoanStatus.PENDING);
-        loan.setAmount(BigDecimal.valueOf(12_000));
-        loan.setInterestRate(BigDecimal.valueOf(12));
-        loan.setDurationMonths(12);
-        loan.setStartDate(
-                java.time.LocalDate.of(2026, 1, 1)
-        );
-        loan.setBorrower(borrower);
-        loan.setOrganization(org);
+                req.setBorrowerId(99L);
+                req.setAmount(BigDecimal.valueOf(1_000));
+                req.setInterestRate(BigDecimal.valueOf(10));
+                req.setDurationMonths(6);
+                req.setCurrency("USD");
+                req.setStartDate("2026-01-01");
 
-        when(loanRepository.findById(1L))
-                .thenReturn(Optional.of(loan));
+                when(organizationRepository.findById(1L))
+                                .thenReturn(Optional.of(org));
 
-        when(loanRepository.save(any(Loan.class)))
-                .thenReturn(loan);
+                when(borrowerRepository.findById(99L))
+                                .thenReturn(Optional.empty());
 
-        when(paymentRepository.save(any()))
-                .thenAnswer(invocation ->
-                        invocation.getArgument(0)
-                );
+                assertThatThrownBy(() -> loanService.createLoan(
+                                req,
+                                1L,
+                                officer))
+                                .isInstanceOf(RuntimeException.class)
+                                .hasMessageContaining("Borrower not found");
+        }
 
-        /*
-         * Current LoanService signature:
-         *
-         * approveLoan(Long loanId,
-         *             User approvedBy,
-         *             String notes,
-         *             String rejectionReason)
-         */
-        Loan result = loanService.approveLoan(
-                1L,
-                officer,
-                null,
-                null
-        );
+        @Test
+        void approveLoan_shouldSetStatusApproved_andGenerateSchedule() {
 
-        assertThat(result).isNotNull();
+                Loan loan = new Loan();
 
-        assertThat(result.getStatus())
-                .isEqualTo(LoanStatus.APPROVED);
+                loan.setId(1L);
+                loan.setStatus(LoanStatus.PENDING);
+                loan.setAmount(BigDecimal.valueOf(500_000));
+                loan.setInterestRate(BigDecimal.valueOf(12));
+                loan.setDurationMonths(6);
+                loan.setStartDate(
+                                java.time.LocalDate.of(2026, 1, 1));
+                loan.setBorrower(borrower);
+                loan.setOrganization(org);
 
-        verify(paymentRepository, times(12))
-                .save(any());
-    }
+                when(loanRepository.findById(1L))
+                                .thenReturn(Optional.of(loan));
 
-    @Test
-    void approveLoan_shouldThrow_whenAlreadyApproved() {
+                when(fileService.getMissingDocumentTypes(any(Long.class), any()))
+                                .thenReturn(java.util.List.of());
 
-        Loan loan = new Loan();
+                when(loanRepository.save(any(Loan.class)))
+                                .thenReturn(loan);
 
-        loan.setId(1L);
-        loan.setStatus(LoanStatus.APPROVED);
-        loan.setOrganization(org);
+                when(paymentRepository.save(any()))
+                                .thenAnswer(invocation -> invocation.getArgument(0));
 
-        when(loanRepository.findById(1L))
-                .thenReturn(Optional.of(loan));
+                /*
+                 * Current LoanService signature:
+                 *
+                 * approveLoan(Long loanId,
+                 * User approvedBy,
+                 * String notes,
+                 * String rejectionReason)
+                 */
+                Loan result = loanService.approveLoan(
+                                1L,
+                                officer,
+                                null,
+                                null);
 
-        assertThatThrownBy(() ->
-                loanService.approveLoan(
-                        1L,
-                        officer,
-                        null,
-                        null
-                )
-        )
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("Already approved");
-    }
+                assertThat(result).isNotNull();
+
+                assertThat(result.getStatus())
+                                .isEqualTo(LoanStatus.APPROVED);
+
+                verify(paymentRepository, times(12))
+                                .save(any());
+        }
+
+        @Test
+        void approveLoan_shouldThrow_whenAlreadyApproved() {
+
+                Loan loan = new Loan();
+
+                loan.setId(1L);
+                loan.setStatus(LoanStatus.APPROVED);
+                loan.setOrganization(org);
+
+                when(loanRepository.findById(1L))
+                                .thenReturn(Optional.of(loan));
+
+                assertThatThrownBy(() -> loanService.approveLoan(
+                                1L,
+                                officer,
+                                null,
+                                null))
+                                .isInstanceOf(RuntimeException.class)
+                                .hasMessageContaining("Cannot approve a loan that is APPROVED");
+        }
 }

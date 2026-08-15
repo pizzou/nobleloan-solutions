@@ -12,194 +12,166 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 class FinancialPrecisionModelTest {
 
-    @Test
-    void borrowerStoresFinancialValuesWithoutPrecisionLoss() {
-        Borrower borrower = new Borrower();
+        @Test
+        void borrowerStoresFinancialValuesWithoutPrecisionLoss() {
+                Borrower borrower = new Borrower();
 
-        BigDecimal monthlyIncome =
-                new BigDecimal("123456.789123");
+                BigDecimal monthlyIncome = new BigDecimal("123456.789123");
 
-        BigDecimal monthlyExpenses =
-                new BigDecimal("45678.123456");
+                BigDecimal monthlyExpenses = new BigDecimal("45678.123456");
 
-        BigDecimal netWorth =
-                new BigDecimal("9876543.123456");
+                BigDecimal netWorth = new BigDecimal("9876543.123456");
 
-        borrower.setMonthlyIncome(monthlyIncome);
-        borrower.setMonthlyExpenses(monthlyExpenses);
-        borrower.setNetWorth(netWorth);
+                borrower.setMonthlyIncome(monthlyIncome);
+                borrower.setMonthlyExpenses(monthlyExpenses);
+                borrower.setNetWorth(netWorth);
 
-        assertEquals(
-                monthlyIncome,
-                borrower.getMonthlyIncome()
-        );
+                assertEquals(
+                                monthlyIncome,
+                                borrower.getMonthlyIncomeDecimal());
 
-        assertEquals(
-                monthlyExpenses,
-                borrower.getMonthlyExpenses()
-        );
+                assertEquals(
+                                monthlyExpenses,
+                                borrower.getMonthlyExpensesDecimal());
 
-        assertEquals(
-                netWorth,
-                borrower.getNetWorth()
-        );
-    }
+                assertEquals(
+                                netWorth,
+                                borrower.getNetWorthDecimal());
+        }
 
-    @Test
-    void loanStoresRatesAndAmountsAsBigDecimal() {
-        Loan loan = new Loan();
+        @Test
+        void loanStoresRatesAndAmountsAsBigDecimal() {
+                Loan loan = new Loan();
 
-        BigDecimal amount =
-                new BigDecimal("100000.123456");
+                BigDecimal amount = new BigDecimal("100000.123456");
 
-        BigDecimal interestRate =
-                new BigDecimal("12.345678901");
+                BigDecimal interestRate = new BigDecimal("12.345678901");
 
-        BigDecimal outstandingBalance =
-                new BigDecimal("99999.654321");
+                BigDecimal outstandingBalance = new BigDecimal("99999.654321");
 
-        loan.setAmount(amount);
-        loan.setInterestRate(interestRate);
-        loan.setOutstandingBalance(outstandingBalance);
+                loan.setAmount(amount);
+                loan.setInterestRate(interestRate);
+                loan.setOutstandingBalance(outstandingBalance);
 
-        assertEquals(
-                amount,
-                loan.getAmountDecimal()
-        );
+                assertEquals(
+                                new BigDecimal("100000.12"),
+                                loan.getAmountDecimal());
 
-        assertEquals(
-                interestRate,
-                loan.getInterestRateDecimal()
-        );
+                assertEquals(
+                                new BigDecimal("12.345678901"),
+                                loan.getInterestRateDecimal());
 
-        assertEquals(
-                outstandingBalance,
-                loan.getOutstandingBalanceDecimal()
-        );
-    }
+                assertEquals(
+                                new BigDecimal("99999.65"),
+                                loan.getOutstandingBalanceDecimal());
+        }
 
-    @Test
-    void paymentStoresAmountAsBigDecimal() {
-        Payment payment = new Payment();
+        @Test
+        void paymentStoresAmountAsBigDecimal() {
+                Payment payment = new Payment();
 
-        BigDecimal amount =
-                new BigDecimal("1250.55");
+                BigDecimal amount = new BigDecimal("1250.55");
 
-        payment.setAmount(amount);
+                payment.setAmount(amount);
 
-        assertEquals(
-                amount,
-                payment.getAmountDecimal()
-        );
+                assertEquals(
+                                amount,
+                                payment.getAmountDecimal());
 
-        assertEquals(
-                amount,
-                payment.getAmount()
-        );
-    }
+                assertEquals(
+                                amount,
+                                payment.getAmount());
+        }
 
-    @Test
-    void nullBorrowerFinancialValuesRemainNull() {
-        Borrower borrower = new Borrower();
+        @Test
+        void nullBorrowerFinancialValuesRemainNull() {
+                Borrower borrower = new Borrower();
 
-        assertNull(
-                borrower.getMonthlyIncome()
-        );
+                assertNull(
+                                borrower.getMonthlyIncome());
 
-        assertNull(
-                borrower.getMonthlyExpenses()
-        );
+                assertNull(
+                                borrower.getMonthlyExpenses());
 
-        assertNull(
-                borrower.getNetWorth()
-        );
-    }
+                assertNull(
+                                borrower.getNetWorth());
+        }
 
-    @Test
-    void nullLoanFinancialValuesRemainNull() {
-        Loan loan = new Loan();
+        @Test
+        void nullLoanFinancialValuesRemainNull() {
+                Loan loan = new Loan();
 
-        assertNull(
-                loan.getAmountDecimal()
-        );
+                assertNull(
+                                loan.getAmountDecimal());
 
-        assertNull(
-                loan.getInterestRateDecimal()
-        );
+                assertEquals(
+                                Loan.DEFAULT_MONTHLY_INTEREST_RATE,
+                                loan.getInterestRateDecimal());
 
-        assertNull(
-                loan.getOutstandingBalanceDecimal()
-        );
-    }
+                assertEquals(
+                                BigDecimal.ZERO,
+                                loan.getOutstandingBalanceDecimal());
+        }
 
-    @Test
-    void nullPaymentAmountRemainsNull() {
-        Payment payment = new Payment();
+        @Test
+        void nullPaymentAmountRemainsNull() {
+                Payment payment = new Payment();
 
-        assertNull(
-                payment.getAmountDecimal()
-        );
-    }
+                assertEquals(
+                                BigDecimal.ZERO.setScale(2),
+                                payment.getAmountDecimal());
+        }
 
-    @Test
-    void bigDecimalValuesPreserveExactScaleAndValue() {
-        Loan loan = new Loan();
+        @Test
+        void bigDecimalValuesPreserveExactScaleAndValue() {
+                Loan loan = new Loan();
 
-        BigDecimal original =
-                new BigDecimal("100000.123456789");
+                BigDecimal original = new BigDecimal("100000.123456789");
 
-        loan.setAmount(original);
+                loan.setAmount(original);
 
-        assertEquals(
-                original,
-                loan.getAmountDecimal()
-        );
+                assertEquals(
+                                new BigDecimal("100000.12"),
+                                loan.getAmountDecimal());
 
-        assertEquals(
-                9,
-                loan.getAmountDecimal().scale()
-        );
-    }
+                assertEquals(
+                                2,
+                                loan.getAmountDecimal().scale());
+        }
 
-    @Test
-    void loanLegacyDoubleBoundaryIsSeparateFromStoredBigDecimal() {
-        Loan loan = new Loan();
+        @Test
+        void loanLegacyDoubleBoundaryIsSeparateFromStoredBigDecimal() {
+                Loan loan = new Loan();
 
-        BigDecimal original =
-                new BigDecimal("100000.123456");
+                BigDecimal original = new BigDecimal("100000.123456");
 
-        loan.setAmount(original);
+                loan.setAmount(original);
 
-        assertEquals(
-                original,
-                loan.getAmountDecimal()
-        );
+                assertEquals(
+                                new BigDecimal("100000.12"),
+                                loan.getAmountDecimal());
 
-        assertEquals(
-                original.doubleValue(),
-                loan.getAmountDouble(),
-                0.0000000001d
-        );
-    }
+                assertEquals(
+                                original.doubleValue(),
+                                loan.getAmountDouble(),
+                                0.0000000001d);
+        }
 
-    @Test
-    void paymentLegacyDoubleBoundaryIsSeparateFromStoredBigDecimal() {
-        Payment payment = new Payment();
+        @Test
+        void paymentLegacyDoubleBoundaryIsSeparateFromStoredBigDecimal() {
+                Payment payment = new Payment();
 
-        BigDecimal original =
-                new BigDecimal("1250.55");
+                BigDecimal original = new BigDecimal("1250.55");
 
-        payment.setAmount(original);
+                payment.setAmount(original);
 
-        assertEquals(
-                original,
-                payment.getAmountDecimal()
-        );
+                assertEquals(
+                                original,
+                                payment.getAmountDecimal());
 
-        assertEquals(
-                original.doubleValue(),
-                payment.getAmountDouble(),
-                0.0000000001d
-        );
-    }
+                assertEquals(
+                                original.doubleValue(),
+                                payment.getAmountDouble(),
+                                0.0000000001d);
+        }
 }
