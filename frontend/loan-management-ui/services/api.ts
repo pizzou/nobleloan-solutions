@@ -220,9 +220,6 @@ export const loanApi = {
   documentRequirements: (id: number) =>
     get(`/loans/${id}/document-requirements`),
 
-  extend: (id: number, data: { extensionMonths: number; reason: string }) =>
-    post(`/loans/${id}/extend`, data),
-
   restructure: (id: number, data: unknown) =>
     post(`/loans/${id}/restructure`, data),
 
@@ -722,6 +719,13 @@ export const contactMessageApi = {
  */
 
 export const publicApi = {
+  submitContact: (data: {
+    name: string;
+    email?: string;
+    phone: string;
+    subject: string;
+    message: string;
+  }) => post("/public/contact", data),
   getTenant: (slug: string) =>
     get(`/public/tenant/${encodeURIComponent(slug)}`),
 

@@ -59,7 +59,7 @@ export default function ApplyPage() {
     loanType:
       searchParams?.get("type")?.replace(/\_/g, " ") || "Personal Loans",
     amount: "",
-    durationMonths: "12",
+    durationMonths: "1",
     purpose: "",
     collateral: "",
     collateralValue: "",
@@ -95,24 +95,26 @@ export default function ApplyPage() {
     };
 
   // ============================================================
-  // NATIONAL ID VALIDATION
-  // Rwanda national IDs are exactly 16 digits.
+  // NATIONAL ID / IDENTITY DOCUMENT VALIDATION
+  // The platform is multi-country; do not assume a Rwanda-only 16-digit format.
+  // Allow a practical international identifier range and validate required presence.
   // ============================================================
 
-  const NATIONAL_ID_REGEX = /^\d{16}$/;
+  const NATIONAL_ID_REGEX = /^[A-Za-z0-9][A-Za-z0-9\-\s]{4,29}$/;
 
-  const isNationalIdValid = (value: string) => {
-    return NATIONAL_ID_REGEX.test(value);
-  };
+  const isNationalIdValid = (value: string) =>
+    NATIONAL_ID_REGEX.test(value.trim());
 
   const setNationalId =
     (k: "nationalId" | "spouseNationalId") =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const digitsOnly = e.target.value.replace(/\D/g, "").slice(0, 16);
+      const cleaned = e.target.value
+        .replace(/[^A-Za-z0-9\-\s]/g, "")
+        .slice(0, 30);
 
       setForm((f) => ({
         ...f,
-        [k]: digitsOnly,
+        [k]: cleaned,
       }));
     };
 
@@ -420,7 +422,8 @@ export default function ApplyPage() {
               <>
                 Thank you <strong>{form.firstName}</strong>! Your application
                 and all required documents have been received. We will review
-                everything and contact you within <strong>24–48 hours</strong>.
+                everything and provide the next steps using the contact details
+                you supplied.
               </>
             ) : (
               <>
@@ -831,25 +834,12 @@ export default function ApplyPage() {
                 </Field>
 
                 <Field label="Province">
-                  <select
+                  <input
                     className={inp}
                     value={form.province}
                     onChange={set("province")}
-                  >
-                    <option value="">Select…</option>
-
-                    {[
-                      "Kigali",
-                      "Northern",
-                      "Southern",
-                      "Eastern",
-                      "Western",
-                    ].map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="State / province / region"
+                  />
                 </Field>
               </div>
             </div>
@@ -1085,21 +1075,19 @@ export default function ApplyPage() {
 
                       const months = Number(form.durationMonths);
 
-                      /*
-                       * Existing application-page
-                       * estimate preserved exactly.
-                       *
-                       * This is only the frontend
-                       * display estimate and does NOT
-                       * modify backend loan interest logic.
-                       */
-                      const mr: number = 0.1;
+                      const interestRate =
+                        Number(tenant.monthlyInterestRate ?? 0) / 100;
+                      const managementRate =
+                        Number(tenant.monthlyManagementFeeRate ?? 0) / 100;
+                      const monthlyRate = interestRate + managementRate;
 
                       const monthly =
-                        mr === 0
+                        monthlyRate === 0
                           ? principal / months
-                          : (principal * (mr * Math.pow(1 + mr, months))) /
-                            (Math.pow(1 + mr, months) - 1);
+                          : (principal *
+                              (monthlyRate *
+                                Math.pow(1 + monthlyRate, months))) /
+                            (Math.pow(1 + monthlyRate, months) - 1);
 
                       return [
                         [
@@ -1116,7 +1104,10 @@ export default function ApplyPage() {
                             maximumFractionDigits: 0,
                           })}`,
                         ],
-                        ["Rate", "10% / mo"],
+                        [
+                          "Rate",
+                          `${(Number(tenant.monthlyInterestRate ?? 0) + Number(tenant.monthlyManagementFeeRate ?? 0)).toFixed(2)}% / mo`,
+                        ],
                       ].map(([l, v]) => (
                         <div key={l}>
                           <div className="text-gray-400 text-[10px]">{l}</div>

@@ -1,122 +1,216 @@
-'use client';
-import Link from 'next/link';
-import { useTenant } from '../layout';
+"use client";
+
+import Link from "next/link";
+import { useTenant } from "../layout";
 
 export default function AboutPage() {
   const tenant = useTenant();
   if (!tenant) return null;
+
   const primary = tenant.primaryColor;
-  const accent  = tenant.accentColor;
+  const accent = tenant.accentColor;
+  const services = tenant.services ?? [];
+  const team = tenant.team ?? [];
 
   return (
     <div>
-      {/* Hero */}
-      <section className="py-20 text-white relative overflow-hidden"
-        style={{ background: `linear-gradient(135deg, ${primary} 0%, #0a4a2b 100%)` }}>
-        <div className="max-w-7xl mx-auto px-4 grid md:grid-cols-2 gap-12 items-center">
+      <section
+        className="relative overflow-hidden text-white"
+        style={{
+          background: `linear-gradient(135deg, ${primary}, ${primary}D9)`,
+        }}
+      >
+        <div className="mx-auto grid max-w-7xl gap-12 px-4 py-20 md:grid-cols-[1.2fr_0.8fr] md:py-24">
           <div>
-            <div className="text-sm font-bold uppercase tracking-widest mb-4 opacity-70">About Us</div>
-            <h1 className="text-4xl md:text-5xl font-extrabold mb-6">
-              Empowering Rwandans<br/>
-              <span style={{ color: accent }}>Since {tenant.founded}</span>
+            <div className="text-xs font-black uppercase tracking-[0.2em] text-white/60">
+              About {tenant.name}
+            </div>
+            <h1 className="mt-4 text-4xl font-black leading-tight md:text-6xl">
+              {tenant.tagline || "A financial partner built around your needs"}
             </h1>
-            <p className="text-white/80 text-lg leading-relaxed">{tenant.mission}</p>
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-white/75">
+              {tenant.mission ||
+                `Learn more about ${tenant.name}, its products, and the financial services made available through this website.`}
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            {[
-              { icon: '🏆', label: 'Founded', value: tenant.founded! },
-              { icon: '📍', label: 'Location', value: tenant.address?.split(',').slice(-2).join(',').trim() || tenant.country || 'Rwanda' },
-              { icon: '🇷🇼', label: 'Reg. No.', value: tenant.registrationNumber! },
-              { icon: '💼', label: 'Services', value: `${tenant.services?.length ?? 6} Products` },
-            ].map(item => (
-              <div key={item.label} className="bg-white/10 rounded-2xl p-5 backdrop-blur-sm">
-                <div className="text-3xl mb-2">{item.icon}</div>
-                <div className="text-white/60 text-xs uppercase tracking-wider">{item.label}</div>
-                <div className="text-white font-bold mt-0.5">{item.value}</div>
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-5">
+              <div className="text-xs uppercase tracking-wider text-white/50">
+                Founded
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Mission / Vision / Values */}
-      <section className="py-20 max-w-7xl mx-auto px-4">
-        <div className="grid md:grid-cols-3 gap-8">
-          {[
-            { icon: '🎯', title: 'Our Mission', text: tenant.mission ?? '' },
-            { icon: '🔭', title: 'Our Vision',  text: tenant.vision  ?? 'To be the most trusted financial institution in East Africa, creating lasting prosperity for every client we serve.' },
-            { icon: '💎', title: 'Our Values',  text: 'Integrity · Transparency · Innovation · Inclusion · Excellence. We believe everyone deserves access to fair and dignified financial services.' },
-          ].map(item => (
-            <div key={item.title}
-              className="text-center p-8 rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition-all">
-              <div className="text-5xl mb-4">{item.icon}</div>
-              <h3 className="text-xl font-extrabold mb-3" style={{ color: primary }}>{item.title}</h3>
-              <p className="text-gray-600 leading-relaxed">{item.text}</p>
+              <div className="mt-2 text-xl font-black">
+                {tenant.founded || "—"}
+              </div>
             </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Why choose us */}
-      <section className="py-20" style={{ backgroundColor: primary + '06' }}>
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-extrabold text-gray-900 mb-4">Why Choose {tenant.name}?</h2>
-            <p className="text-gray-500 text-lg">We are different — and here is why thousands of Rwandans trust us</p>
-          </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[
-              { icon:'⚡', title:'Fast Approval',        desc:'Applications reviewed within 24 hours. No lengthy waiting periods.' },
-              { icon:'📱', title:'Apply from Anywhere',   desc:'Our online platform lets you apply on your phone, tablet or computer.' },
-              { icon:'🔒', title:'Safe & Secure',         desc:'Your data is protected with bank-grade encryption and security.' },
-              { icon:'💬', title:'Dedicated Support',     desc:'Our team is available 6 days a week to assist with your application.' },
-              { icon:'🤝', title:'No Hidden Fees',        desc:'All charges are clearly disclosed upfront. What we quote is what you pay.' },
-              { icon:'🌍', title:'Serving All Rwandans', desc:'We serve urban and rural clients alike — including farmers and cooperatives.' },
-            ].map(item => (
-              <div key={item.title} className="flex gap-4 bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
-                  style={{ backgroundColor: primary + '15' }}>
-                  {item.icon}
-                </div>
-                <div>
-                  <div className="font-bold text-gray-900 mb-1">{item.title}</div>
-                  <div className="text-gray-500 text-sm">{item.desc}</div>
-                </div>
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-5">
+              <div className="text-xs uppercase tracking-wider text-white/50">
+                Products
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Team */}
-      <section className="py-20 max-w-7xl mx-auto px-4">
-        <div className="text-center mb-12">
-          <h2 className="text-3xl font-extrabold text-gray-900 mb-4">Our Leadership Team</h2>
-          <p className="text-gray-500">Experienced professionals committed to your financial success</p>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-          {(tenant.team ?? []).map(person => (
-            <div key={person.name} className="text-center">
-              <div className="w-20 h-20 rounded-full flex items-center justify-center text-white font-black text-xl mx-auto mb-4 shadow-lg"
-                style={{ backgroundColor: primary }}>
-                {person.initials}
-              </div>
-              <div className="font-bold text-gray-900">{person.name}</div>
-              <div className="text-gray-500 text-sm mt-0.5">{person.role}</div>
+              <div className="mt-2 text-xl font-black">{services.length}</div>
             </div>
-          ))}
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-5">
+              <div className="text-xs uppercase tracking-wider text-white/50">
+                Country
+              </div>
+              <div className="mt-2 text-xl font-black">
+                {tenant.country || "—"}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-5">
+              <div className="text-xs uppercase tracking-wider text-white/50">
+                Registration
+              </div>
+              <div className="mt-2 break-words text-xl font-black">
+                {tenant.registrationNumber || "—"}
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
-      {/* CTA */}
-      <section className="py-16 text-center px-4">
-        <div className="max-w-2xl mx-auto">
-          <h2 className="text-3xl font-extrabold text-gray-900 mb-4">Ready to Partner with Us?</h2>
-          <p className="text-gray-500 mb-8">Join thousands of Rwandans who have achieved their goals with our support.</p>
-          <Link href={`/apply`}
-            className="inline-block px-12 py-4 rounded-full text-white font-bold text-lg shadow-xl hover:opacity-90 transition"
-            style={{ backgroundColor: primary }}>
-            Apply for a Loan →
+      <section className="mx-auto max-w-7xl px-4 py-20">
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+            <div
+              className="text-xs font-black uppercase tracking-[0.18em]"
+              style={{ color: accent }}
+            >
+              Mission
+            </div>
+            <h2 className="mt-2 text-2xl font-black">What we aim to do</h2>
+            <p className="mt-4 leading-8 text-slate-600">
+              {tenant.mission ||
+                "Our mission is published by the lender and is shown here so applicants can understand the organisation they are dealing with."}
+            </p>
+          </div>
+          <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+            <div
+              className="text-xs font-black uppercase tracking-[0.18em]"
+              style={{ color: accent }}
+            >
+              Vision
+            </div>
+            <h2 className="mt-2 text-2xl font-black">Where we are going</h2>
+            <p className="mt-4 leading-8 text-slate-600">
+              {tenant.vision ||
+                "Our vision is published by the lender and is shown here so applicants can understand its long-term direction."}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-slate-50">
+        <div className="mx-auto max-w-7xl px-4 py-20">
+          <div className="max-w-2xl">
+            <div
+              className="text-xs font-black uppercase tracking-[0.18em]"
+              style={{ color: accent }}
+            >
+              Our platform
+            </div>
+            <h2 className="mt-2 text-3xl font-black text-slate-950">
+              A public website connected to the lender's actual loan platform
+            </h2>
+            <p className="mt-4 leading-7 text-slate-600">
+              The information shown here is loaded from the organisation
+              configuration and active loan products. This helps keep public
+              rates, contact details, branding, and product availability aligned
+              with the lender's system.
+            </p>
+          </div>
+          <div className="mt-10 grid gap-5 md:grid-cols-3">
+            <div className="rounded-2xl bg-white p-6 shadow-sm">
+              <div className="text-2xl">📋</div>
+              <h3 className="mt-4 font-black">Clear products</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Visitors can review active loan products before starting an
+                application.
+              </p>
+            </div>
+            <div className="rounded-2xl bg-white p-6 shadow-sm">
+              <div className="text-2xl">🧾</div>
+              <h3 className="mt-4 font-black">Transparent charges</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Published platform rates and fees are displayed instead of
+                invented website-only numbers.
+              </p>
+            </div>
+            <div className="rounded-2xl bg-white p-6 shadow-sm">
+              <div className="text-2xl">🔐</div>
+              <h3 className="mt-4 font-black">Connected workflows</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Applications, tracking, payments, and documents connect to the
+                same loan platform.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {team.length > 0 && (
+        <section className="mx-auto max-w-7xl px-4 py-20">
+          <div className="text-center">
+            <div
+              className="text-xs font-black uppercase tracking-[0.18em]"
+              style={{ color: accent }}
+            >
+              Leadership
+            </div>
+            <h2 className="mt-2 text-3xl font-black text-slate-950">
+              Our team
+            </h2>
+          </div>
+          <div className="mx-auto mt-10 grid max-w-5xl gap-6 sm:grid-cols-2 md:grid-cols-4">
+            {team.slice(0, 8).map((member) => {
+              const initials =
+                member.initials ||
+                member.name
+                  .split(/\s+/)
+                  .map((p) => p[0])
+                  .join("")
+                  .slice(0, 2)
+                  .toUpperCase();
+              return (
+                <div key={member.name} className="text-center">
+                  <div
+                    className="mx-auto flex h-20 w-20 items-center justify-center rounded-full text-lg font-black text-white"
+                    style={{ backgroundColor: primary }}
+                  >
+                    {initials}
+                  </div>
+                  <div className="mt-4 font-black text-slate-900">
+                    {member.name}
+                  </div>
+                  {member.role && (
+                    <div className="mt-1 text-sm text-slate-500">
+                      {member.role}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      <section className="px-4 pb-20 text-center">
+        <h2 className="text-3xl font-black text-slate-950">
+          Explore the services available from {tenant.name}
+        </h2>
+        <div className="mt-7 flex justify-center gap-3">
+          <Link
+            href="/services"
+            className="rounded-full px-7 py-3.5 text-sm font-black text-white"
+            style={{ backgroundColor: primary }}
+          >
+            View Services
+          </Link>
+          <Link
+            href="/contact"
+            className="rounded-full border px-7 py-3.5 text-sm font-bold"
+            style={{ borderColor: primary, color: primary }}
+          >
+            Contact Us
           </Link>
         </div>
       </section>

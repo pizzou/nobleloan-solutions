@@ -1,4 +1,3 @@
-
 package com.patrick.fintech.loan_backend.model;
 
 import java.math.BigDecimal;
@@ -49,6 +48,20 @@ public class Organization {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /**
+     * Stable public tenant identifier.
+     *
+     * Example:
+     *
+     * nobleloansolutions
+     * abc-finance
+     * growth-microfinance
+     *
+     * Public website routing must use this value.
+     */
+    @Column(nullable = false, unique = true, length = 120)
+    private String slug;
+
     @Column(nullable = false)
     private String name;
 
@@ -77,7 +90,6 @@ public class Organization {
     private String address;
 
     private String registrationNumber;
-
 
     /*
      * ============================================================
@@ -108,7 +120,6 @@ public class Organization {
     @Column(columnDefinition = "TEXT")
     private String mapUrl;
 
-
     /*
      * ============================================================
      * FLEXIBLE CMS CONTENT
@@ -132,7 +143,6 @@ public class Organization {
     @Column(columnDefinition = "TEXT")
     private String teamJson;
 
-
     /*
      * ============================================================
      * SUBSCRIPTION
@@ -151,36 +161,19 @@ public class Organization {
 
     private Integer maxActiveLoans;
 
-
     /*
      * ============================================================
      * LOAN LIMITS
-     *
-     * IMPORTANT:
-     *
-     * maxLoanAmount == null means NO MAXIMUM.
-     *
-     * This is intentional for the current lending rules.
-     *
-     * Minimum loan amount is stored as BigDecimal because this is
-     * monetary financial data.
      * ============================================================
      */
 
     @JsonProperty("maxLoanAmount")
-    @Column(
-            precision = 19,
-            scale = 6
-    )
+    @Column(precision = 19, scale = 6)
     private BigDecimal maxLoanAmount;
 
     @JsonProperty("minLoanAmount")
-    @Column(
-            precision = 19,
-            scale = 6
-    )
+    @Column(precision = 19, scale = 6)
     private BigDecimal minLoanAmount;
-
 
     /*
      * ============================================================
@@ -200,7 +193,6 @@ public class Organization {
 
     private LocalDateTime updatedAt;
 
-
     /*
      * ============================================================
      * RELATIONSHIPS
@@ -208,19 +200,12 @@ public class Organization {
      */
 
     @JsonIgnore
-    @OneToMany(
-            mappedBy = "organization",
-            fetch = FetchType.LAZY
-    )
+    @OneToMany(mappedBy = "organization", fetch = FetchType.LAZY)
     private List<User> users;
 
     @JsonIgnore
-    @OneToMany(
-            mappedBy = "organization",
-            fetch = FetchType.LAZY
-    )
+    @OneToMany(mappedBy = "organization", fetch = FetchType.LAZY)
     private List<Loan> loans;
-
 
     /*
      * ============================================================
@@ -269,24 +254,10 @@ public class Organization {
             maxActiveLoans = 10_000;
         }
 
-        /*
-         * Production lending rule:
-         *
-         * Minimum loan amount = RWF 500,000.
-         *
-         * Do NOT automatically create a maximum.
-         * null means unlimited.
-         */
         if (minLoanAmount == null) {
             minLoanAmount = new BigDecimal("500000.00");
         }
-
-        /*
-         * maxLoanAmount intentionally remains null when no maximum
-         * has been configured.
-         */
     }
-
 
     @PreUpdate
     protected void onUpdate() {
@@ -294,12 +265,9 @@ public class Organization {
         updatedAt = LocalDateTime.now();
     }
 
-
     /*
      * ============================================================
      * BIGDECIMAL FINANCIAL ACCESSORS
-     *
-     * Financial code should use these methods.
      * ============================================================
      */
 
@@ -314,7 +282,6 @@ public class Organization {
         this.maxLoanAmount = normalizeMoney(value);
     }
 
-
     @JsonIgnore
     public BigDecimal getMinLoanAmountDecimal() {
 
@@ -326,32 +293,21 @@ public class Organization {
         this.minLoanAmount = normalizeMoney(value);
     }
 
-
     /*
      * ============================================================
      * LIMIT HELPERS
      * ============================================================
      */
 
-    /**
-     * Returns true when this organization has no configured
-     * maximum loan amount.
-     */
     @JsonIgnore
     public boolean hasUnlimitedMaximumLoanAmount() {
 
         return maxLoanAmount == null;
     }
 
-
-    /**
-     * Checks whether a loan amount satisfies the organization's
-     * configured loan limits.
-     *
-     * A null maximum means unlimited.
-     */
     @JsonIgnore
-    public boolean isLoanAmountWithinLimits(BigDecimal amount) {
+    public boolean isLoanAmountWithinLimits(
+            BigDecimal amount) {
 
         if (amount == null) {
             return false;
@@ -360,13 +316,15 @@ public class Organization {
         BigDecimal normalizedAmount = normalizeMoney(amount);
 
         if (minLoanAmount != null
-                && normalizedAmount.compareTo(minLoanAmount) < 0) {
+                && normalizedAmount.compareTo(
+                        minLoanAmount) < 0) {
 
             return false;
         }
 
         if (maxLoanAmount != null
-                && normalizedAmount.compareTo(maxLoanAmount) > 0) {
+                && normalizedAmount.compareTo(
+                        maxLoanAmount) > 0) {
 
             return false;
         }
@@ -374,14 +332,14 @@ public class Organization {
         return true;
     }
 
-
     /*
      * ============================================================
      * MONEY NORMALIZATION
      * ============================================================
      */
 
-    private static BigDecimal normalizeMoney(BigDecimal value) {
+    private static BigDecimal normalizeMoney(
+            BigDecimal value) {
 
         if (value == null) {
             return null;
@@ -389,10 +347,8 @@ public class Organization {
 
         return value.setScale(
                 6,
-                java.math.RoundingMode.HALF_UP
-        );
+                java.math.RoundingMode.HALF_UP);
     }
-
 
     /*
      * ============================================================

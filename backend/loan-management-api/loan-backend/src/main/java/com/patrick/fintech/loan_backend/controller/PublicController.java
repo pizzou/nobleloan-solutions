@@ -1553,8 +1553,9 @@ public class PublicController {
         // ============================================================
 
         private String value(String currency) {
-
-                throw new UnsupportedOperationException("Unimplemented method 'value'");
+                return currency == null || currency.isBlank()
+                                ? ""
+                                : currency.trim();
         }
 
         private List<Map<String, Object>> receiptRows(
@@ -1656,9 +1657,9 @@ public class PublicController {
 
                 if (org == null) {
 
-                        return ResponseEntity.ok(
-                                        ApiResponse.ok(
-                                                        demoConfig()));
+                        return ResponseEntity
+                                        .status(404)
+                                        .build();
                 }
 
                 Map<String, Object> config = new LinkedHashMap<>();
@@ -1738,21 +1739,15 @@ public class PublicController {
 
                 config.put(
                                 "tagline",
-                                org.getTagline() != null
-                                                ? org.getTagline()
-                                                : "Empowering Your Financial Growth");
+                                org.getTagline());
 
                 config.put(
                                 "mission",
-                                org.getMission() != null
-                                                ? org.getMission()
-                                                : "To provide accessible, affordable and transparent financial services to our clients.");
+                                org.getMission());
 
                 config.put(
                                 "vision",
-                                org.getVision() != null
-                                                ? org.getVision()
-                                                : "To be the most trusted financial partner in our community.");
+                                org.getVision());
 
                 config.put(
                                 "founded",
@@ -1809,37 +1804,38 @@ public class PublicController {
                                 "services",
                                 servicesFor(org));
 
+                Map<String, Object> hero = new LinkedHashMap<>();
+                hero.put(
+                                "headline",
+                                org.getHeroHeadline() != null
+                                                ? org.getHeroHeadline()
+                                                : "");
+                hero.put(
+                                "subtext",
+                                org.getHeroSubtext() != null
+                                                ? org.getHeroSubtext()
+                                                : "");
                 config.put(
                                 "hero",
-                                Map.of(
-                                                "headline",
-                                                org.getHeroHeadline() != null
-                                                                ? org.getHeroHeadline()
-                                                                : "Borrow & Grow with us",
-
-                                                "subtext",
-                                                org.getHeroSubtext() != null
-                                                                ? org.getHeroSubtext()
-                                                                : "Fast approvals, competitive rates, and flexible terms."));
+                                hero);
 
                 config.put(
                                 "stats",
                                 parseListOrDefault(
                                                 org.getStatsJson(),
-                                                defaultStats()));
+                                                List.of()));
 
                 config.put(
                                 "testimonials",
                                 parseListOrDefault(
                                                 org.getTestimonialsJson(),
-                                                defaultTestimonials(
-                                                                org.getName())));
+                                                List.of()));
 
                 config.put(
                                 "team",
                                 parseListOrDefault(
                                                 org.getTeamJson(),
-                                                defaultTeam()));
+                                                List.of()));
 
                 config.put(
                                 "paymentMethods",
@@ -2532,11 +2528,15 @@ public class PublicController {
 
                 Organization org = resolveOrg(slug);
 
+                if (org == null) {
+                        return ResponseEntity
+                                        .status(404)
+                                        .build();
+                }
+
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
-                                                org != null
-                                                                ? servicesFor(org)
-                                                                : buildProducts()));
+                                                servicesFor(org)));
         }
 
         private List<Map<String, Object>> servicesFor(
@@ -2561,9 +2561,7 @@ public class PublicController {
 
                                                                 m.put(
                                                                                 "icon",
-                                                                                p.getIcon() != null
-                                                                                                ? p.getIcon()
-                                                                                                : "💰");
+                                                                                p.getIcon());
 
                                                                 /*
                                                                  * Platform rate is fixed.
@@ -2572,6 +2570,18 @@ public class PublicController {
                                                                                 "rate",
                                                                                 MONTHLY_INTEREST_RATE
                                                                                                 + "% / month");
+
+                                                                m.put(
+                                                                                "monthlyInterestRate",
+                                                                                MONTHLY_INTEREST_RATE);
+
+                                                                m.put(
+                                                                                "monthlyManagementFeeRate",
+                                                                                MONTHLY_MANAGEMENT_FEE_RATE);
+
+                                                                m.put(
+                                                                                "processingFeeRate",
+                                                                                PROCESSING_FEE_RATE);
 
                                                                 m.put(
                                                                                 "maxAmount",
@@ -2585,9 +2595,7 @@ public class PublicController {
 
                                                                 m.put(
                                                                                 "description",
-                                                                                p.getDescription() != null
-                                                                                                ? p.getDescription()
-                                                                                                : "");
+                                                                                p.getDescription());
 
                                                                 return m;
                                                         })
@@ -2596,7 +2604,7 @@ public class PublicController {
 
                 return parseListOrDefault(
                                 org.getServicesJson(),
-                                buildProducts());
+                                List.of());
         }
 
         private List<Map<String, Object>> parseListOrDefault(
@@ -2629,109 +2637,6 @@ public class PublicController {
 
                         return fallback;
                 }
-        }
-
-        // ============================================================
-        // PRODUCTS DEFAULTS
-        // ============================================================
-
-        private List<Map<String, Object>> buildProducts() {
-
-                List<Map<String, Object>> products = new ArrayList<>();
-
-                String[][] defaults = {
-
-                                {
-                                                "Personal Loan",
-                                                "👤",
-                                                "5",
-                                                "Unlimited",
-                                                "6",
-                                                "Fast personal financing"
-                                },
-
-                                {
-                                                "Business Loan",
-                                                "🏢",
-                                                "5",
-                                                "Unlimited",
-                                                "6",
-                                                "Working capital and expansion"
-                                },
-
-                                {
-                                                "Agricultural Loan",
-                                                "🌾",
-                                                "5",
-                                                "Unlimited",
-                                                "6",
-                                                "Agricultural finance"
-                                },
-
-                                {
-                                                "SME Finance",
-                                                "📦",
-                                                "5",
-                                                "Unlimited",
-                                                "6",
-                                                "Tailored SME finance"
-                                },
-
-                                {
-                                                "Salary Advance",
-                                                "💵",
-                                                "5",
-                                                "Unlimited",
-                                                "6",
-                                                "Quick salary advance"
-                                },
-
-                                {
-                                                "Microfinance",
-                                                "💡",
-                                                "5",
-                                                "Unlimited",
-                                                "6",
-                                                "Small business finance"
-                                }
-                };
-
-                for (String[] p : defaults) {
-
-                        Map<String, Object> m = new LinkedHashMap<>();
-
-                        m.put(
-                                        "title",
-                                        p[0]);
-
-                        m.put(
-                                        "icon",
-                                        p[1]);
-
-                        m.put(
-                                        "rate",
-                                        p[2]
-                                                        + "% / month");
-
-                        m.put(
-                                        "maxAmount",
-                                        p[3]);
-
-                        m.put(
-                                        "term",
-                                        "up to "
-                                                        + p[4]
-                                                        + " months");
-
-                        m.put(
-                                        "description",
-                                        p[5]);
-
-                        products.add(
-                                        m);
-                }
-
-                return products;
         }
 
         // ============================================================
@@ -3273,160 +3178,7 @@ public class PublicController {
                  * Platform currently supports monthly repayment only.
                  */
                 return Loan.RepaymentFrequency.MONTHLY;
-        }
 
-        // ============================================================
-        // DEFAULT STATS
-        // ============================================================
-
-        private List<Map<String, Object>> defaultStats() {
-
-                List<Map<String, Object>> stats = new ArrayList<>();
-
-                String[][] rows = {
-
-                                {
-                                                "👥",
-                                                "5,000+",
-                                                "Happy Clients"
-                                },
-
-                                {
-                                                "💰",
-                                                "RWF 2B+",
-                                                "Loans Disbursed"
-                                },
-
-                                {
-                                                "⚡",
-                                                "24 hrs",
-                                                "Average Approval"
-                                },
-
-                                {
-                                                "⭐",
-                                                "98%",
-                                                "Client Satisfaction"
-                                }
-                };
-
-                for (String[] r : rows) {
-
-                        stats.add(
-                                        Map.of(
-                                                        "icon",
-                                                        r[0],
-
-                                                        "value",
-                                                        r[1],
-
-                                                        "label",
-                                                        r[2]));
-                }
-
-                return stats;
-        }
-
-        // ============================================================
-        // TESTIMONIALS
-        // ============================================================
-
-        private List<Map<String, Object>> defaultTestimonials(
-                        String orgName) {
-
-                List<Map<String, Object>> t = new ArrayList<>();
-
-                t.add(
-                                Map.of(
-                                                "name",
-                                                "Joseph G.",
-
-                                                "role",
-                                                "Small Business Owner",
-
-                                                "rating",
-                                                5,
-
-                                                "text",
-                                                orgName
-                                                                + " helped me expand my shop with a business loan."));
-
-                t.add(
-                                Map.of(
-                                                "name",
-                                                "Olivier M.",
-
-                                                "role",
-                                                "Farmer",
-
-                                                "rating",
-                                                5,
-
-                                                "text",
-                                                "I received agricultural financing to expand my farming operation."));
-
-                t.add(
-                                Map.of(
-                                                "name",
-                                                "Grace U.",
-
-                                                "role",
-                                                "Teacher",
-
-                                                "rating",
-                                                5,
-
-                                                "text",
-                                                "The salary advance process was simple and convenient."));
-
-                return t;
-        }
-
-        // ============================================================
-        // TEAM
-        // ============================================================
-
-        private List<Map<String, Object>> defaultTeam() {
-
-                List<Map<String, Object>> team = new ArrayList<>();
-
-                team.add(
-                                Map.of(
-                                                "name",
-                                                "Emmanuel R.",
-                                                "role",
-                                                "Chief Executive Officer",
-                                                "initials",
-                                                "ER"));
-
-                team.add(
-                                Map.of(
-                                                "name",
-                                                "Alice U.",
-                                                "role",
-                                                "Chief Finance Officer",
-                                                "initials",
-                                                "AU"));
-
-                team.add(
-                                Map.of(
-                                                "name",
-                                                "Patrick M.",
-                                                "role",
-                                                "Head of Credit",
-                                                "initials",
-                                                "PM"));
-
-                team.add(
-                                Map.of(
-                                                "name",
-                                                "Alice K.",
-                                                "role",
-                                                "Head of Operations",
-                                                "initials",
-                                                "AK"));
-
-                return team;
         }
 
         // ============================================================
@@ -3642,88 +3394,5 @@ public class PublicController {
 
                         return null;
                 }
-        }
-
-        // ============================================================
-        // DEMO TENANT CONFIG
-        // ============================================================
-
-        private Map<String, Object> demoConfig() {
-
-                Map<String, Object> m = new LinkedHashMap<>();
-
-                m.put(
-                                "name",
-                                "Growth Finance Services Ltd");
-
-                m.put(
-                                "slug",
-                                "growthfinance");
-
-                m.put(
-                                "country",
-                                "Rwanda");
-
-                m.put(
-                                "currency",
-                                "RWF");
-
-                m.put(
-                                "primaryColor",
-                                "#0D6B3E");
-
-                m.put(
-                                "accentColor",
-                                "#F5A623");
-
-                m.put(
-                                "contactEmail",
-                                "info@growthfinance.rw");
-
-                m.put(
-                                "contactPhone",
-                                "+250 788 000 000");
-
-                m.put(
-                                "address",
-                                "KG 7 Ave, Kigali, Rwanda");
-
-                m.put(
-                                "status",
-                                "ACTIVE");
-
-                m.put(
-                                "minLoanAmount",
-                                MIN_LOAN_AMOUNT);
-
-                m.put(
-                                "maxLoanAmount",
-                                null);
-
-                m.put(
-                                "monthlyInterestRate",
-                                MONTHLY_INTEREST_RATE);
-
-                m.put(
-                                "monthlyManagementFeeRate",
-                                MONTHLY_MANAGEMENT_FEE_RATE);
-
-                m.put(
-                                "processingFeeRate",
-                                PROCESSING_FEE_RATE);
-
-                m.put(
-                                "minLoanDurationMonths",
-                                MIN_LOAN_DURATION_MONTHS);
-
-                m.put(
-                                "maxLoanDurationMonths",
-                                MAX_LOAN_DURATION_MONTHS);
-
-                m.put(
-                                "paymentMethods",
-                                paymentMethods());
-
-                return m;
         }
 }
