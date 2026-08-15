@@ -62,6 +62,15 @@ public class Organization {
     @Column(nullable = false, unique = true, length = 120)
     private String slug;
 
+    /**
+     * Canonical public website hostname for this tenant.
+     * Example: nobleloansolutions.rw
+     *
+     * This is used for production multi-tenant website resolution.
+     */
+    @Column(unique = true, length = 255)
+    private String publicDomain;
+
     @Column(nullable = false)
     private String name;
 

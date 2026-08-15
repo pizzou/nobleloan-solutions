@@ -728,6 +728,11 @@ export const publicApi = {
   }) => post("/public/contact", data),
   getTenant: (slug: string) =>
     get(`/public/tenant/${encodeURIComponent(slug)}`),
+  getCurrentTenant: (host?: string) =>
+    get(
+      "/public/tenant/current",
+      host ? { headers: { "X-Tenant-Host": host } } : undefined,
+    ),
 
   getProducts: (slug: string) =>
     get(`/public/tenant/${encodeURIComponent(slug)}/products`),

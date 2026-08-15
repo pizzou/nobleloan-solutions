@@ -9,17 +9,23 @@ import java.util.Optional;
 
 @Repository
 public interface OrganizationRepository
-        extends JpaRepository<Organization, Long> {
+                extends JpaRepository<Organization, Long> {
 
-    Optional<Organization> findByRegistrationNumber(
-            String regNumber);
+        Optional<Organization> findByRegistrationNumber(
+                        String regNumber);
 
-    boolean existsByRegistrationNumber(
-            String regNumber);
+        boolean existsByRegistrationNumber(
+                        String regNumber);
 
-    Optional<Organization> findBySlugIgnoreCase(
-            String slug);
+        Optional<Organization> findBySlugIgnoreCase(
+                        String slug);
 
-    boolean existsBySlugIgnoreCase(
-            String slug);
+        boolean existsBySlugIgnoreCase(
+                        String slug);
+
+        Optional<Organization> findByPublicDomainIgnoreCase(
+                        String publicDomain);
+
+        boolean existsByPublicDomainIgnoreCase(
+                        String publicDomain);
 }

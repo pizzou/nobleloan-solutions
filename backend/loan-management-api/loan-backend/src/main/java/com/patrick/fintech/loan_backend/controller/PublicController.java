@@ -1844,17 +1844,30 @@ public class PublicController {
                 /*
                  * Explicit platform financial rules for frontend.
                  */
+                LoanProduct defaultPublicProduct = loanProductRepo
+                                .findByOrganization_IdAndActiveTrueOrderByDisplayOrderAsc(
+                                                org.getId())
+                                .stream()
+                                .findFirst()
+                                .orElse(null);
+
                 config.put(
                                 "monthlyInterestRate",
-                                MONTHLY_INTEREST_RATE);
+                                defaultPublicProduct != null
+                                                ? defaultPublicProduct.getInterestRateDecimal()
+                                                : MONTHLY_INTEREST_RATE);
 
                 config.put(
                                 "monthlyManagementFeeRate",
-                                MONTHLY_MANAGEMENT_FEE_RATE);
+                                defaultPublicProduct != null
+                                                ? defaultPublicProduct.getManagementFeePercentDecimal()
+                                                : MONTHLY_MANAGEMENT_FEE_RATE);
 
                 config.put(
                                 "processingFeeRate",
-                                PROCESSING_FEE_RATE);
+                                defaultPublicProduct != null
+                                                ? defaultPublicProduct.getProcessingFeePercentDecimal()
+                                                : PROCESSING_FEE_RATE);
 
                 config.put(
                                 "minLoanDurationMonths",
@@ -2563,34 +2576,60 @@ public class PublicController {
                                                                                 "icon",
                                                                                 p.getIcon());
 
-                                                                /*
-                                                                 * Platform rate is fixed.
-                                                                 */
+                                                                BigDecimal interestRate = p
+                                                                                .getInterestRateDecimal() != null
+                                                                                                ? p.getInterestRateDecimal()
+                                                                                                : MONTHLY_INTEREST_RATE;
+
+                                                                BigDecimal managementFeeRate = p
+                                                                                .getManagementFeePercentDecimal() != null
+                                                                                                ? p.getManagementFeePercentDecimal()
+                                                                                                : MONTHLY_MANAGEMENT_FEE_RATE;
+
+                                                                BigDecimal processingFeeRate = p
+                                                                                .getProcessingFeePercentDecimal() != null
+                                                                                                ? p.getProcessingFeePercentDecimal()
+                                                                                                : PROCESSING_FEE_RATE;
+
                                                                 m.put(
                                                                                 "rate",
-                                                                                MONTHLY_INTEREST_RATE
-                                                                                                + "% / month");
+                                                                                interestRate + "% / month");
 
                                                                 m.put(
                                                                                 "monthlyInterestRate",
-                                                                                MONTHLY_INTEREST_RATE);
+                                                                                interestRate);
 
                                                                 m.put(
                                                                                 "monthlyManagementFeeRate",
-                                                                                MONTHLY_MANAGEMENT_FEE_RATE);
+                                                                                managementFeeRate);
 
                                                                 m.put(
                                                                                 "processingFeeRate",
-                                                                                PROCESSING_FEE_RATE);
+                                                                                processingFeeRate);
+
+                                                                m.put(
+                                                                                "minAmount",
+                                                                                p.getMinAmountDecimal());
 
                                                                 m.put(
                                                                                 "maxAmount",
-                                                                                "Unlimited");
+                                                                                p.getMaxAmountDecimal() == null
+                                                                                                ? "Unlimited"
+                                                                                                : p.getMaxAmountDecimal());
+
+                                                                m.put(
+                                                                                "minTermMonths",
+                                                                                p.getMinTermMonths());
+
+                                                                m.put(
+                                                                                "maxTermMonths",
+                                                                                p.getMaxTermMonths());
 
                                                                 m.put(
                                                                                 "term",
-                                                                                "1 to "
-                                                                                                + MAX_LOAN_DURATION_MONTHS
+                                                                                p.getMinTermMonths()
+                                                                                                + " to "
+                                                                                                + p.getMaxTermMonths()
                                                                                                 + " months");
 
                                                                 m.put(

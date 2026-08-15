@@ -74,9 +74,9 @@ public class LoanService {
 
         private static final BigDecimal MIN_LOAN_AMOUNT = bd("500000");
 
-        private static final BigDecimal MONTHLY_INTEREST_RATE = bd("5.0");
+        private static final BigDecimal MONTHLY_INTEREST_RATE = Loan.DEFAULT_MONTHLY_INTEREST_RATE;
 
-        private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = bd("5.0");
+        private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = Loan.DEFAULT_MONTHLY_MANAGEMENT_FEE_RATE;
 
         private static final BigDecimal TOTAL_MONTHLY_CHARGE_RATE = MONTHLY_INTEREST_RATE
                         .add(MONTHLY_MANAGEMENT_FEE_RATE);
@@ -497,16 +497,30 @@ public class LoanService {
                 validateLoanDuration(months);
 
                 // ============================================================
-                // FIXED MONTHLY RATES
+                // PRODUCT PRICING
                 // ============================================================
 
-                BigDecimal interestRate = MONTHLY_INTEREST_RATE;
+                BigDecimal interestRate = product != null
+                                ? moneyValue(product.getInterestRateDecimal())
+                                : MONTHLY_INTEREST_RATE;
 
-                BigDecimal managementFeeRate = MONTHLY_MANAGEMENT_FEE_RATE;
+                BigDecimal managementFeeRate = product != null
+                                ? moneyValue(product.getManagementFeePercentDecimal())
+                                : MONTHLY_MANAGEMENT_FEE_RATE;
 
-                BigDecimal totalMonthlyRate = TOTAL_MONTHLY_CHARGE_RATE;
+                BigDecimal totalMonthlyRate = money(
+                                interestRate.add(managementFeeRate));
 
-                String rateType = "MONTHLY";
+                String rateType = product != null
+                                && product.getInterestRateType() != null
+                                && !product.getInterestRateType().isBlank()
+                                                ? product.getInterestRateType()
+                                                : "MONTHLY";
+
+                if (!"MONTHLY".equalsIgnoreCase(rateType)) {
+                        throw new IllegalArgumentException(
+                                        "Only MONTHLY interest rates are supported for new loans");
+                }
 
                 validateInterestRate(interestRate);
                 validateInterestRate(managementFeeRate);
@@ -529,7 +543,9 @@ public class LoanService {
                 // PROCESSING FEE
                 // ============================================================
 
-                BigDecimal processingFeeRate = PROCESSING_FEE_RATE;
+                BigDecimal processingFeeRate = product != null
+                                ? moneyValue(product.getProcessingFeePercentDecimal())
+                                : PROCESSING_FEE_RATE;
 
                 BigDecimal processingFee = money(
                                 principal
@@ -881,29 +897,68 @@ public class LoanService {
                 // ============================================================
                 // RATE LOCK
                 // ============================================================
+                //
+                // A loan stores a pricing snapshot at creation. Changing the
+                // organization's product later must never rewrite an existing
+                // loan's agreed commercial terms. An officer may only change
+                // the interest rate explicitly during approval and only within
+                // the product's configured rate policy.
+                // ============================================================
+
+                LoanProduct approvalProduct = loanProductRepo
+                                .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
+                                                loan.getOrganization().getId(),
+                                                loan.getLoanType())
+                                .orElse(null);
 
                 if (newInterestRate != null) {
 
-                        BigDecimal requestedRate = bd(newInterestRate);
+                        BigDecimal requestedRate = money(
+                                        bd(newInterestRate));
 
-                        if (requestedRate.compareTo(
-                                        MONTHLY_INTEREST_RATE) != 0) {
-
+                        if (requestedRate.compareTo(ZERO) <= 0) {
                                 throw new IllegalArgumentException(
-                                                "Loan interest rate is fixed at "
-                                                                + MONTHLY_INTEREST_RATE
+                                                "Interest rate must be greater than zero");
+                        }
+
+                        BigDecimal advertisedRate = approvalProduct != null
+                                        ? moneyValue(approvalProduct.getInterestRateDecimal())
+                                        : moneyValue(loan.getInterestRateDecimal());
+
+                        if (requestedRate.compareTo(ZERO) <= 0
+                                        || requestedRate.compareTo(advertisedRate) > 0) {
+                                throw new IllegalArgumentException(
+                                                "Interest rate must be greater than 0% and no more than the product rate of "
+                                                                + advertisedRate
                                                                 + "% per month");
                         }
+
+                        loan.setInterestRate(requestedRate);
                 }
 
-                loan.setInterestRate(
-                                MONTHLY_INTEREST_RATE);
+                if (loan.getInterestRateDecimal() == null
+                                || moneyValue(loan.getInterestRateDecimal()).compareTo(ZERO) <= 0) {
+                        loan.setInterestRate(
+                                        approvalProduct != null
+                                                        ? moneyValue(approvalProduct.getInterestRateDecimal())
+                                                        : MONTHLY_INTEREST_RATE);
+                }
 
-                loan.setManagementFeeRate(
-                                MONTHLY_MANAGEMENT_FEE_RATE);
+                if (loan.getManagementFeeRateDecimal() == null
+                                || moneyValue(loan.getManagementFeeRateDecimal()).compareTo(ZERO) < 0) {
+                        loan.setManagementFeeRate(
+                                        approvalProduct != null
+                                                        ? moneyValue(approvalProduct.getManagementFeePercentDecimal())
+                                                        : MONTHLY_MANAGEMENT_FEE_RATE);
+                }
 
-                loan.setProcessingFeeRate(
-                                PROCESSING_FEE_RATE);
+                if (loan.getProcessingFeeRateDecimal() == null
+                                || moneyValue(loan.getProcessingFeeRateDecimal()).compareTo(ZERO) < 0) {
+                        loan.setProcessingFeeRate(
+                                        approvalProduct != null
+                                                        ? moneyValue(approvalProduct.getProcessingFeePercentDecimal())
+                                                        : PROCESSING_FEE_RATE);
+                }
 
                 loan.setInterestRateType("MONTHLY");
 
@@ -923,7 +978,7 @@ public class LoanService {
                 BigDecimal processingFee = money(
                                 principal
                                                 .multiply(
-                                                                PROCESSING_FEE_RATE)
+                                                                moneyValue(loan.getProcessingFeeRateDecimal()))
                                                 .divide(
                                                                 ONE_HUNDRED,
                                                                 16,
@@ -944,7 +999,8 @@ public class LoanService {
 
                 BigDecimal[] calc = calcLoan(
                                 principal,
-                                TOTAL_MONTHLY_CHARGE_RATE,
+                                moneyValue(loan.getInterestRateDecimal())
+                                                .add(moneyValue(loan.getManagementFeeRateDecimal())),
                                 durationMonths,
                                 "MONTHLY");
 
@@ -1001,9 +1057,15 @@ public class LoanService {
                                 loanId.toString(),
                                 "Loan "
                                                 + saved.getReferenceNumber()
-                                                + " approved — fixed monthly interest 5%"
-                                                + " — fixed monthly management fee 5%"
-                                                + " — one-time processing fee 2%"
+                                                + " approved — monthly interest "
+                                                + saved.getInterestRateDecimal()
+                                                + "%"
+                                                + " — monthly management fee "
+                                                + saved.getManagementFeeRateDecimal()
+                                                + "%"
+                                                + " — one-time processing fee "
+                                                + saved.getProcessingFeeRateDecimal()
+                                                + "%"
                                                 + " — credit quality CURRENT");
 
                 try {
@@ -1036,8 +1098,11 @@ public class LoanService {
                                                 + saved.getReferenceNumber()
                                                 + " has been approved by "
                                                 + approvedBy.getName()
-                                                + ". Monthly interest is 5% and monthly management fee is 5%."
-                                                + " Credit quality is CURRENT.",
+                                                + ". Monthly interest is "
+                                                + saved.getInterestRateDecimal()
+                                                + "% and monthly management fee is "
+                                                + saved.getManagementFeeRateDecimal()
+                                                + "%. Credit quality is CURRENT.",
                                 "success");
 
                 webhookService.dispatch(
@@ -1261,24 +1326,33 @@ public class LoanService {
                 }
 
                 // ============================================================
-                // ENFORCE FIXED BUSINESS RATES
+                // PRESERVE APPROVED PRICING SNAPSHOT
                 // ============================================================
 
-                loan.setInterestRate(
-                                MONTHLY_INTEREST_RATE);
+                if (loan.getInterestRateDecimal() == null
+                                || moneyValue(loan.getInterestRateDecimal()).compareTo(ZERO) <= 0) {
+                        throw new IllegalStateException(
+                                        "Loan has no valid interest rate snapshot");
+                }
 
-                loan.setManagementFeeRate(
-                                MONTHLY_MANAGEMENT_FEE_RATE);
+                if (loan.getManagementFeeRateDecimal() == null
+                                || moneyValue(loan.getManagementFeeRateDecimal()).compareTo(ZERO) < 0) {
+                        throw new IllegalStateException(
+                                        "Loan has no valid management fee rate snapshot");
+                }
 
-                loan.setProcessingFeeRate(
-                                PROCESSING_FEE_RATE);
+                if (loan.getProcessingFeeRateDecimal() == null
+                                || moneyValue(loan.getProcessingFeeRateDecimal()).compareTo(ZERO) < 0) {
+                        throw new IllegalStateException(
+                                        "Loan has no valid processing fee rate snapshot");
+                }
 
                 loan.setInterestRateType("MONTHLY");
 
                 BigDecimal processingFee = money(
                                 exactPrincipal
                                                 .multiply(
-                                                                PROCESSING_FEE_RATE)
+                                                                moneyValue(loan.getProcessingFeeRateDecimal()))
                                                 .divide(
                                                                 ONE_HUNDRED,
                                                                 16,
@@ -1474,8 +1548,11 @@ public class LoanService {
                                                                 && !disbursementMethod.isBlank()
                                                                                 ? disbursementMethod
                                                                                 : "unspecified")
-                                                + ". Monthly interest is 5% and monthly management fee is 5%."
-                                                + " Credit quality is CURRENT.",
+                                                + ". Monthly interest is "
+                                                + saved.getInterestRateDecimal()
+                                                + "% and monthly management fee is "
+                                                + saved.getManagementFeeRateDecimal()
+                                                + "%. Credit quality is CURRENT.",
                                 "success");
 
                 // ============================================================
@@ -2371,14 +2448,60 @@ public class LoanService {
                 }
 
                 // ============================================================
-                // FIXED BUSINESS RATES
+                // LOAN PRICING SNAPSHOT
                 // ============================================================
 
-                BigDecimal interestRate = MONTHLY_INTEREST_RATE;
+                /*
+                 * Each loan keeps the commercial terms agreed for that loan.
+                 * Organization administrators configure these values on the
+                 * active LoanProduct. Existing loans must never be repriced
+                 * automatically when a product is changed later.
+                 */
 
-                BigDecimal managementRate = MONTHLY_MANAGEMENT_FEE_RATE;
+                Long organizationId = loan.getOrganization().getId();
 
-                BigDecimal combinedMonthlyRate = TOTAL_MONTHLY_CHARGE_RATE;
+                LoanProduct pricingProduct = loanProductRepo
+                                .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
+                                                organizationId,
+                                                loan.getLoanType())
+                                .orElse(null);
+
+                BigDecimal interestRate = loan.getInterestRateDecimal() != null
+                                ? moneyValue(loan.getInterestRateDecimal())
+                                : null;
+
+                BigDecimal managementRate = loan.getManagementFeeRateDecimal() != null
+                                ? moneyValue(loan.getManagementFeeRateDecimal())
+                                : null;
+
+                BigDecimal processingFeeRate = loan.getProcessingFeeRateDecimal() != null
+                                ? moneyValue(loan.getProcessingFeeRateDecimal())
+                                : null;
+
+                if (interestRate == null || interestRate.compareTo(ZERO) <= 0) {
+                        interestRate = pricingProduct != null
+                                        ? moneyValue(pricingProduct.getInterestRateDecimal())
+                                        : MONTHLY_INTEREST_RATE;
+                }
+
+                if (managementRate == null) {
+                        managementRate = pricingProduct != null
+                                        ? moneyValue(pricingProduct.getManagementFeePercentDecimal())
+                                        : MONTHLY_MANAGEMENT_FEE_RATE;
+                }
+
+                if (processingFeeRate == null) {
+                        processingFeeRate = pricingProduct != null
+                                        ? moneyValue(pricingProduct.getProcessingFeePercentDecimal())
+                                        : PROCESSING_FEE_RATE;
+                }
+
+                validateInterestRate(interestRate);
+                validateInterestRate(managementRate);
+                validateInterestRate(processingFeeRate);
+
+                BigDecimal combinedMonthlyRate = money(
+                                interestRate.add(managementRate));
 
                 loan.setInterestRate(
                                 interestRate);
@@ -2387,7 +2510,7 @@ public class LoanService {
                                 managementRate);
 
                 loan.setProcessingFeeRate(
-                                PROCESSING_FEE_RATE);
+                                processingFeeRate);
 
                 loan.setInterestRateType(
                                 "MONTHLY");
@@ -2399,7 +2522,7 @@ public class LoanService {
                 BigDecimal processingFee = money(
                                 principal
                                                 .multiply(
-                                                                PROCESSING_FEE_RATE)
+                                                                processingFeeRate)
                                                 .divide(
                                                                 ONE_HUNDRED,
                                                                 16,

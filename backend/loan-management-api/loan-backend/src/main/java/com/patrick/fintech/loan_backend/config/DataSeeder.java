@@ -257,18 +257,6 @@ public class DataSeeder implements CommandLineRunner {
                         }
                 }
 
-                Organization noble = findBootstrapNobleTenant(
-                                organizations);
-
-                if (noble != null) {
-
-                        seedMissingNobleWebsiteContent(
-                                        noble);
-
-                        ensureNobleLoanProducts(
-                                        noble);
-                }
-
                 log.info(
                                 "Production-safe Loan SaaS bootstrap validation completed.");
         }
@@ -284,6 +272,13 @@ public class DataSeeder implements CommandLineRunner {
                 LocalDateTime now = LocalDateTime.now();
 
                 Organization organization = Organization.builder()
+
+                                .slug(envOrDefault("BOOTSTRAP_ORG_SLUG",
+                                                deriveSlug(envOrDefault("BOOTSTRAP_ORG_NAME",
+                                                                "Noble Loan Solutions Ltd"))))
+
+                                .publicDomain(normalizeDomain(
+                                                envOrDefault("BOOTSTRAP_PUBLIC_DOMAIN", "nobleloansolutions.rw")))
 
                                 .name(
                                                 envOrDefault(
@@ -961,4 +956,30 @@ public class DataSeeder implements CommandLineRunner {
                                                 ? fallback
                                                 : value.trim();
         }
+
+        private String deriveSlug(String name) {
+                if (name == null || name.isBlank()) {
+                        return "lender";
+                }
+                return name.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("^-+|-+$", "");
+        }
+
+        private String normalizeDomain(String value) {
+                if (value == null || value.isBlank()) {
+                        return null;
+                }
+                String domain = value.trim().toLowerCase(Locale.ROOT);
+                if (domain.startsWith("https://"))
+                        domain = domain.substring(8);
+                if (domain.startsWith("http://"))
+                        domain = domain.substring(7);
+                int slash = domain.indexOf('/');
+                if (slash >= 0)
+                        domain = domain.substring(0, slash);
+                int colon = domain.indexOf(':');
+                if (colon >= 0)
+                        domain = domain.substring(0, colon);
+                return domain;
+        }
+
 }
