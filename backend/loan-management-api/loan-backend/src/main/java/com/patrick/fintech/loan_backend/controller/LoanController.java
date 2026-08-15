@@ -666,13 +666,6 @@ public class LoanController {
                                                                 comment));
         }
 
-        // ================================================================
-        // GET COMMENTS
-        // ================================================================
-
-        /**
-         * Full internal staff comment history.
-         */
         @GetMapping("/{id}/comments")
         @Transactional(readOnly = true)
         public ResponseEntity<ApiResponse<List<LoanComment>>> getComments(
