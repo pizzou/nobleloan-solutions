@@ -1,327 +1,347 @@
 "use client";
-
 import { useState } from "react";
 import { useTenant } from "../layout";
-import { publicApi } from "../../../services/api";
-
-const INITIAL_FORM = {
-  name: "",
-  email: "",
-  phone: "",
-  subject: "",
-  message: "",
-};
+import { TENANT_SLUG } from "../../../lib/tenant";
 
 export default function ContactPage() {
   const tenant = useTenant();
-  const [form, setForm] = useState(INITIAL_FORM);
-  const [sending, setSending] = useState(false);
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    subject: "",
+    message: "",
+  });
   const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
 
   if (!tenant) return null;
-
   const primary = tenant.primaryColor;
   const accent = tenant.accentColor;
-  const socials = tenant.socialMedia || {};
 
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (sending) return;
+  const set =
+    (k: string) =>
+    (
+      e: React.ChangeEvent<
+        HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+      >,
+    ) =>
+      setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setSending(true);
     setError("");
     try {
-      await publicApi.submitContact({ ...form, tenantSlug: tenant.slug });
+      const API_BASE =
+        process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+      const res = await fetch(`${API_BASE}/public/contact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, tenantSlug: TENANT_SLUG }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.success === false)
+        throw new Error(
+          json.error || json.message || "Could not send your message.",
+        );
       setSent(true);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to send your message.",
-      );
+    } catch (err: any) {
+      setError(err.message || "Something went wrong. Please try again.");
     } finally {
       setSending(false);
     }
   };
 
+  const inp =
+    "w-full px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 transition-colors mt-1.5";
+  const inpStyle = { focusBorderColor: primary };
+
   return (
-    <div className="bg-slate-50 pb-20">
+    <div>
+      {/* Hero */}
       <section
-        className="relative overflow-hidden text-white"
-        style={{ background: `linear-gradient(135deg, ${primary}, #071427)` }}
+        className="py-20 text-white text-center"
+        style={{
+          background: `linear-gradient(135deg, ${primary} 0%, #0a4a2b 100%)`,
+        }}
       >
-        <div className="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-white/10 blur-3xl" />
-        <div className="relative mx-auto max-w-7xl px-4 py-20 md:py-24">
-          <div className="max-w-3xl">
-            <div className="text-[11px] font-black uppercase tracking-[0.24em] text-white/45">
-              Contact {tenant.name}
-            </div>
-            <h1 className="mt-4 text-4xl font-black tracking-tight md:text-6xl">
-              Talk to the right people.
-            </h1>
-            <p className="mt-5 max-w-2xl text-lg leading-8 text-white/65">
-              Use the verified contact details below or send a message directly
-              through the lender's secure public contact form.
-            </p>
-          </div>
+        <div className="max-w-3xl mx-auto px-4">
+          <h1 className="text-4xl md:text-5xl font-extrabold mb-4">
+            Get in Touch
+          </h1>
+          <p className="text-white/80 text-lg">
+            We are here to help. Reach out by phone, email, or visit our office
+            in Kigali.
+          </p>
         </div>
       </section>
 
-      <main className="mx-auto grid max-w-7xl gap-8 px-4 pt-10 lg:grid-cols-[0.82fr_1.18fr]">
-        <div className="space-y-5">
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm">
-            <div
-              className="text-[11px] font-black uppercase tracking-[0.2em]"
-              style={{ color: accent }}
-            >
-              Verified contact details
-            </div>
-            <div className="mt-6 space-y-4">
-              {tenant.address && (
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    Office
-                  </div>
-                  <div className="mt-2 text-sm font-bold text-slate-900">
-                    {tenant.address}
-                  </div>
-                </div>
-              )}
-              {tenant.contactPhone && (
-                <a
-                  href={`tel:${tenant.contactPhone}`}
-                  className="block rounded-2xl bg-slate-50 p-4 hover:bg-slate-100"
-                >
-                  <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    Phone
-                  </div>
-                  <div className="mt-2 text-sm font-bold text-slate-900">
-                    {tenant.contactPhone}
-                  </div>
-                </a>
-              )}
-              {tenant.contactEmail && (
-                <a
-                  href={`mailto:${tenant.contactEmail}`}
-                  className="block rounded-2xl bg-slate-50 p-4 hover:bg-slate-100"
-                >
-                  <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    Email
-                  </div>
-                  <div className="mt-2 text-sm font-bold text-slate-900">
-                    {tenant.contactEmail}
-                  </div>
-                </a>
-              )}
-              {tenant.registrationNumber && (
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    Registration
-                  </div>
-                  <div className="mt-2 text-sm font-bold text-slate-900">
-                    {tenant.registrationNumber}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+      <div className="max-w-7xl mx-auto px-4 py-20">
+        <div className="grid md:grid-cols-2 gap-12">
+          {/* Contact info */}
+          <div>
+            <h2 className="text-2xl font-extrabold text-gray-900 mb-8">
+              Contact Information
+            </h2>
 
-          {Object.values(socials).some(Boolean) && (
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm">
-              <div
-                className="text-[11px] font-black uppercase tracking-[0.2em]"
-                style={{ color: accent }}
-              >
-                Connect with us
+            <div className="space-y-6 mb-10">
+              {[
+                {
+                  icon: "📍",
+                  label: "Our Office",
+                  value: tenant.address ?? "Kigali, Rwanda",
+                  sub: "Monday – Friday: 8:00 AM – 5:00 PM\nSaturday: 8:00 AM – 1:00 PM",
+                },
+                {
+                  icon: "📞",
+                  label: "Phone",
+                  value: tenant.contactPhone ?? "+250 788 000 000",
+                  sub: "Available Mon–Sat, 8AM–5PM EAT",
+                },
+                {
+                  icon: "✉️",
+                  label: "Email",
+                  value: tenant.contactEmail ?? "info@nobleloansolutions.rw",
+                  sub: "We reply within 24 hours",
+                },
+                {
+                  icon: "💬",
+                  label: "WhatsApp",
+                  value: "Chat with us instantly",
+                  sub: tenant.socialMedia?.whatsapp ?? "",
+                },
+              ].map((item) => (
+                <div key={item.label} className="flex gap-4">
+                  <div
+                    className="w-12 h-12 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
+                    style={{ backgroundColor: primary + "15" }}
+                  >
+                    {item.icon}
+                  </div>
+                  <div>
+                    <div className="font-bold text-gray-900">{item.label}</div>
+                    <div className="text-gray-700 text-sm font-semibold">
+                      {item.value}
+                    </div>
+                    {item.sub && (
+                      <div className="text-gray-400 text-xs mt-0.5 whitespace-pre-line">
+                        {item.sub}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Social media */}
+            <div>
+              <div className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">
+                Follow Us
               </div>
-              <div className="mt-5 flex flex-wrap gap-2">
-                {Object.entries(socials)
-                  .filter(([, value]) => Boolean(value))
-                  .map(([label, value]) => (
+              <div className="flex gap-3">
+                {[
+                  {
+                    label: "Facebook",
+                    icon: "f",
+                    href: tenant.socialMedia?.facebook,
+                  },
+                  {
+                    label: "Instagram",
+                    icon: "ig",
+                    href: tenant.socialMedia?.instagram,
+                  },
+                  {
+                    label: "LinkedIn",
+                    icon: "in",
+                    href: tenant.socialMedia?.linkedin,
+                  },
+                  {
+                    label: "Twitter",
+                    icon: "𝕏",
+                    href: tenant.socialMedia?.twitter,
+                  },
+                  {
+                    label: "WhatsApp",
+                    icon: "💬",
+                    href: tenant.socialMedia?.whatsapp,
+                  },
+                ]
+                  .filter((s) => s.href)
+                  .map((s) => (
                     <a
-                      key={label}
-                      href={value as string}
+                      key={s.label}
+                      href={s.href!}
                       target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-full border px-4 py-2 text-xs font-black capitalize"
-                      style={{ borderColor: primary, color: primary }}
+                      rel="noopener"
+                      className="w-11 h-11 rounded-xl flex items-center justify-center font-bold text-white text-sm hover:opacity-80 transition"
+                      style={{ backgroundColor: primary }}
                     >
-                      {label}
+                      {s.icon}
                     </a>
                   ))}
               </div>
             </div>
-          )}
 
-          {tenant.mapUrl && (
-            <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-100 px-6 py-4 text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">
-                Office location
+            {/* Google Map */}
+            {tenant.mapUrl && (
+              <div className="mt-8 rounded-2xl overflow-hidden border border-gray-200 shadow-sm">
+                <iframe
+                  src={tenant.mapUrl}
+                  width="100%"
+                  height="300"
+                  style={{ border: 0 }}
+                  allowFullScreen
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  title="Office Location"
+                />
               </div>
-              <iframe
-                title={`${tenant.name} office location`}
-                src={tenant.mapUrl}
-                className="h-72 w-full border-0"
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm md:p-9">
-          <div className="flex items-start justify-between gap-5">
-            <div>
-              <div
-                className="text-[11px] font-black uppercase tracking-[0.2em]"
-                style={{ color: accent }}
-              >
-                Customer support
-              </div>
-              <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-950">
-                Send a message
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-slate-500">
-                Your message will be associated with {tenant.name}.
-              </p>
-            </div>
-            <div
-              className="hidden h-12 w-12 items-center justify-center rounded-2xl sm:flex"
-              style={{ backgroundColor: `${accent}18`, color: primary }}
-            >
-              ✦
-            </div>
+            )}
           </div>
 
-          {sent ? (
-            <div className="mt-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center">
-              <div className="text-3xl">✓</div>
-              <h3 className="mt-3 text-xl font-black text-emerald-900">
-                Message received
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-emerald-800">
-                Thank you, {form.name}. Your message has been submitted to{" "}
-                {tenant.name}.
-              </p>
-              <button
-                type="button"
-                className="mt-5 rounded-2xl px-6 py-3 text-sm font-black text-white"
-                style={{ backgroundColor: primary }}
-                onClick={() => {
-                  setForm(INITIAL_FORM);
-                  setSent(false);
-                }}
-              >
-                Send another message
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={submit} className="mt-7 space-y-5">
-              <div className="grid gap-5 sm:grid-cols-2">
-                <Field
-                  label="Full name"
-                  required
-                  value={form.name}
-                  onChange={(v) => setForm((f) => ({ ...f, name: v }))}
-                />
-                <Field
-                  label="Phone"
-                  required
-                  value={form.phone}
-                  onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
-                />
-              </div>
-              <Field
-                label="Email"
-                type="email"
-                value={form.email}
-                onChange={(v) => setForm((f) => ({ ...f, email: v }))}
-              />
-              <div>
-                <label className="text-xs font-black uppercase tracking-wider text-slate-500">
-                  Subject <span className="text-red-500">*</span>
-                </label>
-                <select
-                  required
-                  value={form.subject}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, subject: e.target.value }))
-                  }
-                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3.5 text-sm font-semibold outline-none focus:border-slate-900"
-                >
-                  <option value="">Select a topic</option>
-                  <option value="Loan inquiry">Loan inquiry</option>
-                  <option value="Application status">Application status</option>
-                  <option value="Repayment">Repayment</option>
-                  <option value="Complaint or feedback">
-                    Complaint or feedback
-                  </option>
-                  <option value="Partnership">Partnership</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-black uppercase tracking-wider text-slate-500">
-                  Message <span className="text-red-500">*</span>
-                </label>
-                <textarea
-                  required
-                  minLength={10}
-                  value={form.message}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, message: e.target.value }))
-                  }
-                  className="mt-2 min-h-44 w-full rounded-2xl border border-slate-300 px-4 py-3.5 text-sm outline-none focus:border-slate-900"
-                  placeholder="How can we help?"
-                />
-              </div>
-              <button
-                disabled={sending}
-                type="submit"
-                className="w-full rounded-2xl px-5 py-4 text-sm font-black text-white shadow-lg disabled:opacity-60"
-                style={{ backgroundColor: primary }}
-              >
-                {sending ? "Sending…" : "Send secure message"}
-              </button>
-              {error && (
-                <div
-                  role="alert"
-                  className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-                >
-                  {error}
-                </div>
-              )}
-            </form>
-          )}
-        </div>
-      </main>
-    </div>
-  );
-}
+          {/* Contact form */}
+          <div>
+            <h2 className="text-2xl font-extrabold text-gray-900 mb-8">
+              Send Us a Message
+            </h2>
 
-function Field({
-  label,
-  required,
-  value,
-  onChange,
-  type = "text",
-}: {
-  label: string;
-  required?: boolean;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-}) {
-  return (
-    <div>
-      <label className="text-xs font-black uppercase tracking-wider text-slate-500">
-        {label} {required && <span className="text-red-500">*</span>}
-      </label>
-      <input
-        required={required}
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3.5 text-sm outline-none focus:border-slate-900"
-      />
+            {sent ? (
+              <div className="text-center py-16 bg-green-50 rounded-3xl border border-green-200">
+                <div className="text-5xl mb-4">✅</div>
+                <h3 className="text-xl font-extrabold text-green-800 mb-2">
+                  Message Received!
+                </h3>
+                <p className="text-green-700">
+                  Thank you {form.name}. We'll get back to you within 24 hours.
+                </p>
+                <button
+                  onClick={() => {
+                    setSent(false);
+                    setForm({
+                      name: "",
+                      email: "",
+                      phone: "",
+                      subject: "",
+                      message: "",
+                    });
+                  }}
+                  className="mt-6 px-8 py-3 rounded-xl text-white font-bold hover:opacity-90 transition"
+                  style={{ backgroundColor: primary }}
+                >
+                  Send Another Message
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      Full Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      required
+                      className={inp}
+                      value={form.name}
+                      onChange={set("name")}
+                      placeholder="Your full name"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      Phone <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      required
+                      className={inp}
+                      value={form.phone}
+                      onChange={set("phone")}
+                      placeholder="+250 7XX XXX XXX"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    className={inp}
+                    value={form.email}
+                    onChange={set("email")}
+                    placeholder="your@email.com"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    Subject <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    required
+                    className={inp}
+                    value={form.subject}
+                    onChange={set("subject")}
+                  >
+                    <option value="">Select a topic…</option>
+                    <option>Loan Inquiry</option>
+                    <option>Application Status</option>
+                    <option>Repayment Query</option>
+                    <option>Complaint or Feedback</option>
+                    <option>Partnership / Business</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    Message <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    required
+                    className={`${inp} min-h-[140px] resize-y`}
+                    value={form.message}
+                    onChange={set("message")}
+                    placeholder="Tell us how we can help you…"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={sending}
+                  className="w-full py-4 rounded-xl text-white font-bold text-lg hover:opacity-90 transition flex items-center justify-center gap-3 disabled:opacity-60"
+                  style={{ backgroundColor: primary }}
+                >
+                  {sending && (
+                    <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  {sending ? "Sending…" : "Send Message ✓"}
+                </button>
+                {error && (
+                  <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">
+                    {error}
+                  </div>
+                )}
+              </form>
+            )}
+
+            {/* Quick links */}
+            <div className="mt-8 grid grid-cols-2 gap-3">
+              <a
+                href={`tel:${tenant.contactPhone}`}
+                className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-200 hover:border-gray-300 transition text-sm font-semibold text-gray-700"
+              >
+                <span className="text-2xl">📞</span> Call Us Now
+              </a>
+              <a
+                href={tenant.socialMedia?.whatsapp ?? "#"}
+                className="flex items-center gap-3 p-4 rounded-xl border text-sm font-semibold text-white hover:opacity-90 transition"
+                style={{ backgroundColor: "#25D366" }}
+              >
+                <span className="text-2xl">💬</span> WhatsApp Us
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

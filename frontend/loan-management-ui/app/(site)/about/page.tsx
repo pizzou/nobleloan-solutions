@@ -1,248 +1,219 @@
 "use client";
-
 import Link from "next/link";
 import { useTenant } from "../layout";
 
 export default function AboutPage() {
   const tenant = useTenant();
   if (!tenant) return null;
-
   const primary = tenant.primaryColor;
   const accent = tenant.accentColor;
-  const services = tenant.services ?? [];
-  const team = tenant.team ?? [];
-  const currency = tenant.currency || "RWF";
 
   return (
-    <div className="bg-white pb-20">
+    <div>
+      {/* Hero */}
       <section
-        className="relative overflow-hidden text-white"
-        style={{ background: `linear-gradient(135deg, ${primary}, #071427)` }}
+        className="py-20 text-white relative overflow-hidden"
+        style={{
+          background: `linear-gradient(135deg, ${primary} 0%, #0a4a2b 100%)`,
+        }}
       >
-        <div className="absolute -left-32 -top-24 h-80 w-80 rounded-full bg-white/10 blur-3xl" />
-        <div className="relative mx-auto grid max-w-7xl gap-10 px-4 py-20 md:grid-cols-[1.15fr_0.85fr] md:items-end md:py-24">
+        <div className="max-w-7xl mx-auto px-4 grid md:grid-cols-2 gap-12 items-center">
           <div>
-            <div className="text-[11px] font-black uppercase tracking-[0.24em] text-white/45">
-              About {tenant.name}
+            <div className="text-sm font-bold uppercase tracking-widest mb-4 opacity-70">
+              About Us
             </div>
-            <h1 className="mt-4 max-w-4xl text-4xl font-black tracking-tight md:text-6xl">
-              A professional lending partner built around transparency.
+            <h1 className="text-4xl md:text-5xl font-extrabold mb-6">
+              Empowering Rwandans
+              <br />
+              <span style={{ color: accent }}>Since {tenant.founded}</span>
             </h1>
-            <p className="mt-5 max-w-2xl text-lg leading-8 text-white/65">
-              {tenant.tagline ||
-                tenant.hero?.subtext ||
-                `Learn about ${tenant.name}, our purpose and the services we provide.`}
+            <p className="text-white/80 text-lg leading-relaxed">
+              {tenant.mission}
             </p>
           </div>
-          <div className="rounded-[2rem] border border-white/10 bg-white/[0.06] p-6 backdrop-blur">
-            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-white/45">
-              Company profile
-            </div>
-            <div className="mt-5 grid grid-cols-2 gap-3">
-              {[
-                ["Country", tenant.country || "—"],
-                ["Currency", currency],
-                ["Founded", tenant.founded || "—"],
-                ["Products", String(services.length)],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-2xl bg-white/[0.05] p-4">
-                  <div className="text-[10px] font-black uppercase tracking-wider text-white/40">
-                    {label}
-                  </div>
-                  <div className="mt-2 text-sm font-black text-white">
-                    {value}
-                  </div>
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              { icon: "🏆", label: "Founded", value: tenant.founded! },
+              {
+                icon: "📍",
+                label: "Location",
+                value:
+                  tenant.address?.split(",").slice(-2).join(",").trim() ||
+                  tenant.country ||
+                  "Rwanda",
+              },
+              {
+                icon: "🇷🇼",
+                label: "Reg. No.",
+                value: tenant.registrationNumber!,
+              },
+              {
+                icon: "💼",
+                label: "Services",
+                value: `${tenant.services?.length ?? 6} Products`,
+              },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="bg-white/10 rounded-2xl p-5 backdrop-blur-sm"
+              >
+                <div className="text-3xl mb-2">{item.icon}</div>
+                <div className="text-white/60 text-xs uppercase tracking-wider">
+                  {item.label}
                 </div>
-              ))}
-            </div>
+                <div className="text-white font-bold mt-0.5">{item.value}</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      <main className="mx-auto max-w-7xl px-4 pt-16">
-        <section className="grid gap-7 lg:grid-cols-2">
-          <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-8 md:p-10">
+      {/* Mission / Vision / Values */}
+      <section className="py-20 max-w-7xl mx-auto px-4">
+        <div className="grid md:grid-cols-3 gap-8">
+          {[
+            { icon: "🎯", title: "Our Mission", text: tenant.mission ?? "" },
+            {
+              icon: "🔭",
+              title: "Our Vision",
+              text:
+                tenant.vision ??
+                "To be the most trusted financial institution in East Africa, creating lasting prosperity for every client we serve.",
+            },
+            {
+              icon: "💎",
+              title: "Our Values",
+              text: "Integrity · Transparency · Innovation · Inclusion · Excellence. We believe everyone deserves access to fair and dignified financial services.",
+            },
+          ].map((item) => (
             <div
-              className="text-[11px] font-black uppercase tracking-[0.2em]"
-              style={{ color: accent }}
+              key={item.title}
+              className="text-center p-8 rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition-all"
             >
-              Our mission
-            </div>
-            <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950">
-              Purpose first. Lending second.
-            </h2>
-            <p className="mt-5 text-base leading-8 text-slate-600">
-              {tenant.mission ||
-                `${tenant.name} is committed to delivering clear, responsible and accessible financial services.`}
-            </p>
-          </div>
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm md:p-10">
-            <div
-              className="text-[11px] font-black uppercase tracking-[0.2em]"
-              style={{ color: accent }}
-            >
-              Our vision
-            </div>
-            <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950">
-              Long-term trust matters.
-            </h2>
-            <p className="mt-5 text-base leading-8 text-slate-600">
-              {tenant.vision ||
-                `To be a trusted financial partner for the communities and businesses we serve.`}
-            </p>
-          </div>
-        </section>
-
-        <section className="mt-10 rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm md:p-10">
-          <div className="grid gap-8 lg:grid-cols-[1fr_0.9fr] lg:items-center">
-            <div>
-              <div
-                className="text-[11px] font-black uppercase tracking-[0.2em]"
-                style={{ color: accent }}
-              >
-                How we work
-              </div>
-              <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950">
-                A modern digital lending experience.
-              </h2>
-              <p className="mt-4 max-w-2xl text-base leading-8 text-slate-600">
-                {tenant.name} combines human support with a digital workflow for
-                applications, documents, repayment visibility and secure
-                communication.
-              </p>
-              <div className="mt-7 grid gap-3 sm:grid-cols-2">
-                {[
-                  "Clear product information",
-                  "Secure online application",
-                  "Digital document workflow",
-                  "Repayment visibility",
-                  "Direct customer support",
-                  "Audit-ready records",
-                ].map((item, index) => (
-                  <div
-                    key={item}
-                    className="flex items-center gap-3 rounded-2xl bg-slate-50 p-4"
-                  >
-                    <span
-                      className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-black text-white"
-                      style={{
-                        backgroundColor: index % 2 === 0 ? primary : accent,
-                        color: index % 2 === 0 ? "#fff" : primary,
-                      }}
-                    >
-                      {index + 1}
-                    </span>
-                    <span className="text-sm font-bold text-slate-800">
-                      {item}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div
-              className="rounded-[2rem] p-7 text-white"
-              style={{
-                background: `linear-gradient(150deg, ${primary}, #071427)`,
-              }}
-            >
-              <div className="text-[10px] font-black uppercase tracking-[0.2em] text-white/45">
-                Why it matters
-              </div>
-              <div className="mt-4 space-y-5">
-                <div>
-                  <div className="text-2xl font-black">Transparent</div>
-                  <p className="mt-1 text-sm leading-6 text-white/55">
-                    Published products and terms reduce uncertainty before you
-                    apply.
-                  </p>
-                </div>
-                <div>
-                  <div className="text-2xl font-black">Connected</div>
-                  <p className="mt-1 text-sm leading-6 text-white/55">
-                    Applications, documents and servicing operate through one
-                    digital platform.
-                  </p>
-                </div>
-                <div>
-                  <div className="text-2xl font-black">Responsible</div>
-                  <p className="mt-1 text-sm leading-6 text-white/55">
-                    Final credit decisions and repayment schedules remain
-                    subject to the lender's approval process.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {team.length > 0 && (
-          <section className="mt-16">
-            <div className="max-w-2xl">
-              <div
-                className="text-[11px] font-black uppercase tracking-[0.2em]"
-                style={{ color: accent }}
-              >
-                Leadership
-              </div>
-              <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950">
-                The people behind {tenant.name}.
-              </h2>
-            </div>
-            <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {team.map((person) => (
-                <div
-                  key={`${person.name}-${person.role}`}
-                  className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm"
-                >
-                  <div
-                    className="flex h-14 w-14 items-center justify-center rounded-2xl text-lg font-black"
-                    style={{ backgroundColor: `${accent}18`, color: primary }}
-                  >
-                    {person.initials || person.name.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div className="mt-4 text-base font-black text-slate-950">
-                    {person.name}
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    {person.role || "Team member"}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        <section
-          className="mt-16 overflow-hidden rounded-[2rem] p-8 text-white md:p-12"
-          style={{ background: `linear-gradient(135deg, ${primary}, #071427)` }}
-        >
-          <div className="grid gap-7 md:grid-cols-[1fr_auto] md:items-center">
-            <div>
-              <div className="text-[10px] font-black uppercase tracking-[0.2em] text-white/45">
-                Ready when you are
-              </div>
-              <h2 className="mt-2 text-3xl font-black">
-                Explore the products offered by {tenant.name}.
-              </h2>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href="/services"
-                className="rounded-2xl bg-white px-6 py-3 text-sm font-black"
+              <div className="text-5xl mb-4">{item.icon}</div>
+              <h3
+                className="text-xl font-extrabold mb-3"
                 style={{ color: primary }}
               >
-                View services
-              </Link>
-              <Link
-                href="/contact"
-                className="rounded-2xl border border-white/20 px-6 py-3 text-sm font-bold text-white"
-              >
-                Contact us
-              </Link>
+                {item.title}
+              </h3>
+              <p className="text-gray-600 leading-relaxed">{item.text}</p>
             </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Why choose us */}
+      <section className="py-20" style={{ backgroundColor: primary + "06" }}>
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-extrabold text-gray-900 mb-4">
+              Why Choose {tenant.name}?
+            </h2>
+            <p className="text-gray-500 text-lg">
+              We are different — and here is why thousands of Rwandans trust us
+            </p>
           </div>
-        </section>
-      </main>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[
+              {
+                icon: "⚡",
+                title: "Fast Approval",
+                desc: "Applications reviewed within 24 hours. No lengthy waiting periods.",
+              },
+              {
+                icon: "📱",
+                title: "Apply from Anywhere",
+                desc: "Our online platform lets you apply on your phone, tablet or computer.",
+              },
+              {
+                icon: "🔒",
+                title: "Safe & Secure",
+                desc: "Your data is protected with bank-grade encryption and security.",
+              },
+              {
+                icon: "💬",
+                title: "Dedicated Support",
+                desc: "Our team is available 6 days a week to assist with your application.",
+              },
+              {
+                icon: "🤝",
+                title: "No Hidden Fees",
+                desc: "All charges are clearly disclosed upfront. What we quote is what you pay.",
+              },
+              {
+                icon: "🌍",
+                title: "Serving All Rwandans",
+                desc: "We serve urban and rural clients alike — including farmers and cooperatives.",
+              },
+            ].map((item) => (
+              <div
+                key={item.title}
+                className="flex gap-4 bg-white rounded-2xl p-6 shadow-sm border border-gray-100"
+              >
+                <div
+                  className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
+                  style={{ backgroundColor: primary + "15" }}
+                >
+                  {item.icon}
+                </div>
+                <div>
+                  <div className="font-bold text-gray-900 mb-1">
+                    {item.title}
+                  </div>
+                  <div className="text-gray-500 text-sm">{item.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Team */}
+      <section className="py-20 max-w-7xl mx-auto px-4">
+        <div className="text-center mb-12">
+          <h2 className="text-3xl font-extrabold text-gray-900 mb-4">
+            Our Leadership Team
+          </h2>
+          <p className="text-gray-500">
+            Experienced professionals committed to your financial success
+          </p>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          {(tenant.team ?? []).map((person) => (
+            <div key={person.name} className="text-center">
+              <div
+                className="w-20 h-20 rounded-full flex items-center justify-center text-white font-black text-xl mx-auto mb-4 shadow-lg"
+                style={{ backgroundColor: primary }}
+              >
+                {person.initials}
+              </div>
+              <div className="font-bold text-gray-900">{person.name}</div>
+              <div className="text-gray-500 text-sm mt-0.5">{person.role}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="py-16 text-center px-4">
+        <div className="max-w-2xl mx-auto">
+          <h2 className="text-3xl font-extrabold text-gray-900 mb-4">
+            Ready to Partner with Us?
+          </h2>
+          <p className="text-gray-500 mb-8">
+            Join thousands of Rwandans who have achieved their goals with our
+            support.
+          </p>
+          <Link
+            href={`/apply`}
+            className="inline-block px-12 py-4 rounded-full text-white font-bold text-lg shadow-xl hover:opacity-90 transition"
+            style={{ backgroundColor: primary }}
+          >
+            Apply for a Loan →
+          </Link>
+        </div>
+      </section>
     </div>
   );
 }

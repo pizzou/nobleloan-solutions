@@ -1,75 +1,36 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { useState, useEffect, createContext, useContext } from "react";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+
 import { OfflineProvider } from "../../components/OfflineProvider";
 import { ToastContainer } from "../../components/ui/ToastContainer";
-import { publicApi } from "../../services/api";
 import { TENANT_SLUG } from "../../lib/tenant";
 
-export interface TenantService {
-  id?: number;
-  title: string;
-  description?: string;
-  icon?: string;
-  rate?: string;
-  rateType?: string;
-  monthlyInterestRate?: number | string | null;
-  monthlyManagementFeeRate?: number | string | null;
-  processingFeeRate?: number | string | null;
-  minAmount?: number | string | null;
-  maxAmount?: number | string | null;
-  minTermMonths?: number | null;
-  maxTermMonths?: number | null;
-  term?: string;
-}
+/* ============================================================
+   TENANT CONFIGURATION
+   ============================================================ */
 
-export interface TenantStat {
-  icon?: string;
-  value: string;
-  label: string;
-}
-
-export interface TenantTestimonial {
-  name: string;
-  role?: string;
-  text: string;
-  rating?: number;
-}
-
-export interface TenantTeamMember {
-  name: string;
-  role?: string;
-  initials?: string;
-}
-
-export interface TenantConfig {
-  id?: number;
+interface TenantConfig {
   name: string;
   slug: string;
-  country?: string;
-  currency?: string;
+  country: string;
+  currency: string;
   primaryColor: string;
   accentColor: string;
-  logoUrl?: string | null;
-  contactEmail?: string | null;
-  contactPhone?: string | null;
-  website?: string | null;
-  address?: string | null;
-  tagline?: string | null;
-  mission?: string | null;
-  vision?: string | null;
-  founded?: string | null;
-  registrationNumber?: string | null;
-  status?: string | null;
-  mapUrl?: string | null;
-  minLoanAmount?: number | string | null;
-  maxLoanAmount?: number | string | null;
-  monthlyInterestRate?: number | string | null;
-  monthlyManagementFeeRate?: number | string | null;
-  processingFeeRate?: number | string | null;
-  paymentMethods?: string[];
+  logoUrl?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  website?: string;
+  address?: string;
+  tagline?: string;
+  mission?: string;
+  vision?: string;
+  founded?: string;
+  registrationNumber?: string;
+
   socialMedia?: {
     facebook?: string;
     instagram?: string;
@@ -77,97 +38,254 @@ export interface TenantConfig {
     twitter?: string;
     whatsapp?: string;
   };
-  services?: TenantService[];
+
+  mapUrl?: string;
+
+  services?: {
+    title: string;
+    description: string;
+    icon: string;
+    rate: string;
+    rateType?: string;
+    maxAmount: string;
+    term: string;
+  }[];
+
   hero?: {
-    headline?: string;
-    subtext?: string;
+    headline: string;
+    subtext: string;
   };
-  stats?: TenantStat[];
-  testimonials?: TenantTestimonial[];
-  team?: TenantTeamMember[];
+
+  stats?: {
+    icon: string;
+    value: string;
+    label: string;
+  }[];
+
+  testimonials?: {
+    name: string;
+    role: string;
+    text: string;
+    rating: number;
+  }[];
+
+  team?: {
+    name: string;
+    role: string;
+    initials: string;
+  }[];
 }
+
+/* ============================================================
+   TENANT CONTEXT
+   ============================================================ */
 
 const TenantCtx = createContext<TenantConfig | null>(null);
 
 export const useTenant = () => useContext(TenantCtx);
 
-const FALLBACK_PRIMARY = "#0F1B3D";
-const FALLBACK_ACCENT = "#C9A227";
+/* ============================================================
+   API
+   ============================================================ */
 
-function safeHex(value: unknown, fallback: string): string {
-  const candidate = typeof value === "string" ? value.trim() : "";
-  return /^#[0-9a-fA-F]{6}$/.test(candidate) ? candidate : fallback;
-}
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 
-function tenantInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "L";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
-}
+/* ============================================================
+   BRAND COLORS
+   ============================================================ */
 
-function BrandMark({ tenant }: { tenant: TenantConfig; compact?: boolean }) {
-  const primary = safeHex(tenant.primaryColor, FALLBACK_PRIMARY);
-  const accent = safeHex(tenant.accentColor, FALLBACK_ACCENT);
-  const initials = tenantInitials(tenant.name);
+const BRAND_NAVY = "#0D2C54";
+const BRAND_NAVY_DARK = "#071B35";
+const BRAND_GOLD = "#D4AF37";
+const BRAND_GOLD_DARK = "#B8941F";
 
-  const normalizedName = tenant.name.toLowerCase();
-  const isNoble =
-    tenant.slug.toLowerCase() === "nobleloansolutions" ||
-    normalizedName.includes("noble loan solutions");
+/* ============================================================
+   FALLBACK TENANT
+   ============================================================ */
 
-  const logoSource =
-    tenant.logoUrl || (isNoble ? "/noble-loan-solutions-logo.svg" : null);
+const FALLBACK_TENANT: TenantConfig = {
+  name: "Noble Loan Solutions",
+  slug: TENANT_SLUG,
+  country: "Rwanda",
+  currency: "RWF",
+  primaryColor: BRAND_NAVY,
+  accentColor: BRAND_GOLD,
+  services: [],
+};
 
-  if (logoSource) {
-    return (
-      <img
-        src={logoSource}
-        alt={`${tenant.name} logo`}
-        className="h-12 w-auto max-w-[230px] object-contain"
-      />
-    );
-  }
+/* ============================================================
+   NOBLE LOGO
+   ============================================================ */
 
+function NobleLogo({
+  className = "",
+  showText = true,
+}: {
+  className?: string;
+  showText?: boolean;
+}) {
   return (
-    <div className="flex items-center gap-3" aria-label={`${tenant.name} home`}>
-      <div
-        className="flex h-11 w-11 items-center justify-center rounded-xl border-2 text-sm font-black shadow-sm"
-        style={{ borderColor: accent, color: accent, backgroundColor: primary }}
+    <div
+      className={`flex items-center ${className}`}
+      aria-label="Noble Loan Solutions"
+    >
+      {/* Shield */}
+      <svg
+        viewBox="0 0 90 100"
+        width="52"
+        height="58"
+        role="img"
+        aria-label="Noble Loan Solutions logo"
+        className="flex-shrink-0"
       >
-        {initials}
-      </div>
-      <div className="min-w-0 leading-none">
-        <div
-          className="truncate text-base font-black tracking-[0.05em]"
-          style={{ color: primary }}
+        {/* Outer shield */}
+        <path
+          d="
+            M45 5
+            Q73 5 80 12
+            Q83 52 45 93
+            Q7 52 10 12
+            Q17 5 45 5
+            Z
+          "
+          fill="none"
+          stroke={BRAND_GOLD}
+          strokeWidth="5"
+          strokeLinejoin="round"
+        />
+
+        {/* Inner shield */}
+        <path
+          d="
+            M45 12
+            Q68 12 73 17
+            Q75 49 45 83
+            Q15 49 17 17
+            Q22 12 45 12
+            Z
+          "
+          fill="none"
+          stroke={BRAND_GOLD}
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+
+        {/* Noble N */}
+        <text
+          x="45"
+          y="64"
+          textAnchor="middle"
+          fontFamily="Georgia, 'Times New Roman', serif"
+          fontSize="48"
+          fontWeight="700"
+          fill={BRAND_GOLD}
         >
-          {tenant.name}
-        </div>
-        {tenant.tagline && (
+          N
+        </text>
+      </svg>
+
+      {/* Company name */}
+      {showText && (
+        <div className="ml-3 leading-none">
           <div
-            className="mt-1 truncate text-[10px] font-semibold uppercase tracking-[0.16em]"
-            style={{ color: accent }}
+            className="font-bold tracking-[0.08em]"
+            style={{
+              color: BRAND_NAVY,
+              fontSize: "20px",
+            }}
           >
-            {tenant.tagline}
+            NOBLE
           </div>
-        )}
-      </div>
+
+          <div
+            className="font-light tracking-[0.04em]"
+            style={{
+              color: BRAND_NAVY,
+              fontSize: "14px",
+            }}
+          >
+            LOAN SOLUTIONS
+          </div>
+
+          <div
+            className="mt-1 font-semibold uppercase tracking-[0.18em]"
+            style={{
+              color: BRAND_GOLD_DARK,
+              fontSize: "7px",
+            }}
+          >
+            Financial Support Partner
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
+/* ============================================================
+   ICONS
+   ============================================================ */
+
 function IconPhone() {
-  return <span aria-hidden="true">☎</span>;
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 11.19 19a19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.11 4.33 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  );
 }
 
 function IconMail() {
-  return <span aria-hidden="true">✉</span>;
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 4h16v16H4z" opacity="0" />
+      <path d="M22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6z" />
+      <path d="m22 6-10 7L2 6" />
+    </svg>
+  );
 }
 
 function IconShield() {
-  return <span aria-hidden="true">◈</span>;
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
+  );
 }
+
+/* ============================================================
+   SITE LAYOUT
+   ============================================================ */
 
 export default function SiteLayout({
   children,
@@ -175,255 +293,382 @@ export default function SiteLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+
+  const slug = TENANT_SLUG;
+
   const [tenant, setTenant] = useState<TenantConfig | null>(null);
+
   const [loading, setLoading] = useState(true);
+
+  const [notFound, setNotFound] = useState(false);
+
   const [menuOpen, setMenuOpen] = useState(false);
-  const [error, setError] = useState("");
+
+  /* ==========================================================
+     LOAD TENANT
+     ========================================================== */
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadTenant() {
-      setLoading(true);
-      setError("");
-      try {
-        const raw = await publicApi.getTenant(TENANT_SLUG);
-        if (cancelled) return;
-        if (!raw || typeof raw !== "object")
-          throw new Error("Tenant configuration is unavailable.");
+    setLoading(true);
+    setNotFound(false);
 
-        const data = raw as TenantConfig;
-        const normalized: TenantConfig = {
-          ...data,
-          slug: TENANT_SLUG,
-          name:
-            typeof data.name === "string" && data.name.trim()
-              ? data.name.trim()
-              : "",
-          primaryColor: safeHex(data.primaryColor, FALLBACK_PRIMARY),
-          accentColor: safeHex(data.accentColor, FALLBACK_ACCENT),
-          services: Array.isArray(data.services) ? data.services : [],
-          stats: Array.isArray(data.stats) ? data.stats : [],
-          testimonials: Array.isArray(data.testimonials)
-            ? data.testimonials
-            : [],
-          team: Array.isArray(data.team) ? data.team : [],
-          paymentMethods: Array.isArray(data.paymentMethods)
-            ? data.paymentMethods
-            : [],
-        };
-
-        if (!normalized.name)
-          throw new Error("Tenant has no public name configured.");
-        setTenant(normalized);
-      } catch (err) {
-        if (!cancelled) {
-          setTenant(null);
-          setError(
-            err instanceof Error ? err.message : "Unable to load the website.",
-          );
+    fetch(`${API_BASE}/public/tenant/${slug}`)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Tenant request failed: ${response.status}`);
         }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
 
-    void loadTenant();
+        return response.json();
+      })
+      .then((configRes) => {
+        if (cancelled) return;
+
+        const data = configRes?.data;
+
+        if (!data || configRes?.success === false) {
+          setNotFound(true);
+          return;
+        }
+
+        setTenant({
+          ...FALLBACK_TENANT,
+          ...data,
+          slug,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setNotFound(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [slug]);
 
-  const navLinks = useMemo(
-    () => [
-      { href: "/", label: "Home" },
-      { href: "/services", label: "Services" },
-      { href: "/calculator", label: "Calculator" },
-      { href: "/about", label: "About Us" },
-      { href: "/contact", label: "Contact" },
-      { href: "/track", label: "Track Application" },
-    ],
-    [],
-  );
+  /* ==========================================================
+     LOADING
+     ========================================================== */
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
-        <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-          <div className="mx-auto mb-5 h-12 w-12 animate-pulse rounded-2xl bg-slate-200" />
-          <div className="mx-auto h-5 w-48 animate-pulse rounded bg-slate-200" />
-          <div className="mx-auto mt-3 h-3 w-64 animate-pulse rounded bg-slate-100" />
-        </div>
-      </div>
-    );
-  }
+      <div className="flex min-h-screen items-center justify-center bg-white">
+        <div className="flex flex-col items-center gap-4">
+          <NobleLogo showText={false} />
 
-  if (!tenant) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
-        <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-600">
-            !
-          </div>
-          <h1 className="text-xl font-black text-slate-900">
-            Website temporarily unavailable
-          </h1>
-          <p className="mt-2 text-sm leading-6 text-slate-500">
-            The lender website configuration could not be loaded.
+          <div className="h-7 w-7 animate-spin rounded-full border-2 border-gray-200 border-t-[#D4AF37]" />
+
+          <p className="text-xs font-medium tracking-wide text-gray-400">
+            Loading Noble Loan Solutions
           </p>
-          {error && <p className="mt-3 text-xs text-slate-400">{error}</p>}
-          <button
-            type="button"
-            className="mt-6 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white"
-            onClick={() => window.location.reload()}
-          >
-            Retry
-          </button>
         </div>
       </div>
     );
   }
 
-  const primary = safeHex(tenant.primaryColor, FALLBACK_PRIMARY);
-  const accent = safeHex(tenant.accentColor, FALLBACK_ACCENT);
-  const country = tenant.country?.trim() || "your market";
-  const activePath = pathname || "/";
+  /* ==========================================================
+     NOT FOUND
+     ========================================================== */
+
+  if (notFound || !tenant) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
+        <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+          <div className="mb-6 flex justify-center">
+            <NobleLogo showText={false} />
+          </div>
+
+          <h1 className="mb-2 text-xl font-bold text-gray-900">
+            Site temporarily unavailable
+          </h1>
+
+          <p className="text-sm leading-6 text-gray-500">
+            We couldn't reach our services. Please try again shortly, or contact
+            us directly if this persists.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /* ==========================================================
+     NAVIGATION
+     ========================================================== */
+
+  const navLinks = [
+    {
+      href: "/",
+      label: "Home",
+    },
+    {
+      href: "/services",
+      label: "Services",
+    },
+    {
+      href: "/about",
+      label: "About Us",
+    },
+    {
+      href: "/contact",
+      label: "Contact",
+    },
+    {
+      href: "/track",
+      label: "Track Application",
+    },
+  ];
+
+  const isActive = (href: string) => pathname === href;
+
+  const primary = tenant.primaryColor || BRAND_NAVY;
 
   return (
     <TenantCtx.Provider value={tenant}>
       <OfflineProvider authHeader={() => ({})} />
+
       <ToastContainer />
-      <div className="min-h-screen bg-white font-sans text-slate-900">
+
+      <div className="min-h-screen bg-white font-sans">
+        {/* ====================================================
+            TOP UTILITY BAR
+            ==================================================== */}
+
         <div
           className="border-b border-white/10 px-4 py-2 text-xs text-white/80"
-          style={{ backgroundColor: "#071B35" }}
+          style={{
+            backgroundColor: BRAND_NAVY_DARK,
+          }}
         >
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-            <div className="flex min-w-0 items-center gap-5">
+          <div className="mx-auto flex max-w-7xl items-center justify-between">
+            <div className="flex items-center gap-6">
               {tenant.contactPhone && (
-                <a
-                  href={`tel:${tenant.contactPhone}`}
-                  className="flex items-center gap-1.5 truncate hover:text-white"
-                >
-                  <IconPhone /> {tenant.contactPhone}
-                </a>
+                <span className="flex items-center gap-1.5">
+                  <IconPhone />
+                  {tenant.contactPhone}
+                </span>
               )}
+
               {tenant.contactEmail && (
-                <a
-                  href={`mailto:${tenant.contactEmail}`}
-                  className="hidden items-center gap-1.5 truncate hover:text-white sm:flex"
-                >
-                  <IconMail /> {tenant.contactEmail}
-                </a>
+                <span className="hidden items-center gap-1.5 sm:flex">
+                  <IconMail />
+                  {tenant.contactEmail}
+                </span>
               )}
             </div>
-            <div className="flex items-center gap-4 whitespace-nowrap text-white/60">
-              <span className="hidden lg:inline">Secure applications</span>
-              <span className="hidden lg:inline">Transparent pricing</span>
-              <span className="flex items-center gap-1.5">
-                <IconShield />
-                <span>Official {tenant.name} website</span>
+
+            <div className="flex items-center gap-1.5 text-white/60">
+              <IconShield />
+
+              <span className="hidden sm:inline">
+                Licensed &amp; regulated financial institution
               </span>
+
+              <span className="sm:hidden">Regulated institution</span>
             </div>
           </div>
         </div>
 
-        <nav className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
+        {/* ====================================================
+            MAIN NAVIGATION
+            ==================================================== */}
+
+        <nav className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 shadow-sm backdrop-blur">
           <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+            {/* BRAND */}
+
             <Link
               href="/"
-              aria-label={`${tenant.name} home`}
-              onClick={() => setMenuOpen(false)}
+              className="flex items-center"
+              aria-label="Noble Loan Solutions home"
             >
-              <BrandMark tenant={tenant} />
+              <NobleLogo />
             </Link>
+
+            {/* DESKTOP NAV */}
 
             <div className="hidden items-center gap-1 md:flex">
               {navLinks.map((link) => {
-                const active = activePath === link.href;
+                const active = isActive(link.href);
+
                 return (
                   <Link
                     key={link.href}
                     href={link.href}
-                    className="relative px-4 py-2.5 text-sm font-semibold transition-colors"
-                    style={{ color: active ? primary : undefined }}
-                  >
-                    <span
-                      className={
+                    className={`
+                      relative
+                      px-4
+                      py-2.5
+                      text-sm
+                      font-semibold
+                      transition-colors
+                      ${
                         active
-                          ? "font-bold"
-                          : "text-slate-600 hover:text-slate-900"
+                          ? "text-[#0D2C54]"
+                          : "text-gray-600 hover:text-[#0D2C54]"
                       }
-                    >
-                      {link.label}
-                    </span>
+                    `}
+                  >
+                    {link.label}
+
                     {active && (
                       <span
-                        className="absolute inset-x-4 bottom-0 h-0.5 rounded-full"
-                        style={{ backgroundColor: accent }}
+                        className="absolute bottom-0 left-4 right-4 h-0.5 rounded-full"
+                        style={{
+                          backgroundColor: BRAND_GOLD,
+                        }}
                       />
                     )}
                   </Link>
                 );
               })}
+
+              {/* STAFF LOGIN */}
+
               <Link
                 href="/login"
-                className="ml-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="
+                  ml-3
+                  rounded-lg
+                  border
+                  border-gray-300
+                  px-4
+                  py-2.5
+                  text-sm
+                  font-semibold
+                  text-gray-700
+                  transition
+                  hover:border-[#0D2C54]
+                  hover:bg-gray-50
+                  hover:text-[#0D2C54]
+                "
               >
                 Staff Login
               </Link>
+
+              {/* APPLY */}
+
               <Link
                 href="/apply"
-                className="ml-1 rounded-xl px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:-translate-y-0.5 hover:shadow-md"
-                style={{ backgroundColor: primary }}
+                className="
+                  ml-1
+                  rounded-lg
+                  px-5
+                  py-2.5
+                  text-sm
+                  font-bold
+                  text-white
+                  shadow-sm
+                  transition
+                  hover:-translate-y-0.5
+                  hover:shadow-md
+                "
+                style={{
+                  backgroundColor: primary,
+                }}
               >
                 Apply Now
               </Link>
             </div>
 
+            {/* MOBILE MENU BUTTON */}
+
             <button
               type="button"
-              className="rounded-xl p-2 hover:bg-slate-100 md:hidden"
-              onClick={() => setMenuOpen((v) => !v)}
-              aria-label="Toggle navigation menu"
+              className="
+                rounded-lg
+                p-2
+                transition
+                hover:bg-gray-100
+                md:hidden
+              "
+              onClick={() => setMenuOpen((previous) => !previous)}
+              aria-label="Toggle menu"
               aria-expanded={menuOpen}
             >
-              <span className="block h-0.5 w-6 bg-slate-700" />
-              <span className="mt-1.5 block h-0.5 w-6 bg-slate-700" />
-              <span className="mt-1.5 block h-0.5 w-6 bg-slate-700" />
+              <div className="my-1 h-0.5 w-6 bg-gray-700" />
+              <div className="my-1 h-0.5 w-6 bg-gray-700" />
+              <div className="my-1 h-0.5 w-6 bg-gray-700" />
             </button>
           </div>
 
+          {/* ==================================================
+              MOBILE MENU
+              ================================================== */}
+
           {menuOpen && (
-            <div className="border-t border-slate-100 bg-white px-4 py-4 shadow-lg md:hidden">
+            <div className="border-t border-gray-100 bg-white px-4 py-4 shadow-lg md:hidden">
               <div className="space-y-1">
-                {navLinks.map((link) => (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    onClick={() => setMenuOpen(false)}
-                    className="block rounded-xl px-4 py-3 text-sm font-semibold hover:bg-slate-50"
-                    style={{
-                      color: activePath === link.href ? primary : undefined,
-                    }}
-                  >
-                    {link.label}
-                  </Link>
-                ))}
+                {navLinks.map((link) => {
+                  const active = isActive(link.href);
+
+                  return (
+                    <Link
+                      key={link.href}
+                      href={link.href}
+                      onClick={() => setMenuOpen(false)}
+                      className={`
+                        block
+                        rounded-lg
+                        px-4
+                        py-3
+                        text-sm
+                        font-semibold
+                        transition
+                        ${
+                          active
+                            ? "bg-gray-50 text-[#0D2C54]"
+                            : "text-gray-700 hover:bg-gray-50"
+                        }
+                      `}
+                    >
+                      {link.label}
+                    </Link>
+                  );
+                })}
               </div>
+
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <Link
                   href="/login"
                   onClick={() => setMenuOpen(false)}
-                  className="rounded-xl border border-slate-300 px-4 py-3 text-center text-sm font-semibold text-slate-700"
+                  className="
+                    rounded-lg
+                    border
+                    border-gray-300
+                    px-4
+                    py-3
+                    text-center
+                    text-sm
+                    font-semibold
+                    text-gray-700
+                  "
                 >
                   Staff Login
                 </Link>
+
                 <Link
                   href="/apply"
                   onClick={() => setMenuOpen(false)}
-                  className="rounded-xl px-4 py-3 text-center text-sm font-bold text-white"
-                  style={{ backgroundColor: primary }}
+                  className="
+                    rounded-lg
+                    px-4
+                    py-3
+                    text-center
+                    text-sm
+                    font-bold
+                    text-white
+                  "
+                  style={{
+                    backgroundColor: primary,
+                  }}
                 >
                   Apply Now
                 </Link>
@@ -432,107 +677,138 @@ export default function SiteLayout({
           )}
         </nav>
 
+        {/* ====================================================
+            PAGE CONTENT
+            ==================================================== */}
+
         <main>{children}</main>
+
+        {/* ====================================================
+            FOOTER
+            ==================================================== */}
 
         <footer
           className="mt-16 text-white"
-          style={{ backgroundColor: "#071B35" }}
+          style={{
+            backgroundColor: BRAND_NAVY_DARK,
+          }}
         >
           <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-4 py-14 md:grid-cols-4">
+            {/* BRAND */}
+
             <div className="md:col-span-2">
               <div className="mb-5">
-                <BrandMark tenant={tenant} />
+                <NobleLogo />
               </div>
-              <p className="mb-5 max-w-md text-sm leading-7 text-white/65">
+
+              <div className="mb-5 max-w-md text-sm leading-7 text-white/60">
                 {tenant.mission ||
-                  tenant.tagline ||
-                  `Financial services for individuals and businesses in ${country}.`}
-              </p>
-              <div className="space-y-2 text-sm text-white/55">
+                  "Reliable financial support designed to help individuals and businesses move forward with confidence."}
+              </div>
+
+              <div className="space-y-2 text-sm text-white/50">
                 {tenant.address && <div>{tenant.address}</div>}
+
                 {tenant.contactPhone && (
-                  <a
-                    className="flex items-center gap-2 hover:text-white"
-                    href={`tel:${tenant.contactPhone}`}
-                  >
+                  <div className="flex items-center gap-2">
                     <IconPhone />
                     {tenant.contactPhone}
-                  </a>
-                )}
-                {tenant.contactEmail && (
-                  <a
-                    className="flex items-center gap-2 hover:text-white"
-                    href={`mailto:${tenant.contactEmail}`}
-                  >
-                    <IconMail />
-                    {tenant.contactEmail}
-                  </a>
-                )}
-                {tenant.registrationNumber && (
-                  <div>Registration: {tenant.registrationNumber}</div>
-                )}
-              </div>
-              {tenant.socialMedia &&
-                Object.values(tenant.socialMedia).some(Boolean) && (
-                  <div className="mt-5 flex flex-wrap gap-2">
-                    {Object.entries(tenant.socialMedia)
-                      .filter(([, value]) => Boolean(value))
-                      .map(([label, value]) => (
-                        <a
-                          key={label}
-                          href={value as string}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="rounded-full border border-white/15 px-3 py-1.5 text-[11px] font-bold text-white/65 hover:border-white/30 hover:text-white"
-                        >
-                          {label}
-                        </a>
-                      ))}
                   </div>
                 )}
+
+                {tenant.contactEmail && (
+                  <div className="flex items-center gap-2">
+                    <IconMail />
+                    {tenant.contactEmail}
+                  </div>
+                )}
+              </div>
             </div>
 
+            {/* QUICK LINKS */}
+
             <div>
-              <div className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-white/90">
+              <div
+                className="
+                  mb-4
+                  text-xs
+                  font-bold
+                  uppercase
+                  tracking-[0.16em]
+                  text-white/90
+                "
+              >
                 Quick Links
               </div>
+
               <div className="space-y-3 text-sm text-white/60">
                 {navLinks.map((link) => (
                   <Link
                     key={link.href}
                     href={link.href}
-                    className="block hover:text-white"
+                    className="
+                      block
+                      transition
+                      hover:text-white
+                    "
                   >
                     {link.label}
                   </Link>
                 ))}
-                <Link href="/privacy" className="block hover:text-white">
-                  Privacy Policy
-                </Link>
-                <Link href="/terms" className="block hover:text-white">
-                  Terms & Conditions
-                </Link>
               </div>
             </div>
 
+            {/* SERVICES */}
+
             <div>
-              <div className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-white/90">
+              <div
+                className="
+                  mb-4
+                  text-xs
+                  font-bold
+                  uppercase
+                  tracking-[0.16em]
+                  text-white/90
+                "
+              >
                 Our Services
               </div>
+
               <div className="space-y-3 text-sm text-white/60">
-                {(tenant.services ?? []).slice(0, 6).map((service) => (
+                {tenant.services?.slice(0, 5).map((service) => (
                   <div key={service.title}>{service.title}</div>
                 ))}
               </div>
             </div>
           </div>
+
+          {/* FOOTER BOTTOM */}
+
           <div className="border-t border-white/10 px-4 py-5">
             <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 text-xs text-white/40 md:flex-row">
               <span>
                 © {new Date().getFullYear()} {tenant.name}. All rights reserved.
+                {tenant.registrationNumber
+                  ? ` Reg. No. ${tenant.registrationNumber}`
+                  : ""}
               </span>
-              <span>
-                {tenant.currency || ""} • {country}
+
+              <span className="flex items-center gap-5">
+                <Link href="/terms" className="transition hover:text-white/70">
+                  Terms &amp; Conditions
+                </Link>
+
+                <Link
+                  href="/privacy"
+                  className="transition hover:text-white/70"
+                >
+                  Privacy Policy
+                </Link>
+              </span>
+
+              <span className="text-center md:text-right">
+                Your deposits and data are protected in line with applicable
+                financial regulations.
               </span>
             </div>
           </div>

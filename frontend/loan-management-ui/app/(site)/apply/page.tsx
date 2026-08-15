@@ -59,7 +59,7 @@ export default function ApplyPage() {
     loanType:
       searchParams?.get("type")?.replace(/\_/g, " ") || "Personal Loans",
     amount: "",
-    durationMonths: "6",
+    durationMonths: "12",
     purpose: "",
     collateral: "",
     collateralValue: "",
@@ -95,25 +95,24 @@ export default function ApplyPage() {
     };
 
   // ============================================================
-  // INTERNATIONAL IDENTITY VALIDATION
+  // NATIONAL ID VALIDATION
+  // Rwanda national IDs are exactly 16 digits.
   // ============================================================
 
-  const NATIONAL_ID_REGEX = /^[A-Za-z0-9\-]{4,32}$/;
+  const NATIONAL_ID_REGEX = /^\d{16}$/;
 
   const isNationalIdValid = (value: string) => {
-    return NATIONAL_ID_REGEX.test(value.trim());
+    return NATIONAL_ID_REGEX.test(value);
   };
 
   const setNationalId =
     (k: "nationalId" | "spouseNationalId") =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const normalized = e.target.value
-        .replace(/[^A-Za-z0-9\-]/g, "")
-        .slice(0, 32);
+      const digitsOnly = e.target.value.replace(/\D/g, "").slice(0, 16);
 
       setForm((f) => ({
         ...f,
-        [k]: normalized,
+        [k]: digitsOnly,
       }));
     };
 
@@ -654,13 +653,13 @@ export default function ApplyPage() {
                   hint={
                     form.nationalId && !isNationalIdValid(form.nationalId)
                       ? undefined
-                      : "National ID or passport number"
+                      : "16 digits, numbers only"
                   }
                 >
                   <input
                     required
                     inputMode="numeric"
-                    maxLength={32}
+                    maxLength={16}
                     className={inp}
                     value={form.nationalId}
                     onChange={setNationalId("nationalId")}
@@ -668,8 +667,7 @@ export default function ApplyPage() {
 
                   {form.nationalId && !isNationalIdValid(form.nationalId) && (
                     <p className="text-xs mt-1 text-red-600 font-semibold">
-                      Enter a valid national ID or passport number (4–32
-                      letters, numbers or hyphens)
+                      National ID must be exactly 16 digits
                     </p>
                   )}
                 </Field>
@@ -761,7 +759,7 @@ export default function ApplyPage() {
                     <Field label="Spouse National ID">
                       <input
                         inputMode="numeric"
-                        maxLength={32}
+                        maxLength={16}
                         className={inp}
                         value={form.spouseNationalId}
                         onChange={setNationalId("spouseNationalId")}
@@ -770,7 +768,7 @@ export default function ApplyPage() {
                       {form.spouseNationalId &&
                         !isNationalIdValid(form.spouseNationalId) && (
                           <p className="text-xs mt-1 text-red-600 font-semibold">
-                            Enter a valid national ID or passport number
+                            Must be exactly 16 digits
                           </p>
                         )}
                     </Field>
@@ -1095,7 +1093,9 @@ export default function ApplyPage() {
                        * display estimate and does NOT
                        * modify backend loan interest logic.
                        */
-                      const mr: number = 0.1;
+                      const interestRate = 0.05;
+                      const managementRate = 0.05;
+                      const mr: number = interestRate + managementRate;
 
                       const monthly =
                         mr === 0
@@ -1118,7 +1118,7 @@ export default function ApplyPage() {
                             maximumFractionDigits: 0,
                           })}`,
                         ],
-                        ["Rate", "10% / mo"],
+                        ["Rate", "5% interest + 5% management / mo"],
                       ].map(([l, v]) => (
                         <div key={l}>
                           <div className="text-gray-400 text-[10px]">{l}</div>
