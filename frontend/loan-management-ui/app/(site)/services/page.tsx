@@ -3,186 +3,208 @@
 import Link from "next/link";
 import { useTenant } from "../layout";
 
-function n(value: unknown, fallback = 0) {
-  const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
 export default function ServicesPage() {
   const tenant = useTenant();
   if (!tenant) return null;
+
   const primary = tenant.primaryColor;
   const accent = tenant.accentColor;
   const products = tenant.services ?? [];
+  const currency = tenant.currency || "RWF";
 
   return (
-    <div>
-      <section className="bg-[#06172D] text-white">
-        <div className="mx-auto max-w-7xl px-4 py-16 sm:py-20">
+    <div className="bg-white">
+      <section className="relative overflow-hidden bg-slate-950 text-white">
+        <div
+          className="absolute inset-0 opacity-20"
+          style={{
+            background: `radial-gradient(circle at 15% 20%, ${accent} 0, transparent 32%), radial-gradient(circle at 85% 80%, ${primary} 0, transparent 38%)`,
+          }}
+        />
+        <div className="relative mx-auto max-w-7xl px-4 py-20 sm:py-24">
           <div className="max-w-3xl">
             <div
-              className="text-[11px] font-bold uppercase tracking-[0.2em]"
+              className="text-[11px] font-black uppercase tracking-[0.22em]"
               style={{ color: accent }}
             >
-              Financial solutions
+              Products & services
             </div>
-            <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">
-              Solutions designed around real financial goals.
+            <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-6xl">
+              Financing built around real purposes.
             </h1>
-            <p className="mt-5 text-base leading-8 text-white/65">
-              Review the products published by {tenant.name}. Pricing, limits
-              and terms are shown before you apply.
+            <p className="mt-6 max-w-2xl text-base leading-8 text-white/65">
+              Explore the products currently published by {tenant.name}. Each
+              product can have its own pricing, amount limits and repayment
+              terms.
             </p>
+          </div>
+          <div className="mt-10 flex flex-wrap gap-3">
+            <Link
+              href="/apply"
+              className="rounded-2xl px-6 py-3.5 text-sm font-black"
+              style={{ backgroundColor: accent, color: primary }}
+            >
+              Apply online
+            </Link>
+            <Link
+              href="/contact"
+              className="rounded-2xl border border-white/20 px-6 py-3.5 text-sm font-bold text-white"
+            >
+              Speak with {tenant.name}
+            </Link>
           </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 py-12 sm:py-16">
-        <div className="grid gap-5 lg:grid-cols-2">
-          {products.map((product, index) => (
-            <article
-              key={product.title}
-              className="group rounded-[30px] border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-xl sm:p-7"
-            >
-              <div className="flex items-start justify-between gap-5">
-                <div
-                  className="flex h-14 w-14 items-center justify-center rounded-2xl text-2xl"
-                  style={{ backgroundColor: `${primary}0D` }}
-                >
-                  {product.icon || ["◈", "◆", "◇", "✦", "▣", "○"][index % 6]}
-                </div>
-                <div
-                  className="rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-wide"
-                  style={{ backgroundColor: `${accent}16`, color: primary }}
-                >
-                  Available
-                </div>
-              </div>
-              <h2 className="mt-6 text-2xl font-black tracking-tight text-slate-950">
-                {product.title}
-              </h2>
-              <p className="mt-2 min-h-[52px] text-sm leading-6 text-slate-500">
-                {product.description ||
-                  "A structured financing product with clear commercial terms and digital application support."}
-              </p>
-              <div className="mt-7 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-slate-200 bg-slate-200 sm:grid-cols-4">
-                {[
-                  [
-                    "Interest",
-                    product.rate
-                      ? `${product.rate}${product.rateType === "MONTHLY" || product.rateType == null ? " / mo" : ""}`
-                      : "See terms",
-                  ],
-                  [
-                    "Management",
-                    product.managementFeeRate != null
-                      ? `${product.managementFeeRate}% / mo`
-                      : "See terms",
-                  ],
-                  [
-                    "Amount",
-                    product.maxAmount
-                      ? `${tenant.currency} ${product.maxAmount}`
-                      : "Flexible",
-                  ],
-                  ["Term", product.term || "Flexible"],
-                ].map(([label, value]) => (
-                  <div key={label} className="bg-white p-4">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      {label}
+      <section className="mx-auto max-w-7xl px-4 py-16 sm:py-20">
+        {products.length === 0 ? (
+          <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-12 text-center">
+            <div className="text-4xl">◇</div>
+            <h2 className="mt-4 text-xl font-black text-slate-950">
+              Products are being configured
+            </h2>
+            <p className="mx-auto mt-2 max-w-xl text-sm leading-7 text-slate-500">
+              Please contact {tenant.name} for current product availability.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-6 md:grid-cols-2">
+            {products.map((product) => (
+              <article
+                key={product.title}
+                className="group overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl"
+              >
+                <div className="border-b border-slate-100 bg-slate-50 px-7 py-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div
+                        className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-2xl shadow-sm"
+                        style={{ color: primary }}
+                      >
+                        {product.icon || "◆"}
+                      </div>
+                      <h2 className="mt-4 text-2xl font-black tracking-tight text-slate-950">
+                        {product.title}
+                      </h2>
                     </div>
-                    <div className="mt-1 text-sm font-black text-slate-900">
-                      {value}
+                    <span
+                      className="rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-wider"
+                      style={{
+                        borderColor: `${accent}55`,
+                        color: primary,
+                        backgroundColor: `${accent}12`,
+                      }}
+                    >
+                      Available
+                    </span>
+                  </div>
+                  <p className="mt-4 text-sm leading-7 text-slate-600">
+                    {product.description ||
+                      "A lender-published financing product. Review eligibility and final terms during application."}
+                  </p>
+                </div>
+
+                <div className="px-7 py-7">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {[
+                      ["Interest", product.rate || "See terms"],
+                      ["Term", product.term || "See terms"],
+                      [
+                        "Maximum",
+                        product.maxAmount
+                          ? `${currency} ${Number(product.maxAmount).toLocaleString()}`
+                          : "No stated cap",
+                      ],
+                    ].map(([label, value]) => (
+                      <div key={label} className="rounded-2xl bg-slate-50 p-4">
+                        <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                          {label}
+                        </div>
+                        <div
+                          className="mt-1 text-sm font-black"
+                          style={{ color: primary }}
+                        >
+                          {value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-6 rounded-2xl border border-slate-200 p-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      <div>
+                        <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                          Minimum amount
+                        </div>
+                        <div className="mt-1 text-sm font-bold text-slate-900">
+                          {product.minAmount
+                            ? `${currency} ${Number(product.minAmount).toLocaleString()}`
+                            : "Contact lender"}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                          Management fee
+                        </div>
+                        <div className="mt-1 text-sm font-bold text-slate-900">
+                          {product.managementFee || "See product terms"}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                          Processing fee
+                        </div>
+                        <div className="mt-1 text-sm font-bold text-slate-900">
+                          {product.processingFee || "See product terms"}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                ))}
-              </div>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Link
-                  href={`/apply?type=${encodeURIComponent(product.title)}`}
-                  className="rounded-xl px-5 py-3 text-sm font-black text-white"
-                  style={{ backgroundColor: primary }}
-                >
-                  Apply for this product
-                </Link>
-                <Link
-                  href="/contact"
-                  className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-700"
-                >
-                  Talk to an advisor
-                </Link>
-              </div>
-            </article>
-          ))}
-        </div>
 
-        {products.length === 0 && (
-          <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500">
-            No public loan products are currently configured.
+                  <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-xs leading-5 text-slate-500">
+                      Final terms are subject to eligibility and approval.
+                    </div>
+                    <Link
+                      href={`/apply?type=${encodeURIComponent(product.title)}`}
+                      className="rounded-xl px-5 py-3 text-sm font-black text-white transition hover:-translate-y-0.5"
+                      style={{ backgroundColor: primary }}
+                    >
+                      Apply for {product.title} →
+                    </Link>
+                  </div>
+                </div>
+              </article>
+            ))}
           </div>
         )}
       </section>
 
-      <section className="border-y border-slate-200 bg-white">
-        <div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 md:grid-cols-3">
-          {[
-            [
-              "Transparent pricing",
-              "Know the applicable rate, fees and repayment structure before you commit.",
-            ],
-            [
-              "Responsible assessment",
-              "Applications are evaluated using affordability and credit-risk controls.",
-            ],
-            [
-              "Digital convenience",
-              "Start, monitor and communicate through a secure online experience.",
-            ],
-          ].map(([title, text]) => (
-            <div key={title}>
-              <div className="text-sm font-black text-slate-950">{title}</div>
-              <div className="mt-2 text-sm leading-6 text-slate-500">
-                {text}
+      <section className="bg-slate-50">
+        <div className="mx-auto max-w-7xl px-4 py-16 sm:py-20">
+          <div className="grid gap-5 md:grid-cols-3">
+            {[
+              [
+                "Product clarity",
+                "See the published rate, term and key fee information before you submit an application.",
+              ],
+              [
+                "Flexible pricing",
+                "Each lender organization can manage its own product pricing without affecting another organization.",
+              ],
+              [
+                "Secure application",
+                "Applications are submitted through the lender's connected loan management platform.",
+              ],
+            ].map(([title, text]) => (
+              <div
+                key={title}
+                className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm"
+              >
+                <div className="text-lg font-black text-slate-950">{title}</div>
+                <p className="mt-2 text-sm leading-7 text-slate-600">{text}</p>
               </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-7xl px-4 py-14">
-        <div
-          className="rounded-[30px] p-8 sm:p-10"
-          style={{ backgroundColor: `${primary}08` }}
-        >
-          <div className="max-w-2xl">
-            <div
-              className="text-[11px] font-bold uppercase tracking-[0.18em]"
-              style={{ color: accent }}
-            >
-              Need guidance?
-            </div>
-            <h2 className="mt-2 text-2xl font-black text-slate-950">
-              Not sure which solution fits?
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-500">
-              Contact the team and explain what you are trying to finance. We
-              can help you understand the available options before you apply.
-            </p>
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link
-                href="/contact"
-                className="rounded-xl px-5 py-3 text-sm font-black text-white"
-                style={{ backgroundColor: primary }}
-              >
-                Talk to us
-              </Link>
-              <Link
-                href="/apply"
-                className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-bold text-slate-700"
-              >
-                Start application
-              </Link>
-            </div>
+            ))}
           </div>
         </div>
       </section>

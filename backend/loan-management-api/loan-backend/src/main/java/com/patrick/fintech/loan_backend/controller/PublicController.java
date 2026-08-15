@@ -231,7 +231,10 @@ public class PublicController {
 
         @GetMapping("/borrower/summary")
         public ResponseEntity<DashboardSummaryResponse> borrowerSummary(
+                        @RequestParam String reference,
                         @RequestParam String phone) {
+
+                verifyOwnership(reference, phone);
 
                 return ResponseEntity.ok(
                                 loanService.getBorrowerSummary(
@@ -658,381 +661,6 @@ public class PublicController {
         }
 
         // ============================================================
-        // MTN WEBHOOK
-        // ============================================================
-
-        @PostMapping("/webhooks/mtn")
-        @Transactional
-        public ResponseEntity<Map<String, Object>> receiveMtnWebhook(
-                        @RequestBody Map<String, Object> payload) {
-
-                Map<String, Object> response = new LinkedHashMap<>();
-
-                if (payload == null
-                                || payload.isEmpty()) {
-
-                        response.put(
-                                        "received",
-                                        false);
-
-                        response.put(
-                                        "status",
-                                        "REJECTED");
-
-                        response.put(
-                                        "message",
-                                        "Webhook payload is empty");
-
-                        return ResponseEntity
-                                        .badRequest()
-                                        .body(
-                                                        response);
-                }
-
-                try {
-
-                        Map<String, Object> data = flattenWebhookPayload(
-                                        payload);
-
-                        String status = firstString(
-                                        data,
-                                        "status",
-                                        "transactionStatus",
-                                        "transaction_status");
-
-                        if (status == null
-                                        || !"SUCCESSFUL"
-                                                        .equalsIgnoreCase(
-                                                                        status.trim())) {
-
-                                response.put(
-                                                "received",
-                                                true);
-
-                                response.put(
-                                                "status",
-                                                "IGNORED");
-
-                                response.put(
-                                                "message",
-                                                "MTN transaction is not successful");
-
-                                response.put(
-                                                "providerStatus",
-                                                status);
-
-                                log.info(
-                                                "[MTN WEBHOOK] Non-success callback ignored. status={}",
-                                                status);
-
-                                return ResponseEntity.ok(
-                                                response);
-                        }
-
-                        String transactionId = firstString(
-                                        data,
-                                        "transactionId",
-                                        "transaction_id",
-                                        "referenceId",
-                                        "reference_id",
-                                        "financialTransactionId",
-                                        "financial_transaction_id");
-
-                        String externalId = firstString(
-                                        data,
-                                        "externalId",
-                                        "external_id");
-
-                        Long loanId = firstLong(
-                                        data,
-                                        "loanId",
-                                        "loan_id");
-
-                        if (loanId == null) {
-
-                                loanId = loanIdFromExternalReference(
-                                                externalId);
-                        }
-
-                        BigDecimal amount = firstDecimal(
-                                        data,
-                                        "amount",
-                                        "paidAmount",
-                                        "paid_amount");
-
-                        String currency = firstString(
-                                        data,
-                                        "currency",
-                                        "currencyCode",
-                                        "currency_code");
-
-                        if (loanId == null) {
-
-                                throw new IllegalArgumentException(
-                                                "MTN webhook does not contain a valid loan identifier");
-                        }
-
-                        if (transactionId == null
-                                        || transactionId.isBlank()) {
-
-                                throw new IllegalArgumentException(
-                                                "MTN webhook does not contain a transaction/reference ID");
-                        }
-
-                        if (amount == null
-                                        || amount.compareTo(
-                                                        ZERO) <= 0) {
-
-                                throw new IllegalArgumentException(
-                                                "MTN webhook does not contain a valid payment amount");
-                        }
-
-                        if (currency == null
-                                        || currency.isBlank()) {
-
-                                throw new IllegalArgumentException(
-                                                "MTN webhook does not contain a currency");
-                        }
-
-                        log.info(
-                                        "[MTN WEBHOOK] Successful callback received. loanId={}, transactionId={}, amount={}, currency={}",
-                                        loanId,
-                                        transactionId,
-                                        amount,
-                                        currency);
-
-                        PaymentGatewayResponse gatewayResponse = mtnMobileMoneyService.processWebhookConfirmation(
-                                        loanId,
-                                        transactionId,
-                                        amount.doubleValue(),
-                                        currency);
-
-                        if (gatewayResponse == null) {
-
-                                throw new IllegalStateException(
-                                                "MTN payment service returned no response");
-                        }
-
-                        boolean successful = "success".equalsIgnoreCase(
-                                        gatewayResponse.getStatus());
-
-                        response.put(
-                                        "received",
-                                        true);
-
-                        response.put(
-                                        "status",
-                                        successful
-                                                        ? "PROCESSED"
-                                                        : "REJECTED");
-
-                        response.put(
-                                        "message",
-                                        gatewayResponse.getMessage());
-
-                        response.put(
-                                        "transactionId",
-                                        gatewayResponse.getTransactionId());
-
-                        response.put(
-                                        "provider",
-                                        gatewayResponse.getProvider());
-
-                        return ResponseEntity.ok(
-                                        response);
-
-                } catch (Exception e) {
-
-                        log.error(
-                                        "[MTN WEBHOOK] Failed to process callback: {}",
-                                        e.getMessage(),
-                                        e);
-
-                        response.put(
-                                        "received",
-                                        false);
-
-                        response.put(
-                                        "status",
-                                        "REJECTED");
-
-                        response.put(
-                                        "message",
-                                        e.getMessage());
-
-                        return ResponseEntity
-                                        .badRequest()
-                                        .body(
-                                                        response);
-                }
-        }
-
-        private Map<String, Object> flattenWebhookPayload(
-                        Map<String, Object> payload) {
-
-                Map<String, Object> result = new LinkedHashMap<>();
-
-                flattenMap(
-                                payload,
-                                result);
-
-                return result;
-        }
-
-        private void flattenMap(
-                        Map<String, Object> source,
-                        Map<String, Object> target) {
-
-                if (source == null) {
-                        return;
-                }
-
-                source.forEach(
-                                (
-                                                key,
-                                                value) -> {
-
-                                        if (key == null) {
-                                                return;
-                                        }
-
-                                        target.putIfAbsent(
-                                                        key,
-                                                        value);
-
-                                        if (value instanceof Map<?, ?> nested) {
-
-                                                Map<String, Object> nestedMap = new LinkedHashMap<>();
-
-                                                nested.forEach(
-                                                                (
-                                                                                nestedKey,
-                                                                                nestedValue) -> {
-
-                                                                        if (nestedKey != null) {
-
-                                                                                nestedMap.put(
-                                                                                                String.valueOf(
-                                                                                                                nestedKey),
-                                                                                                nestedValue);
-                                                                        }
-                                                                });
-
-                                                flattenMap(
-                                                                nestedMap,
-                                                                target);
-                                        }
-                                });
-        }
-
-        private String firstString(
-                        Map<String, Object> data,
-                        String... keys) {
-
-                for (String key : keys) {
-
-                        Object value = data.get(key);
-
-                        if (value != null
-                                        && !String.valueOf(
-                                                        value).isBlank()) {
-
-                                return String.valueOf(
-                                                value).trim();
-                        }
-                }
-
-                return null;
-        }
-
-        private Long firstLong(
-                        Map<String, Object> data,
-                        String... keys) {
-
-                String value = firstString(
-                                data,
-                                keys);
-
-                if (value == null) {
-                        return null;
-                }
-
-                try {
-
-                        return Long.valueOf(
-                                        value);
-
-                } catch (NumberFormatException ignored) {
-
-                        return null;
-                }
-        }
-
-        private BigDecimal firstDecimal(
-                        Map<String, Object> data,
-                        String... keys) {
-
-                Object raw = null;
-
-                for (String key : keys) {
-
-                        if (data.containsKey(key)) {
-
-                                raw = data.get(key);
-
-                                if (raw != null) {
-                                        break;
-                                }
-                        }
-                }
-
-                return decimal(raw);
-        }
-
-        private Long loanIdFromExternalReference(
-                        String externalId) {
-
-                if (externalId == null
-                                || externalId.isBlank()) {
-
-                        return null;
-                }
-
-                String value = externalId.trim();
-
-                if (!value.regionMatches(
-                                true,
-                                0,
-                                "LOAN-",
-                                0,
-                                5)) {
-
-                        return null;
-                }
-
-                String remainder = value.substring(
-                                5);
-
-                int separator = remainder.indexOf('-');
-
-                String loanIdPart = separator >= 0
-                                ? remainder.substring(
-                                                0,
-                                                separator)
-                                : remainder;
-
-                try {
-
-                        return Long.valueOf(
-                                        loanIdPart);
-
-                } catch (NumberFormatException ignored) {
-
-                        return null;
-                }
-        }
-
-        // ============================================================
         // PUBLIC PAYMENT INITIATION
         // ============================================================
 
@@ -1177,21 +805,15 @@ public class PublicController {
                 req.setNetwork(
                                 network);
 
-                req.setCardNumber(
-                                str(
-                                                body.get("cardNumber")));
+                String cardNumber = str(body.get("cardNumber"));
+                String cardCvv = str(body.get("cardCvv"));
+                String cardExpiryMonth = str(body.get("cardExpiryMonth"));
+                String cardExpiryYear = str(body.get("cardExpiryYear"));
 
-                req.setCardCvv(
-                                str(
-                                                body.get("cardCvv")));
-
-                req.setCardExpiryMonth(
-                                str(
-                                                body.get("cardExpiryMonth")));
-
-                req.setCardExpiryYear(
-                                str(
-                                                body.get("cardExpiryYear")));
+                if (cardNumber != null || cardCvv != null || cardExpiryMonth != null || cardExpiryYear != null) {
+                        throw new IllegalArgumentException(
+                                        "Raw card details are not accepted by the public API. Use the payment provider's hosted or tokenized checkout flow.");
+                }
 
                 req.setAccountNumber(
                                 str(
@@ -1931,8 +1553,9 @@ public class PublicController {
         // ============================================================
 
         private String value(String currency) {
-
-                throw new UnsupportedOperationException("Unimplemented method 'value'");
+                return currency == null || currency.isBlank()
+                                ? ""
+                                : currency.trim();
         }
 
         private List<Map<String, Object>> receiptRows(
@@ -2034,9 +1657,9 @@ public class PublicController {
 
                 if (org == null) {
 
-                        return ResponseEntity.ok(
-                                        ApiResponse.ok(
-                                                        demoConfig()));
+                        return ResponseEntity
+                                        .status(404)
+                                        .build();
                 }
 
                 Map<String, Object> config = new LinkedHashMap<>();
@@ -2097,18 +1720,27 @@ public class PublicController {
                                 "registrationNumber",
                                 org.getRegistrationNumber());
 
+                LoanProduct defaultPublicProduct = loanProductRepo
+                                .findByOrganization_IdAndActiveTrueOrderByDisplayOrderAsc(
+                                                org.getId())
+                                .stream()
+                                .findFirst()
+                                .orElse(null);
+
                 config.put(
                                 "minLoanAmount",
-                                org.getMinLoanAmount() != null
-                                                ? org.getMinLoanAmount()
-                                                : MIN_LOAN_AMOUNT);
+                                defaultPublicProduct != null
+                                                && defaultPublicProduct.getMinAmountDecimal() != null
+                                                                ? defaultPublicProduct.getMinAmountDecimal()
+                                                                : (org.getMinLoanAmount() != null
+                                                                                ? org.getMinLoanAmount()
+                                                                                : MIN_LOAN_AMOUNT));
 
-                /*
-                 * Platform has no maximum loan amount.
-                 */
                 config.put(
                                 "maxLoanAmount",
-                                null);
+                                defaultPublicProduct != null
+                                                ? defaultPublicProduct.getMaxAmountDecimal()
+                                                : org.getMaxLoanAmountDecimal());
 
                 config.put(
                                 "status",
@@ -2116,21 +1748,15 @@ public class PublicController {
 
                 config.put(
                                 "tagline",
-                                org.getTagline() != null
-                                                ? org.getTagline()
-                                                : "Empowering Your Financial Growth");
+                                org.getTagline());
 
                 config.put(
                                 "mission",
-                                org.getMission() != null
-                                                ? org.getMission()
-                                                : "To provide accessible, affordable and transparent financial services to our clients.");
+                                org.getMission());
 
                 config.put(
                                 "vision",
-                                org.getVision() != null
-                                                ? org.getVision()
-                                                : "To be the most trusted financial partner in our community.");
+                                org.getVision());
 
                 config.put(
                                 "founded",
@@ -2187,37 +1813,38 @@ public class PublicController {
                                 "services",
                                 servicesFor(org));
 
+                Map<String, Object> hero = new LinkedHashMap<>();
+                hero.put(
+                                "headline",
+                                org.getHeroHeadline() != null
+                                                ? org.getHeroHeadline()
+                                                : "");
+                hero.put(
+                                "subtext",
+                                org.getHeroSubtext() != null
+                                                ? org.getHeroSubtext()
+                                                : "");
                 config.put(
                                 "hero",
-                                Map.of(
-                                                "headline",
-                                                org.getHeroHeadline() != null
-                                                                ? org.getHeroHeadline()
-                                                                : "Borrow & Grow with us",
-
-                                                "subtext",
-                                                org.getHeroSubtext() != null
-                                                                ? org.getHeroSubtext()
-                                                                : "Fast approvals, competitive rates, and flexible terms."));
+                                hero);
 
                 config.put(
                                 "stats",
                                 parseListOrDefault(
                                                 org.getStatsJson(),
-                                                defaultStats()));
+                                                List.of()));
 
                 config.put(
                                 "testimonials",
                                 parseListOrDefault(
                                                 org.getTestimonialsJson(),
-                                                defaultTestimonials(
-                                                                org.getName())));
+                                                List.of()));
 
                 config.put(
                                 "team",
                                 parseListOrDefault(
                                                 org.getTeamJson(),
-                                                defaultTeam()));
+                                                List.of()));
 
                 config.put(
                                 "paymentMethods",
@@ -2228,23 +1855,38 @@ public class PublicController {
                  */
                 config.put(
                                 "monthlyInterestRate",
-                                MONTHLY_INTEREST_RATE);
+                                defaultPublicProduct != null
+                                                && defaultPublicProduct.getInterestRateDecimal() != null
+                                                                ? defaultPublicProduct.getInterestRateDecimal()
+                                                                : MONTHLY_INTEREST_RATE);
 
                 config.put(
                                 "monthlyManagementFeeRate",
-                                MONTHLY_MANAGEMENT_FEE_RATE);
+                                defaultPublicProduct != null
+                                                && defaultPublicProduct.getManagementFeePercentDecimal() != null
+                                                                ? defaultPublicProduct.getManagementFeePercentDecimal()
+                                                                : MONTHLY_MANAGEMENT_FEE_RATE);
 
                 config.put(
                                 "processingFeeRate",
-                                PROCESSING_FEE_RATE);
+                                defaultPublicProduct != null
+                                                && defaultPublicProduct.getProcessingFeePercentDecimal() != null
+                                                                ? defaultPublicProduct.getProcessingFeePercentDecimal()
+                                                                : PROCESSING_FEE_RATE);
 
                 config.put(
                                 "minLoanDurationMonths",
-                                MIN_LOAN_DURATION_MONTHS);
+                                defaultPublicProduct != null
+                                                && defaultPublicProduct.getMinTermMonths() != null
+                                                                ? defaultPublicProduct.getMinTermMonths()
+                                                                : MIN_LOAN_DURATION_MONTHS);
 
                 config.put(
                                 "maxLoanDurationMonths",
-                                MAX_LOAN_DURATION_MONTHS);
+                                defaultPublicProduct != null
+                                                && defaultPublicProduct.getMaxTermMonths() != null
+                                                                ? defaultPublicProduct.getMaxTermMonths()
+                                                                : MAX_LOAN_DURATION_MONTHS);
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
@@ -2456,7 +2098,8 @@ public class PublicController {
                 String phone = str(body.get("phone"));
 
                 if (phone == null
-                                || phone.isBlank()) {
+                                || phone.isBlank()
+                                || phone.trim().length() > 40) {
 
                         throw new RuntimeException(
                                         "Phone number is required");
@@ -2909,11 +2552,15 @@ public class PublicController {
 
                 Organization org = resolveOrg(slug);
 
+                if (org == null) {
+                        return ResponseEntity
+                                        .status(404)
+                                        .build();
+                }
+
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
-                                                org != null
-                                                                ? servicesFor(org)
-                                                                : buildProducts()));
+                                                servicesFor(org)));
         }
 
         private List<Map<String, Object>> servicesFor(
@@ -2938,35 +2585,46 @@ public class PublicController {
 
                                                                 m.put(
                                                                                 "icon",
-                                                                                p.getIcon() != null
-                                                                                                ? p.getIcon()
-                                                                                                : "💰");
+                                                                                p.getIcon());
 
-                                                                BigDecimal interestRate = p.getInterestRateDecimal();
+                                                                BigDecimal interestRate = p
+                                                                                .getInterestRateDecimal() != null
+                                                                                                ? p.getInterestRateDecimal()
+                                                                                                : MONTHLY_INTEREST_RATE;
+
                                                                 BigDecimal managementFeeRate = p
-                                                                                .getManagementFeePercentDecimal();
+                                                                                .getManagementFeePercentDecimal() != null
+                                                                                                ? p.getManagementFeePercentDecimal()
+                                                                                                : MONTHLY_MANAGEMENT_FEE_RATE;
+
                                                                 BigDecimal processingFeeRate = p
-                                                                                .getProcessingFeePercentDecimal();
+                                                                                .getProcessingFeePercentDecimal() != null
+                                                                                                ? p.getProcessingFeePercentDecimal()
+                                                                                                : PROCESSING_FEE_RATE;
 
                                                                 m.put(
                                                                                 "rate",
-                                                                                interestRate != null
-                                                                                                ? interestRate.stripTrailingZeros()
-                                                                                                                .toPlainString()
-                                                                                                                + "% / month"
-                                                                                                : "—");
+                                                                                interestRate + "% / month");
 
                                                                 m.put(
-                                                                                "interestRate",
+                                                                                "monthlyInterestRate",
                                                                                 interestRate);
 
                                                                 m.put(
-                                                                                "managementFeeRate",
+                                                                                "monthlyManagementFeeRate",
                                                                                 managementFeeRate);
+
+                                                                m.put(
+                                                                                "managementFee",
+                                                                                managementFeeRate + "% / month");
 
                                                                 m.put(
                                                                                 "processingFeeRate",
                                                                                 processingFeeRate);
+
+                                                                m.put(
+                                                                                "processingFee",
+                                                                                processingFeeRate + "%");
 
                                                                 m.put(
                                                                                 "minAmount",
@@ -2974,7 +2632,9 @@ public class PublicController {
 
                                                                 m.put(
                                                                                 "maxAmount",
-                                                                                p.getMaxAmountDecimal());
+                                                                                p.getMaxAmountDecimal() == null
+                                                                                                ? "Unlimited"
+                                                                                                : p.getMaxAmountDecimal());
 
                                                                 m.put(
                                                                                 "minTermMonths",
@@ -2986,15 +2646,14 @@ public class PublicController {
 
                                                                 m.put(
                                                                                 "term",
-                                                                                p.getMinTermMonths() + " to "
+                                                                                p.getMinTermMonths()
+                                                                                                + " to "
                                                                                                 + p.getMaxTermMonths()
                                                                                                 + " months");
 
                                                                 m.put(
                                                                                 "description",
-                                                                                p.getDescription() != null
-                                                                                                ? p.getDescription()
-                                                                                                : "");
+                                                                                p.getDescription());
 
                                                                 return m;
                                                         })
@@ -3003,7 +2662,7 @@ public class PublicController {
 
                 return parseListOrDefault(
                                 org.getServicesJson(),
-                                buildProducts());
+                                List.of());
         }
 
         private List<Map<String, Object>> parseListOrDefault(
@@ -3036,109 +2695,6 @@ public class PublicController {
 
                         return fallback;
                 }
-        }
-
-        // ============================================================
-        // PRODUCTS DEFAULTS
-        // ============================================================
-
-        private List<Map<String, Object>> buildProducts() {
-
-                List<Map<String, Object>> products = new ArrayList<>();
-
-                String[][] defaults = {
-
-                                {
-                                                "Personal Loan",
-                                                "👤",
-                                                "5",
-                                                "Unlimited",
-                                                "6",
-                                                "Fast personal financing"
-                                },
-
-                                {
-                                                "Business Loan",
-                                                "🏢",
-                                                "5",
-                                                "Unlimited",
-                                                "6",
-                                                "Working capital and expansion"
-                                },
-
-                                {
-                                                "Agricultural Loan",
-                                                "🌾",
-                                                "5",
-                                                "Unlimited",
-                                                "6",
-                                                "Agricultural finance"
-                                },
-
-                                {
-                                                "SME Finance",
-                                                "📦",
-                                                "5",
-                                                "Unlimited",
-                                                "6",
-                                                "Tailored SME finance"
-                                },
-
-                                {
-                                                "Salary Advance",
-                                                "💵",
-                                                "5",
-                                                "Unlimited",
-                                                "6",
-                                                "Quick salary advance"
-                                },
-
-                                {
-                                                "Microfinance",
-                                                "💡",
-                                                "5",
-                                                "Unlimited",
-                                                "6",
-                                                "Small business finance"
-                                }
-                };
-
-                for (String[] p : defaults) {
-
-                        Map<String, Object> m = new LinkedHashMap<>();
-
-                        m.put(
-                                        "title",
-                                        p[0]);
-
-                        m.put(
-                                        "icon",
-                                        p[1]);
-
-                        m.put(
-                                        "rate",
-                                        p[2]
-                                                        + "% / month");
-
-                        m.put(
-                                        "maxAmount",
-                                        p[3]);
-
-                        m.put(
-                                        "term",
-                                        "up to "
-                                                        + p[4]
-                                                        + " months");
-
-                        m.put(
-                                        "description",
-                                        p[5]);
-
-                        products.add(
-                                        m);
-                }
-
-                return products;
         }
 
         // ============================================================
@@ -3455,35 +3011,29 @@ public class PublicController {
                         return null;
                 }
 
-                String normalized = normalizeTenantKey(
-                                slug);
+                String normalized = normalizeTenantKey(slug);
 
-                return orgRepo.findAll()
+                List<Organization> matches = orgRepo.findAll()
                                 .stream()
-                                .filter(
-                                                o -> {
+                                .filter(o -> {
+                                        String name = o.getName() == null
+                                                        ? ""
+                                                        : normalizeTenantKey(o.getName());
+                                        String registration = o.getRegistrationNumber() == null
+                                                        ? ""
+                                                        : normalizeTenantKey(o.getRegistrationNumber());
+                                        return name.equals(normalized) || registration.equals(normalized);
+                                })
+                                .toList();
 
-                                                        String name = o.getName() == null
-                                                                        ? ""
-                                                                        : normalizeTenantKey(
-                                                                                        o.getName());
+                if (matches.size() != 1) {
+                        if (matches.size() > 1) {
+                                log.error("Ambiguous public tenant identifier received: {}", slug);
+                        }
+                        return null;
+                }
 
-                                                        String registration = o.getRegistrationNumber() == null
-                                                                        ? ""
-                                                                        : normalizeTenantKey(
-                                                                                        o.getRegistrationNumber());
-
-                                                        return name.equals(
-                                                                        normalized)
-                                                                        || registration.equals(
-                                                                                        normalized)
-                                                                        || name.contains(
-                                                                                        normalized)
-                                                                        || registration.contains(
-                                                                                        normalized);
-                                                })
-                                .findFirst()
-                                .orElse(null);
+                return matches.get(0);
         }
 
         private String normalizeTenantKey(
@@ -3516,7 +3066,8 @@ public class PublicController {
                         String phone) {
 
                 if (reference == null
-                                || reference.isBlank()) {
+                                || reference.isBlank()
+                                || reference.trim().length() > 100) {
 
                         throw new RuntimeException(
                                         "Application reference number is required.");
@@ -3685,160 +3236,7 @@ public class PublicController {
                  * Platform currently supports monthly repayment only.
                  */
                 return Loan.RepaymentFrequency.MONTHLY;
-        }
 
-        // ============================================================
-        // DEFAULT STATS
-        // ============================================================
-
-        private List<Map<String, Object>> defaultStats() {
-
-                List<Map<String, Object>> stats = new ArrayList<>();
-
-                String[][] rows = {
-
-                                {
-                                                "👥",
-                                                "5,000+",
-                                                "Happy Clients"
-                                },
-
-                                {
-                                                "💰",
-                                                "RWF 2B+",
-                                                "Loans Disbursed"
-                                },
-
-                                {
-                                                "⚡",
-                                                "24 hrs",
-                                                "Average Approval"
-                                },
-
-                                {
-                                                "⭐",
-                                                "98%",
-                                                "Client Satisfaction"
-                                }
-                };
-
-                for (String[] r : rows) {
-
-                        stats.add(
-                                        Map.of(
-                                                        "icon",
-                                                        r[0],
-
-                                                        "value",
-                                                        r[1],
-
-                                                        "label",
-                                                        r[2]));
-                }
-
-                return stats;
-        }
-
-        // ============================================================
-        // TESTIMONIALS
-        // ============================================================
-
-        private List<Map<String, Object>> defaultTestimonials(
-                        String orgName) {
-
-                List<Map<String, Object>> t = new ArrayList<>();
-
-                t.add(
-                                Map.of(
-                                                "name",
-                                                "Joseph G.",
-
-                                                "role",
-                                                "Small Business Owner",
-
-                                                "rating",
-                                                5,
-
-                                                "text",
-                                                orgName
-                                                                + " helped me expand my shop with a business loan."));
-
-                t.add(
-                                Map.of(
-                                                "name",
-                                                "Olivier M.",
-
-                                                "role",
-                                                "Farmer",
-
-                                                "rating",
-                                                5,
-
-                                                "text",
-                                                "I received agricultural financing to expand my farming operation."));
-
-                t.add(
-                                Map.of(
-                                                "name",
-                                                "Grace U.",
-
-                                                "role",
-                                                "Teacher",
-
-                                                "rating",
-                                                5,
-
-                                                "text",
-                                                "The salary advance process was simple and convenient."));
-
-                return t;
-        }
-
-        // ============================================================
-        // TEAM
-        // ============================================================
-
-        private List<Map<String, Object>> defaultTeam() {
-
-                List<Map<String, Object>> team = new ArrayList<>();
-
-                team.add(
-                                Map.of(
-                                                "name",
-                                                "Emmanuel R.",
-                                                "role",
-                                                "Chief Executive Officer",
-                                                "initials",
-                                                "ER"));
-
-                team.add(
-                                Map.of(
-                                                "name",
-                                                "Alice U.",
-                                                "role",
-                                                "Chief Finance Officer",
-                                                "initials",
-                                                "AU"));
-
-                team.add(
-                                Map.of(
-                                                "name",
-                                                "Patrick M.",
-                                                "role",
-                                                "Head of Credit",
-                                                "initials",
-                                                "PM"));
-
-                team.add(
-                                Map.of(
-                                                "name",
-                                                "Alice K.",
-                                                "role",
-                                                "Head of Operations",
-                                                "initials",
-                                                "AK"));
-
-                return team;
         }
 
         // ============================================================
@@ -4054,88 +3452,5 @@ public class PublicController {
 
                         return null;
                 }
-        }
-
-        // ============================================================
-        // DEMO TENANT CONFIG
-        // ============================================================
-
-        private Map<String, Object> demoConfig() {
-
-                Map<String, Object> m = new LinkedHashMap<>();
-
-                m.put(
-                                "name",
-                                "Growth Finance Services Ltd");
-
-                m.put(
-                                "slug",
-                                "growthfinance");
-
-                m.put(
-                                "country",
-                                "Rwanda");
-
-                m.put(
-                                "currency",
-                                "RWF");
-
-                m.put(
-                                "primaryColor",
-                                "#0D6B3E");
-
-                m.put(
-                                "accentColor",
-                                "#F5A623");
-
-                m.put(
-                                "contactEmail",
-                                "info@growthfinance.rw");
-
-                m.put(
-                                "contactPhone",
-                                "+250 788 000 000");
-
-                m.put(
-                                "address",
-                                "KG 7 Ave, Kigali, Rwanda");
-
-                m.put(
-                                "status",
-                                "ACTIVE");
-
-                m.put(
-                                "minLoanAmount",
-                                MIN_LOAN_AMOUNT);
-
-                m.put(
-                                "maxLoanAmount",
-                                null);
-
-                m.put(
-                                "monthlyInterestRate",
-                                MONTHLY_INTEREST_RATE);
-
-                m.put(
-                                "monthlyManagementFeeRate",
-                                MONTHLY_MANAGEMENT_FEE_RATE);
-
-                m.put(
-                                "processingFeeRate",
-                                PROCESSING_FEE_RATE);
-
-                m.put(
-                                "minLoanDurationMonths",
-                                MIN_LOAN_DURATION_MONTHS);
-
-                m.put(
-                                "maxLoanDurationMonths",
-                                MAX_LOAN_DURATION_MONTHS);
-
-                m.put(
-                                "paymentMethods",
-                                paymentMethods());
-
-                return m;
         }
 }

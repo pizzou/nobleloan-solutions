@@ -8,42 +8,66 @@ export default function AboutPage() {
   if (!tenant) return null;
   const primary = tenant.primaryColor;
   const accent = tenant.accentColor;
+  const team = tenant.team ?? [];
 
   return (
     <div>
-      <section className="bg-[#06172D] text-white">
-        <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-16 sm:py-20 lg:grid-cols-[1.15fr_.85fr]">
+      <section className="bg-slate-50">
+        <div className="mx-auto grid max-w-7xl gap-12 px-4 py-20 sm:py-24 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
           <div>
             <div
-              className="text-[11px] font-bold uppercase tracking-[0.2em]"
+              className="text-[11px] font-black uppercase tracking-[0.22em]"
               style={{ color: accent }}
             >
               About {tenant.name}
             </div>
-            <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">
-              A lending partner built for clarity, access and confidence.
+            <h1 className="mt-4 text-4xl font-black tracking-tight text-slate-950 sm:text-6xl">
+              A lender built around responsible, practical finance.
             </h1>
-            <p className="mt-6 max-w-2xl text-base leading-8 text-white/65">
+            <p className="mt-6 max-w-2xl text-base leading-8 text-slate-600">
               {tenant.mission ||
-                "We provide structured financial solutions through a secure digital experience designed around responsible lending and strong customer relationships."}
+                `Learn more about ${tenant.name}, the products we publish, and the standards we aim to bring to every borrower interaction.`}
             </p>
-          </div>
-          <div className="rounded-[30px] border border-white/10 bg-white/5 p-6 backdrop-blur">
-            <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/45">
-              Institutional profile
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link
+                href="/services"
+                className="rounded-2xl px-6 py-3.5 text-sm font-black text-white"
+                style={{ backgroundColor: primary }}
+              >
+                Explore our products
+              </Link>
+              <Link
+                href="/contact"
+                className="rounded-2xl border border-slate-200 bg-white px-6 py-3.5 text-sm font-bold text-slate-700"
+              >
+                Contact us
+              </Link>
             </div>
-            <div className="mt-5 grid grid-cols-2 gap-3">
+          </div>
+
+          <div className="rounded-[2rem] bg-slate-950 p-8 text-white shadow-2xl sm:p-10">
+            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-white/45">
+              Our vision
+            </div>
+            <div className="mt-4 text-2xl font-black leading-tight">
+              {tenant.vision ||
+                `A trusted financial partner for the communities and businesses we serve.`}
+            </div>
+            <div className="mt-8 grid grid-cols-2 gap-3">
               {[
-                ["Founded", tenant.founded || "—"],
                 ["Country", tenant.country || "—"],
-                ["Registration", tenant.registrationNumber || "—"],
                 ["Currency", tenant.currency || "—"],
+                ["Founded", tenant.founded || "—"],
+                ["Registration", tenant.registrationNumber || "—"],
               ].map(([label, value]) => (
-                <div key={label} className="rounded-2xl bg-white/5 p-4">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-white/40">
+                <div
+                  key={label}
+                  className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                >
+                  <div className="text-[10px] font-black uppercase tracking-wider text-white/40">
                     {label}
                   </div>
-                  <div className="mt-1 text-sm font-black text-white">
+                  <div className="mt-1 break-words text-sm font-black text-white">
                     {value}
                   </div>
                 </div>
@@ -53,164 +77,80 @@ export default function AboutPage() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 py-16 sm:py-20">
-        <div className="grid gap-5 md:grid-cols-3">
-          {[
-            [
-              "Mission",
-              tenant.mission ||
-                "Deliver transparent, responsible financial services that help customers move toward meaningful goals.",
-            ],
-            [
-              "Vision",
-              tenant.vision ||
-                "Build long-term customer relationships through trusted, accessible and modern financial services.",
-            ],
-            [
-              "Principles",
-              "Integrity, transparency, customer protection, responsible lending and operational excellence.",
-            ],
-          ].map(([title, text]) => (
+      <section className="mx-auto max-w-7xl px-4 py-20">
+        <div className="grid gap-5 md:grid-cols-2">
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
             <div
-              key={title}
-              className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm"
+              className="text-[11px] font-black uppercase tracking-[0.18em]"
+              style={{ color: accent }}
             >
+              Mission
+            </div>
+            <h2 className="mt-3 text-2xl font-black text-slate-950">
+              What we are here to do
+            </h2>
+            <p className="mt-4 text-sm leading-7 text-slate-600">
+              {tenant.mission ||
+                "Provide clear, practical financing and a professional borrower experience."}
+            </p>
+          </div>
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
+            <div
+              className="text-[11px] font-black uppercase tracking-[0.18em]"
+              style={{ color: accent }}
+            >
+              Responsible lending
+            </div>
+            <h2 className="mt-3 text-2xl font-black text-slate-950">
+              Clear terms. Clear process.
+            </h2>
+            <p className="mt-4 text-sm leading-7 text-slate-600">
+              Our public website is designed to make product information,
+              application steps and lender contact information easy to
+              understand before you commit.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {team.length > 0 && (
+        <section className="bg-slate-50">
+          <div className="mx-auto max-w-7xl px-4 py-20">
+            <div className="text-center">
               <div
-                className="text-[11px] font-bold uppercase tracking-[0.18em]"
+                className="text-[11px] font-black uppercase tracking-[0.18em]"
                 style={{ color: accent }}
               >
-                {title}
+                Leadership & team
               </div>
-              <p className="mt-3 text-sm leading-7 text-slate-600">{text}</p>
+              <h2 className="mt-3 text-3xl font-black text-slate-950">
+                People behind the institution
+              </h2>
             </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="bg-white py-16 sm:py-20">
-        <div className="mx-auto max-w-7xl px-4">
-          <div className="max-w-2xl">
-            <div
-              className="text-[11px] font-bold uppercase tracking-[0.18em]"
-              style={{ color: accent }}
-            >
-              Why customers choose us
-            </div>
-            <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-950">
-              A professional experience at every step
-            </h2>
-          </div>
-          <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {[
-              [
-                "Clear terms",
-                "Understand the commercial terms before submitting a commitment.",
-              ],
-              [
-                "Digital access",
-                "Start and monitor your financing journey without unnecessary branch visits.",
-              ],
-              [
-                "Structured credit",
-                "Decisions are supported by documented risk and affordability processes.",
-              ],
-              [
-                "Customer support",
-                "Reach a real team for questions, guidance and application support.",
-              ],
-              [
-                "Secure operations",
-                "Customer data and financial actions move through controlled workflows.",
-              ],
-              [
-                "Long-term view",
-                "We aim to build sustainable customer relationships rather than one-off transactions.",
-              ],
-            ].map(([title, text]) => (
-              <div
-                key={title}
-                className="rounded-3xl border border-slate-200 p-6"
-              >
+            <div className="mx-auto mt-10 grid max-w-5xl gap-5 md:grid-cols-3">
+              {team.map((member) => (
                 <div
-                  className="h-2 w-10 rounded-full"
-                  style={{ backgroundColor: primary }}
-                />
-                <div className="mt-5 text-sm font-black text-slate-950">
-                  {title}
-                </div>
-                <div className="mt-2 text-sm leading-6 text-slate-500">
-                  {text}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {tenant.team && tenant.team.length > 0 && (
-        <section className="mx-auto max-w-7xl px-4 py-16">
-          <div className="mb-9">
-            <div
-              className="text-[11px] font-bold uppercase tracking-[0.18em]"
-              style={{ color: accent }}
-            >
-              Leadership
-            </div>
-            <h2 className="mt-2 text-3xl font-black text-slate-950">
-              The people behind the platform
-            </h2>
-          </div>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {tenant.team.map((person) => (
-              <div
-                key={person.name}
-                className="rounded-3xl border border-slate-200 bg-white p-6 text-center"
-              >
-                <div
-                  className="mx-auto flex h-16 w-16 items-center justify-center rounded-full text-lg font-black text-white"
-                  style={{ backgroundColor: primary }}
+                  key={`${member.name}-${member.role}`}
+                  className="rounded-[1.5rem] border border-slate-200 bg-white p-6 text-center shadow-sm"
                 >
-                  {person.initials}
+                  <div
+                    className="mx-auto flex h-16 w-16 items-center justify-center rounded-full text-lg font-black text-white"
+                    style={{ backgroundColor: primary }}
+                  >
+                    {member.initials || member.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="mt-4 font-black text-slate-950">
+                    {member.name}
+                  </div>
+                  <div className="mt-1 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    {member.role || "Team"}
+                  </div>
                 </div>
-                <div className="mt-4 text-sm font-black text-slate-950">
-                  {person.name}
-                </div>
-                <div className="mt-1 text-xs text-slate-500">{person.role}</div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </section>
       )}
-
-      <section className="mx-auto max-w-7xl px-4 pb-16">
-        <div
-          className="rounded-[30px] px-7 py-12 text-center"
-          style={{ background: `linear-gradient(135deg, ${primary}, #092844)` }}
-        >
-          <h2 className="text-3xl font-black text-white">
-            Ready to move forward?
-          </h2>
-          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-white/60">
-            Explore the available financial solutions or speak with our team
-            before starting your application.
-          </p>
-          <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <Link
-              href="/services"
-              className="rounded-xl bg-white px-5 py-3 text-sm font-black"
-              style={{ color: primary }}
-            >
-              Explore solutions
-            </Link>
-            <Link
-              href="/contact"
-              className="rounded-xl border border-white/20 px-5 py-3 text-sm font-bold text-white"
-            >
-              Contact us
-            </Link>
-          </div>
-        </div>
-      </section>
     </div>
   );
 }
