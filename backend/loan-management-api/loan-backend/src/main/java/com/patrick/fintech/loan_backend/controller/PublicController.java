@@ -48,7 +48,6 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -68,6 +67,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -81,13 +81,6 @@ import java.util.Set;
 @RequiredArgsConstructor
 @Slf4j
 public class PublicController {
-
-        /**
-         * Optional deployment-level fallback for the current public website.
-         * Configure PUBLIC_TENANT_SLUG in Render instead of hardcoding a tenant.
-         */
-        @Value("${app.public.default-tenant-slug:}")
-        private String defaultPublicTenantSlug;
 
         private final OrganizationRepository orgRepo;
         private final BorrowerRepository borrowerRepo;
@@ -125,6 +118,12 @@ public class PublicController {
         private static final int MIN_LOAN_DURATION_MONTHS = 1;
 
         private static final int MAX_LOAN_DURATION_MONTHS = 6;
+
+        private static final BigDecimal MONTHLY_INTEREST_RATE = Loan.DEFAULT_MONTHLY_INTEREST_RATE;
+
+        private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = Loan.DEFAULT_MONTHLY_MANAGEMENT_FEE_RATE;
+
+        private static final BigDecimal PROCESSING_FEE_RATE = Loan.DEFAULT_PROCESSING_FEE_RATE;
 
         private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(
                         2,
@@ -1654,45 +1653,30 @@ public class PublicController {
         /**
          * Resolve the public tenant from the browser hostname.
          *
-         * The frontend sends X-Tenant-Host explicitly. The Host header is a
-         * server-side fallback. For the current single-tenant Vercel deployment,
-         * PUBLIC_TENANT_SLUG may be configured on Render as a safe fallback.
+         * This endpoint exists so a Vercel/custom-domain deployment can serve
+         * the correct tenant without requiring a tenant slug to be hardcoded
+         * into the browser bundle.
          */
         @GetMapping("/tenant/current")
         public ResponseEntity<ApiResponse<Map<String, Object>>> getCurrentTenantConfig(
-                        @RequestHeader(value = "X-Tenant-Host", required = false) String tenantHost,
-                        @RequestHeader(value = "Host", required = false) String hostHeader) {
+                        @RequestHeader(value = HttpHeaders.ORIGIN, required = false) String origin,
+                        @RequestHeader(value = HttpHeaders.REFERER, required = false) String referer) {
 
-                String requestedHost = tenantHost != null && !tenantHost.isBlank()
-                                ? tenantHost
-                                : hostHeader;
-
-                Organization org = resolveOrgByPublicHost(
-                                requestedHost);
-
-                if (org == null
-                                && defaultPublicTenantSlug != null
-                                && !defaultPublicTenantSlug.isBlank()) {
-
-                        org = orgRepo.findBySlugIgnoreCase(
-                                        defaultPublicTenantSlug.trim())
-                                        .orElse(null);
-                }
+                Organization org = resolveCurrentTenant(origin, referer);
 
                 if (org == null) {
+
                         log.warn(
-                                        "Public tenant resolution failed. hostname='{}'",
-                                        requestedHost);
+                                        "Public tenant could not be resolved. origin={}, referer={}",
+                                        origin,
+                                        referer);
 
                         return ResponseEntity
                                         .status(404)
-                                        .body(
-                                                        ApiResponse.error(
-                                                                        "Public tenant could not be resolved for this hostname."));
+                                        .build();
                 }
 
-                return getTenantConfig(
-                                org.getSlug());
+                return buildTenantConfigResponse(org);
         }
 
         @GetMapping("/tenant/{slug}")
@@ -1708,6 +1692,12 @@ public class PublicController {
                                         .build();
                 }
 
+                return buildTenantConfigResponse(org);
+        }
+
+        private ResponseEntity<ApiResponse<Map<String, Object>>> buildTenantConfigResponse(
+                        Organization org) {
+
                 Map<String, Object> config = new LinkedHashMap<>();
 
                 config.put(
@@ -1717,10 +1707,6 @@ public class PublicController {
                 config.put(
                                 "name",
                                 org.getName());
-
-                config.put(
-                                "slug",
-                                slug);
 
                 config.put(
                                 "country",
@@ -1766,39 +1752,18 @@ public class PublicController {
                                 "registrationNumber",
                                 org.getRegistrationNumber());
 
-                List<Map<String, Object>> publicServices = servicesFor(org);
-
-                BigDecimal configuredMinimum = org.getMinLoanAmountDecimal() != null
-                                ? org.getMinLoanAmountDecimal()
-                                : null;
-
-                BigDecimal configuredMaximum = org.getMaxLoanAmountDecimal() != null
-                                ? org.getMaxLoanAmountDecimal()
-                                : null;
-
-                if (configuredMinimum == null && !publicServices.isEmpty()) {
-                        configuredMinimum = publicServices.stream()
-                                        .map(item -> decimalFromObject(item.get("minAmount")))
-                                        .filter(Objects::nonNull)
-                                        .min(BigDecimal::compareTo)
-                                        .orElse(null);
-                }
-
-                if (configuredMaximum == null && !publicServices.isEmpty()) {
-                        configuredMaximum = publicServices.stream()
-                                        .map(item -> decimalFromObject(item.get("maxAmount")))
-                                        .filter(Objects::nonNull)
-                                        .max(BigDecimal::compareTo)
-                                        .orElse(null);
-                }
-
                 config.put(
                                 "minLoanAmount",
-                                configuredMinimum);
+                                org.getMinLoanAmount() != null
+                                                ? org.getMinLoanAmount()
+                                                : MIN_LOAN_AMOUNT);
 
+                /*
+                 * Platform has no maximum loan amount.
+                 */
                 config.put(
                                 "maxLoanAmount",
-                                configuredMaximum);
+                                null);
 
                 config.put(
                                 "status",
@@ -1869,7 +1834,7 @@ public class PublicController {
 
                 config.put(
                                 "services",
-                                publicServices);
+                                servicesFor(org));
 
                 Map<String, Object> hero = new LinkedHashMap<>();
                 hero.put(
@@ -1908,55 +1873,45 @@ public class PublicController {
                                 "paymentMethods",
                                 paymentMethods());
 
-                BigDecimal primaryInterestRate = publicServices.stream()
-                                .map(item -> decimalFromObject(item.get("monthlyInterestRate")))
-                                .filter(Objects::nonNull)
+                /*
+                 * Explicit platform financial rules for frontend.
+                 */
+                LoanProduct defaultPublicProduct = loanProductRepo
+                                .findByOrganization_IdAndActiveTrueOrderByDisplayOrderAsc(
+                                                org.getId())
+                                .stream()
                                 .findFirst()
                                 .orElse(null);
-
-                BigDecimal primaryManagementFeeRate = publicServices.stream()
-                                .map(item -> decimalFromObject(item.get("monthlyManagementFeeRate")))
-                                .filter(Objects::nonNull)
-                                .findFirst()
-                                .orElse(null);
-
-                BigDecimal primaryProcessingFeeRate = publicServices.stream()
-                                .map(item -> decimalFromObject(item.get("processingFeeRate")))
-                                .filter(Objects::nonNull)
-                                .findFirst()
-                                .orElse(null);
-
-                Integer minimumTerm = publicServices.stream()
-                                .map(item -> integerFromObject(item.get("minTermMonths")))
-                                .filter(Objects::nonNull)
-                                .min(Integer::compareTo)
-                                .orElse(MIN_LOAN_DURATION_MONTHS);
-
-                Integer maximumTerm = publicServices.stream()
-                                .map(item -> integerFromObject(item.get("maxTermMonths")))
-                                .filter(Objects::nonNull)
-                                .max(Integer::compareTo)
-                                .orElse(MAX_LOAN_DURATION_MONTHS);
 
                 config.put(
                                 "monthlyInterestRate",
-                                primaryInterestRate);
+                                defaultPublicProduct != null
+                                                ? defaultPublicProduct.getInterestRateDecimal()
+                                                : MONTHLY_INTEREST_RATE);
 
                 config.put(
                                 "monthlyManagementFeeRate",
-                                primaryManagementFeeRate);
+                                defaultPublicProduct != null
+                                                ? defaultPublicProduct.getManagementFeePercentDecimal()
+                                                : MONTHLY_MANAGEMENT_FEE_RATE);
 
                 config.put(
                                 "processingFeeRate",
-                                primaryProcessingFeeRate);
+                                defaultPublicProduct != null
+                                                ? defaultPublicProduct.getProcessingFeePercentDecimal()
+                                                : PROCESSING_FEE_RATE);
 
                 config.put(
                                 "minLoanDurationMonths",
-                                minimumTerm);
+                                MIN_LOAN_DURATION_MONTHS);
 
                 config.put(
                                 "maxLoanDurationMonths",
-                                maximumTerm);
+                                MAX_LOAN_DURATION_MONTHS);
+
+                config.put(
+                                "slug",
+                                org.getSlug());
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
@@ -2198,21 +2153,13 @@ public class PublicController {
 
                 amount = money(amount);
 
-                /*
-                 * Product-specific minimum amount.
-                 * The backend LoanService remains the final authority.
-                 */
-                BigDecimal publicConfiguredMinimum = org.getMinLoanAmountDecimal() != null
-                                ? org.getMinLoanAmountDecimal()
-                                : MIN_LOAN_AMOUNT;
-
                 if (amount.compareTo(
-                                publicConfiguredMinimum) < 0) {
+                                MIN_LOAN_AMOUNT) < 0) {
 
                         throw new RuntimeException(
                                         "Minimum loan amount is "
                                                         + formatMoney(
-                                                                        publicConfiguredMinimum));
+                                                                        MIN_LOAN_AMOUNT));
                 }
 
                 String inputEmail = str(
@@ -2410,56 +2357,46 @@ public class PublicController {
                                 borrower);
 
                 // ========================================================
-                // PRODUCT-SPECIFIC DURATION RULE
+                // PLATFORM DURATION RULE
                 // ========================================================
 
-                Loan.LoanType loanType = mapLoanType(
-                                str(body.get("loanType")));
+                int months = 1;
 
-                LoanProduct publicProduct = loanProductRepo
-                                .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
-                                                org.getId(),
-                                                loanType)
-                                .orElseThrow(() -> new RuntimeException(
-                                                "This lender has not configured an active product for "
-                                                                + loanType));
+                if (body.get(
+                                "durationMonths") != null) {
 
-                int months = publicProduct.getMinTermMonths() != null
-                                ? publicProduct.getMinTermMonths()
-                                : MIN_LOAN_DURATION_MONTHS;
-
-                if (body.get("durationMonths") != null) {
                         try {
+
                                 months = Integer.parseInt(
-                                                body.get("durationMonths").toString());
+                                                body.get(
+                                                                "durationMonths").toString());
+
                         } catch (NumberFormatException e) {
+
                                 throw new RuntimeException(
                                                 "Duration must be a valid number of months.");
                         }
                 }
 
-                int productMinMonths = publicProduct.getMinTermMonths() != null
-                                ? publicProduct.getMinTermMonths()
-                                : MIN_LOAN_DURATION_MONTHS;
-
-                int productMaxMonths = publicProduct.getMaxTermMonths() != null
-                                ? publicProduct.getMaxTermMonths()
-                                : MAX_LOAN_DURATION_MONTHS;
-
-                if (months < productMinMonths
-                                || months > productMaxMonths) {
+                if (months < MIN_LOAN_DURATION_MONTHS
+                                || months > MAX_LOAN_DURATION_MONTHS) {
 
                         throw new RuntimeException(
                                         "Loan duration must be between "
-                                                        + productMinMonths
+                                                        + MIN_LOAN_DURATION_MONTHS
                                                         + " and "
-                                                        + productMaxMonths
-                                                        + " months for this product.");
+                                                        + MAX_LOAN_DURATION_MONTHS
+                                                        + " months.");
                 }
 
                 BigDecimal collateralValue = decimal(
                                 body.get(
                                                 "collateralValue"));
+
+                Loan.LoanType loanType = mapLoanType(
+                                str(
+                                                body.get(
+                                                                "loanType")));
 
                 /*
                  * The platform currently supports monthly repayment.
@@ -2467,15 +2404,17 @@ public class PublicController {
                 Loan.RepaymentFrequency repaymentFrequency = Loan.RepaymentFrequency.MONTHLY;
 
                 /*
-                 * Public applications do not accept client-selected rates.
-                 * Pricing comes exclusively from the organization's active
-                 * LoanProduct and is snapshotted by LoanService.
+                 * Ignore user-supplied financial rates.
+                 *
+                 * The platform rule is:
+                 *
+                 * 5% monthly interest
+                 * 5% monthly management fee
+                 * 2% one-time processing fee
                  */
-                BigDecimal interestRate = publicProduct.getInterestRateDecimal();
+                BigDecimal interestRate = MONTHLY_INTEREST_RATE;
 
-                String interestRateType = publicProduct.getInterestRateType() != null
-                                ? publicProduct.getInterestRateType()
-                                : "MONTHLY";
+                String interestRateType = "MONTHLY";
 
                 LoanRequest req = LoanRequest.builder()
                                 .borrowerId(
@@ -2525,9 +2464,21 @@ public class PublicController {
                                 null);
 
                 /*
-                 * LoanService resolves and snapshots the selected
-                 * organization's active LoanProduct pricing.
+                 * Enforce the fixed platform terms even if LoanService
+                 * receives old/requested values.
                  */
+                loan.setInterestRate(
+                                MONTHLY_INTEREST_RATE);
+
+                loan.setManagementFeeRate(
+                                MONTHLY_MANAGEMENT_FEE_RATE);
+
+                loan.setProcessingFeeRate(
+                                PROCESSING_FEE_RATE);
+
+                loan.setInterestRateType(
+                                "MONTHLY");
+
                 loan.setTermsAcceptedAt(
                                 LocalDateTime.now());
 
@@ -2556,15 +2507,12 @@ public class PublicController {
                         smsService.sendCustom(
                                         phone,
                                         String.format(
-                                                        "%s: Thank you %s! We received your loan application %s for %s %s. Terms: %s%% monthly interest, %s%% monthly management fee, %s%% processing fee.",
+                                                        "%s: Thank you %s! We received your loan application %s for %s %s. Terms: 5%% monthly interest, 5%% monthly management fee, 2%% processing fee.",
                                                         org.getName(),
                                                         firstName,
                                                         loan.getReferenceNumber(),
                                                         loan.getCurrency(),
-                                                        formatMoney(amount),
-                                                        loan.getInterestRateDecimal(),
-                                                        loan.getManagementFeeRateDecimal(),
-                                                        loan.getProcessingFeeRateDecimal()));
+                                                        formatMoney(amount)));
 
                 } catch (Exception e) {
 
@@ -2601,13 +2549,13 @@ public class PublicController {
                                                 "RECEIVED",
 
                                                 "monthlyInterestRate",
-                                                loan.getInterestRateDecimal(),
+                                                MONTHLY_INTEREST_RATE,
 
                                                 "monthlyManagementFeeRate",
-                                                loan.getManagementFeeRateDecimal(),
+                                                MONTHLY_MANAGEMENT_FEE_RATE,
 
                                                 "processingFeeRate",
-                                                loan.getProcessingFeeRateDecimal()));
+                                                PROCESSING_FEE_RATE));
 
                 idempotencyService.recordSuccess(
                                 idempotencyKey,
@@ -2643,85 +2591,95 @@ public class PublicController {
         private List<Map<String, Object>> servicesFor(
                         Organization org) {
 
-                if (org == null || org.getId() == null) {
-                        return List.of();
-                }
-
                 List<LoanProduct> products = loanProductRepo
                                 .findByOrganization_IdAndActiveTrueOrderByDisplayOrderAsc(
                                                 org.getId());
 
-                if (products == null || products.isEmpty()) {
-                        return parseListOrDefault(
-                                        org.getServicesJson(),
-                                        List.of());
+                if (!products.isEmpty()) {
+
+                        return products
+                                        .stream()
+                                        .map(
+                                                        p -> {
+
+                                                                Map<String, Object> m = new LinkedHashMap<>();
+
+                                                                m.put(
+                                                                                "title",
+                                                                                p.getName());
+
+                                                                m.put(
+                                                                                "icon",
+                                                                                p.getIcon());
+
+                                                                BigDecimal interestRate = p
+                                                                                .getInterestRateDecimal() != null
+                                                                                                ? p.getInterestRateDecimal()
+                                                                                                : MONTHLY_INTEREST_RATE;
+
+                                                                BigDecimal managementFeeRate = p
+                                                                                .getManagementFeePercentDecimal() != null
+                                                                                                ? p.getManagementFeePercentDecimal()
+                                                                                                : MONTHLY_MANAGEMENT_FEE_RATE;
+
+                                                                BigDecimal processingFeeRate = p
+                                                                                .getProcessingFeePercentDecimal() != null
+                                                                                                ? p.getProcessingFeePercentDecimal()
+                                                                                                : PROCESSING_FEE_RATE;
+
+                                                                m.put(
+                                                                                "rate",
+                                                                                interestRate + "% / month");
+
+                                                                m.put(
+                                                                                "monthlyInterestRate",
+                                                                                interestRate);
+
+                                                                m.put(
+                                                                                "monthlyManagementFeeRate",
+                                                                                managementFeeRate);
+
+                                                                m.put(
+                                                                                "processingFeeRate",
+                                                                                processingFeeRate);
+
+                                                                m.put(
+                                                                                "minAmount",
+                                                                                p.getMinAmountDecimal());
+
+                                                                m.put(
+                                                                                "maxAmount",
+                                                                                p.getMaxAmountDecimal() == null
+                                                                                                ? "Unlimited"
+                                                                                                : p.getMaxAmountDecimal());
+
+                                                                m.put(
+                                                                                "minTermMonths",
+                                                                                p.getMinTermMonths());
+
+                                                                m.put(
+                                                                                "maxTermMonths",
+                                                                                p.getMaxTermMonths());
+
+                                                                m.put(
+                                                                                "term",
+                                                                                p.getMinTermMonths()
+                                                                                                + " to "
+                                                                                                + p.getMaxTermMonths()
+                                                                                                + " months");
+
+                                                                m.put(
+                                                                                "description",
+                                                                                p.getDescription());
+
+                                                                return m;
+                                                        })
+                                        .toList();
                 }
 
-                return products
-                                .stream()
-                                .filter(Objects::nonNull)
-                                .map(p -> {
-                                        Map<String, Object> m = new LinkedHashMap<>();
-
-                                        BigDecimal interest = p.getInterestRateDecimal();
-                                        BigDecimal management = p.getManagementFeePercentDecimal();
-                                        BigDecimal processing = p.getProcessingFeePercentDecimal();
-                                        BigDecimal minAmount = p.getMinAmountDecimal();
-                                        BigDecimal maxAmount = p.getMaxAmountDecimal();
-
-                                        Integer minTerm = p.getMinTermMonths();
-                                        Integer maxTerm = p.getMaxTermMonths();
-
-                                        m.put("id", p.getId());
-                                        m.put("title", p.getName());
-                                        m.put("icon", p.getIcon());
-                                        m.put("loanType", p.getLoanType());
-                                        m.put("rate", interest != null
-                                                        ? interest + "% / "
-                                                                        + (p.getInterestRateType() == null ? "month"
-                                                                                        : p.getInterestRateType()
-                                                                                                        .toLowerCase())
-                                                        : null);
-                                        m.put("monthlyInterestRate", interest);
-                                        m.put("monthlyManagementFeeRate", management);
-                                        m.put("processingFeeRate", processing);
-                                        m.put("minAmount", minAmount);
-                                        m.put("maxAmount", maxAmount);
-                                        m.put("minTermMonths", minTerm);
-                                        m.put("maxTermMonths", maxTerm);
-                                        m.put("maxAmountLabel",
-                                                        maxAmount == null ? "Unlimited" : maxAmount.toPlainString());
-                                        m.put("term", minTerm != null && maxTerm != null
-                                                        ? minTerm + " to " + maxTerm + " months"
-                                                        : null);
-                                        m.put("description", p.getDescription());
-                                        m.put("displayOrder", p.getDisplayOrder());
-
-                                        return m;
-                                })
-                                .toList();
-        }
-
-        private BigDecimal decimalFromObject(Object value) {
-                if (value == null) {
-                        return null;
-                }
-                try {
-                        return new BigDecimal(String.valueOf(value));
-                } catch (NumberFormatException ex) {
-                        return null;
-                }
-        }
-
-        private Integer integerFromObject(Object value) {
-                if (value == null) {
-                        return null;
-                }
-                try {
-                        return Integer.valueOf(String.valueOf(value));
-                } catch (NumberFormatException ex) {
-                        return null;
-                }
+                return parseListOrDefault(
+                                org.getServicesJson(),
+                                List.of());
         }
 
         private List<Map<String, Object>> parseListOrDefault(
@@ -3061,81 +3019,6 @@ public class PublicController {
         // TENANT RESOLUTION
         // ============================================================
 
-        /**
-         * Resolve a tenant by the public hostname.
-         *
-         * publicDomain is the indexed production mapping. The organization
-         * website hostname is retained as a compatibility fallback for tenants
-         * that predate the publicDomain field.
-         */
-        private Organization resolveOrgByPublicHost(
-                        String rawHost) {
-
-                String host = normalizePublicHost(rawHost);
-
-                if (host.isBlank()) {
-                        return null;
-                }
-
-                Organization byPublicDomain = orgRepo
-                                .findByPublicDomainIgnoreCase(host)
-                                .orElse(null);
-
-                if (byPublicDomain != null) {
-                        return byPublicDomain;
-                }
-
-                List<Organization> websiteMatches = orgRepo.findAll()
-                                .stream()
-                                .filter(org -> host.equals(
-                                                normalizePublicHost(org.getWebsite())))
-                                .toList();
-
-                if (websiteMatches.size() > 1) {
-                        log.error(
-                                        "Ambiguous public website hostname '{}' maps to {} organizations",
-                                        host,
-                                        websiteMatches.size());
-                        return null;
-                }
-
-                return websiteMatches.isEmpty()
-                                ? null
-                                : websiteMatches.get(0);
-        }
-
-        private String normalizePublicHost(
-                        String rawHost) {
-
-                if (rawHost == null || rawHost.isBlank()) {
-                        return "";
-                }
-
-                try {
-                        java.net.URI uri = new java.net.URI(
-                                        rawHost.contains("://")
-                                                        ? rawHost.trim()
-                                                        : "https://" + rawHost.trim());
-
-                        String host = uri.getHost();
-
-                        if (host == null || host.isBlank()) {
-                                return "";
-                        }
-
-                        return host
-                                        .trim()
-                                        .toLowerCase()
-                                        .replaceFirst("^www\\.", "");
-
-                } catch (Exception e) {
-                        log.debug(
-                                        "Unable to normalize public tenant host '{}'",
-                                        rawHost);
-                        return "";
-                }
-        }
-
         private Organization resolveOrg(
                         String slug) {
 
@@ -3147,8 +3030,18 @@ public class PublicController {
 
                 String normalized = normalizeTenantKey(slug);
 
+                Organization bySlug = orgRepo
+                                .findBySlugIgnoreCase(
+                                                slug.trim())
+                                .orElse(null);
+
+                if (isPublicTenant(bySlug)) {
+                        return bySlug;
+                }
+
                 List<Organization> matches = orgRepo.findAll()
                                 .stream()
+                                .filter(this::isPublicTenant)
                                 .filter(o -> {
                                         String name = o.getName() == null
                                                         ? ""
@@ -3156,18 +3049,152 @@ public class PublicController {
                                         String registration = o.getRegistrationNumber() == null
                                                         ? ""
                                                         : normalizeTenantKey(o.getRegistrationNumber());
-                                        return name.equals(normalized) || registration.equals(normalized);
+                                        String organizationSlug = o.getSlug() == null
+                                                        ? ""
+                                                        : normalizeTenantKey(o.getSlug());
+                                        return name.equals(normalized)
+                                                        || registration.equals(normalized)
+                                                        || organizationSlug.equals(normalized);
                                 })
                                 .toList();
 
                 if (matches.size() != 1) {
+
                         if (matches.size() > 1) {
-                                log.error("Ambiguous public tenant identifier received: {}", slug);
+                                log.error(
+                                                "Ambiguous public tenant identifier received: {}",
+                                                slug);
                         }
+
                         return null;
                 }
 
                 return matches.get(0);
+        }
+
+        private Organization resolveCurrentTenant(
+                        String origin,
+                        String referer) {
+
+                String host = extractHost(origin);
+
+                if (host == null) {
+                        host = extractHost(referer);
+                }
+
+                if (host != null) {
+
+                        String normalizedHost = normalizeTenantKey(host);
+                        String firstLabel = host.split("\\.")[0];
+                        String normalizedFirstLabel = normalizeTenantKey(firstLabel);
+
+                        List<Organization> matches = orgRepo.findAll()
+                                        .stream()
+                                        .filter(this::isPublicTenant)
+                                        .filter(org -> matchesTenantHost(
+                                                        org,
+                                                        normalizedHost,
+                                                        normalizedFirstLabel))
+                                        .toList();
+
+                        if (matches.size() == 1) {
+                                return matches.get(0);
+                        }
+
+                        if (matches.size() > 1) {
+                                log.error(
+                                                "Ambiguous public tenant hostname: {}",
+                                                host);
+                                return null;
+                        }
+                }
+
+                String configuredDefault = System.getenv(
+                                "PUBLIC_DEFAULT_TENANT_SLUG");
+
+                if (configuredDefault != null
+                                && !configuredDefault.isBlank()) {
+
+                        return resolveOrg(configuredDefault);
+                }
+
+                return null;
+        }
+
+        private boolean matchesTenantHost(
+                        Organization org,
+                        String normalizedHost,
+                        String normalizedFirstLabel) {
+
+                if (org == null) {
+                        return false;
+                }
+
+                String slug = org.getSlug() == null
+                                ? ""
+                                : normalizeTenantKey(org.getSlug());
+
+                if (!slug.isBlank()
+                                && (slug.equals(normalizedHost)
+                                                || slug.equals(normalizedFirstLabel))) {
+                        return true;
+                }
+
+                String websiteHost = extractHost(org.getWebsite());
+
+                if (websiteHost == null) {
+                        return false;
+                }
+
+                String normalizedWebsiteHost = normalizeTenantKey(websiteHost);
+                String websiteFirstLabel = normalizeTenantKey(
+                                websiteHost.split("\\.")[0]);
+
+                return normalizedWebsiteHost.equals(normalizedHost)
+                                || websiteFirstLabel.equals(normalizedFirstLabel);
+        }
+
+        private boolean isPublicTenant(
+                        Organization org) {
+
+                if (org == null
+                                || org.getId() == null
+                                || org.getStatus() == null) {
+                        return false;
+                }
+
+                return org.getStatus() == Organization.OrgStatus.ACTIVE
+                                || org.getStatus() == Organization.OrgStatus.TRIAL;
+        }
+
+        private String extractHost(
+                        String url) {
+
+                if (url == null
+                                || url.isBlank()) {
+                        return null;
+                }
+
+                try {
+                        URI uri = URI.create(
+                                        url.trim());
+
+                        String host = uri.getHost();
+
+                        if (host == null
+                                        || host.isBlank()) {
+
+                                return null;
+                        }
+
+                        return host.toLowerCase();
+
+                } catch (IllegalArgumentException ex) {
+                        log.debug(
+                                        "Unable to parse tenant URL: {}",
+                                        url);
+                        return null;
+                }
         }
 
         private String normalizeTenantKey(

@@ -12,6 +12,7 @@ type Step = 1 | 2 | 3 | 4;
 export default function ApplyPage() {
   const searchParams = useSearchParams();
   const tenant = useTenant();
+  const slug = tenant?.slug ?? "";
 
   const [step, setStep] = useState<Step>(1);
   const [submitted, setSubmitted] = useState(false);
@@ -68,7 +69,7 @@ export default function ApplyPage() {
 
   const online = useOnlineStatus();
 
-  if (!tenant) return null;
+  if (!tenant || !tenant.slug) return null;
 
   const primary = tenant.primaryColor;
   const accent = tenant.accentColor;
@@ -259,7 +260,7 @@ export default function ApplyPage() {
           method: "POST",
           body: {
             ...form,
-            tenantSlug: tenant.slug,
+            tenantSlug: slug,
           },
           headers: {
             "Content-Type": "application/json",
@@ -299,7 +300,7 @@ export default function ApplyPage() {
         },
         body: JSON.stringify({
           ...form,
-          tenantSlug: tenant.slug,
+          tenantSlug: slug,
         }),
       });
 
@@ -330,7 +331,7 @@ export default function ApplyPage() {
             method: "POST",
             body: {
               ...form,
-              tenantSlug: tenant.slug,
+              tenantSlug: slug,
             },
             headers: {
               "Content-Type": "application/json",
@@ -654,13 +655,13 @@ export default function ApplyPage() {
                   hint={
                     form.nationalId && !isNationalIdValid(form.nationalId)
                       ? undefined
-                      : "Enter the identification number issued by your country"
+                      : "16 digits, numbers only"
                   }
                 >
                   <input
                     required
                     inputMode="numeric"
-                    maxLength={30}
+                    maxLength={16}
                     className={inp}
                     value={form.nationalId}
                     onChange={setNationalId("nationalId")}
@@ -668,8 +669,7 @@ export default function ApplyPage() {
 
                   {form.nationalId && !isNationalIdValid(form.nationalId) && (
                     <p className="text-xs mt-1 text-red-600 font-semibold">
-                      Enter a valid identification number (5–30 letters,
-                      numbers, spaces or hyphens)
+                      National ID must be exactly 16 digits
                     </p>
                   )}
                 </Field>
@@ -761,7 +761,7 @@ export default function ApplyPage() {
                     <Field label="Spouse National ID">
                       <input
                         inputMode="numeric"
-                        maxLength={30}
+                        maxLength={16}
                         className={inp}
                         value={form.spouseNationalId}
                         onChange={setNationalId("spouseNationalId")}
@@ -770,8 +770,7 @@ export default function ApplyPage() {
                       {form.spouseNationalId &&
                         !isNationalIdValid(form.spouseNationalId) && (
                           <p className="text-xs mt-1 text-red-600 font-semibold">
-                            Enter a valid identification number (5–30 letters,
-                            numbers, spaces or hyphens)
+                            Must be exactly 16 digits
                           </p>
                         )}
                     </Field>

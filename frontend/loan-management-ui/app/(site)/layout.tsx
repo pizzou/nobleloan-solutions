@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import { OfflineProvider } from "../../components/OfflineProvider";
 import { ToastContainer } from "../../components/ui/ToastContainer";
 import { publicApi } from "../../services/api";
-import { configuredTenantSlug } from "../../lib/tenant";
 
 export interface TenantService {
   title: string;
@@ -172,9 +171,7 @@ export default function SiteLayout({
       setLoading(true);
       setError("");
       try {
-        const raw = configuredTenantSlug
-          ? await publicApi.getTenant(configuredTenantSlug)
-          : await publicApi.getCurrentTenant(window.location.hostname);
+        const raw = await publicApi.getCurrentTenant();
         if (cancelled) return;
         if (!raw || typeof raw !== "object")
           throw new Error("Tenant configuration is unavailable.");
@@ -185,7 +182,7 @@ export default function SiteLayout({
           slug:
             typeof data.slug === "string" && data.slug.trim()
               ? data.slug.trim()
-              : configuredTenantSlug,
+              : "",
           name:
             typeof data.name === "string" && data.name.trim()
               ? data.name.trim()

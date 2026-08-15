@@ -720,19 +720,17 @@ export const contactMessageApi = {
 
 export const publicApi = {
   submitContact: (data: {
+    tenantSlug: string;
     name: string;
     email?: string;
     phone: string;
     subject: string;
     message: string;
   }) => post("/public/contact", data),
+  getCurrentTenant: () => get("/public/tenant/current"),
+
   getTenant: (slug: string) =>
     get(`/public/tenant/${encodeURIComponent(slug)}`),
-  getCurrentTenant: (host?: string) =>
-    get(
-      "/public/tenant/current",
-      host ? { headers: { "X-Tenant-Host": host } } : undefined,
-    ),
 
   getProducts: (slug: string) =>
     get(`/public/tenant/${encodeURIComponent(slug)}/products`),

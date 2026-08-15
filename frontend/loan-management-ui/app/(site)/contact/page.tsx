@@ -31,7 +31,7 @@ export default function ContactPage() {
     setSending(true);
     setError("");
     try {
-      await publicApi.submitContact({ ...form });
+      await publicApi.submitContact({ ...form, tenantSlug: tenant.slug });
       setSent(true);
     } catch (err) {
       setError(
