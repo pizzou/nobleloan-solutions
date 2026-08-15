@@ -507,15 +507,11 @@ public class LoanController {
 
         @GetMapping("/dashboard")
         public ResponseEntity<ApiResponse<DashboardStats>> getDashboard() {
-
-                Organization organization = currentUserUtil
-                                .getCurrentUser()
-                                .getOrganization();
+                Organization organization = currentUserUtil.getCurrentUser().getOrganization();
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
-                                                loanService.getDashboard(
-                                                                organization)));
+                                                loanService.getDashboard(organization)));
         }
 
         // ================================================================

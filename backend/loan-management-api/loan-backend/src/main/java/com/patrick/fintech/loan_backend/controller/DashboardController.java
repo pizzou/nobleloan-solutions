@@ -14,7 +14,8 @@ public class DashboardController {
     private final CurrentUserUtil currentUserUtil;
 
     public DashboardController(DashboardService dashboardService, CurrentUserUtil currentUserUtil) {
-        this.dashboardService = dashboardService; this.currentUserUtil = currentUserUtil;
+        this.dashboardService = dashboardService;
+        this.currentUserUtil = currentUserUtil;
     }
 
     @GetMapping("/stats")

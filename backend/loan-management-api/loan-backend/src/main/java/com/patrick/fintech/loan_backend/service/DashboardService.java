@@ -149,35 +149,37 @@ public class DashboardService {
                         BigDecimal amount = money(
                                         loan.getAmountDecimal());
 
-                        BigDecimal disbursedAmount = money(
-                                        loan.getDisbursedAmountDecimal());
-
                         BigDecimal outstanding = money(
                                         loan.getOutstandingBalanceDecimal());
 
                         /*
-                         * A loan enters the financial portfolio only after an
-                         * actual disbursement timestamp exists.
+                         * A loan is considered disbursed once it has passed
+                         * the pending stage.
                          */
-                        boolean disbursed = loan.getDisbursedAt() != null;
+                        boolean disbursed = status == LoanStatus.ACTIVE
+                                        || status == LoanStatus.OVERDUE
+                                        || status == LoanStatus.PAID
+                                        || status == LoanStatus.CLOSED
+                                        || status == LoanStatus.DEFAULTED
+                                        || status == LoanStatus.WRITTEN_OFF
+                                        || status == LoanStatus.RESTRUCTURED;
 
                         if (disbursed) {
 
                                 totalDisbursed = money(
                                                 totalDisbursed.add(
-                                                                disbursedAmount));
+                                                                amount));
                         }
 
                         /*
                          * Current outstanding portfolio.
                          *
-                         * Only genuinely disbursed active/overdue/restructured
-                         * loans contribute to outstanding principal.
+                         * Restructured loans remain part of the outstanding
+                         * portfolio until paid/closed/written off.
                          */
-                        boolean outstandingLoan = disbursed
-                                        && (status == LoanStatus.ACTIVE
-                                                        || status == LoanStatus.OVERDUE
-                                                        || status == LoanStatus.RESTRUCTURED);
+                        boolean outstandingLoan = status == LoanStatus.ACTIVE
+                                        || status == LoanStatus.OVERDUE
+                                        || status == LoanStatus.RESTRUCTURED;
 
                         if (outstandingLoan) {
 
