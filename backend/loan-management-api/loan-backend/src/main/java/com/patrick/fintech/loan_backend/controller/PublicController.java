@@ -48,6 +48,7 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -80,6 +81,13 @@ import java.util.Set;
 @RequiredArgsConstructor
 @Slf4j
 public class PublicController {
+
+        /**
+         * Optional deployment-level fallback for the current public website.
+         * Configure PUBLIC_TENANT_SLUG in Render instead of hardcoding a tenant.
+         */
+        @Value("${app.public.default-tenant-slug:}")
+        private String defaultPublicTenantSlug;
 
         private final OrganizationRepository orgRepo;
         private final BorrowerRepository borrowerRepo;
@@ -1643,6 +1651,50 @@ public class PublicController {
         // TENANT CONFIGURATION
         // ============================================================
 
+        /**
+         * Resolve the public tenant from the browser hostname.
+         *
+         * The frontend sends X-Tenant-Host explicitly. The Host header is a
+         * server-side fallback. For the current single-tenant Vercel deployment,
+         * PUBLIC_TENANT_SLUG may be configured on Render as a safe fallback.
+         */
+        @GetMapping("/tenant/current")
+        public ResponseEntity<ApiResponse<Map<String, Object>>> getCurrentTenantConfig(
+                        @RequestHeader(value = "X-Tenant-Host", required = false) String tenantHost,
+                        @RequestHeader(value = "Host", required = false) String hostHeader) {
+
+                String requestedHost = tenantHost != null && !tenantHost.isBlank()
+                                ? tenantHost
+                                : hostHeader;
+
+                Organization org = resolveOrgByPublicHost(
+                                requestedHost);
+
+                if (org == null
+                                && defaultPublicTenantSlug != null
+                                && !defaultPublicTenantSlug.isBlank()) {
+
+                        org = orgRepo.findBySlugIgnoreCase(
+                                        defaultPublicTenantSlug.trim())
+                                        .orElse(null);
+                }
+
+                if (org == null) {
+                        log.warn(
+                                        "Public tenant resolution failed. hostname='{}'",
+                                        requestedHost);
+
+                        return ResponseEntity
+                                        .status(404)
+                                        .body(
+                                                        ApiResponse.error(
+                                                                        "Public tenant could not be resolved for this hostname."));
+                }
+
+                return getTenantConfig(
+                                org.getSlug());
+        }
+
         @GetMapping("/tenant/{slug}")
         public ResponseEntity<ApiResponse<Map<String, Object>>> getTenantConfig(
                         @PathVariable String slug) {
@@ -3008,6 +3060,81 @@ public class PublicController {
         // ============================================================
         // TENANT RESOLUTION
         // ============================================================
+
+        /**
+         * Resolve a tenant by the public hostname.
+         *
+         * publicDomain is the indexed production mapping. The organization
+         * website hostname is retained as a compatibility fallback for tenants
+         * that predate the publicDomain field.
+         */
+        private Organization resolveOrgByPublicHost(
+                        String rawHost) {
+
+                String host = normalizePublicHost(rawHost);
+
+                if (host.isBlank()) {
+                        return null;
+                }
+
+                Organization byPublicDomain = orgRepo
+                                .findByPublicDomainIgnoreCase(host)
+                                .orElse(null);
+
+                if (byPublicDomain != null) {
+                        return byPublicDomain;
+                }
+
+                List<Organization> websiteMatches = orgRepo.findAll()
+                                .stream()
+                                .filter(org -> host.equals(
+                                                normalizePublicHost(org.getWebsite())))
+                                .toList();
+
+                if (websiteMatches.size() > 1) {
+                        log.error(
+                                        "Ambiguous public website hostname '{}' maps to {} organizations",
+                                        host,
+                                        websiteMatches.size());
+                        return null;
+                }
+
+                return websiteMatches.isEmpty()
+                                ? null
+                                : websiteMatches.get(0);
+        }
+
+        private String normalizePublicHost(
+                        String rawHost) {
+
+                if (rawHost == null || rawHost.isBlank()) {
+                        return "";
+                }
+
+                try {
+                        java.net.URI uri = new java.net.URI(
+                                        rawHost.contains("://")
+                                                        ? rawHost.trim()
+                                                        : "https://" + rawHost.trim());
+
+                        String host = uri.getHost();
+
+                        if (host == null || host.isBlank()) {
+                                return "";
+                        }
+
+                        return host
+                                        .trim()
+                                        .toLowerCase()
+                                        .replaceFirst("^www\\.", "");
+
+                } catch (Exception e) {
+                        log.debug(
+                                        "Unable to normalize public tenant host '{}'",
+                                        rawHost);
+                        return "";
+                }
+        }
 
         private Organization resolveOrg(
                         String slug) {
