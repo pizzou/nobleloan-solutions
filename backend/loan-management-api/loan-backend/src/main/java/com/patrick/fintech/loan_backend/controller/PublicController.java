@@ -1721,6 +1721,19 @@ public class PublicController {
                                 org.getRegistrationNumber());
 
                 config.put(
+                                "minLoanAmount",
+                                org.getMinLoanAmount() != null
+                                                ? org.getMinLoanAmount()
+                                                : MIN_LOAN_AMOUNT);
+
+                /*
+                 * Platform has no maximum loan amount.
+                 */
+                config.put(
+                                "maxLoanAmount",
+                                null);
+
+                config.put(
                                 "status",
                                 org.getStatus());
 
@@ -1787,119 +1800,9 @@ public class PublicController {
                                 "socialMedia",
                                 social);
 
-                List<Map<String, Object>> publicServices = servicesFor(org);
-
                 config.put(
                                 "services",
-                                publicServices);
-
-                BigDecimal configuredMinimum = org.getMinLoanAmountDecimal();
-                BigDecimal configuredMaximum = org.getMaxLoanAmountDecimal();
-
-                if (configuredMinimum == null && !publicServices.isEmpty()) {
-                        configuredMinimum = publicServices.stream()
-                                        .map(item -> item.get("minAmount"))
-                                        .filter(Objects::nonNull)
-                                        .map(value -> {
-                                                try {
-                                                        return new BigDecimal(value.toString());
-                                                } catch (Exception ignored) {
-                                                        return null;
-                                                }
-                                        })
-                                        .filter(Objects::nonNull)
-                                        .min(BigDecimal::compareTo)
-                                        .orElse(null);
-                }
-
-                if (configuredMaximum == null && !publicServices.isEmpty()) {
-                        configuredMaximum = publicServices.stream()
-                                        .map(item -> item.get("maxAmount"))
-                                        .filter(Objects::nonNull)
-                                        .map(value -> {
-                                                try {
-                                                        return new BigDecimal(value.toString());
-                                                } catch (Exception ignored) {
-                                                        return null;
-                                                }
-                                        })
-                                        .filter(Objects::nonNull)
-                                        .max(BigDecimal::compareTo)
-                                        .orElse(null);
-                }
-
-                config.put("minLoanAmount", configuredMinimum);
-                config.put("maxLoanAmount", configuredMaximum);
-
-                BigDecimal representativeInterest = publicServices.stream()
-                                .map(item -> item.get("monthlyInterestRate"))
-                                .filter(Objects::nonNull)
-                                .map(value -> {
-                                        try {
-                                                return new BigDecimal(value.toString());
-                                        } catch (Exception ignored) {
-                                                return null;
-                                        }
-                                })
-                                .filter(Objects::nonNull)
-                                .findFirst()
-                                .orElse(null);
-
-                BigDecimal representativeManagement = publicServices.stream()
-                                .map(item -> item.get("monthlyManagementFeeRate"))
-                                .filter(Objects::nonNull)
-                                .map(value -> {
-                                        try {
-                                                return new BigDecimal(value.toString());
-                                        } catch (Exception ignored) {
-                                                return null;
-                                        }
-                                })
-                                .filter(Objects::nonNull)
-                                .findFirst()
-                                .orElse(null);
-
-                BigDecimal representativeProcessing = publicServices.stream()
-                                .map(item -> item.get("processingFeeRate"))
-                                .filter(Objects::nonNull)
-                                .map(value -> {
-                                        try {
-                                                return new BigDecimal(value.toString());
-                                        } catch (Exception ignored) {
-                                                return null;
-                                        }
-                                })
-                                .filter(Objects::nonNull)
-                                .findFirst()
-                                .orElse(null);
-
-                Integer representativeMinTerm = publicServices.stream()
-                                .map(item -> item.get("minTermMonths"))
-                                .filter(Objects::nonNull)
-                                .map(value -> {
-                                        try {
-                                                return Integer.valueOf(value.toString());
-                                        } catch (Exception ignored) {
-                                                return null;
-                                        }
-                                })
-                                .filter(Objects::nonNull)
-                                .min(Integer::compareTo)
-                                .orElse(null);
-
-                Integer representativeMaxTerm = publicServices.stream()
-                                .map(item -> item.get("maxTermMonths"))
-                                .filter(Objects::nonNull)
-                                .map(value -> {
-                                        try {
-                                                return Integer.valueOf(value.toString());
-                                        } catch (Exception ignored) {
-                                                return null;
-                                        }
-                                })
-                                .filter(Objects::nonNull)
-                                .max(Integer::compareTo)
-                                .orElse(null);
+                                servicesFor(org));
 
                 Map<String, Object> hero = new LinkedHashMap<>();
                 hero.put(
@@ -1938,25 +1841,28 @@ public class PublicController {
                                 "paymentMethods",
                                 paymentMethods());
 
+                /*
+                 * Explicit platform financial rules for frontend.
+                 */
                 config.put(
                                 "monthlyInterestRate",
-                                representativeInterest);
+                                MONTHLY_INTEREST_RATE);
 
                 config.put(
                                 "monthlyManagementFeeRate",
-                                representativeManagement);
+                                MONTHLY_MANAGEMENT_FEE_RATE);
 
                 config.put(
                                 "processingFeeRate",
-                                representativeProcessing);
+                                PROCESSING_FEE_RATE);
 
                 config.put(
                                 "minLoanDurationMonths",
-                                representativeMinTerm);
+                                MIN_LOAN_DURATION_MONTHS);
 
                 config.put(
                                 "maxLoanDurationMonths",
-                                representativeMaxTerm);
+                                MAX_LOAN_DURATION_MONTHS);
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
@@ -2552,7 +2458,7 @@ public class PublicController {
                         smsService.sendCustom(
                                         phone,
                                         String.format(
-                                                        "%s: Thank you %s! We received your loan application %s for %s %s. Please review the official loan offer for your approved interest, management fee, and processing fee.",
+                                                        "%s: Thank you %s! We received your loan application %s for %s %s. Terms: 5%% monthly interest, 5%% monthly management fee, 2%% processing fee.",
                                                         org.getName(),
                                                         firstName,
                                                         loan.getReferenceNumber(),
@@ -2594,13 +2500,13 @@ public class PublicController {
                                                 "RECEIVED",
 
                                                 "monthlyInterestRate",
-                                                loan.getInterestRateDecimal(),
+                                                MONTHLY_INTEREST_RATE,
 
                                                 "monthlyManagementFeeRate",
-                                                loan.getManagementFeeRateDecimal(),
+                                                MONTHLY_MANAGEMENT_FEE_RATE,
 
                                                 "processingFeeRate",
-                                                loan.getProcessingFeeRateDecimal()));
+                                                PROCESSING_FEE_RATE));
 
                 idempotencyService.recordSuccess(
                                 idempotencyKey,
@@ -2636,75 +2542,63 @@ public class PublicController {
         private List<Map<String, Object>> servicesFor(
                         Organization org) {
 
-                if (org == null || org.getId() == null) {
-                        return List.of();
-                }
-
                 List<LoanProduct> products = loanProductRepo
                                 .findByOrganization_IdAndActiveTrueOrderByDisplayOrderAsc(
                                                 org.getId());
 
-                if (products != null && !products.isEmpty()) {
+                if (!products.isEmpty()) {
 
                         return products
                                         .stream()
-                                        .filter(Objects::nonNull)
-                                        .map(p -> {
+                                        .map(
+                                                        p -> {
 
-                                                Map<String, Object> m = new LinkedHashMap<>();
+                                                                Map<String, Object> m = new LinkedHashMap<>();
 
-                                                BigDecimal interest = p.getInterestRateDecimal();
-                                                BigDecimal management = p.getManagementFeePercentDecimal();
-                                                BigDecimal processing = p.getProcessingFeePercentDecimal();
+                                                                m.put(
+                                                                                "title",
+                                                                                p.getName());
 
-                                                m.put("id", p.getId());
-                                                m.put("title", p.getName());
-                                                m.put("icon", p.getIcon());
-                                                m.put("loanType", p.getLoanType());
-                                                m.put("description", p.getDescription());
-                                                m.put("interestRateType", p.getInterestRateType());
+                                                                m.put(
+                                                                                "icon",
+                                                                                p.getIcon());
 
-                                                m.put("monthlyInterestRate", interest);
-                                                m.put("monthlyManagementFeeRate", management);
-                                                m.put("processingFeeRate", processing);
+                                                                /*
+                                                                 * Platform rate is fixed.
+                                                                 */
+                                                                m.put(
+                                                                                "rate",
+                                                                                MONTHLY_INTEREST_RATE
+                                                                                                + "% / month");
 
-                                                if (interest != null) {
-                                                        m.put(
-                                                                        "rate",
-                                                                        interest.stripTrailingZeros().toPlainString()
-                                                                                        + "% / month");
-                                                } else {
-                                                        m.put("rate", "Published at application");
-                                                }
+                                                                m.put(
+                                                                                "monthlyInterestRate",
+                                                                                MONTHLY_INTEREST_RATE);
 
-                                                m.put("minAmount", p.getMinAmountDecimal());
-                                                m.put("maxAmount", p.getMaxAmountDecimal());
-                                                m.put("minTermMonths", p.getMinTermMonths());
-                                                m.put("maxTermMonths", p.getMaxTermMonths());
+                                                                m.put(
+                                                                                "monthlyManagementFeeRate",
+                                                                                MONTHLY_MANAGEMENT_FEE_RATE);
 
-                                                Integer minTerm = p.getMinTermMonths();
-                                                Integer maxTerm = p.getMaxTermMonths();
+                                                                m.put(
+                                                                                "processingFeeRate",
+                                                                                PROCESSING_FEE_RATE);
 
-                                                if (minTerm != null && maxTerm != null) {
-                                                        m.put(
-                                                                        "term",
-                                                                        minTerm + " to " + maxTerm + " months");
-                                                } else if (maxTerm != null) {
-                                                        m.put(
-                                                                        "term",
-                                                                        "Up to " + maxTerm + " months");
-                                                } else {
-                                                        m.put("term", "See loan offer");
-                                                }
+                                                                m.put(
+                                                                                "maxAmount",
+                                                                                "Unlimited");
 
-                                                if (p.getMaxAmountDecimal() == null) {
-                                                        m.put("maxAmountLabel", "Unlimited");
-                                                } else {
-                                                        m.put("maxAmountLabel", p.getMaxAmountDecimal());
-                                                }
+                                                                m.put(
+                                                                                "term",
+                                                                                "1 to "
+                                                                                                + MAX_LOAN_DURATION_MONTHS
+                                                                                                + " months");
 
-                                                return m;
-                                        })
+                                                                m.put(
+                                                                                "description",
+                                                                                p.getDescription());
+
+                                                                return m;
+                                                        })
                                         .toList();
                 }
 
@@ -3059,29 +2953,35 @@ public class PublicController {
                         return null;
                 }
 
-                String normalized = normalizeTenantKey(slug);
+                String normalized = normalizeTenantKey(
+                                slug);
 
-                List<Organization> matches = orgRepo.findAll()
+                return orgRepo.findAll()
                                 .stream()
-                                .filter(o -> {
-                                        String name = o.getName() == null
-                                                        ? ""
-                                                        : normalizeTenantKey(o.getName());
-                                        String registration = o.getRegistrationNumber() == null
-                                                        ? ""
-                                                        : normalizeTenantKey(o.getRegistrationNumber());
-                                        return name.equals(normalized) || registration.equals(normalized);
-                                })
-                                .toList();
+                                .filter(
+                                                o -> {
 
-                if (matches.size() != 1) {
-                        if (matches.size() > 1) {
-                                log.error("Ambiguous public tenant identifier received: {}", slug);
-                        }
-                        return null;
-                }
+                                                        String name = o.getName() == null
+                                                                        ? ""
+                                                                        : normalizeTenantKey(
+                                                                                        o.getName());
 
-                return matches.get(0);
+                                                        String registration = o.getRegistrationNumber() == null
+                                                                        ? ""
+                                                                        : normalizeTenantKey(
+                                                                                        o.getRegistrationNumber());
+
+                                                        return name.equals(
+                                                                        normalized)
+                                                                        || registration.equals(
+                                                                                        normalized)
+                                                                        || name.contains(
+                                                                                        normalized)
+                                                                        || registration.contains(
+                                                                                        normalized);
+                                                })
+                                .findFirst()
+                                .orElse(null);
         }
 
         private String normalizeTenantKey(

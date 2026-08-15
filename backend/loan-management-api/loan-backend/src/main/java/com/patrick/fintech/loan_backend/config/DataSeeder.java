@@ -290,11 +290,6 @@ public class DataSeeder implements CommandLineRunner {
                                                                 "BOOTSTRAP_ORG_NAME",
                                                                 "Noble Loan Solutions Ltd"))
 
-                                .slug(
-                                                envOrDefault(
-                                                                "BOOTSTRAP_ORG_SLUG",
-                                                                "nobleloansolutions"))
-
                                 .industry(
                                                 "Microfinance")
 
