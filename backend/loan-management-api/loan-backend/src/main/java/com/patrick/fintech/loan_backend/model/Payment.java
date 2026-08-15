@@ -103,7 +103,9 @@ public class Payment {
         @Column(name = "amount", precision = 19, scale = 2)
         @JsonProperty("amount")
         @Builder.Default
-        private BigDecimal amount = BigDecimal.ZERO;
+        private BigDecimal amount = BigDecimal.ZERO.setScale(
+                        2,
+                        RoundingMode.HALF_UP);
 
         /**
          * Principal actually paid against this installment.
@@ -132,7 +134,7 @@ public class Payment {
         @Builder.Default
         private BigDecimal managementFeeComponent = BigDecimal.ZERO;
 
-        /** Extension/restructuring fee allocated to this payment. */
+        /** Extension/restructuring fee settled by this payment. */
         @Column(name = "extension_fee_component", precision = 19, scale = 2, nullable = false)
         @JsonProperty("extensionFeeComponent")
         @Builder.Default
@@ -369,8 +371,7 @@ public class Payment {
                 managementFeeComponent = normalizeMoney(
                                 managementFeeComponent);
 
-                extensionFeeComponent = normalizeMoney(
-                                extensionFeeComponent);
+                extensionFeeComponent = normalizeMoney(extensionFeeComponent);
 
                 amountPaid = normalizeMoney(
                                 amountPaid);
@@ -452,9 +453,7 @@ public class Payment {
         @JsonIgnore
         public BigDecimal getExtensionFeeComponentDecimal() {
 
-                return extensionFeeComponent == null
-                                ? BigDecimal.ZERO
-                                : extensionFeeComponent;
+                return extensionFeeComponent;
         }
 
         @JsonIgnore
@@ -736,6 +735,13 @@ public class Payment {
                                 value);
         }
 
+        public void setExtensionFeeComponent(
+                        BigDecimal value) {
+
+                this.extensionFeeComponent = normalizeMoney(
+                                value);
+        }
+
         public void setAmountPaid(
                         BigDecimal value) {
 
@@ -842,6 +848,13 @@ public class Payment {
                         Double value) {
 
                 this.managementFeeComponent = MoneyMath.of(
+                                value);
+        }
+
+        public void setExtensionFeeComponent(
+                        Double value) {
+
+                this.extensionFeeComponent = MoneyMath.of(
                                 value);
         }
 

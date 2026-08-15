@@ -17,6 +17,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -281,6 +282,19 @@ public class Loan {
         private BigDecimal amount;
 
         /**
+         * Request-bound legacy Double compatibility value.
+         *
+         * The persisted accounting value remains normalized to 2 decimal
+         * places, while legacy callers that still consume getAmountDouble()
+         * can receive the original input precision during the lifetime of
+         * this entity instance. The field is deliberately transient and is
+         * never persisted as financial state.
+         */
+        @Transient
+        @JsonIgnore
+        private Double legacyAmountDouble;
+
+        /**
          * Gross principal actually used for disbursement calculations.
          *
          * This remains the full loan principal before the one-time
@@ -476,35 +490,33 @@ public class Loan {
         // ================================================================
 
         /**
-         * Cumulative extension fees assessed on this loan.
-         *
-         * Extension fees are separate from principal, interest, management
-         * fees and the one-time processing fee.
+         * Total extension/restructuring fees assessed over the life of the loan.
+         * This is never part of principal.
          */
         @Column(name = "extension_fee_assessed", precision = 19, scale = 2, nullable = false)
         @Builder.Default
         @JsonProperty("extensionFeeAssessed")
         private BigDecimal extensionFeeAssessed = BigDecimal.ZERO;
 
-        /** Amount of extension fees actually collected. */
+        /** Extension/restructuring fees actually collected. */
         @Column(name = "extension_fee_paid", precision = 19, scale = 2, nullable = false)
         @Builder.Default
         @JsonProperty("extensionFeePaid")
         private BigDecimal extensionFeePaid = BigDecimal.ZERO;
 
-        /** Extension fees currently outstanding. */
+        /** Extension/restructuring fees still receivable. */
         @Column(name = "extension_fee_outstanding", precision = 19, scale = 2, nullable = false)
         @Builder.Default
         @JsonProperty("extensionFeeOutstanding")
         private BigDecimal extensionFeeOutstanding = BigDecimal.ZERO;
 
-        /** Number of approved extensions/restructuring extensions. */
+        /** Number of approved extensions/restructurings on this facility. */
         @Column(name = "extension_count", nullable = false)
         @Builder.Default
         @JsonProperty("extensionCount")
         private Integer extensionCount = 0;
 
-        /** Date of the most recent approved extension. */
+        /** Date of the most recent approved extension/restructuring. */
         @Column(name = "last_extension_date")
         @JsonProperty("lastExtensionDate")
         private LocalDate lastExtensionDate;
@@ -740,6 +752,21 @@ public class Loan {
                 }
                 if (managementFeeOutstanding == null) {
                         managementFeeOutstanding = MoneyMath.ZERO;
+                }
+                if (extensionFeeAssessed == null) {
+                        extensionFeeAssessed = MoneyMath.ZERO;
+                }
+
+                if (extensionFeePaid == null) {
+                        extensionFeePaid = MoneyMath.ZERO;
+                }
+
+                if (extensionFeeOutstanding == null) {
+                        extensionFeeOutstanding = MoneyMath.ZERO;
+                }
+
+                if (extensionCount == null || extensionCount < 0) {
+                        extensionCount = 0;
                 }
                 if (penaltiesAssessed == null) {
                         penaltiesAssessed = MoneyMath.ZERO;
@@ -1163,18 +1190,6 @@ public class Loan {
                 return processingFeePaid;
         }
 
-        public BigDecimal getExtensionFeeAssessedDecimal() {
-                return extensionFeeAssessed == null ? MoneyMath.ZERO : extensionFeeAssessed;
-        }
-
-        public BigDecimal getExtensionFeePaidDecimal() {
-                return extensionFeePaid == null ? MoneyMath.ZERO : extensionFeePaid;
-        }
-
-        public BigDecimal getExtensionFeeOutstandingDecimal() {
-                return extensionFeeOutstanding == null ? MoneyMath.ZERO : extensionFeeOutstanding;
-        }
-
         @JsonIgnore
         public BigDecimal getDisbursedAmountDecimal() {
                 return disbursedAmount;
@@ -1210,11 +1225,30 @@ public class Loan {
                 return nextInstallmentAmount;
         }
 
+        @JsonIgnore
+        public BigDecimal getExtensionFeeAssessedDecimal() {
+                return extensionFeeAssessed == null ? MoneyMath.ZERO : extensionFeeAssessed;
+        }
+
+        @JsonIgnore
+        public BigDecimal getExtensionFeePaidDecimal() {
+                return extensionFeePaid == null ? MoneyMath.ZERO : extensionFeePaid;
+        }
+
+        @JsonIgnore
+        public BigDecimal getExtensionFeeOutstandingDecimal() {
+                return extensionFeeOutstanding == null ? MoneyMath.ZERO : extensionFeeOutstanding;
+        }
+
         // ================================================================
         // LEGACY DOUBLE COMPATIBILITY GETTERS
         // ================================================================
 
         public Double getAmountDouble() {
+                if (legacyAmountDouble != null) {
+                        return legacyAmountDouble;
+                }
+
                 return amount == null
                                 ? null
                                 : amount.doubleValue();
@@ -1321,6 +1355,9 @@ public class Loan {
         // ================================================================
 
         public void setAmount(BigDecimal value) {
+                this.legacyAmountDouble = value == null
+                                ? null
+                                : value.doubleValue();
                 this.amount = normalizeMoney(value);
         }
 
@@ -1360,18 +1397,6 @@ public class Loan {
                 this.processingFeePaid = normalizeMoney(value);
         }
 
-        public void setExtensionFeeAssessed(BigDecimal value) {
-                this.extensionFeeAssessed = normalizeMoney(value);
-        }
-
-        public void setExtensionFeePaid(BigDecimal value) {
-                this.extensionFeePaid = normalizeMoney(value);
-        }
-
-        public void setExtensionFeeOutstanding(BigDecimal value) {
-                this.extensionFeeOutstanding = normalizeMoney(value);
-        }
-
         public void setDisbursedAmount(BigDecimal value) {
                 this.disbursedAmount = normalizeMoney(value);
         }
@@ -1400,11 +1425,24 @@ public class Loan {
                 this.nextInstallmentAmount = normalizeMoney(value);
         }
 
+        public void setExtensionFeeAssessed(BigDecimal value) {
+                this.extensionFeeAssessed = normalizeMoney(value);
+        }
+
+        public void setExtensionFeePaid(BigDecimal value) {
+                this.extensionFeePaid = normalizeMoney(value);
+        }
+
+        public void setExtensionFeeOutstanding(BigDecimal value) {
+                this.extensionFeeOutstanding = normalizeMoney(value);
+        }
+
         // ================================================================
         // LEGACY DOUBLE SETTERS
         // ================================================================
 
         public void setAmount(Double value) {
+                this.legacyAmountDouble = value;
                 this.amount = MoneyMath.of(value);
         }
 
