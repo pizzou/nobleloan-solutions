@@ -92,10 +92,9 @@ const humanize = (value?: string): string =>
   value ? value.replace(/_/g, " ") : "—";
 
 const getBorrowerName = (loan: Loan): string => {
-  const explicit = (loan.borrowerName ?? "").trim();
-  if (explicit) return explicit;
   const first = loan.borrower?.firstName?.trim() ?? "";
   const last = loan.borrower?.lastName?.trim() ?? "";
+
   return `${first} ${last}`.trim() || "Unnamed borrower";
 };
 
