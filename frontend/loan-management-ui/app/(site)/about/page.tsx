@@ -1,215 +1,325 @@
 "use client";
+
 import Link from "next/link";
 import { useTenant } from "../layout";
-const Arrow = () => (
-  <svg
-    viewBox="0 0 24 24"
-    className="h-4 w-4"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-  >
-    <path d="M5 12h14" />
-    <path d="m13 6 6 6-6 6" />
-  </svg>
-);
-const Check = () => (
-  <svg
-    viewBox="0 0 24 24"
-    className="h-4 w-4"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.4"
-  >
-    <path d="m5 12 4 4L19 6" />
-  </svg>
-);
+
+function SectionEyebrow({
+  children,
+  color,
+}: {
+  children: React.ReactNode;
+  color: string;
+}) {
+  return (
+    <div
+      className="text-[10px] font-black uppercase tracking-[0.24em]"
+      style={{ color }}
+    >
+      {children}
+    </div>
+  );
+}
+
 export default function AboutPage() {
   const tenant = useTenant();
+
   if (!tenant) return null;
-  const primary = tenant.primaryColor || "#0D2C54";
-  const gold = tenant.accentColor || "#D4AF37";
+
+  const primary = tenant.primaryColor;
+  const accent = tenant.accentColor;
+  const services = tenant.services ?? [];
+  const team = tenant.team ?? [];
+  const stats = tenant.stats ?? [];
+
   return (
-    <div className="public-site">
-      <section className="relative overflow-hidden bg-[#071B35] py-20 text-white md:py-28">
-        <div className="public-grid absolute inset-0 opacity-25" />
-        <div className="relative mx-auto grid max-w-7xl gap-12 px-5 lg:grid-cols-[1.15fr_.85fr] lg:items-end">
+    <div className="bg-white pb-24">
+      {/* HERO */}
+      <section
+        className="relative overflow-hidden text-white"
+        style={{
+          background: `linear-gradient(135deg, ${primary}, #071426)`,
+        }}
+      >
+        <div
+          className="absolute -left-32 -top-32 h-[480px] w-[480px] rounded-full blur-3xl"
+          style={{
+            backgroundColor: `${accent}16`,
+          }}
+        />
+
+        <div className="relative mx-auto grid max-w-7xl gap-12 px-4 py-20 md:py-28 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
           <div>
-            <div className="public-kicker border border-[#D4AF37]/35 bg-white/5 text-[#E7CC78]">
-              About {tenant.name}
-            </div>
-            <h1 className="mt-6 max-w-4xl font-serif text-5xl font-semibold tracking-[-.035em] md:text-6xl">
-              A financial partner built on clarity, discipline and trust.
+            <SectionEyebrow color={accent}>About {tenant.name}</SectionEyebrow>
+
+            <h1 className="mt-5 max-w-4xl text-5xl font-black leading-[0.98] tracking-[-0.05em] md:text-7xl">
+              Built around trust, clarity and responsible lending.
             </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-white/65">
-              {tenant.mission ||
-                "We provide structured lending support with a focus on responsible decisions, transparent communication and a premium client experience."}
+
+            <p className="mt-7 max-w-2xl text-lg leading-8 text-white/60">
+              {tenant.tagline ||
+                tenant.hero?.subtext ||
+                `Learn about ${tenant.name}, our purpose and the people behind our financial services.`}
             </p>
           </div>
-          <div className="rounded-[2rem] border border-white/10 bg-white/[.045] p-7">
-            <div className="text-[10px] font-bold uppercase tracking-[.2em] text-white/40">
-              Institution profile
+
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.05] p-7 backdrop-blur-xl">
+            <div className="text-[9px] font-black uppercase tracking-[0.22em] text-white/35">
+              Institutional profile
             </div>
-            <div className="mt-6 space-y-4">
+
+            <div className="mt-6 grid grid-cols-2 gap-3">
               {[
+                ["Country", tenant.country || "—"],
+                ["Currency", tenant.currency || "—"],
                 ["Founded", tenant.founded || "—"],
-                ["Country", tenant.country || "Rwanda"],
-                ["Registration", tenant.registrationNumber || "—"],
-                ["Currency", tenant.currency || "RWF"],
-              ].map(([a, b]) => (
+                ["Products", String(services.length)],
+              ].map(([label, value]) => (
                 <div
-                  key={a}
-                  className="flex justify-between gap-5 border-b border-white/10 pb-3 text-sm"
+                  key={label}
+                  className="rounded-xl border border-white/10 bg-white/[0.035] p-4"
                 >
-                  <span className="text-white/45">{a}</span>
-                  <b>{b}</b>
+                  <div className="text-[9px] font-black uppercase tracking-wider text-white/35">
+                    {label}
+                  </div>
+
+                  <div className="mt-2 text-sm font-black text-white">
+                    {value}
+                  </div>
                 </div>
               ))}
             </div>
+
+            {tenant.registrationNumber && (
+              <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.035] p-4">
+                <div className="text-[9px] font-black uppercase tracking-wider text-white/35">
+                  Registration
+                </div>
+
+                <div className="mt-2 text-sm font-black text-white">
+                  {tenant.registrationNumber}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </section>
 
-      <section className="public-section bg-white">
-        <div className="mx-auto grid max-w-7xl gap-14 px-5 lg:grid-cols-[.9fr_1.1fr]">
-          <div>
-            <div className="public-eyebrow text-[#B08A27]">Our purpose</div>
-            <h2 className="public-title text-[#0B1F3A]">
-              Modern lending should still feel personal.
+      {/* MISSION / VISION */}
+      <main className="mx-auto max-w-7xl px-4 pt-16 md:pt-20">
+        <section className="grid gap-5 lg:grid-cols-2">
+          <div className="rounded-[2rem] bg-[#f7f8fa] p-8 md:p-10">
+            <SectionEyebrow color={accent}>Our mission</SectionEyebrow>
+
+            <h2 className="mt-4 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
+              Purpose first.
             </h2>
-          </div>
-          <div className="space-y-6 text-base leading-8 text-slate-500">
-            <p>
+
+            <p className="mt-5 text-base leading-8 text-slate-600">
               {tenant.mission ||
-                "Our mission is to make access to appropriate finance more understandable and more dignified for the clients we serve."}
+                `${tenant.name} is committed to delivering clear, responsible and accessible financial services.`}
             </p>
-            <p>
-              {tenant.vision ||
-                "Our vision is to build long-term financial relationships through responsible lending, thoughtful service and disciplined operations."}
-            </p>
-            <div className="grid gap-3 pt-3 sm:grid-cols-2">
-              {[
-                "Integrity in every decision",
-                "Transparency in every offer",
-                "Security in every interaction",
-                "Excellence in every service",
-              ].map((x) => (
-                <div
-                  key={x}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-semibold text-[#0B1F3A]"
-                >
-                  <span className="mr-2 text-[#0D6B5B]">
-                    <Check />
-                  </span>
-                  {x}
-                </div>
-              ))}
-            </div>
           </div>
-        </div>
-      </section>
 
-      <section className="public-section bg-[#F7F8FA]">
-        <div className="mx-auto max-w-7xl px-5">
-          <div className="max-w-2xl">
-            <div className="public-eyebrow text-[#B08A27]">Our standards</div>
-            <h2 className="public-title text-[#0B1F3A]">
-              What clients should expect from us
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm md:p-10">
+            <SectionEyebrow color={accent}>Our vision</SectionEyebrow>
+
+            <h2 className="mt-4 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
+              Long-term trust matters.
             </h2>
+
+            <p className="mt-5 text-base leading-8 text-slate-600">
+              {tenant.vision ||
+                `To be a trusted financial partner for the communities and businesses we serve.`}
+            </p>
           </div>
-          <div className="mt-12 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
-            {[
-              [
-                "01",
-                "Responsible",
-                "We focus on appropriate facilities and clear obligations.",
-              ],
-              [
-                "02",
-                "Transparent",
-                "Key terms and charges should be understandable before commitment.",
-              ],
-              [
-                "03",
-                "Secure",
-                "Digital interactions are designed with privacy and security in mind.",
-              ],
-              [
-                "04",
-                "Responsive",
-                "Clients should know where to go for help and what happens next.",
-              ],
-            ].map(([n, t, d]) => (
-              <div key={t} className="public-standard-card">
-                <div className="text-xs font-bold text-[#B08A27]">{n}</div>
-                <h3 className="mt-5 font-serif text-xl font-semibold text-[#0B1F3A]">
-                  {t}
-                </h3>
-                <p className="mt-2 text-sm leading-6 text-slate-500">{d}</p>
+        </section>
+
+        {/* STATS */}
+        {stats.length > 0 && (
+          <section className="mt-6 grid grid-cols-2 overflow-hidden rounded-[2rem] border border-slate-200 bg-white md:grid-cols-4">
+            {stats.slice(0, 4).map((stat, index) => (
+              <div
+                key={`${stat.label}-${stat.value}`}
+                className={`p-7 ${
+                  index !== 0 ? "border-l border-slate-200" : ""
+                }`}
+              >
+                <div className="text-lg">{stat.icon || "•"}</div>
+
+                <div className="mt-3 text-3xl font-black tracking-tight text-slate-950">
+                  {stat.value}
+                </div>
+
+                <div className="mt-2 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">
+                  {stat.label}
+                </div>
               </div>
             ))}
-          </div>
-        </div>
-      </section>
+          </section>
+        )}
 
-      {tenant.team?.length ? (
-        <section className="public-section bg-white">
-          <div className="mx-auto max-w-7xl px-5">
-            <div className="text-center">
-              <div className="public-eyebrow text-[#B08A27]">Leadership</div>
-              <h2 className="public-title text-[#0B1F3A]">
-                People behind the relationship
+        {/* OPERATING MODEL */}
+        <section className="mt-6 overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+          <div className="grid lg:grid-cols-[1fr_0.8fr]">
+            <div className="p-8 md:p-12">
+              <SectionEyebrow color={accent}>How we work</SectionEyebrow>
+
+              <h2 className="mt-4 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
+                A modern lending experience with human support.
               </h2>
-              <p className="mt-4 text-slate-500">
-                Experienced professionals supporting responsible lending and
-                client service.
+
+              <p className="mt-5 max-w-2xl text-base leading-8 text-slate-600">
+                {tenant.name} combines digital convenience with structured
+                lending processes so customers can access information, apply and
+                follow their financial journey through one experience.
               </p>
-            </div>
-            <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-              {tenant.team.map((p: any) => (
-                <div
-                  key={p.name}
-                  className="rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-[0_12px_35px_rgba(7,27,53,.05)]"
-                >
+
+              <div className="mt-8 grid gap-3 sm:grid-cols-2">
+                {[
+                  "Clear product information",
+                  "Secure online application",
+                  "Digital document workflow",
+                  "Repayment visibility",
+                  "Direct customer support",
+                  "Professional servicing",
+                ].map((item, index) => (
                   <div
-                    className="mx-auto flex h-20 w-20 items-center justify-center rounded-full text-xl font-bold text-white"
-                    style={{ backgroundColor: primary }}
+                    key={item}
+                    className="flex items-center gap-3 rounded-xl bg-slate-50 p-4"
                   >
-                    {p.initials}
+                    <span
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-[10px] font-black text-white"
+                      style={{
+                        backgroundColor: index % 2 === 0 ? primary : accent,
+                        color: index % 2 === 0 ? "#fff" : primary,
+                      }}
+                    >
+                      {index + 1}
+                    </span>
+
+                    <span className="text-sm font-bold text-slate-800">
+                      {item}
+                    </span>
                   </div>
-                  <div className="mt-5 font-semibold text-[#0B1F3A]">
-                    {p.name}
+                ))}
+              </div>
+            </div>
+
+            <div
+              className="p-8 text-white md:p-12"
+              style={{
+                background: `linear-gradient(150deg, ${primary}, #071426)`,
+              }}
+            >
+              <SectionEyebrow color={accent}>What guides us</SectionEyebrow>
+
+              <div className="mt-8 space-y-7">
+                {[
+                  [
+                    "Transparency",
+                    "Important product information should be clear before a customer commits.",
+                  ],
+                  [
+                    "Responsibility",
+                    "Credit decisions and final repayment schedules remain subject to the lender's approval process.",
+                  ],
+                  [
+                    "Service",
+                    "Customers deserve professional support before, during and after financing.",
+                  ],
+                ].map(([title, text]) => (
+                  <div key={title}>
+                    <h3 className="text-2xl font-black">{title}</h3>
+
+                    <p className="mt-2 text-sm leading-7 text-white/55">
+                      {text}
+                    </p>
                   </div>
-                  <div className="mt-1 text-sm text-slate-400">{p.role}</div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </section>
-      ) : null}
 
-      <section className="public-section bg-[#071B35] text-white">
-        <div className="mx-auto grid max-w-7xl gap-10 px-5 md:grid-cols-3">
-          <div className="md:col-span-2">
-            <div className="public-eyebrow text-[#D9B95B]">
-              A long-term relationship
-            </div>
-            <h2 className="mt-2 font-serif text-4xl font-semibold">
-              We measure success by the quality of the financial relationship,
-              not just the transaction.
+        {/* LEADERSHIP */}
+        {team.length > 0 && (
+          <section className="mt-20">
+            <SectionEyebrow color={accent}>Leadership</SectionEyebrow>
+
+            <h2 className="mt-4 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
+              The people behind {tenant.name}.
             </h2>
+
+            <div className="mt-9 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {team.map((person) => (
+                <article
+                  key={`${person.name}-${person.role}`}
+                  className="rounded-[1.5rem] border border-slate-200 bg-white p-6 transition hover:-translate-y-1 hover:shadow-xl"
+                >
+                  <div
+                    className="flex h-16 w-16 items-center justify-center rounded-2xl text-lg font-black"
+                    style={{
+                      backgroundColor: `${accent}18`,
+                      color: primary,
+                    }}
+                  >
+                    {person.initials || person.name.slice(0, 2).toUpperCase()}
+                  </div>
+
+                  <h3 className="mt-5 text-base font-black text-slate-950">
+                    {person.name}
+                  </h3>
+
+                  <p className="mt-1 text-xs text-slate-500">
+                    {person.role || "Team member"}
+                  </p>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* CTA */}
+        <section className="mt-20">
+          <div
+            className="rounded-[2rem] p-8 text-white md:p-12"
+            style={{
+              background: `linear-gradient(135deg, ${primary}, #071426)`,
+            }}
+          >
+            <div className="flex flex-col justify-between gap-8 md:flex-row md:items-center">
+              <div>
+                <SectionEyebrow color={accent}>
+                  Work with {tenant.name}
+                </SectionEyebrow>
+
+                <h2 className="mt-3 text-3xl font-black tracking-tight md:text-4xl">
+                  Explore the financing solutions available to you.
+                </h2>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <Link
+                  href="/services"
+                  className="rounded-xl bg-white px-6 py-4 text-sm font-black"
+                  style={{
+                    color: primary,
+                  }}
+                >
+                  View Services
+                </Link>
+
+                <Link
+                  href="/contact"
+                  className="rounded-xl border border-white/15 px-6 py-4 text-sm font-bold text-white"
+                >
+                  Contact Us
+                </Link>
+              </div>
+            </div>
           </div>
-          <div className="flex items-end">
-            <Link
-              href="/services"
-              className="public-btn-primary"
-              style={{ backgroundColor: gold, color: "#071B35" }}
-            >
-              Explore our services <Arrow />
-            </Link>
-          </div>
-        </div>
-      </section>
+        </section>
+      </main>
     </div>
   );
 }

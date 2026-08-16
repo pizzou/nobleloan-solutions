@@ -1,265 +1,454 @@
 "use client";
+
 import { useState } from "react";
+import Link from "next/link";
 import { useTenant } from "../layout";
-import { TENANT_SLUG } from "../../../lib/tenant";
-const Arrow = () => (
-  <svg
-    viewBox="0 0 24 24"
-    className="h-4 w-4"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-  >
-    <path d="M5 12h14" />
-    <path d="m13 6 6 6-6 6" />
-  </svg>
-);
+import { publicApi } from "../../../services/api";
+
+const INITIAL_FORM = {
+  name: "",
+  email: "",
+  phone: "",
+  subject: "",
+  message: "",
+};
+
+function SectionEyebrow({
+  children,
+  color,
+}: {
+  children: React.ReactNode;
+  color: string;
+}) {
+  return (
+    <div
+      className="text-[10px] font-black uppercase tracking-[0.24em]"
+      style={{ color }}
+    >
+      {children}
+    </div>
+  );
+}
+
 export default function ContactPage() {
   const tenant = useTenant();
-  const [form, setForm] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    subject: "",
-    message: "",
-  });
-  const [sent, setSent] = useState(false);
+
+  const [form, setForm] = useState(INITIAL_FORM);
   const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
+
   if (!tenant) return null;
-  const primary = tenant.primaryColor || "#0D2C54";
-  const gold = tenant.accentColor || "#D4AF37";
-  const update = (k: string) => (e: any) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }));
-  async function submit(e: any) {
-    e.preventDefault();
+
+  const primary = tenant.primaryColor;
+  const accent = tenant.accentColor;
+  const socials = tenant.socialMedia || {};
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (sending) return;
+
     setSending(true);
     setError("");
+
     try {
-      const base = process.env.NEXT_PUBLIC_API_URL || "/api";
-      const r = await fetch(`${base}/public/contact`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, tenantSlug: TENANT_SLUG }),
+      await publicApi.submitContact({
+        ...form,
+        tenantSlug: tenant.slug,
       });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || j.success === false)
-        throw new Error(
-          j.error || j.message || "We could not send your message.",
-        );
+
       setSent(true);
-    } catch (x: any) {
-      setError(x?.message || "Something went wrong.");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to send your message.",
+      );
     } finally {
       setSending(false);
     }
-  }
+  };
+
   return (
-    <div className="public-site">
-      <section className="relative overflow-hidden bg-[#071B35] py-20 text-white md:py-28">
-        <div className="public-grid absolute inset-0 opacity-25" />
-        <div className="relative mx-auto max-w-5xl px-5 text-center">
-          <div className="public-kicker mx-auto border border-[#D4AF37]/35 bg-white/5 text-[#E7CC78]">
-            Client relations
-          </div>
-          <h1 className="mt-6 font-serif text-5xl font-semibold md:text-6xl">
-            Let’s talk about your next financial move.
+    <div className="bg-white pb-24">
+      {/* HERO */}
+      <section
+        className="relative overflow-hidden text-white"
+        style={{
+          background: `linear-gradient(135deg, ${primary}, #071426)`,
+        }}
+      >
+        <div
+          className="absolute -right-32 -top-32 h-[450px] w-[450px] rounded-full blur-3xl"
+          style={{
+            backgroundColor: `${accent}18`,
+          }}
+        />
+
+        <div className="relative mx-auto max-w-7xl px-4 py-20 md:py-28">
+          <SectionEyebrow color={accent}>Contact {tenant.name}</SectionEyebrow>
+
+          <h1 className="mt-5 max-w-4xl text-5xl font-black leading-[0.98] tracking-[-0.05em] md:text-7xl">
+            Let&apos;s have a professional conversation.
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-white/65">
-            Questions about a facility, an application, repayment or a
-            partnership? Our team is ready to help.
+
+          <p className="mt-7 max-w-2xl text-lg leading-8 text-white/60">
+            Speak with {tenant.name} about financing, an existing application,
+            repayment or any other enquiry.
           </p>
         </div>
       </section>
-      <section className="public-section bg-white">
-        <div className="mx-auto grid max-w-7xl gap-12 px-5 lg:grid-cols-[.8fr_1.2fr]">
-          <div>
-            <div className="public-eyebrow text-[#B08A27]">Connect with us</div>
-            <h2 className="public-title text-[#0B1F3A]">
-              A direct line to the team.
+
+      <main className="mx-auto grid max-w-7xl gap-6 px-4 pt-10 lg:grid-cols-[0.78fr_1.22fr]">
+        {/* LEFT */}
+        <div className="space-y-5">
+          <section className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm md:p-8">
+            <SectionEyebrow color={accent}>
+              Verified contact details
+            </SectionEyebrow>
+
+            <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-950">
+              Reach {tenant.name}
             </h2>
-            <div className="mt-9 space-y-4">
-              {[
-                ["Office", tenant.address || "Kigali, Rwanda"],
-                ["Phone", tenant.contactPhone || "—"],
-                ["Email", tenant.contactEmail || "—"],
-                ["Hours", "Monday – Friday, 8:00 – 17:00"],
-              ].map(([a, b]) => (
-                <div
-                  key={a}
-                  className="rounded-2xl border border-slate-200 p-5"
-                >
-                  <div className="text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">
-                    {a}
+
+            <div className="mt-7 space-y-3">
+              {tenant.address && (
+                <div className="rounded-xl bg-[#f7f8fa] p-5">
+                  <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                    Office
                   </div>
-                  <div className="mt-2 text-sm font-semibold text-[#0B1F3A] whitespace-pre-line">
-                    {b}
+
+                  <div className="mt-2 text-sm font-bold leading-6 text-slate-900">
+                    {tenant.address}
                   </div>
                 </div>
-              ))}
-            </div>
-            <div className="mt-7 flex flex-wrap gap-3">
+              )}
+
               {tenant.contactPhone && (
                 <a
                   href={`tel:${tenant.contactPhone}`}
-                  className="public-btn-dark"
-                  style={{ backgroundColor: primary }}
+                  className="block rounded-xl bg-[#f7f8fa] p-5 transition hover:bg-slate-100"
                 >
-                  Call our team <Arrow />
+                  <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                    Phone
+                  </div>
+
+                  <div className="mt-2 text-sm font-bold text-slate-900">
+                    {tenant.contactPhone}
+                  </div>
                 </a>
               )}
-              {tenant.socialMedia?.whatsapp && (
+
+              {tenant.contactEmail && (
                 <a
-                  href={tenant.socialMedia.whatsapp}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="public-btn-outline"
-                  style={{ borderColor: "#D4AF37", color: primary }}
+                  href={`mailto:${tenant.contactEmail}`}
+                  className="block rounded-xl bg-[#f7f8fa] p-5 transition hover:bg-slate-100"
                 >
-                  WhatsApp <Arrow />
+                  <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                    Email
+                  </div>
+
+                  <div className="mt-2 break-all text-sm font-bold text-slate-900">
+                    {tenant.contactEmail}
+                  </div>
                 </a>
+              )}
+
+              {tenant.registrationNumber && (
+                <div className="rounded-xl bg-[#f7f8fa] p-5">
+                  <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                    Registration
+                  </div>
+
+                  <div className="mt-2 text-sm font-bold text-slate-900">
+                    {tenant.registrationNumber}
+                  </div>
+                </div>
               )}
             </div>
-          </div>
-          <div className="rounded-[2rem] border border-slate-200 bg-[#F7F8FA] p-6 md:p-9">
-            <div className="mb-7">
-              <div className="public-eyebrow text-[#B08A27]">
-                Secure enquiry
+          </section>
+
+          {/* SERVICE SHORTCUTS */}
+          <section className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm md:p-8">
+            <SectionEyebrow color={accent}>Client services</SectionEyebrow>
+
+            <div className="mt-6 space-y-2">
+              <Link
+                href="/services"
+                className="flex items-center justify-between rounded-xl border border-slate-200 p-4 transition hover:bg-slate-50"
+              >
+                <span className="text-sm font-black text-slate-900">
+                  Explore financing
+                </span>
+
+                <span style={{ color: primary }}>→</span>
+              </Link>
+
+              <Link
+                href="/calculator"
+                className="flex items-center justify-between rounded-xl border border-slate-200 p-4 transition hover:bg-slate-50"
+              >
+                <span className="text-sm font-black text-slate-900">
+                  Calculate a loan
+                </span>
+
+                <span style={{ color: primary }}>→</span>
+              </Link>
+
+              <Link
+                href="/track"
+                className="flex items-center justify-between rounded-xl border border-slate-200 p-4 transition hover:bg-slate-50"
+              >
+                <span className="text-sm font-black text-slate-900">
+                  Track an application
+                </span>
+
+                <span style={{ color: primary }}>→</span>
+              </Link>
+            </div>
+          </section>
+
+          {/* SOCIAL */}
+          {Object.values(socials).some(Boolean) && (
+            <section className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm md:p-8">
+              <SectionEyebrow color={accent}>Connect with us</SectionEyebrow>
+
+              <div className="mt-5 flex flex-wrap gap-2">
+                {Object.entries(socials)
+                  .filter(([, value]) => Boolean(value))
+                  .map(([label, value]) => (
+                    <a
+                      key={label}
+                      href={value as string}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-full border px-4 py-2.5 text-xs font-black capitalize transition hover:bg-slate-50"
+                      style={{
+                        borderColor: `${primary}40`,
+                        color: primary,
+                      }}
+                    >
+                      {label}
+                    </a>
+                  ))}
               </div>
-              <h2 className="font-serif text-3xl font-semibold text-[#0B1F3A]">
+            </section>
+          )}
+
+          {tenant.mapUrl && (
+            <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-100 px-6 py-4">
+                <div className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
+                  Office location
+                </div>
+              </div>
+
+              <iframe
+                title={`${tenant.name} office location`}
+                src={tenant.mapUrl}
+                className="h-72 w-full border-0"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+            </section>
+          )}
+        </div>
+
+        {/* FORM */}
+        <section className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm md:p-10">
+          <div className="flex items-start justify-between gap-5">
+            <div>
+              <SectionEyebrow color={accent}>Customer support</SectionEyebrow>
+
+              <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
                 Send a message
               </h2>
-              <p className="mt-2 text-sm text-slate-500">
-                Tell us what you need and the right team member can follow up.
+
+              <p className="mt-3 max-w-xl text-sm leading-7 text-slate-500">
+                Your enquiry will be associated with {tenant.name}.
               </p>
             </div>
-            {sent ? (
-              <div className="rounded-3xl border border-[#0D6B5B]/20 bg-[#0D6B5B]/5 p-10 text-center">
-                <div className="text-3xl text-[#0D6B5B]">✓</div>
-                <h3 className="mt-4 font-serif text-2xl font-semibold text-[#0B1F3A]">
-                  Message received
-                </h3>
-                <p className="mt-2 text-sm text-slate-500">
-                  Thank you {form.name}. We will review your enquiry and respond
-                  through the contact details provided.
-                </p>
-                <button
-                  onClick={() => {
-                    setSent(false);
-                    setForm({
-                      name: "",
-                      email: "",
-                      phone: "",
-                      subject: "",
-                      message: "",
-                    });
-                  }}
-                  className="mt-6 text-sm font-bold text-[#0D6B5B]"
-                >
-                  Send another message
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={submit} className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="public-label">
-                    Full name
-                    <input
-                      required
-                      value={form.name}
-                      onChange={update("name")}
-                      className="public-input"
-                      placeholder="Your full name"
-                    />
-                  </label>
-                  <label className="public-label">
-                    Phone
-                    <input
-                      required
-                      value={form.phone}
-                      onChange={update("phone")}
-                      className="public-input"
-                      placeholder="+250 7XX XXX XXX"
-                    />
-                  </label>
-                </div>
-                <label className="public-label">
-                  Email
-                  <input
-                    type="email"
-                    value={form.email}
-                    onChange={update("email")}
-                    className="public-input"
-                    placeholder="name@example.com"
-                  />
-                </label>
-                <label className="public-label">
-                  Subject
-                  <select
-                    required
-                    value={form.subject}
-                    onChange={update("subject")}
-                    className="public-input"
-                  >
-                    <option value="">Select a topic</option>
-                    <option>Loan enquiry</option>
-                    <option>Application status</option>
-                    <option>Repayment support</option>
-                    <option>Partnership</option>
-                    <option>Feedback or complaint</option>
-                    <option>Other</option>
-                  </select>
-                </label>
-                <label className="public-label">
-                  Message
-                  <textarea
-                    required
-                    value={form.message}
-                    onChange={update("message")}
-                    className="public-input min-h-36 resize-y"
-                    placeholder="How can we help?"
-                  />
-                </label>
-                {error && (
-                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {error}
-                  </div>
-                )}
-                <button
-                  disabled={sending}
-                  className="public-btn-dark w-full justify-center disabled:opacity-50"
-                  style={{ backgroundColor: primary }}
-                >
-                  {sending ? "Sending…" : "Send secure enquiry"} <Arrow />
-                </button>
-                <p className="text-center text-[11px] leading-5 text-slate-400">
-                  Please do not include passwords, card PINs or other sensitive
-                  authentication information in this form.
-                </p>
-              </form>
-            )}
+
+            <div
+              className="hidden h-14 w-14 items-center justify-center rounded-2xl text-xl sm:flex"
+              style={{
+                backgroundColor: `${accent}15`,
+                color: primary,
+              }}
+            >
+              ✦
+            </div>
           </div>
-        </div>
-      </section>
-      <section className="public-section bg-[#F7F8FA]">
-        <div className="mx-auto max-w-5xl px-5 text-center">
-          <div className="public-eyebrow text-[#B08A27]">Before you visit</div>
-          <h2 className="public-title text-[#0B1F3A]">
-            Prefer to start online?
-          </h2>
-          <p className="mt-4 text-slate-500">
-            You can begin a loan application digitally and return to your
-            application journey when convenient.
-          </p>
-          <a
-            href="/apply"
-            className="public-btn-dark mt-7"
-            style={{ backgroundColor: primary }}
-          >
-            Start application <Arrow />
-          </a>
-        </div>
-      </section>
+
+          {sent ? (
+            <div className="mt-9 rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-xl font-black text-white">
+                ✓
+              </div>
+
+              <h3 className="mt-5 text-xl font-black text-emerald-950">
+                Message received
+              </h3>
+
+              <p className="mt-2 text-sm leading-7 text-emerald-800">
+                Thank you, {form.name}. Your message has been submitted to{" "}
+                {tenant.name}.
+              </p>
+
+              <button
+                type="button"
+                className="mt-6 rounded-xl px-6 py-3.5 text-sm font-black text-white"
+                style={{
+                  backgroundColor: primary,
+                }}
+                onClick={() => {
+                  setForm(INITIAL_FORM);
+                  setSent(false);
+                }}
+              >
+                Send Another Message
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={submit} className="mt-9 space-y-5">
+              <div className="grid gap-5 sm:grid-cols-2">
+                <Field
+                  label="Full name"
+                  required
+                  value={form.name}
+                  onChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      name: value,
+                    }))
+                  }
+                />
+
+                <Field
+                  label="Phone"
+                  required
+                  value={form.phone}
+                  onChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      phone: value,
+                    }))
+                  }
+                />
+              </div>
+
+              <Field
+                label="Email"
+                type="email"
+                value={form.email}
+                onChange={(value) =>
+                  setForm((current) => ({
+                    ...current,
+                    email: value,
+                  }))
+                }
+              />
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                  Subject <span className="text-red-500">*</span>
+                </label>
+
+                <select
+                  required
+                  value={form.subject}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      subject: event.target.value,
+                    }))
+                  }
+                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-4 text-sm font-semibold text-slate-800 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/5"
+                >
+                  <option value="">Select a topic</option>
+                  <option value="Loan inquiry">Loan inquiry</option>
+                  <option value="Application status">Application status</option>
+                  <option value="Repayment">Repayment</option>
+                  <option value="Complaint or feedback">
+                    Complaint or feedback
+                  </option>
+                  <option value="Partnership">Partnership</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                  Message <span className="text-red-500">*</span>
+                </label>
+
+                <textarea
+                  required
+                  minLength={10}
+                  value={form.message}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      message: event.target.value,
+                    }))
+                  }
+                  className="mt-2 min-h-48 w-full resize-y rounded-xl border border-slate-300 px-4 py-4 text-sm leading-7 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/5"
+                  placeholder="Tell us how we can help."
+                />
+              </div>
+
+              <button
+                disabled={sending}
+                type="submit"
+                className="w-full rounded-xl px-5 py-4 text-sm font-black text-white shadow-lg transition hover:-translate-y-0.5 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-60"
+                style={{
+                  backgroundColor: primary,
+                }}
+              >
+                {sending ? "Sending..." : "Send Secure Message"}
+              </button>
+
+              {error && (
+                <div
+                  role="alert"
+                  className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700"
+                >
+                  {error}
+                </div>
+              )}
+            </form>
+          )}
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  required,
+  value,
+  onChange,
+  type = "text",
+}: {
+  label: string;
+  required?: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+}) {
+  return (
+    <div>
+      <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
+
+      <input
+        required={required}
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-4 text-sm outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/5"
+      />
     </div>
   );
 }
