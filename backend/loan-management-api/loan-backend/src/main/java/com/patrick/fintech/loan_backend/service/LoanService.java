@@ -2,8 +2,10 @@ package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.dto.DashboardStats;
 import com.patrick.fintech.loan_backend.dto.LoanRequest;
+import com.patrick.fintech.loan_backend.dto.LoanResponse;
 import com.patrick.fintech.loan_backend.dto.publicportal.BorrowerDashboardResponse;
 import com.patrick.fintech.loan_backend.dto.publicportal.DashboardSummaryResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Borrower;
 import com.patrick.fintech.loan_backend.model.DocumentType;
 import com.patrick.fintech.loan_backend.model.Loan;
@@ -2287,11 +2289,14 @@ public class LoanService {
         // DASHBOARD
         // ================================================================
 
-        public DashboardStats getDashboard(
-                        Organization org) {
+        // ================================================================
+        // DASHBOARD
+        // ================================================================
 
-                if (org == null
-                                || org.getId() == null) {
+        @Transactional(readOnly = true)
+        public DashboardStats getDashboard(Organization org) {
+
+                if (org == null || org.getId() == null) {
 
                         throw new IllegalArgumentException(
                                         "Organization is required");
@@ -2301,97 +2306,191 @@ public class LoanService {
 
                 LocalDate firstOfMonth = today.withDayOfMonth(1);
 
+                /*
+                 * ------------------------------------------------------------
+                 * OVERDUE / LATE PAYMENTS
+                 * ------------------------------------------------------------
+                 */
+
                 long overdueCount = paymentRepo
                                 .findByOrganization_IdAndPaidFalseAndDueDateBefore(
                                                 org.getId(),
                                                 today)
                                 .size();
 
+                /*
+                 * ------------------------------------------------------------
+                 * LOAN TYPE BREAKDOWN
+                 * ------------------------------------------------------------
+                 */
+
                 List<Map<String, Object>> typeBreakdown = loanRepo
                                 .getLoanTypeBreakdown(org)
                                 .stream()
-                                .map(
-                                                r -> {
+                                .map(row -> {
 
-                                                        Map<String, Object> m = new LinkedHashMap<>();
+                                        Map<String, Object> result = new LinkedHashMap<>();
 
-                                                        m.put(
-                                                                        "type",
-                                                                        r[0]);
+                                        result.put(
+                                                        "type",
+                                                        row[0]);
 
-                                                        m.put(
-                                                                        "count",
-                                                                        r[1]);
+                                        result.put(
+                                                        "count",
+                                                        row[1]);
 
-                                                        m.put(
-                                                                        "amount",
-                                                                        r[2]);
+                                        result.put(
+                                                        "amount",
+                                                        row[2]);
 
-                                                        return m;
-                                                })
-                                .collect(
-                                                Collectors.toList());
+                                        return result;
+                                })
+                                .collect(Collectors.toList());
 
-                List<Loan> recent = loanRepo.findRecentByOrg(
-                                org,
-                                PageRequest.of(
-                                                0,
-                                                8));
+                /*
+                 * ------------------------------------------------------------
+                 * RECENT LOANS
+                 * ------------------------------------------------------------
+                 *
+                 * IMPORTANT:
+                 *
+                 * Never expose List<Loan> through DashboardStats.
+                 *
+                 * Convert the entities to LoanResponse while the transaction
+                 * is active. This prevents Hibernate lazy-loading errors
+                 * during Jackson serialization.
+                 */
+
+                List<LoanResponse> recentLoans = loanRepo
+                                .findRecentByOrg(
+                                                org,
+                                                PageRequest.of(
+                                                                0,
+                                                                8))
+                                .stream()
+                                .map(ResponseDtoMapper::loan)
+                                .toList();
+
+                /*
+                 * ------------------------------------------------------------
+                 * FINANCIAL TOTALS
+                 * ------------------------------------------------------------
+                 *
+                 * These repository methods already return BigDecimal.
+                 *
+                 * NEVER convert these values to Double.
+                 *
+                 * Financial calculations must remain BigDecimal from
+                 * database → service → DTO → JSON.
+                 */
+
+                BigDecimal totalDisbursed = Optional.ofNullable(
+                                loanRepo.sumActivePrincipal(org))
+                                .orElse(BigDecimal.ZERO);
+
+                BigDecimal totalCollected = Optional.ofNullable(
+                                loanRepo.sumTotalCollected(org))
+                                .orElse(BigDecimal.ZERO);
+
+                BigDecimal outstandingBalance = Optional.ofNullable(
+                                loanRepo.sumOutstandingBalance(org))
+                                .orElse(BigDecimal.ZERO);
+
+                BigDecimal collectedThisMonth = Optional.ofNullable(
+                                paymentRepo.sumCollectedSince(
+                                                org,
+                                                firstOfMonth))
+                                .orElse(BigDecimal.ZERO);
+
+                /*
+                 * ------------------------------------------------------------
+                 * MONEY NORMALIZATION
+                 * ------------------------------------------------------------
+                 */
+
+                totalDisbursed = normalizeDashboardMoney(
+                                totalDisbursed);
+
+                totalCollected = normalizeDashboardMoney(
+                                totalCollected);
+
+                outstandingBalance = normalizeDashboardMoney(
+                                outstandingBalance);
+
+                collectedThisMonth = normalizeDashboardMoney(
+                                collectedThisMonth);
 
                 return DashboardStats.builder()
+
                                 .totalLoans(
                                                 loanRepo.countByOrganization(org))
+
                                 .pendingLoans(
                                                 loanRepo.countByOrganizationAndStatus(
                                                                 org,
                                                                 LoanStatus.PENDING))
+
                                 .activeLoans(
                                                 loanRepo.countByOrganizationAndStatus(
                                                                 org,
                                                                 LoanStatus.ACTIVE))
+
                                 .overdueLoans(
                                                 overdueCount)
+
                                 .completedLoans(
                                                 loanRepo.countByOrganizationAndStatus(
                                                                 org,
                                                                 LoanStatus.PAID))
+
                                 .defaultedLoans(
                                                 loanRepo.countByOrganizationAndStatus(
                                                                 org,
                                                                 LoanStatus.DEFAULTED))
+
                                 .totalDisbursed(
-                                                Optional.ofNullable(
-                                                                loanRepo.sumActivePrincipal(org))
-                                                                .map(this::toDouble)
-                                                                .orElse(0.0))
+                                                totalDisbursed)
+
                                 .totalCollected(
-                                                Optional.ofNullable(
-                                                                loanRepo.sumTotalCollected(org))
-                                                                .map(this::toDouble)
-                                                                .orElse(0.0))
+                                                totalCollected)
+
                                 .outstandingBalance(
-                                                Optional.ofNullable(
-                                                                loanRepo.sumOutstandingBalance(org))
-                                                                .map(this::toDouble)
-                                                                .orElse(0.0))
+                                                outstandingBalance)
+
                                 .collectedThisMonth(
-                                                Optional.ofNullable(
-                                                                paymentRepo.sumCollectedSince(
-                                                                                org,
-                                                                                firstOfMonth))
-                                                                .map(this::toDouble)
-                                                                .orElse(0.0))
+                                                collectedThisMonth)
+
                                 .totalBorrowers(
                                                 borrowerRepo.countByOrganization(org))
+
                                 .latePaymentsCount(
                                                 Optional.ofNullable(
                                                                 paymentRepo.countLatePayments(org))
                                                                 .orElse(0L))
-                                .loanTypeBreakdown(typeBreakdown)
-                                .recentLoans(recent)
+
+                                .loanTypeBreakdown(
+                                                typeBreakdown)
+
+                                .recentLoans(
+                                                recentLoans)
+
                                 .build();
         }
 
+        private BigDecimal normalizeDashboardMoney(
+                        BigDecimal value) {
+
+                if (value == null) {
+
+                        return BigDecimal.ZERO.setScale(
+                                        2,
+                                        RoundingMode.HALF_UP);
+                }
+
+                return value.setScale(
+                                2,
+                                RoundingMode.HALF_UP);
+        }
         // ================================================================
         // GENERATE REPAYMENT SCHEDULE
         // ================================================================

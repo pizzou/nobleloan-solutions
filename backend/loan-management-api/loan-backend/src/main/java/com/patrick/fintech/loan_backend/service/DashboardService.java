@@ -1,6 +1,8 @@
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.dto.DashboardStats;
+import com.patrick.fintech.loan_backend.dto.LoanResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.LoanStatus;
 import com.patrick.fintech.loan_backend.model.Payment;
@@ -30,71 +32,64 @@ public class DashboardService {
         private final PaymentRepository paymentRepository;
         private final BorrowerRepository borrowerRepository;
 
-        private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(
-                        2,
-                        RoundingMode.HALF_UP);
+        private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
 
         private static final BigDecimal ONE_HUNDRED = new BigDecimal("100.00");
 
-        // ================================================================
-        // DASHBOARD STATISTICS
-        // ================================================================
+        /**
+         * Returns dashboard data as detached DTOs.
+         *
+         * IMPORTANT:
+         * No JPA entity is allowed to escape this service.
+         */
+        public DashboardStats getStats(Long organizationId) {
 
-        public DashboardStats getStats(
-                        Long orgId) {
-
-                if (orgId == null) {
-
+                if (organizationId == null) {
                         throw new IllegalArgumentException(
                                         "Organization ID is required");
                 }
 
                 LocalDate today = LocalDate.now();
-
                 LocalDate firstOfMonth = today.withDayOfMonth(1);
 
-                // ============================================================
-                // BASIC COUNTS
-                // ============================================================
+                /*
+                 * ------------------------------------------------------------
+                 * COUNTS
+                 * ------------------------------------------------------------
+                 */
 
                 long totalLoans = loanRepository.countByOrganization_Id(
-                                orgId);
+                                organizationId);
 
                 long activeLoans = loanRepository.countByOrganization_IdAndStatus(
-                                orgId,
+                                organizationId,
                                 LoanStatus.ACTIVE);
 
                 long pendingLoans = loanRepository.countByOrganization_IdAndStatus(
-                                orgId,
+                                organizationId,
                                 LoanStatus.PENDING);
 
                 long completedLoans = loanRepository.countByOrganization_IdAndStatus(
-                                orgId,
+                                organizationId,
                                 LoanStatus.PAID);
 
                 long defaultedLoans = loanRepository.countByOrganization_IdAndStatus(
-                                orgId,
+                                organizationId,
                                 LoanStatus.DEFAULTED);
 
-                // ============================================================
-                // BORROWERS
-                //
-                // Use the repository method already used by the application
-                // instead of introducing another BorrowerRepository method.
-                // ============================================================
-
                 long totalBorrowers = borrowerRepository
-                                .findByOrganization_Id(
-                                                orgId)
+                                .findByOrganization_Id(organizationId)
                                 .size();
 
-                // ============================================================
-                // OVERDUE PAYMENTS
-                // ============================================================
+                /*
+                 * ------------------------------------------------------------
+                 * OVERDUE PAYMENTS
+                 * ------------------------------------------------------------
+                 */
 
                 List<Payment> overduePayments = paymentRepository
                                 .findByOrganization_IdAndPaidFalseAndDueDateBefore(
-                                                orgId,
+                                                organizationId,
                                                 today);
 
                 if (overduePayments == null) {
@@ -103,39 +98,39 @@ public class DashboardService {
 
                 long overdueLoans = overduePayments
                                 .stream()
-                                .filter(
-                                                payment -> payment != null
-                                                                && payment.getLoan() != null)
-                                .map(
-                                                payment -> payment.getLoan().getId())
-                                .filter(
-                                                loanId -> loanId != null)
+                                .filter(payment -> payment != null &&
+                                                payment.getLoan() != null)
+                                .map(payment -> payment.getLoan().getId())
+                                .filter(id -> id != null)
                                 .distinct()
                                 .count();
 
                 long latePaymentsCount = overduePayments.size();
 
-                // ============================================================
-                // LOAD ORGANIZATION LOANS
-                // ============================================================
+                /*
+                 * ------------------------------------------------------------
+                 * ORGANIZATION LOANS
+                 * ------------------------------------------------------------
+                 *
+                 * The entities are used only while the transaction is open.
+                 */
 
                 List<Loan> loans = loanRepository.findByOrganization_Id(
-                                orgId);
+                                organizationId);
 
                 if (loans == null) {
                         loans = List.of();
                 }
 
-                // ============================================================
-                // PORTFOLIO TOTALS
-                // ============================================================
+                /*
+                 * ------------------------------------------------------------
+                 * PORTFOLIO TOTALS
+                 * ------------------------------------------------------------
+                 */
 
                 BigDecimal totalDisbursed = ZERO;
-
                 BigDecimal totalOutstanding = ZERO;
-
                 BigDecimal activePortfolioPrincipal = ZERO;
-
                 BigDecimal atRiskPrincipal = ZERO;
 
                 for (Loan loan : loans) {
@@ -146,16 +141,10 @@ public class DashboardService {
 
                         LoanStatus status = loan.getStatus();
 
-                        BigDecimal amount = money(
-                                        loan.getAmountDecimal());
+                        BigDecimal amount = money(loan.getAmountDecimal());
 
-                        BigDecimal outstanding = money(
-                                        loan.getOutstandingBalanceDecimal());
+                        BigDecimal outstanding = money(loan.getOutstandingBalanceDecimal());
 
-                        /*
-                         * A loan is considered disbursed once it has passed
-                         * the pending stage.
-                         */
                         boolean disbursed = status == LoanStatus.ACTIVE
                                         || status == LoanStatus.OVERDUE
                                         || status == LoanStatus.PAID
@@ -165,37 +154,22 @@ public class DashboardService {
                                         || status == LoanStatus.RESTRUCTURED;
 
                         if (disbursed) {
-
-                                totalDisbursed = money(
-                                                totalDisbursed.add(
-                                                                amount));
+                                totalDisbursed = money(totalDisbursed.add(amount));
                         }
 
-                        /*
-                         * Current outstanding portfolio.
-                         *
-                         * Restructured loans remain part of the outstanding
-                         * portfolio until paid/closed/written off.
-                         */
                         boolean outstandingLoan = status == LoanStatus.ACTIVE
                                         || status == LoanStatus.OVERDUE
                                         || status == LoanStatus.RESTRUCTURED;
 
                         if (outstandingLoan) {
 
-                                totalOutstanding = money(
-                                                totalOutstanding.add(
-                                                                outstanding));
+                                totalOutstanding = money(totalOutstanding.add(outstanding));
 
                                 activePortfolioPrincipal = money(
-                                                activePortfolioPrincipal.add(
-                                                                outstanding));
+                                                activePortfolioPrincipal
+                                                                .add(outstanding));
                         }
 
-                        /*
-                         * Portfolio at risk is the outstanding amount of loans
-                         * that are overdue, defaulted, or restructured.
-                         */
                         boolean atRisk = status == LoanStatus.OVERDUE
                                         || status == LoanStatus.DEFAULTED
                                         || status == LoanStatus.RESTRUCTURED;
@@ -203,24 +177,26 @@ public class DashboardService {
                         if (atRisk) {
 
                                 atRiskPrincipal = money(
-                                                atRiskPrincipal.add(
-                                                                outstanding));
+                                                atRiskPrincipal
+                                                                .add(outstanding));
                         }
                 }
 
-                // ============================================================
-                // PAYMENT COLLECTIONS
-                // ============================================================
+                /*
+                 * ------------------------------------------------------------
+                 * PAYMENTS
+                 * ------------------------------------------------------------
+                 */
 
-                List<Payment> organizationPayments = paymentRepository.findByLoan_Organization_Id(
-                                orgId);
+                List<Payment> organizationPayments = paymentRepository
+                                .findByLoan_Organization_Id(
+                                                organizationId);
 
                 if (organizationPayments == null) {
                         organizationPayments = List.of();
                 }
 
                 BigDecimal totalCollected = ZERO;
-
                 BigDecimal collectedThisMonth = ZERO;
 
                 for (Payment payment : organizationPayments) {
@@ -229,82 +205,84 @@ public class DashboardService {
                                 continue;
                         }
 
-                        if (!Boolean.TRUE.equals(
-                                        payment.getPaid())) {
+                        if (!Boolean.TRUE.equals(payment.getPaid())) {
                                 continue;
                         }
 
-                        BigDecimal paymentAmount = money(
-                                        payment.getAmountPaidDecimal());
+                        BigDecimal paymentAmount = money(payment.getAmountPaidDecimal());
 
                         totalCollected = money(
-                                        totalCollected.add(
-                                                        paymentAmount));
+                                        totalCollected
+                                                        .add(paymentAmount));
 
                         LocalDate paidDate = payment.getPaidDate();
 
                         if (paidDate != null
-                                        && !paidDate.isBefore(
-                                                        firstOfMonth)
-                                        && !paidDate.isAfter(
-                                                        today)) {
+                                        && !paidDate.isBefore(firstOfMonth)
+                                        && !paidDate.isAfter(today)) {
 
                                 collectedThisMonth = money(
-                                                collectedThisMonth.add(
-                                                                paymentAmount));
+                                                collectedThisMonth
+                                                                .add(paymentAmount));
                         }
                 }
 
-                // ============================================================
-                // PORTFOLIO AT RISK %
-                // ============================================================
+                /*
+                 * ------------------------------------------------------------
+                 * PORTFOLIO AT RISK
+                 * ------------------------------------------------------------
+                 */
 
                 BigDecimal portfolioAtRiskPct = ZERO;
 
-                if (activePortfolioPrincipal.compareTo(
-                                ZERO) > 0) {
+                if (activePortfolioPrincipal.compareTo(ZERO) > 0) {
 
                         portfolioAtRiskPct = money(
                                         atRiskPrincipal
-                                                        .multiply(
-                                                                        ONE_HUNDRED)
+                                                        .multiply(ONE_HUNDRED)
                                                         .divide(
                                                                         activePortfolioPrincipal,
                                                                         16,
                                                                         RoundingMode.HALF_UP));
 
-                        if (portfolioAtRiskPct.compareTo(
-                                        ONE_HUNDRED) > 0) {
-
+                        if (portfolioAtRiskPct.compareTo(ONE_HUNDRED) > 0) {
                                 portfolioAtRiskPct = ONE_HUNDRED.setScale(
                                                 2,
                                                 RoundingMode.HALF_UP);
                         }
                 }
 
-                // ============================================================
-                // RECENT LOANS
-                //
-                // Avoid requiring another repository signature. We already
-                // have the organization's loans loaded above.
-                // ============================================================
+                /*
+                 * ------------------------------------------------------------
+                 * RECENT LOANS
+                 * ------------------------------------------------------------
+                 *
+                 * CRITICAL FIX:
+                 *
+                 * We do NOT return List<Loan>.
+                 *
+                 * The entities are converted to LoanResponse while the
+                 * Hibernate session is still open.
+                 */
 
-                List<Loan> recentLoans = loans
+                List<LoanResponse> recentLoans = loans
                                 .stream()
-                                .filter(
-                                                loan -> loan != null
-                                                                && loan.getCreatedAt() != null)
+                                .filter(loan -> loan != null &&
+                                                loan.getCreatedAt() != null)
                                 .sorted(
                                                 Comparator.comparing(
                                                                 Loan::getCreatedAt,
                                                                 Comparator.nullsLast(
                                                                                 Comparator.reverseOrder())))
                                 .limit(8)
+                                .map(ResponseDtoMapper::loan)
                                 .toList();
 
-                // ============================================================
-                // LOG
-                // ============================================================
+                /*
+                 * ------------------------------------------------------------
+                 * LOGGING
+                 * ------------------------------------------------------------
+                 */
 
                 log.debug(
                                 "Dashboard calculated. " +
@@ -313,7 +291,7 @@ public class DashboardService {
                                                 "defaultedLoans={}, totalDisbursed={}, " +
                                                 "totalCollected={}, outstanding={}, " +
                                                 "collectedThisMonth={}, PAR={}",
-                                orgId,
+                                organizationId,
                                 totalLoans,
                                 activeLoans,
                                 pendingLoans,
@@ -325,66 +303,33 @@ public class DashboardService {
                                 collectedThisMonth,
                                 portfolioAtRiskPct);
 
-                // ============================================================
-                // RESPONSE
-                // ============================================================
+                /*
+                 * ------------------------------------------------------------
+                 * DTO RESPONSE
+                 * ------------------------------------------------------------
+                 */
 
                 return DashboardStats.builder()
-
-                                .totalLoans(
-                                                totalLoans)
-
-                                .activeLoans(
-                                                activeLoans)
-
-                                .pendingLoans(
-                                                pendingLoans)
-
-                                .completedLoans(
-                                                completedLoans)
-
-                                .defaultedLoans(
-                                                defaultedLoans)
-
-                                .overdueLoans(
-                                                overdueLoans)
-
-                                .totalBorrowers(
-                                                totalBorrowers)
-
-                                .totalDisbursed(
-                                                totalDisbursed.doubleValue())
-
-                                .totalCollected(
-                                                totalCollected.doubleValue())
-
-                                .outstandingBalance(
-                                                totalOutstanding.doubleValue())
-
-                                .collectedThisMonth(
-                                                collectedThisMonth.doubleValue())
-
-                                .latePaymentsCount(
-                                                latePaymentsCount)
-
-                                .portfolioAtRiskPct(
-                                                portfolioAtRiskPct.doubleValue())
-
-                                .recentLoans(
-                                                recentLoans)
-
+                                .totalLoans(totalLoans)
+                                .activeLoans(activeLoans)
+                                .pendingLoans(pendingLoans)
+                                .completedLoans(completedLoans)
+                                .defaultedLoans(defaultedLoans)
+                                .overdueLoans(overdueLoans)
+                                .totalBorrowers(totalBorrowers)
+                                .totalDisbursed(totalDisbursed)
+                                .totalCollected(totalCollected)
+                                .outstandingBalance(totalOutstanding)
+                                .collectedThisMonth(collectedThisMonth)
+                                .latePaymentsCount(latePaymentsCount)
+                                .portfolioAtRiskPct(portfolioAtRiskPct)
+                                .recentLoans(recentLoans)
                                 .build();
         }
 
-        // ================================================================
-        // MONEY
-        // ================================================================
-
-        private BigDecimal money(
-                        BigDecimal value) {
+        private BigDecimal money(BigDecimal value) {
 
                 if (value == null) {
-
                         return ZERO;
                 }
 
