@@ -1,71 +1,98 @@
 package com.patrick.fintech.loan_backend.service;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-
-import com.patrick.fintech.loan_backend.controller.LoanController;
-import com.patrick.fintech.loan_backend.controller.BorrowerController;
-import com.patrick.fintech.loan_backend.controller.PaymentController;
-import com.patrick.fintech.loan_backend.controller.PaymentListController;
-import com.patrick.fintech.loan_backend.controller.OrganizationController;
-import com.patrick.fintech.loan_backend.dto.BorrowerResponse;
-import com.patrick.fintech.loan_backend.dto.LoanResponse;
-import com.patrick.fintech.loan_backend.dto.OrganizationResponse;
-import com.patrick.fintech.loan_backend.dto.PaymentResponse;
-import com.patrick.fintech.loan_backend.dto.UserResponse;
+import jakarta.persistence.Entity;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
+import org.springframework.core.type.filter.AnnotationTypeFilter;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.lang.reflect.*;
 import java.util.Set;
 
-/**
- * API-boundary regression tests. These tests intentionally fail if a controller
- * starts exposing a JPA model through its response type again.
- */
+import static org.junit.jupiter.api.Assertions.assertFalse;
+
 class ApiBoundaryArchitectureTest {
 
-    private static final Set<String> PROTECTED = Set.of(
-            "com.patrick.fintech.loan_backend.model.Loan",
-            "com.patrick.fintech.loan_backend.model.Borrower",
-            "com.patrick.fintech.loan_backend.model.Payment",
-            "com.patrick.fintech.loan_backend.model.User",
-            "com.patrick.fintech.loan_backend.model.Organization");
+    private static final String BASE_PACKAGE = "com.patrick.fintech.loan_backend";
 
     @Test
-    void protectedDtosMustNotBeJpaEntities() {
-        assertFalse(LoanResponse.class.isAnnotationPresent(jakarta.persistence.Entity.class));
-        assertFalse(BorrowerResponse.class.isAnnotationPresent(jakarta.persistence.Entity.class));
-        assertFalse(PaymentResponse.class.isAnnotationPresent(jakarta.persistence.Entity.class));
-        assertFalse(UserResponse.class.isAnnotationPresent(jakarta.persistence.Entity.class));
-        assertFalse(OrganizationResponse.class.isAnnotationPresent(jakarta.persistence.Entity.class));
+    void noRestControllerMayReturnJpaEntity() {
+
+        ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(
+                false);
+
+        scanner.addIncludeFilter(
+                new AnnotationTypeFilter(
+                        RestController.class));
+
+        scanner.findCandidateComponents(
+                BASE_PACKAGE)
+                .forEach(beanDefinition -> {
+
+                    try {
+
+                        Class<?> controller = Class.forName(
+                                beanDefinition
+                                        .getBeanClassName());
+
+                        for (Method method : controller.getDeclaredMethods()) {
+
+                            assertNoEntity(
+                                    method.getGenericReturnType(),
+                                    controller.getName()
+                                            + "#"
+                                            + method.getName());
+                        }
+
+                    } catch (ClassNotFoundException exception) {
+
+                        throw new AssertionError(
+                                "Could not load controller "
+                                        + beanDefinition
+                                                .getBeanClassName(),
+                                exception);
+                    }
+                });
     }
 
-    @Test
-    void protectedControllersUseDtoResponses() {
-        for (Class<?> controller : Set.of(
-                LoanController.class,
-                BorrowerController.class,
-                PaymentController.class,
-                PaymentListController.class,
-                OrganizationController.class)) {
-            for (Method method : controller.getDeclaredMethods()) {
-                assertNoProtectedEntity(method.getGenericReturnType(), method.toGenericString());
-            }
-        }
-    }
+    private static void assertNoEntity(
+            Type type,
+            String location) {
 
-    private static void assertNoProtectedEntity(Type type, String location) {
-        if (type instanceof Class<?> c) {
-            assertFalse(PROTECTED.contains(c.getName()), location);
+        if (type instanceof Class<?> clazz) {
+
+            assertFalse(
+                    clazz.isAnnotationPresent(
+                            Entity.class),
+                    "JPA entity exposed by API: "
+                            + location
+                            + " -> "
+                            + clazz.getName());
+
             return;
         }
-        if (type instanceof ParameterizedType p) {
-            assertNoProtectedEntity(p.getRawType(), location);
-            for (Type arg : p.getActualTypeArguments()) {
-                assertNoProtectedEntity(arg, location);
+
+        if (type instanceof ParameterizedType parameterized) {
+
+            assertNoEntity(
+                    parameterized.getRawType(),
+                    location);
+
+            for (Type argument : parameterized.getActualTypeArguments()) {
+
+                assertNoEntity(
+                        argument,
+                        location);
             }
+
+            return;
         }
-        if (type instanceof GenericArrayType g) {
-            assertNoProtectedEntity(g.getGenericComponentType(), location);
+
+        if (type instanceof GenericArrayType array) {
+
+            assertNoEntity(
+                    array.getGenericComponentType(),
+                    location);
         }
     }
 }

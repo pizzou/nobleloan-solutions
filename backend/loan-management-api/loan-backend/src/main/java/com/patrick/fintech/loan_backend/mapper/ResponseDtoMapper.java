@@ -82,6 +82,55 @@ public final class ResponseDtoMapper {
         return items.stream().map(ResponseDtoMapper::payment).toList();
     }
 
+    public static ImportBatchResponse importBatch(
+            ImportBatch source) {
+
+        if (source == null) {
+            return null;
+        }
+
+        Long organizationId = null;
+
+        if (source.getOrganization() != null) {
+            organizationId = source.getOrganization().getId();
+        }
+
+        Long importedById = null;
+        String importedByName = null;
+
+        if (source.getImportedBy() != null) {
+
+            importedById = source.getImportedBy().getId();
+
+            importedByName = source.getImportedBy().getFullName();
+        }
+
+        return ImportBatchResponse.builder()
+                .id(source.getId())
+                .organizationId(organizationId)
+                .importedById(importedById)
+                .importedByName(importedByName)
+                .fileName(source.getFileName())
+                .fileSize(source.getFileSize())
+                .totalRows(source.getTotalRows())
+                .processedRows(source.getProcessedRows())
+                .successCount(source.getSuccessCount())
+                .failureCount(source.getFailureCount())
+                .progressPercent(source.getProgressPercent())
+                .status(source.getStatus())
+                .errorMessage(source.getErrorMessage())
+                .createdAt(source.getCreatedAt())
+                .build();
+    }
+
+    public static List<ImportBatchResponse> importBatches(
+            List<ImportBatch> items) {
+
+        return items.stream()
+                .map(ResponseDtoMapper::importBatch)
+                .toList();
+    }
+
     public static LoanCommentResponse loanComment(LoanComment source) {
         if (source == null)
             return null;

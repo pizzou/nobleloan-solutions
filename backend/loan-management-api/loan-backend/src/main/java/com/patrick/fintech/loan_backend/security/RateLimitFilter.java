@@ -59,9 +59,17 @@ public class RateLimitFilter extends OncePerRequestFilter {
         chain.doFilter(req, res);
     }
 
-    private String clientIp(HttpServletRequest r) {
-        String forwarded = r.getHeader("X-Forwarded-For");
-        return forwarded == null || forwarded.isBlank() ? r.getRemoteAddr() : forwarded.split(",")[0].trim();
+    private String clientIp(HttpServletRequest request) {
+
+        String remoteAddress = request.getRemoteAddr();
+
+        if (remoteAddress == null
+                || remoteAddress.isBlank()) {
+
+            return "unknown";
+        }
+
+        return remoteAddress.trim();
     }
 
     @Scheduled(fixedRate = 1, timeUnit = TimeUnit.HOURS)

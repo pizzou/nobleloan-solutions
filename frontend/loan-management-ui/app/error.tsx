@@ -1,5 +1,6 @@
-'use client';
-import { useEffect } from 'react';
+"use client";
+
+import { useEffect } from "react";
 
 export default function ErrorPage({
   error,
@@ -8,32 +9,59 @@ export default function ErrorPage({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  useEffect(() => { console.error('Unhandled error:', error); }, [error]);
+  useEffect(() => {
+    console.error("Unhandled application error", {
+      message: error?.message,
+      digest: error?.digest,
+    });
+  }, [error]);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="bg-white rounded-2xl border border-gray-200 p-10 max-w-md w-full text-center shadow-sm">
-        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-          </svg>
+    <main className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <section
+        role="alert"
+        aria-labelledby="error-title"
+        className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm"
+      >
+        <div
+          aria-hidden="true"
+          className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-red-50 text-red-600"
+        >
+          !
         </div>
-        <h1 className="text-xl font-bold text-gray-900 mb-2">Something went wrong</h1>
-        <p className="text-gray-500 text-sm mb-6">
-          {error.message || 'An unexpected error occurred. Please try again.'}
+
+        <h1
+          id="error-title"
+          className="mb-2 text-xl font-semibold text-gray-900"
+        >
+          Something went wrong
+        </h1>
+
+        <p className="mb-6 text-sm leading-6 text-gray-500">
+          We could not complete this request. Please try again. If the problem
+          continues, contact your administrator.
         </p>
-        <div className="flex gap-3 justify-center">
-          <button onClick={reset}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-medium transition">
+
+        <div className="flex justify-center gap-3">
+          <button
+            type="button"
+            onClick={reset}
+            className="rounded-lg bg-gray-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
+          >
             Try again
           </button>
-          <button onClick={() => window.location.href = '/dashboard'}
-            className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-5 py-2 rounded-lg text-sm font-medium transition">
-            Go to dashboard
+
+          <button
+            type="button"
+            onClick={() => {
+              window.location.assign("/dashboard");
+            }}
+            className="rounded-lg border border-gray-200 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+          >
+            Dashboard
           </button>
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

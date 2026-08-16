@@ -12,4 +12,12 @@ public interface ImportBatchRepository extends JpaRepository<ImportBatch, Long> 
 
     @EntityGraph(attributePaths = { "organization", "importedBy" })
     Optional<ImportBatch> findDetailedById(Long id);
+
+    Optional<ImportBatch> findDetailedByIdAndOrganizationId(
+            Long batchId,
+            Long organizationId);
+
+    Optional<ImportBatch> findByIdAndOrganization_Id(
+            Long batchId,
+            Long organizationId);
 }

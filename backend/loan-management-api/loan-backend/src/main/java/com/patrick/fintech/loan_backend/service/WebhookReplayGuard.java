@@ -3,11 +3,11 @@ package com.patrick.fintech.loan_backend.service;
 import com.patrick.fintech.loan_backend.model.WebhookReceipt;
 import com.patrick.fintech.loan_backend.repository.WebhookReceiptRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DataAccessException;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.scheduling.annotation.Scheduled;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -16,94 +16,270 @@ import java.time.LocalDateTime;
 @Service
 @RequiredArgsConstructor
 public class WebhookReplayGuard {
+
+    private static final int MAX_EVENT_KEY_LENGTH = 128;
+    private static final int PROCESSING_TIMEOUT_MINUTES = 10;
+    private static final int RETENTION_DAYS = 90;
+
     private final WebhookReceiptRepository repository;
 
-    public Claim claim(String provider, String eventKey, String rawBody) {
-        String p = provider.trim().toUpperCase();
-        String key = eventKey == null || eventKey.isBlank() ? sha256(rawBody == null ? "" : rawBody) : eventKey.trim();
-        if (key.length() > 128)
-            key = sha256(key);
-        String hash = sha256(rawBody == null ? "" : rawBody);
+    /**
+     * Atomically claims a webhook event.
+     *
+     * This method is intentionally transactional because the INSERT
+     * and subsequent SELECT must execute against a consistent database
+     * transaction.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public Claim claim(
+            String provider,
+            String eventKey,
+            String rawBody) {
+
+        String normalizedProvider = normalizeProvider(provider);
+
+        String normalizedEventKey = normalizeEventKey(
+                eventKey,
+                rawBody);
+
+        String payloadHash = sha256(
+                rawBody == null ? "" : rawBody);
+
         try {
-            return create(p, key, hash);
-        } catch (DataIntegrityViolationException race) {
-            return existing(p, key, hash);
+
+            int inserted = repository.tryClaim(
+                    normalizedProvider,
+                    normalizedEventKey,
+                    payloadHash);
+
+            /*
+             * We won the PostgreSQL INSERT.
+             */
+            if (inserted == 1) {
+                return new Claim(
+                        false,
+                        true);
+            }
+
+            /*
+             * Another request already owns this event.
+             */
+            WebhookReceipt existing = repository
+                    .findByProviderAndEventKey(
+                            normalizedProvider,
+                            normalizedEventKey)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Webhook claim disappeared after "
+                                    + "PostgreSQL conflict"));
+
+            return validate(
+                    existing,
+                    payloadHash);
+
+        } catch (DataAccessException exception) {
+
+            throw new IllegalStateException(
+                    "Unable to claim webhook event safely",
+                    exception);
         }
     }
 
+    /**
+     * Marks a successfully processed webhook.
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    protected Claim create(String provider, String key, String hash) {
-        var existing = repository.findByProviderAndEventKey(provider, key);
-        if (existing.isPresent())
-            return validate(existing.get(), hash);
-        repository.saveAndFlush(WebhookReceipt.builder().provider(provider).eventKey(key).payloadHash(hash)
-                .status("PROCESSING").build());
-        return new Claim(false, true);
+    public void markProcessed(
+            String provider,
+            String eventKey,
+            String rawBody) {
+
+        String normalizedProvider = normalizeProvider(provider);
+
+        String normalizedEventKey = normalizeEventKey(
+                eventKey,
+                rawBody);
+
+        repository.findByProviderAndEventKey(
+                normalizedProvider,
+                normalizedEventKey)
+                .ifPresent(receipt -> {
+
+                    receipt.setStatus("PROCESSED");
+                    receipt.setProcessedAt(
+                            LocalDateTime.now());
+                });
     }
 
-    @Transactional(readOnly = true, propagation = Propagation.REQUIRES_NEW)
-    protected Claim existing(String provider, String key, String hash) {
-        return repository.findByProviderAndEventKey(provider, key).map(r -> validate(r, hash))
-                .orElse(new Claim(false, true));
+    /**
+     * Marks a failed webhook so it can be retried safely.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void markFailed(
+            String provider,
+            String eventKey,
+            String rawBody) {
+
+        String normalizedProvider = normalizeProvider(provider);
+
+        String normalizedEventKey = normalizeEventKey(
+                eventKey,
+                rawBody);
+
+        repository.findByProviderAndEventKey(
+                normalizedProvider,
+                normalizedEventKey)
+                .ifPresent(receipt -> receipt.setStatus("FAILED"));
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void markProcessed(String provider, String eventKey, String rawBody) {
-        String p = provider.trim().toUpperCase();
-        String key = eventKey == null || eventKey.isBlank() ? sha256(rawBody == null ? "" : rawBody) : eventKey.trim();
-        if (key.length() > 128)
+    private Claim validate(
+            WebhookReceipt receipt,
+            String payloadHash) {
+
+        /*
+         * Same event ID with a different payload is a security violation.
+         */
+        if (!payloadHash.equals(
+                receipt.getPayloadHash())) {
+
+            throw new ReplayConflictException(
+                    "Webhook event key was reused with "
+                            + "a different payload");
+        }
+
+        /*
+         * Already completed.
+         */
+        if ("PROCESSED".equals(
+                receipt.getStatus())) {
+
+            return new Claim(
+                    true,
+                    false);
+        }
+
+        /*
+         * A stale PROCESSING record may have been created by a crashed
+         * application instance.
+         *
+         * Allow recovery.
+         */
+        if (receipt.getCreatedAt() != null
+                && receipt.getCreatedAt()
+                        .plusMinutes(PROCESSING_TIMEOUT_MINUTES)
+                        .isBefore(LocalDateTime.now())) {
+
+            receipt.setStatus("PROCESSING");
+            receipt.setProcessedAt(null);
+
+            return new Claim(
+                    false,
+                    true);
+        }
+
+        /*
+         * Another request is currently processing it.
+         */
+        return new Claim(
+                false,
+                false);
+    }
+
+    private String normalizeProvider(
+            String provider) {
+
+        if (provider == null
+                || provider.isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "Webhook provider is required");
+        }
+
+        return provider
+                .trim()
+                .toUpperCase();
+    }
+
+    private String normalizeEventKey(
+            String eventKey,
+            String rawBody) {
+
+        String key;
+
+        if (eventKey == null
+                || eventKey.isBlank()) {
+
+            key = sha256(
+                    rawBody == null
+                            ? ""
+                            : rawBody);
+
+        } else {
+
+            key = eventKey.trim();
+        }
+
+        if (key.length() > MAX_EVENT_KEY_LENGTH) {
             key = sha256(key);
-        repository.findByProviderAndEventKey(p, key).ifPresent(r -> {
-            r.setStatus("PROCESSED");
-            r.setProcessedAt(LocalDateTime.now());
-        });
+        }
+
+        return key;
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void markFailed(String provider, String eventKey, String rawBody) {
-        String p = provider.trim().toUpperCase();
-        String key = eventKey == null || eventKey.isBlank() ? sha256(rawBody == null ? "" : rawBody) : eventKey.trim();
-        if (key.length() > 128)
-            key = sha256(key);
-        repository.findByProviderAndEventKey(p, key).ifPresent(r -> {
-            r.setStatus("FAILED");
-        });
-    }
+    private static String sha256(
+            String value) {
 
-    private Claim validate(WebhookReceipt r, String hash) {
-        if (!hash.equals(r.getPayloadHash()))
-            throw new ReplayConflictException("Webhook event key was reused with a different payload");
-        if ("PROCESSED".equals(r.getStatus()))
-            return new Claim(true, false);
-        if (r.getCreatedAt() != null && r.getCreatedAt().plusMinutes(10).isBefore(java.time.LocalDateTime.now()))
-            return new Claim(false, true);
-        return new Claim(false, false);
-    }
-
-    private static String sha256(String value) {
         try {
-            byte[] h = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
-            StringBuilder s = new StringBuilder(64);
-            for (byte b : h)
-                s.append(String.format("%02x", b));
-            return s.toString();
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
+
+            byte[] hash = MessageDigest
+                    .getInstance("SHA-256")
+                    .digest(
+                            value.getBytes(
+                                    StandardCharsets.UTF_8));
+
+            StringBuilder result = new StringBuilder(64);
+
+            for (byte b : hash) {
+
+                result.append(
+                        String.format(
+                                "%02x",
+                                b));
+            }
+
+            return result.toString();
+
+        } catch (Exception exception) {
+
+            throw new IllegalStateException(
+                    "SHA-256 algorithm unavailable",
+                    exception);
         }
     }
 
+    /**
+     * Removes old webhook receipts.
+     */
     @Scheduled(cron = "0 15 3 * * *")
     @Transactional
     public void cleanup() {
-        repository.deleteByCreatedAtBefore(LocalDateTime.now().minusDays(90));
+
+        repository.deleteByCreatedAtBefore(
+                LocalDateTime.now()
+                        .minusDays(RETENTION_DAYS));
     }
 
-    public record Claim(boolean replay, boolean first) {
+    public record Claim(
+            boolean replay,
+            boolean first) {
     }
 
-    public static class ReplayConflictException extends RuntimeException {
-        public ReplayConflictException(String m) {
-            super(m);
+    public static class ReplayConflictException
+            extends RuntimeException {
+
+        public ReplayConflictException(
+                String message) {
+
+            super(message);
         }
     }
 }
