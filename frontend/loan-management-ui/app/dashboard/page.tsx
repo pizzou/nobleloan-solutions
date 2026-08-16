@@ -61,13 +61,15 @@ export default function DashboardPage() {
   const status = useMemo(
     () =>
       stats
-        ? ([
-            ["Active", num(stats.activeLoans)],
-            ["Pending", num(stats.pendingLoans)],
-            ["Overdue", num(stats.overdueLoans)],
-            ["Defaulted", num(stats.defaultedLoans)],
-            ["Paid", num(stats.completedLoans)],
-          ] as [string, number][])
+        ? (
+            [
+              ["Active", num(stats.activeLoans)],
+              ["Pending", num(stats.pendingLoans)],
+              ["Overdue", num(stats.overdueLoans)],
+              ["Defaulted", num(stats.defaultedLoans)],
+              ["Paid", num(stats.completedLoans)],
+            ] as [string, number][]
+          )
             .filter((x) => x[1] > 0)
             .map(([name, value]) => ({ name, value }))
         : [],
