@@ -528,21 +528,6 @@ export const webhookApi = {
  * ============================================================
  */
 
-export const currencyApi = {
-  rates: (base = "USD") => get(`/currencies?base=${encodeURIComponent(base)}`),
-
-  convert: (from: string, to: string, amount: number) =>
-    get(
-      `/currencies/convert?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&amount=${amount}`,
-    ),
-
-  supported: () => get("/currencies/supported"),
-
-  status: () => get("/currencies/status"),
-
-  refresh: () => post("/currencies/refresh"),
-};
-
 /**
  * ============================================================
  * PRIVACY API
