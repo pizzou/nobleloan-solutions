@@ -13,6 +13,7 @@ import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import org.hibernate.Hibernate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,25 +50,22 @@ public class DashboardService {
                 }
 
                 /*
-                 * IMPORTANT:
+                 * Load the organization once.
                  *
-                 * LoanRepository.sumGrossDisbursedPrincipal(...)
-                 * expects Organization, not Long.
-                 *
-                 * Load the managed organization once and use the same organization
-                 * throughout this dashboard calculation.
+                 * The repository's gross-disbursement query expects an
+                 * Organization entity rather than a Long ID.
                  */
-                Organization organization = organizationRepository.findById(orgId)
+                Organization organization = organizationRepository
+                                .findById(orgId)
                                 .orElseThrow(() -> new IllegalArgumentException(
                                                 "Organization not found: " + orgId));
 
                 LocalDate today = LocalDate.now();
-
                 LocalDate firstOfMonth = today.withDayOfMonth(1);
 
-                // ============================================================
+                // ================================================================
                 // BASIC COUNTS
-                // ============================================================
+                // ================================================================
 
                 long totalLoans = loanRepository.countByOrganization_Id(orgId);
 
@@ -87,17 +85,17 @@ public class DashboardService {
                                 orgId,
                                 LoanStatus.DEFAULTED);
 
-                // ============================================================
+                // ================================================================
                 // BORROWERS
-                // ============================================================
+                // ================================================================
 
                 long totalBorrowers = borrowerRepository
                                 .findByOrganization_Id(orgId)
                                 .size();
 
-                // ============================================================
+                // ================================================================
                 // OVERDUE PAYMENTS
-                // ============================================================
+                // ================================================================
 
                 List<Payment> overduePayments = paymentRepository
                                 .findByOrganization_IdAndPaidFalseAndDueDateBefore(
@@ -109,8 +107,8 @@ public class DashboardService {
                 }
 
                 long overdueLoans = overduePayments.stream()
-                                .filter(payment -> payment != null
-                                                && payment.getLoan() != null)
+                                .filter(payment -> payment != null &&
+                                                payment.getLoan() != null)
                                 .map(payment -> payment.getLoan().getId())
                                 .filter(id -> id != null)
                                 .distinct()
@@ -118,9 +116,9 @@ public class DashboardService {
 
                 long latePaymentsCount = overduePayments.size();
 
-                // ============================================================
+                // ================================================================
                 // ORGANIZATION LOANS
-                // ============================================================
+                // ================================================================
 
                 List<Loan> loans = loanRepository.findByOrganization_Id(orgId);
 
@@ -128,38 +126,20 @@ public class DashboardService {
                         loans = List.of();
                 }
 
-                // ============================================================
+                // ================================================================
                 // TOTAL GROSS DISBURSED
-                // ============================================================
+                // ================================================================
 
-                /*
-                 * IMPORTANT:
-                 *
-                 * This repository method expects Organization.
-                 *
-                 * Do NOT use:
-                 *
-                 * sumGrossDisbursedPrincipal(orgId)
-                 *
-                 * Use:
-                 *
-                 * sumGrossDisbursedPrincipal(organization)
-                 *
-                 * The repository remains the source of truth for gross
-                 * lifetime disbursement.
-                 */
                 BigDecimal totalDisbursed = money(
                                 loanRepository.sumGrossDisbursedPrincipal(
                                                 organization));
 
-                // ============================================================
+                // ================================================================
                 // PORTFOLIO TOTALS
-                // ============================================================
+                // ================================================================
 
                 BigDecimal totalOutstanding = ZERO;
-
                 BigDecimal activePortfolioPrincipal = ZERO;
-
                 BigDecimal atRiskPrincipal = ZERO;
 
                 for (Loan loan : loans) {
@@ -170,11 +150,10 @@ public class DashboardService {
 
                         LoanStatus status = loan.getStatus();
 
-                        BigDecimal outstanding = money(
-                                        loan.getOutstandingBalanceDecimal());
+                        BigDecimal outstanding = money(loan.getOutstandingBalanceDecimal());
 
                         /*
-                         * Current outstanding portfolio.
+                         * Current outstanding portfolio:
                          *
                          * ACTIVE
                          * OVERDUE
@@ -196,10 +175,11 @@ public class DashboardService {
                         }
 
                         /*
-                         * Portfolio at risk.
+                         * Portfolio at risk:
                          *
-                         * DEFAULTED is included because the principal remains
-                         * exposed even though it is no longer an ordinary active loan.
+                         * OVERDUE
+                         * DEFAULTED
+                         * RESTRUCTURED
                          */
                         boolean atRisk = status == LoanStatus.OVERDUE
                                         || status == LoanStatus.DEFAULTED
@@ -213,9 +193,9 @@ public class DashboardService {
                         }
                 }
 
-                // ============================================================
+                // ================================================================
                 // PAYMENT COLLECTIONS
-                // ============================================================
+                // ================================================================
 
                 List<Payment> organizationPayments = paymentRepository
                                 .findByLoan_Organization_Id(orgId);
@@ -225,7 +205,6 @@ public class DashboardService {
                 }
 
                 BigDecimal totalCollected = ZERO;
-
                 BigDecimal collectedThisMonth = ZERO;
 
                 for (Payment payment : organizationPayments) {
@@ -234,13 +213,11 @@ public class DashboardService {
                                 continue;
                         }
 
-                        if (!Boolean.TRUE.equals(
-                                        payment.getPaid())) {
+                        if (!Boolean.TRUE.equals(payment.getPaid())) {
                                 continue;
                         }
 
-                        BigDecimal paymentAmount = money(
-                                        payment.getAmountPaidDecimal());
+                        BigDecimal paymentAmount = money(payment.getAmountPaidDecimal());
 
                         totalCollected = money(
                                         totalCollected.add(
@@ -258,14 +235,13 @@ public class DashboardService {
                         }
                 }
 
-                // ============================================================
+                // ================================================================
                 // PORTFOLIO AT RISK %
-                // ============================================================
+                // ================================================================
 
                 BigDecimal portfolioAtRiskPct = ZERO;
 
-                if (activePortfolioPrincipal.compareTo(
-                                ZERO) > 0) {
+                if (activePortfolioPrincipal.compareTo(ZERO) > 0) {
 
                         portfolioAtRiskPct = money(
                                         atRiskPrincipal
@@ -284,13 +260,13 @@ public class DashboardService {
                         }
                 }
 
-                // ============================================================
+                // ================================================================
                 // RECENT LOANS
-                // ============================================================
+                // ================================================================
 
                 List<Loan> recentLoans = loans.stream()
-                                .filter(loan -> loan != null
-                                                && loan.getCreatedAt() != null)
+                                .filter(loan -> loan != null &&
+                                                loan.getCreatedAt() != null)
                                 .sorted(
                                                 Comparator.comparing(
                                                                 Loan::getCreatedAt,
@@ -299,9 +275,71 @@ public class DashboardService {
                                 .limit(8)
                                 .toList();
 
-                // ============================================================
+                /*
+                 * IMPORTANT:
+                 *
+                 * DashboardStats currently exposes recentLoans as Loan entities.
+                 * Jackson serializes those entities after this service method
+                 * returns.
+                 *
+                 * Therefore every lazy association that Jackson can reach must
+                 * already be initialized while the Hibernate session is active.
+                 *
+                 * The reported production error was:
+                 *
+                 * Loan -> approvedBy -> User -> role -> Role.name
+                 *
+                 * Initialize that complete path here.
+                 */
+                for (Loan loan : recentLoans) {
+
+                        if (loan == null) {
+                                continue;
+                        }
+
+                        /*
+                         * approvedBy
+                         */
+                        if (loan.getApprovedBy() != null) {
+
+                                Hibernate.initialize(
+                                                loan.getApprovedBy());
+
+                                /*
+                                 * User.role
+                                 */
+                                if (loan.getApprovedBy().getRole() != null) {
+
+                                        Hibernate.initialize(
+                                                        loan.getApprovedBy().getRole());
+                                }
+                        }
+
+                        /*
+                         * Borrower is commonly included in loan JSON.
+                         * Initialize it if present so the dashboard does not
+                         * fail later because of another lazy proxy.
+                         */
+                        if (loan.getBorrower() != null) {
+
+                                Hibernate.initialize(
+                                                loan.getBorrower());
+                        }
+
+                        /*
+                         * Organization is commonly exposed by Loan entities.
+                         * Initialize it if present.
+                         */
+                        if (loan.getOrganization() != null) {
+
+                                Hibernate.initialize(
+                                                loan.getOrganization());
+                        }
+                }
+
+                // ================================================================
                 // LOG
-                // ============================================================
+                // ================================================================
 
                 log.debug(
                                 "Dashboard calculated. " +
@@ -322,9 +360,9 @@ public class DashboardService {
                                 collectedThisMonth,
                                 portfolioAtRiskPct);
 
-                // ============================================================
+                // ================================================================
                 // RESPONSE
-                // ============================================================
+                // ================================================================
 
                 return DashboardStats.builder()
 
