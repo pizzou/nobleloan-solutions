@@ -1093,9 +1093,7 @@ export default function ApplyPage() {
                        * display estimate and does NOT
                        * modify backend loan interest logic.
                        */
-                      const interestRate = 0.05;
-                      const managementRate = 0.05;
-                      const mr: number = interestRate + managementRate;
+                      const mr: number = 0.1;
 
                       const monthly =
                         mr === 0
@@ -1118,7 +1116,7 @@ export default function ApplyPage() {
                             maximumFractionDigits: 0,
                           })}`,
                         ],
-                        ["Rate", "5% interest + 5% management / mo"],
+                        ["Rate", "10% / mo"],
                       ].map(([l, v]) => (
                         <div key={l}>
                           <div className="text-gray-400 text-[10px]">{l}</div>
