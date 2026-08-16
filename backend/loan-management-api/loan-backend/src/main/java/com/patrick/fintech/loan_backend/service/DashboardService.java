@@ -264,9 +264,13 @@ public class DashboardService {
                 // RECENT LOANS
                 // ================================================================
 
+                // ================================================================
+                // RECENT LOANS
+                // ================================================================
+
                 List<Loan> recentLoans = loans.stream()
-                                .filter(loan -> loan != null &&
-                                                loan.getCreatedAt() != null)
+                                .filter(loan -> loan != null
+                                                && loan.getCreatedAt() != null)
                                 .sorted(
                                                 Comparator.comparing(
                                                                 Loan::getCreatedAt,
@@ -278,62 +282,50 @@ public class DashboardService {
                 /*
                  * IMPORTANT:
                  *
-                 * DashboardStats currently exposes recentLoans as Loan entities.
-                 * Jackson serializes those entities after this service method
-                 * returns.
+                 * DashboardStats intentionally continues returning Loan entities.
+                 * We are NOT changing DashboardStats and we are NOT introducing
+                 * another DTO.
                  *
-                 * Therefore every lazy association that Jackson can reach must
-                 * already be initialized while the Hibernate session is active.
+                 * Jackson serializes recentLoans after this service method has
+                 * finished its database work. Therefore lazy relationships that
+                 * Jackson can reach must be initialized while the transaction is
+                 * still active.
                  *
-                 * The reported production error was:
+                 * Current production error:
                  *
-                 * Loan -> approvedBy -> User -> role -> Role.name
+                 * Loan
+                 * -> approvedBy
+                 * -> User
+                 * -> role
+                 * -> Role.name
                  *
-                 * Initialize that complete path here.
+                 * The failure occurs because role is a Hibernate lazy proxy and
+                 * the Hibernate session is no longer available when Jackson tries
+                 * to serialize Role.name.
                  */
+
                 for (Loan loan : recentLoans) {
 
                         if (loan == null) {
                                 continue;
                         }
 
-                        /*
-                         * approvedBy
-                         */
                         if (loan.getApprovedBy() != null) {
 
-                                Hibernate.initialize(
-                                                loan.getApprovedBy());
+                                Hibernate.initialize(loan.getApprovedBy());
 
-                                /*
-                                 * User.role
-                                 */
                                 if (loan.getApprovedBy().getRole() != null) {
-
                                         Hibernate.initialize(
                                                         loan.getApprovedBy().getRole());
                                 }
                         }
 
-                        /*
-                         * Borrower is commonly included in loan JSON.
-                         * Initialize it if present so the dashboard does not
-                         * fail later because of another lazy proxy.
-                         */
                         if (loan.getBorrower() != null) {
-
-                                Hibernate.initialize(
-                                                loan.getBorrower());
+                                Hibernate.initialize(loan.getBorrower());
                         }
 
-                        /*
-                         * Organization is commonly exposed by Loan entities.
-                         * Initialize it if present.
-                         */
                         if (loan.getOrganization() != null) {
-
-                                Hibernate.initialize(
-                                                loan.getOrganization());
+                                Hibernate.initialize(loan.getOrganization());
                         }
                 }
 
