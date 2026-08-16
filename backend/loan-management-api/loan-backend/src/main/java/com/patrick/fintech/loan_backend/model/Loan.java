@@ -1,5 +1,7 @@
 package com.patrick.fintech.loan_backend.model;
 
+import com.patrick.fintech.loan_backend.util.FinancialPolicy;
+
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -87,28 +89,29 @@ public class Loan {
          *
          * ALL loan types use 5% monthly interest.
          */
-        public static final BigDecimal DEFAULT_MONTHLY_INTEREST_RATE = new BigDecimal("5.00");
+        public static final BigDecimal DEFAULT_MONTHLY_INTEREST_RATE = FinancialPolicy.MONTHLY_INTEREST_RATE;
 
         /**
          * Unified monthly loan management fee rate.
          *
          * ALL loan types use 5% monthly management fee.
          */
-        public static final BigDecimal DEFAULT_MONTHLY_MANAGEMENT_FEE_RATE = new BigDecimal("5.00");
+        public static final BigDecimal DEFAULT_MONTHLY_MANAGEMENT_FEE_RATE = FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE;
 
         /**
          * Unified one-time processing fee rate.
          *
          * ALL loan types use 2%.
          */
-        public static final BigDecimal DEFAULT_PROCESSING_FEE_RATE = new BigDecimal("2.00");
+        public static final BigDecimal DEFAULT_PROCESSING_FEE_RATE = FinancialPolicy.PROCESSING_FEE_RATE;
 
         /**
          * Total recurring monthly charge:
          *
          * 5% interest + 5% management fee = 10%.
          */
-        public static final BigDecimal DEFAULT_TOTAL_MONTHLY_CHARGE_RATE = new BigDecimal("10.00");
+        public static final BigDecimal DEFAULT_TOTAL_MONTHLY_CHARGE_RATE = FinancialPolicy.MONTHLY_INTEREST_RATE
+                        .add(FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE);
 
         // ================================================================
         // CREDIT CLASSIFICATION THRESHOLDS

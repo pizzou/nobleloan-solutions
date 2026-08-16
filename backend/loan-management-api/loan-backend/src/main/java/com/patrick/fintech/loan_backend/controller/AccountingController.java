@@ -56,8 +56,7 @@ public class AccountingController {
          *
          * Every accounting operation must be scoped to this organization.
          */
-        private Organization requireCurrentOrganization() {
-
+        private Long requireOrganizationId() {
                 Long orgId = currentUserUtil.getCurrentOrganizationId();
 
                 if (orgId == null) {
@@ -65,13 +64,7 @@ public class AccountingController {
                                         "No organization is associated with the current user");
                 }
 
-                return orgRepo.findById(orgId)
-                                .orElseThrow(() -> new IllegalStateException(
-                                                "Organization not found: " + orgId));
-        }
-
-        private Long requireOrganizationId() {
-                return requireCurrentOrganization().getId();
+                return orgId;
         }
 
         // ============================================================
@@ -141,7 +134,9 @@ public class AccountingController {
 
                 Long orgId = requireOrganizationId();
 
-                Organization organization = requireCurrentOrganization();
+                Organization organization = orgRepo.findById(requireOrganizationId())
+                                .orElseThrow(() -> new IllegalStateException(
+                                                "Organization not found: " + requireOrganizationId()));
 
                 accountingService.ensureChartOfAccounts(organization);
 
@@ -160,7 +155,9 @@ public class AccountingController {
         public ResponseEntity<ApiResponse<Object>> createAccount(
                         @RequestBody Map<String, String> body) {
 
-                Organization organization = requireCurrentOrganization();
+                Organization organization = orgRepo.findById(requireOrganizationId())
+                                .orElseThrow(() -> new IllegalStateException(
+                                                "Organization not found: " + requireOrganizationId()));
 
                 if (body == null) {
                         throw new IllegalArgumentException(
@@ -361,7 +358,9 @@ public class AccountingController {
         @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT')")
         public ResponseEntity<ApiResponse<Map<String, Object>>> reconcileLegacyLoanAccounting() {
 
-                Organization organization = requireCurrentOrganization();
+                Organization organization = orgRepo.findById(requireOrganizationId())
+                                .orElseThrow(() -> new IllegalStateException(
+                                                "Organization not found: " + requireOrganizationId()));
 
                 List<com.patrick.fintech.loan_backend.model.Loan> importedLoans = loanRepo
                                 .findByOrganization_IdAndImportedTrue(
@@ -1006,7 +1005,9 @@ public class AccountingController {
         @GetMapping("/trial-balance/export/pdf")
         public ResponseEntity<byte[]> exportTrialBalancePdf() {
 
-                Organization organization = requireCurrentOrganization();
+                Organization organization = orgRepo.findById(requireOrganizationId())
+                                .orElseThrow(() -> new IllegalStateException(
+                                                "Organization not found: " + requireOrganizationId()));
 
                 Long orgId = organization.getId();
 
@@ -1073,7 +1074,9 @@ public class AccountingController {
         @GetMapping("/balance-sheet/export/pdf")
         public ResponseEntity<byte[]> exportBalanceSheetPdf() {
 
-                Organization organization = requireCurrentOrganization();
+                Organization organization = orgRepo.findById(requireOrganizationId())
+                                .orElseThrow(() -> new IllegalStateException(
+                                                "Organization not found: " + requireOrganizationId()));
 
                 Long orgId = organization.getId();
 
@@ -1108,7 +1111,9 @@ public class AccountingController {
                         @RequestParam(required = false) String from,
                         @RequestParam(required = false) String to) {
 
-                Organization organization = requireCurrentOrganization();
+                Organization organization = orgRepo.findById(requireOrganizationId())
+                                .orElseThrow(() -> new IllegalStateException(
+                                                "Organization not found: " + requireOrganizationId()));
 
                 DateRange range = resolveDateRange(from, to);
 
@@ -1144,7 +1149,9 @@ public class AccountingController {
                         @RequestParam(required = false) String from,
                         @RequestParam(required = false) String to) {
 
-                Organization organization = requireCurrentOrganization();
+                Organization organization = orgRepo.findById(requireOrganizationId())
+                                .orElseThrow(() -> new IllegalStateException(
+                                                "Organization not found: " + requireOrganizationId()));
 
                 DateRange range = resolveDateRange(from, to);
 

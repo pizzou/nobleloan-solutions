@@ -341,6 +341,11 @@ export interface Payment {
 
   interestComponent?: number;
 
+  /** Management-fee allocation returned by the payment/schedule API. */
+  managementFeeComponent?: number;
+  managementFeeAmount?: number;
+  managementFee?: number;
+
   amountPaid?: number;
 
   penalty?: number;

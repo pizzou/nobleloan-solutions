@@ -1,0 +1,54 @@
+package com.patrick.fintech.loan_backend.service;
+
+import com.patrick.fintech.loan_backend.util.FinancialPolicy;
+import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+class FinancialPolicyTest {
+
+    @Test
+    void platformRatesAreCentralized() {
+        assertEquals(new BigDecimal("5.00"), FinancialPolicy.MONTHLY_INTEREST_RATE);
+        assertEquals(new BigDecimal("5.00"), FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE);
+        assertEquals(new BigDecimal("2.00"), FinancialPolicy.PROCESSING_FEE_RATE);
+        assertEquals(new BigDecimal("15.00"), FinancialPolicy.MONTHLY_PENALTY_RATE);
+        assertEquals(new BigDecimal("10.00"), FinancialPolicy.EXTENSION_FEE_RATE);
+    }
+
+    @Test
+    void monthlyRateUsesActualDaysInEachCalendarMonth() {
+        BigDecimal january = FinancialPolicy.dailyRateFraction(
+                FinancialPolicy.MONTHLY_INTEREST_RATE,
+                LocalDate.of(2026, 1, 10));
+        BigDecimal february = FinancialPolicy.dailyRateFraction(
+                FinancialPolicy.MONTHLY_INTEREST_RATE,
+                LocalDate.of(2026, 2, 10));
+
+        assertEquals(new BigDecimal("0.0016129032258064516"), january);
+        assertEquals(new BigDecimal("0.0017857142857142857"), february);
+    }
+
+    @Test
+    void processingFeeIsOneTimeAndExtensionFeeIsBasedOnOutstandingPrincipal() {
+        assertEquals(new BigDecimal("20000.00"),
+                FinancialPolicy.processingFee(new BigDecimal("1000000.00")));
+        assertEquals(new BigDecimal("100000.00"),
+                FinancialPolicy.extensionFee(new BigDecimal("1000000.00")));
+    }
+
+    @Test
+    void accrualAcrossMonthBoundaryUsesEachMonthActualDayCount() {
+        BigDecimal result = FinancialPolicy.accrueDaily(
+                new BigDecimal("1000000.00"),
+                LocalDate.of(2026, 1, 30),
+                LocalDate.of(2026, 2, 2),
+                FinancialPolicy.MONTHLY_INTEREST_RATE);
+
+        // Jan 30 + Jan 31 = 2 days at 5%/31; Feb 1 = 1 day at 5%/28.
+        assertEquals(new BigDecimal("5011.52"), result);
+    }
+}

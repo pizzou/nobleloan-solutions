@@ -1,11 +1,12 @@
 package com.patrick.fintech.loan_backend.service;
 
+import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 import com.patrick.fintech.loan_backend.util.MoneyMath;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-
+import java.time.LocalDate;
 
 @Service
 public class FinancialCalculationService {
@@ -14,8 +15,7 @@ public class FinancialCalculationService {
     private static final RoundingMode ROUNDING = RoundingMode.HALF_UP;
     private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100);
     private static final BigDecimal TWELVE = BigDecimal.valueOf(12);
-    private static final BigDecimal THIRTY = BigDecimal.valueOf(30);
-    private static final BigDecimal PENALTY_MONTHLY_RATE = new BigDecimal("0.02");
+    private static final BigDecimal THREE_HUNDRED_SIXTY_FIVE = BigDecimal.valueOf(365);
 
     public BigDecimal money(Number value) {
         if (value == null) {
@@ -24,24 +24,31 @@ public class FinancialCalculationService {
         return new BigDecimal(value.toString()).setScale(MoneyMath.SCALE, ROUNDING);
     }
 
-    public BigDecimal dailyRate(Number interestRate, String interestRateType) {
-        BigDecimal rate = interestRate == null
-                ? BigDecimal.ZERO
-                : new BigDecimal(interestRate.toString());
+    /**
+     * Returns today's calendar-day rate for the supplied percentage rate.
+     * Monthly rates use the actual number of days in the current month.
+     */
+    public BigDecimal dailyRate(Number rate, String rateType) {
+        return dailyRate(rate, rateType, LocalDate.now());
+    }
 
-        if (rate.signum() <= 0) {
+    public BigDecimal dailyRate(Number rate, String rateType, LocalDate date) {
+        BigDecimal normalized = rate == null
+                ? BigDecimal.ZERO
+                : new BigDecimal(rate.toString());
+
+        if (normalized.signum() <= 0 || date == null) {
             return BigDecimal.ZERO.setScale(RATE_SCALE, ROUNDING);
         }
 
-        BigDecimal normalized = rate.divide(ONE_HUNDRED, RATE_SCALE, ROUNDING);
-
-        if ("ANNUAL".equalsIgnoreCase(interestRateType)) {
-            return normalized.divide(TWELVE, RATE_SCALE, ROUNDING)
-                    .divide(THIRTY, RATE_SCALE, ROUNDING);
+        if ("ANNUAL".equalsIgnoreCase(rateType)) {
+            return normalized
+                    .divide(ONE_HUNDRED, RATE_SCALE, ROUNDING)
+                    .divide(THREE_HUNDRED_SIXTY_FIVE, RATE_SCALE, ROUNDING);
         }
 
-        // MONTHLY is the system default for unknown/blank rate types.
-        return normalized.divide(THIRTY, RATE_SCALE, ROUNDING);
+        return FinancialPolicy.dailyRateFraction(normalized, date)
+                .setScale(RATE_SCALE, ROUNDING);
     }
 
     public BigDecimal interest(BigDecimal principal, BigDecimal dailyRate, long days) {
@@ -53,14 +60,32 @@ public class FinancialCalculationService {
                 .setScale(MoneyMath.SCALE, ROUNDING);
     }
 
+    /**
+     * Calculates 15% monthly penalty across the actual calendar days ending today.
+     */
     public BigDecimal penalty(BigDecimal principal, int daysLate) {
         if (principal == null || principal.signum() <= 0 || daysLate <= 0) {
             return MoneyMath.ZERO;
         }
-        BigDecimal dailyPenaltyRate = PENALTY_MONTHLY_RATE.divide(THIRTY, RATE_SCALE, ROUNDING);
-        return principal.multiply(dailyPenaltyRate)
-                .multiply(BigDecimal.valueOf(daysLate))
-                .setScale(MoneyMath.SCALE, ROUNDING);
+
+        LocalDate endDate = LocalDate.now();
+        LocalDate startDate = endDate.minusDays(daysLate);
+        return FinancialPolicy.accrueDaily(
+                principal,
+                startDate,
+                endDate,
+                FinancialPolicy.MONTHLY_PENALTY_RATE);
+    }
+
+    public BigDecimal penalty(
+            BigDecimal principal,
+            LocalDate startDate,
+            LocalDate endDate) {
+        return FinancialPolicy.accrueDaily(
+                principal,
+                startDate,
+                endDate,
+                FinancialPolicy.MONTHLY_PENALTY_RATE);
     }
 
     public Allocation allocatePayment(
@@ -86,8 +111,7 @@ public class FinancialCalculationService {
                 principalPaid,
                 newBalance,
                 principalAvailable.subtract(principalPaid).max(BigDecimal.ZERO)
-                        .setScale(MoneyMath.SCALE, ROUNDING)
-        );
+                        .setScale(MoneyMath.SCALE, ROUNDING));
     }
 
     public BigDecimal nonNegative(BigDecimal value) {

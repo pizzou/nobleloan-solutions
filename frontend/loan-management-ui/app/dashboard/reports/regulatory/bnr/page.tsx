@@ -589,10 +589,9 @@ export default function BnrReportPage() {
 
   const currency = summary?.currency ?? financialStatement?.currency ?? "RWF";
 
-  const genderTotal = genders.reduce(
-    (sum, row) => sum + safeNumber(row.count),
-    0,
-  );
+  // Gender breakdown counts distinct borrowers, so the denominator must
+  // be the same borrower population used by the summary KPIs.
+  const genderTotal = safeNumber(summary?.totalBorrowers);
 
   const maleRow = genders.find(
     (row) => row.label?.toLowerCase().trim() === "male",

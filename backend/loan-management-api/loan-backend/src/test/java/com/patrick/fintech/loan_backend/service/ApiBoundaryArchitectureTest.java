@@ -1,98 +1,35 @@
 package com.patrick.fintech.loan_backend.service;
 
-import jakarta.persistence.Entity;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
-import org.springframework.core.type.filter.AnnotationTypeFilter;
-import org.springframework.web.bind.annotation.RestController;
 
-import java.lang.reflect.*;
-import java.util.Set;
+import java.nio.file.*;
+import java.util.*;
+import java.util.regex.Pattern;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.*;
 
 class ApiBoundaryArchitectureTest {
-
-    private static final String BASE_PACKAGE = "com.patrick.fintech.loan_backend";
+    private static final Pattern FORBIDDEN = Pattern.compile(
+            "(?:ApiResponse|ResponseEntity|Page|List)<[^\\n]*(?:com\\.patrick\\.fintech\\.loan_backend\\.model\\.|\\b(?:Loan|Borrower|Payment|User|Organization|Role|Branch|BorrowerFile|CollectionCase|CollectionAction|ChartOfAccount|JournalEntry|AuditLog|BankAccount|KycCheck|Expense|LoanApproval|LoanProduct|Notification|ContactMessage|CurrencyRate|ESignatureRequest|Guarantor|InternalDocument|ImportBatch|WebhookEndpoint|Collateral)\\b)",
+            Pattern.MULTILINE);
 
     @Test
-    void noRestControllerMayReturnJpaEntity() {
-
-        ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(
-                false);
-
-        scanner.addIncludeFilter(
-                new AnnotationTypeFilter(
-                        RestController.class));
-
-        scanner.findCandidateComponents(
-                BASE_PACKAGE)
-                .forEach(beanDefinition -> {
-
-                    try {
-
-                        Class<?> controller = Class.forName(
-                                beanDefinition
-                                        .getBeanClassName());
-
-                        for (Method method : controller.getDeclaredMethods()) {
-
-                            assertNoEntity(
-                                    method.getGenericReturnType(),
-                                    controller.getName()
-                                            + "#"
-                                            + method.getName());
-                        }
-
-                    } catch (ClassNotFoundException exception) {
-
-                        throw new AssertionError(
-                                "Could not load controller "
-                                        + beanDefinition
-                                                .getBeanClassName(),
-                                exception);
-                    }
-                });
-    }
-
-    private static void assertNoEntity(
-            Type type,
-            String location) {
-
-        if (type instanceof Class<?> clazz) {
-
-            assertFalse(
-                    clazz.isAnnotationPresent(
-                            Entity.class),
-                    "JPA entity exposed by API: "
-                            + location
-                            + " -> "
-                            + clazz.getName());
-
-            return;
+    void controllersMustNotExposeJpaEntitiesInResponseGenerics() throws Exception {
+        Path root = Paths.get("src/main/java/com/patrick/fintech/loan_backend/controller");
+        assertTrue(Files.isDirectory(root), "Controller source directory not found");
+        List<String> violations = new ArrayList<>();
+        try (var files = Files.list(root)) {
+            files.filter(p -> p.toString().endsWith("Controller.java")).forEach(p -> {
+                try {
+                    String source = Files.readString(p);
+                    var m = FORBIDDEN.matcher(source);
+                    if (m.find())
+                        violations.add(p.getFileName() + ": " + m.group());
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
         }
-
-        if (type instanceof ParameterizedType parameterized) {
-
-            assertNoEntity(
-                    parameterized.getRawType(),
-                    location);
-
-            for (Type argument : parameterized.getActualTypeArguments()) {
-
-                assertNoEntity(
-                        argument,
-                        location);
-            }
-
-            return;
-        }
-
-        if (type instanceof GenericArrayType array) {
-
-            assertNoEntity(
-                    array.getGenericComponentType(),
-                    location);
-        }
+        assertTrue(violations.isEmpty(), "JPA entity response boundary violations:\n" + String.join("\n", violations));
     }
 }

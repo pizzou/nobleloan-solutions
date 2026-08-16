@@ -2,10 +2,8 @@ package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.dto.DashboardStats;
 import com.patrick.fintech.loan_backend.dto.LoanRequest;
-import com.patrick.fintech.loan_backend.dto.LoanResponse;
 import com.patrick.fintech.loan_backend.dto.publicportal.BorrowerDashboardResponse;
 import com.patrick.fintech.loan_backend.dto.publicportal.DashboardSummaryResponse;
-import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Borrower;
 import com.patrick.fintech.loan_backend.model.DocumentType;
 import com.patrick.fintech.loan_backend.model.Loan;
@@ -23,6 +21,7 @@ import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.security.HmacIndexer;
+import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -76,14 +75,14 @@ public class LoanService {
 
         private static final BigDecimal MIN_LOAN_AMOUNT = bd("500000");
 
-        private static final BigDecimal MONTHLY_INTEREST_RATE = bd("5.0");
+        private static final BigDecimal MONTHLY_INTEREST_RATE = FinancialPolicy.MONTHLY_INTEREST_RATE;
 
-        private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = bd("5.0");
+        private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE;
 
         private static final BigDecimal TOTAL_MONTHLY_CHARGE_RATE = MONTHLY_INTEREST_RATE
                         .add(MONTHLY_MANAGEMENT_FEE_RATE);
 
-        private static final BigDecimal PROCESSING_FEE_RATE = bd("2.0");
+        private static final BigDecimal PROCESSING_FEE_RATE = FinancialPolicy.PROCESSING_FEE_RATE;
 
         private static final BigDecimal ZERO = BigDecimal.ZERO;
 
@@ -1362,6 +1361,12 @@ public class LoanService {
                 loan.setProcessingFee(
                                 processingFee);
 
+                // The 2% processing fee is collected once at disbursement.
+                // It is never part of principal or recurring monthly charges.
+                loan.setProcessingFeePaid(processingFee);
+                loan.setNetDisbursedAmount(
+                                exactPrincipal.subtract(processingFee).max(ZERO));
+
                 loan.setAmount(
                                 exactPrincipal);
 
@@ -2289,208 +2294,77 @@ public class LoanService {
         // DASHBOARD
         // ================================================================
 
-        // ================================================================
-        // DASHBOARD
-        // ================================================================
-
-        @Transactional(readOnly = true)
-        public DashboardStats getDashboard(Organization org) {
+        public DashboardStats getDashboard(
+                        Organization org) {
 
                 if (org == null || org.getId() == null) {
-
-                        throw new IllegalArgumentException(
-                                        "Organization is required");
+                        throw new IllegalArgumentException("Organization is required");
                 }
 
                 LocalDate today = LocalDate.now();
-
                 LocalDate firstOfMonth = today.withDayOfMonth(1);
 
-                /*
-                 * ------------------------------------------------------------
-                 * OVERDUE / LATE PAYMENTS
-                 * ------------------------------------------------------------
-                 */
-
-                long overdueCount = paymentRepo
-                                .findByOrganization_IdAndPaidFalseAndDueDateBefore(
-                                                org.getId(),
-                                                today)
-                                .size();
-
-                /*
-                 * ------------------------------------------------------------
-                 * LOAN TYPE BREAKDOWN
-                 * ------------------------------------------------------------
-                 */
+                long overdueCount = Optional.ofNullable(
+                                paymentRepo.findByOrganization_IdAndPaidFalseAndDueDateBefore(
+                                                org.getId(), today))
+                                .orElse(List.of())
+                                .stream()
+                                .filter(p -> p != null && p.getLoan() != null)
+                                .map(p -> p.getLoan().getId())
+                                .filter(java.util.Objects::nonNull)
+                                .distinct()
+                                .count();
 
                 List<Map<String, Object>> typeBreakdown = loanRepo
                                 .getLoanTypeBreakdown(org)
                                 .stream()
-                                .map(row -> {
-
-                                        Map<String, Object> result = new LinkedHashMap<>();
-
-                                        result.put(
-                                                        "type",
-                                                        row[0]);
-
-                                        result.put(
-                                                        "count",
-                                                        row[1]);
-
-                                        result.put(
-                                                        "amount",
-                                                        row[2]);
-
-                                        return result;
+                                .map(r -> {
+                                        Map<String, Object> m = new LinkedHashMap<>();
+                                        m.put("type", r[0]);
+                                        m.put("count", r[1]);
+                                        m.put("amount", r[2]);
+                                        return m;
                                 })
                                 .collect(Collectors.toList());
 
-                /*
-                 * ------------------------------------------------------------
-                 * RECENT LOANS
-                 * ------------------------------------------------------------
-                 *
-                 * IMPORTANT:
-                 *
-                 * Never expose List<Loan> through DashboardStats.
-                 *
-                 * Convert the entities to LoanResponse while the transaction
-                 * is active. This prevents Hibernate lazy-loading errors
-                 * during Jackson serialization.
-                 */
-
-                List<LoanResponse> recentLoans = loanRepo
-                                .findRecentByOrg(
-                                                org,
-                                                PageRequest.of(
-                                                                0,
-                                                                8))
-                                .stream()
-                                .map(ResponseDtoMapper::loan)
-                                .toList();
-
-                /*
-                 * ------------------------------------------------------------
-                 * FINANCIAL TOTALS
-                 * ------------------------------------------------------------
-                 *
-                 * These repository methods already return BigDecimal.
-                 *
-                 * NEVER convert these values to Double.
-                 *
-                 * Financial calculations must remain BigDecimal from
-                 * database → service → DTO → JSON.
-                 */
+                List<Loan> recent = loanRepo.findRecentByOrg(
+                                org,
+                                PageRequest.of(0, 8));
 
                 BigDecimal totalDisbursed = Optional.ofNullable(
-                                loanRepo.sumActivePrincipal(org))
-                                .orElse(BigDecimal.ZERO);
+                                loanRepo.sumGrossDisbursedPrincipal(org))
+                                .orElse(ZERO);
 
                 BigDecimal totalCollected = Optional.ofNullable(
                                 loanRepo.sumTotalCollected(org))
-                                .orElse(BigDecimal.ZERO);
+                                .orElse(ZERO);
 
                 BigDecimal outstandingBalance = Optional.ofNullable(
                                 loanRepo.sumOutstandingBalance(org))
-                                .orElse(BigDecimal.ZERO);
+                                .orElse(ZERO);
 
                 BigDecimal collectedThisMonth = Optional.ofNullable(
-                                paymentRepo.sumCollectedSince(
-                                                org,
-                                                firstOfMonth))
-                                .orElse(BigDecimal.ZERO);
-
-                /*
-                 * ------------------------------------------------------------
-                 * MONEY NORMALIZATION
-                 * ------------------------------------------------------------
-                 */
-
-                totalDisbursed = normalizeDashboardMoney(
-                                totalDisbursed);
-
-                totalCollected = normalizeDashboardMoney(
-                                totalCollected);
-
-                outstandingBalance = normalizeDashboardMoney(
-                                outstandingBalance);
-
-                collectedThisMonth = normalizeDashboardMoney(
-                                collectedThisMonth);
+                                paymentRepo.sumCollectedSince(org, firstOfMonth))
+                                .orElse(ZERO);
 
                 return DashboardStats.builder()
-
-                                .totalLoans(
-                                                loanRepo.countByOrganization(org))
-
-                                .pendingLoans(
-                                                loanRepo.countByOrganizationAndStatus(
-                                                                org,
-                                                                LoanStatus.PENDING))
-
-                                .activeLoans(
-                                                loanRepo.countByOrganizationAndStatus(
-                                                                org,
-                                                                LoanStatus.ACTIVE))
-
-                                .overdueLoans(
-                                                overdueCount)
-
-                                .completedLoans(
-                                                loanRepo.countByOrganizationAndStatus(
-                                                                org,
-                                                                LoanStatus.PAID))
-
-                                .defaultedLoans(
-                                                loanRepo.countByOrganizationAndStatus(
-                                                                org,
-                                                                LoanStatus.DEFAULTED))
-
-                                .totalDisbursed(
-                                                totalDisbursed)
-
-                                .totalCollected(
-                                                totalCollected)
-
-                                .outstandingBalance(
-                                                outstandingBalance)
-
-                                .collectedThisMonth(
-                                                collectedThisMonth)
-
-                                .totalBorrowers(
-                                                borrowerRepo.countByOrganization(org))
-
-                                .latePaymentsCount(
-                                                Optional.ofNullable(
-                                                                paymentRepo.countLatePayments(org))
-                                                                .orElse(0L))
-
-                                .loanTypeBreakdown(
-                                                typeBreakdown)
-
-                                .recentLoans(
-                                                recentLoans)
-
+                                .totalLoans(loanRepo.countByOrganization(org))
+                                .pendingLoans(loanRepo.countByOrganizationAndStatus(org, LoanStatus.PENDING))
+                                .activeLoans(loanRepo.countByOrganizationAndStatus(org, LoanStatus.ACTIVE))
+                                .overdueLoans(overdueCount)
+                                .completedLoans(loanRepo.countByOrganizationAndStatus(org, LoanStatus.PAID))
+                                .defaultedLoans(loanRepo.countByOrganizationAndStatus(org, LoanStatus.DEFAULTED))
+                                .totalDisbursed(totalDisbursed)
+                                .totalCollected(totalCollected)
+                                .outstandingBalance(outstandingBalance)
+                                .collectedThisMonth(collectedThisMonth)
+                                .totalBorrowers(borrowerRepo.countByOrganization(org))
+                                .latePaymentsCount(Optional.ofNullable(paymentRepo.countLatePayments(org)).orElse(0L))
+                                .loanTypeBreakdown(typeBreakdown)
+                                .recentLoans(recent)
                                 .build();
         }
 
-        private BigDecimal normalizeDashboardMoney(
-                        BigDecimal value) {
-
-                if (value == null) {
-
-                        return BigDecimal.ZERO.setScale(
-                                        2,
-                                        RoundingMode.HALF_UP);
-                }
-
-                return value.setScale(
-                                2,
-                                RoundingMode.HALF_UP);
-        }
         // ================================================================
         // GENERATE REPAYMENT SCHEDULE
         // ================================================================
@@ -2724,9 +2598,10 @@ public class LoanService {
                 loan.setInterestPaid(
                                 ZERO);
 
-                loan.setProcessingFeePaid(
-                                ZERO);
-
+                // Approval/schedule generation happens before disbursement.
+                // The one-time processing fee is therefore still unpaid here.
+                // Do not change this to a collection event: actual collection
+                // is recorded by the disbursement flow.
                 loan.setProcessingFee(
                                 processingFee);
 

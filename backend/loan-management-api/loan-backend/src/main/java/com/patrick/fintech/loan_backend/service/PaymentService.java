@@ -10,6 +10,7 @@ import com.patrick.fintech.loan_backend.repository.AuditLogRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.repository.UserRepository;
+import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -53,12 +54,12 @@ public class PaymentService {
         /**
          * Monthly loan interest.
          */
-        private static final BigDecimal MONTHLY_INTEREST_RATE = new BigDecimal("0.05");
+        private static final BigDecimal MONTHLY_INTEREST_RATE = FinancialPolicy.MONTHLY_INTEREST_RATE;
 
         /**
          * Monthly loan management fee.
          */
-        private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = new BigDecimal("0.05");
+        private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE;
 
         /**
          * One-time processing fee.
@@ -66,20 +67,18 @@ public class PaymentService {
          * This is NOT charged by PaymentService.
          * It is deducted at disbursement.
          */
-        private static final BigDecimal PROCESSING_FEE_RATE = new BigDecimal("0.02");
+        private static final BigDecimal PROCESSING_FEE_RATE = FinancialPolicy.PROCESSING_FEE_RATE;
 
         /**
          * Monthly late-payment penalty.
          *
          * 15% per month.
          */
-        private static final BigDecimal MONTHLY_PENALTY_RATE = new BigDecimal("0.15");
+        private static final BigDecimal MONTHLY_PENALTY_RATE = FinancialPolicy.MONTHLY_PENALTY_RATE;
 
         /**
-         * 30-day financial month.
+         * Monthly penalty is accrued against the actual calendar days in each month.
          */
-        private static final BigDecimal THIRTY = new BigDecimal("30");
-
         private static final BigDecimal TWELVE = new BigDecimal("12");
 
         private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
@@ -646,21 +645,6 @@ public class PaymentService {
                                 remainingManagementFeeBeforePayment);
 
                 // ============================================================
-                // PENALTY RATE
-                // ============================================================
-
-                /*
-                 * 15% monthly / 30 days
-                 *
-                 * = 0.5% per overdue day
-                 */
-                BigDecimal dailyPenaltyRate = MONTHLY_PENALTY_RATE
-                                .divide(
-                                                THIRTY,
-                                                16,
-                                                RoundingMode.HALF_UP);
-
-                // ============================================================
                 // NEW PENALTY DAYS
                 // ============================================================
 
@@ -681,16 +665,16 @@ public class PaymentService {
                 BigDecimal newlyCalculatedPenalty = ZERO;
 
                 if (newPenaltyDays > 0
-                                && currentBalance.compareTo(
-                                                ZERO) > 0) {
+                                && currentBalance.compareTo(ZERO) > 0) {
 
-                        newlyCalculatedPenalty = roundMoney(
-                                        currentBalance
-                                                        .multiply(
-                                                                        dailyPenaltyRate)
-                                                        .multiply(
-                                                                        BigDecimal.valueOf(
-                                                                                        newPenaltyDays)));
+                        LocalDate penaltyStartDate = cycleDueDate
+                                        .plusDays(existingDaysLate);
+
+                        newlyCalculatedPenalty = FinancialPolicy.accrueDaily(
+                                        currentBalance,
+                                        penaltyStartDate,
+                                        today,
+                                        MONTHLY_PENALTY_RATE);
                 }
 
                 // ============================================================
@@ -1531,7 +1515,7 @@ public class PaymentService {
 
                         paymentWebhook.put(
                                         "dailyPenaltyRate",
-                                        dailyPenaltyRate);
+                                        FinancialPolicy.dailyRateFraction(MONTHLY_PENALTY_RATE, today));
 
                         paymentWebhook.put(
                                         "interestDays",
@@ -2137,20 +2121,14 @@ public class PaymentService {
                 BigDecimal monthly = moneyRatePercent(
                                 loan != null ? loan.getInterestRateDecimal() : null,
                                 MONTHLY_INTEREST_RATE);
-                return monthly.divide(
-                                BigDecimal.valueOf(LocalDate.now().lengthOfMonth()),
-                                16,
-                                RoundingMode.HALF_UP);
+                return FinancialPolicy.dailyRateFraction(monthly, LocalDate.now());
         }
 
         private BigDecimal calculateDailyManagementFeeRate(Loan loan) {
                 BigDecimal monthly = moneyRatePercent(
                                 loan != null ? loan.getManagementFeeRateDecimal() : null,
                                 MONTHLY_MANAGEMENT_FEE_RATE);
-                return monthly.divide(
-                                BigDecimal.valueOf(LocalDate.now().lengthOfMonth()),
-                                16,
-                                RoundingMode.HALF_UP);
+                return FinancialPolicy.dailyRateFraction(monthly, LocalDate.now());
         }
 
         private BigDecimal calculateNewInterest(
@@ -2169,44 +2147,16 @@ public class PaymentService {
                 return accrueDaily(currentBalance, startDate, endDate, monthlyRate);
         }
 
-        /**
-         * Accrues a monthly percentage daily using the actual calendar day count
-         * of every month crossed by [startDate, endDate).
-         *
-         * Example: 5% monthly in a 30-day month = 5% / 30 per day.
-         * February uses 28/29, April uses 30, January uses 31, etc.
-         */
         private BigDecimal accrueDaily(
                         BigDecimal outstandingPrincipal,
                         LocalDate startDate,
                         LocalDate endDate,
                         BigDecimal monthlyRatePercent) {
-                if (outstandingPrincipal == null
-                                || outstandingPrincipal.compareTo(ZERO) <= 0
-                                || startDate == null
-                                || endDate == null
-                                || !startDate.isBefore(endDate)
-                                || monthlyRatePercent == null
-                                || monthlyRatePercent.compareTo(ZERO) <= 0) {
-                        return ZERO;
-                }
-
-                BigDecimal total = ZERO;
-                LocalDate cursor = startDate;
-
-                while (cursor.isBefore(endDate)) {
-                        YearMonth yearMonth = YearMonth.from(cursor);
-                        int daysInMonth = yearMonth.lengthOfMonth();
-
-                        BigDecimal dailyRate = monthlyRatePercent
-                                        .divide(ONE_HUNDRED, 16, RoundingMode.HALF_UP)
-                                        .divide(BigDecimal.valueOf(daysInMonth), 16, RoundingMode.HALF_UP);
-
-                        total = total.add(outstandingPrincipal.multiply(dailyRate));
-                        cursor = cursor.plusDays(1);
-                }
-
-                return roundMoney(total);
+                return FinancialPolicy.accrueDaily(
+                                outstandingPrincipal,
+                                startDate,
+                                endDate,
+                                monthlyRatePercent);
         }
 
         private BigDecimal moneyRatePercent(

@@ -11,6 +11,7 @@ import com.patrick.fintech.loan_backend.model.Payment;
 import com.patrick.fintech.loan_backend.repository.ChartOfAccountRepository;
 import com.patrick.fintech.loan_backend.repository.JournalEntryRepository;
 import com.patrick.fintech.loan_backend.repository.JournalLineRepository;
+import com.patrick.fintech.loan_backend.repository.LoanRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +38,7 @@ public class AccountingService {
         private final ChartOfAccountRepository coaRepo;
         private final JournalEntryRepository journalRepo;
         private final JournalLineRepository lineRepo;
+        private final LoanRepository loanRepo;
 
         // ============================================================
         // MONEY CONFIGURATION
@@ -62,6 +64,7 @@ public class AccountingService {
                         { "1150", "Interest Receivable", "ASSET", "DEBIT" },
                         { "1160", "Management Fees Receivable", "ASSET", "DEBIT" },
                         { "1170", "Extension Fees Receivable", "ASSET", "DEBIT" },
+                        { "1175", "Penalties Receivable", "ASSET", "DEBIT" },
 
                         // CONTRA ASSET
                         { "1200", "Loan Loss Reserve", "ASSET", "CREDIT" },
@@ -965,6 +968,14 @@ public class AccountingService {
                                 grossPrincipal.subtract(
                                                 processingFee));
 
+                // The processing fee is collected exactly once at disbursement.
+                // Keep the operational loan state synchronized with the journal:
+                // gross principal remains the receivable, while the borrower
+                // receives principal minus the one-time 2% fee.
+                loan.setProcessingFee(processingFee);
+                loan.setProcessingFeePaid(processingFee);
+                loan.setNetDisbursedAmount(netCashDisbursed);
+
                 if (netCashDisbursed.compareTo(
                                 ZERO) <= 0) {
 
@@ -1336,6 +1347,75 @@ public class AccountingService {
                                                                 .description(
                                                                                 "Management fee income accrued — "
                                                                                                 + reference)
+                                                                .build()));
+        }
+
+        // ============================================================
+        // PENALTY ACCRUAL
+        // ============================================================
+
+        /**
+         * Records daily late-payment penalty as a receivable. The platform
+         * policy is 15% per month accrued by actual calendar day.
+         */
+        @Transactional
+        public JournalEntry postPenaltyAccrual(
+                        Loan loan,
+                        BigDecimal penaltyAmount) {
+
+                if (loan == null || loan.getId() == null) {
+                        throw new IllegalArgumentException("Loan is required");
+                }
+
+                Organization org = loan.getOrganization();
+                requireOrganization(org);
+                ensureChartOfAccounts(org);
+
+                BigDecimal penalty = maxZero(penaltyAmount);
+                if (penalty.compareTo(ZERO) <= 0) {
+                        return null;
+                }
+
+                LocalDate accrualDate = LocalDate.now();
+                String sourceId = loan.getId() + "-" + accrualDate;
+
+                JournalEntry existing = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(),
+                                                "PENALTY_ACCRUAL",
+                                                sourceId)
+                                .orElse(null);
+
+                if (existing != null) {
+                        return existing;
+                }
+
+                String reference = loan.getReferenceNumber() != null
+                                && !loan.getReferenceNumber().isBlank()
+                                                ? loan.getReferenceNumber().trim()
+                                                : "LOAN-" + loan.getId();
+
+                return post(
+                                org,
+                                loan.getBranch(),
+                                "PENALTY_ACCRUAL",
+                                sourceId,
+                                reference,
+                                "15% monthly / calendar-day penalty accrual for " + reference
+                                                + " (" + accrualDate + ")",
+                                List.of(
+                                                JournalLine.builder()
+                                                                .account(account(org, "1175"))
+                                                                .debit(penalty)
+                                                                .credit(ZERO)
+                                                                .description("Penalty receivable accrued — "
+                                                                                + reference)
+                                                                .build(),
+                                                JournalLine.builder()
+                                                                .account(account(org, "4100"))
+                                                                .debit(ZERO)
+                                                                .credit(penalty)
+                                                                .description("Penalty income accrued — " + reference)
                                                                 .build()));
         }
 
@@ -1802,23 +1882,32 @@ public class AccountingService {
                 // PENALTY
                 // ============================================================
 
-                if (penalty.compareTo(
-                                ZERO) > 0) {
+                if (penalty.compareTo(ZERO) > 0) {
 
-                        lines.add(
-                                        JournalLine.builder()
-                                                        .account(
-                                                                        account(
-                                                                                        org,
-                                                                                        "4100"))
-                                                        .debit(
-                                                                        ZERO)
-                                                        .credit(
-                                                                        penalty)
-                                                        .description(
-                                                                        "15% monthly / 0.5% daily penalty income — "
-                                                                                        + loanReference)
-                                                        .build());
+                        BigDecimal accruedPenalty = accruedPenaltyReceivable(org, loan.getId());
+                        BigDecimal clearPenalty = penalty.min(maxZero(accruedPenalty));
+                        BigDecimal directPenaltyIncome = penalty.subtract(clearPenalty).max(ZERO);
+
+                        if (clearPenalty.compareTo(ZERO) > 0) {
+                                lines.add(
+                                                JournalLine.builder()
+                                                                .account(account(org, "1175"))
+                                                                .debit(ZERO)
+                                                                .credit(clearPenalty)
+                                                                .description("Clears accrued penalty receivable — "
+                                                                                + loanReference)
+                                                                .build());
+                        }
+
+                        if (directPenaltyIncome.compareTo(ZERO) > 0) {
+                                lines.add(
+                                                JournalLine.builder()
+                                                                .account(account(org, "4100"))
+                                                                .debit(ZERO)
+                                                                .credit(directPenaltyIncome)
+                                                                .description("Penalty income — " + loanReference)
+                                                                .build());
+                        }
                 }
 
                 // ============================================================
@@ -2291,10 +2380,15 @@ public class AccountingService {
                         return ZERO;
                 }
 
-                List<JournalLine> lines = lineRepo.findInterestReceivableLinesForLoan(
+                Loan loan = loanRepo.findById(loanId).orElse(null);
+                if (loan == null || loan.getReferenceNumber() == null) {
+                        return ZERO;
+                }
+
+                List<JournalLine> lines = lineRepo.findReceivableLinesForLoan(
                                 receivable.getId(),
                                 org.getId(),
-                                loanId);
+                                loan.getReferenceNumber());
 
                 if (lines == null
                                 || lines.isEmpty()) {
@@ -2334,6 +2428,49 @@ public class AccountingService {
         }
 
         // ============================================================
+        // ACCRUED PENALTY RECEIVABLE
+        // ============================================================
+
+        private BigDecimal accruedPenaltyReceivable(
+                        Organization org,
+                        Long loanId) {
+
+                requireOrganization(org);
+                if (loanId == null) {
+                        return ZERO;
+                }
+
+                ChartOfAccount receivable = coaRepo
+                                .findByOrganization_IdAndCode(org.getId(), "1175")
+                                .orElse(null);
+                if (receivable == null) {
+                        return ZERO;
+                }
+
+                Loan loan = loanRepo.findById(loanId).orElse(null);
+                if (loan == null || loan.getReferenceNumber() == null) {
+                        return ZERO;
+                }
+
+                List<JournalLine> lines = lineRepo.findReceivableLinesForLoan(
+                                receivable.getId(), org.getId(), loan.getReferenceNumber());
+                if (lines == null || lines.isEmpty()) {
+                        return ZERO;
+                }
+
+                BigDecimal balance = ZERO;
+                for (JournalLine line : lines) {
+                        if (line == null) {
+                                continue;
+                        }
+                        balance = balance
+                                        .add(money(line.getDebitDecimal()))
+                                        .subtract(money(line.getCreditDecimal()));
+                }
+                return maxZero(balance);
+        }
+
+        // ============================================================
         // ACCRUED MANAGEMENT FEE RECEIVABLE
         // ============================================================
 
@@ -2349,8 +2486,12 @@ public class AccountingService {
                 if (receivable == null)
                         return ZERO;
 
-                List<JournalLine> lines = lineRepo.findByAccount_IdAndOrganization_Id(
-                                receivable.getId(), org.getId());
+                Loan loan = loanRepo.findById(loanId).orElse(null);
+                if (loan == null || loan.getReferenceNumber() == null)
+                        return ZERO;
+
+                List<JournalLine> lines = lineRepo.findReceivableLinesForLoan(
+                                receivable.getId(), org.getId(), loan.getReferenceNumber());
                 if (lines == null || lines.isEmpty())
                         return ZERO;
 

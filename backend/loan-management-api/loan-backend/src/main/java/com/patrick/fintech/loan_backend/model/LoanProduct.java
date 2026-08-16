@@ -1,5 +1,7 @@
 package com.patrick.fintech.loan_backend.model;
 
+import com.patrick.fintech.loan_backend.util.FinancialPolicy;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Arrays;
@@ -181,13 +183,13 @@ public class LoanProduct {
 
         public static final BigDecimal DEFAULT_MIN_AMOUNT = new BigDecimal("500000.00");
 
-        public static final BigDecimal DEFAULT_INTEREST_RATE = new BigDecimal("5.00");
+        public static final BigDecimal DEFAULT_INTEREST_RATE = FinancialPolicy.MONTHLY_INTEREST_RATE;
 
-        public static final BigDecimal DEFAULT_PROCESSING_FEE_PERCENT = new BigDecimal("2.00");
+        public static final BigDecimal DEFAULT_PROCESSING_FEE_PERCENT = FinancialPolicy.PROCESSING_FEE_RATE;
 
-        public static final BigDecimal DEFAULT_MANAGEMENT_FEE_PERCENT = new BigDecimal("5.00");
+        public static final BigDecimal DEFAULT_MANAGEMENT_FEE_PERCENT = FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE;
 
-        public static final BigDecimal DEFAULT_PENALTY_PERCENT = new BigDecimal("15.00");
+        public static final BigDecimal DEFAULT_PENALTY_PERCENT = FinancialPolicy.MONTHLY_PENALTY_RATE;
 
         public static final String DEFAULT_INTEREST_RATE_TYPE = "MONTHLY";
 

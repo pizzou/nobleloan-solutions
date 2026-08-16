@@ -8,6 +8,7 @@ import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.repository.BorrowerRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.security.HmacIndexer;
+import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -64,14 +65,14 @@ public class LegacyLoanImportRowService {
 
         private static final BigDecimal MAX_LOAN_AMOUNT = null;
 
-        private static final BigDecimal MONTHLY_INTEREST_RATE = new BigDecimal("5.00");
+        private static final BigDecimal MONTHLY_INTEREST_RATE = FinancialPolicy.MONTHLY_INTEREST_RATE;
 
-        private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = new BigDecimal("5.00");
+        private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE;
 
         private static final BigDecimal TOTAL_MONTHLY_CHARGE_RATE = MONTHLY_INTEREST_RATE.add(
                         MONTHLY_MANAGEMENT_FEE_RATE);
 
-        private static final BigDecimal PROCESSING_FEE_RATE = new BigDecimal("2.00");
+        private static final BigDecimal PROCESSING_FEE_RATE = FinancialPolicy.PROCESSING_FEE_RATE;
 
         private static final BigDecimal MAX_IMPORT_RATE = new BigDecimal("1000.00");
 
