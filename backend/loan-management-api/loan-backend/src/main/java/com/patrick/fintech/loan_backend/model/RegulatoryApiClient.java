@@ -38,6 +38,8 @@ public class RegulatoryApiClient {
         name = "organization_id",
         nullable = false
     )
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Organization organization;
 
     @Column(nullable = false)
@@ -88,6 +90,8 @@ public class RegulatoryApiClient {
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private User createdBy;
 
     private LocalDateTime revokedAt;

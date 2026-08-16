@@ -24,10 +24,14 @@ public class ImportBatch {
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "organization_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Organization organization;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "imported_by")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private User importedBy;
 
     private String fileName;
@@ -41,6 +45,13 @@ public class ImportBatch {
     private String rowResults;
 
     private LocalDateTime createdAt;
+    @Column(name="processed_rows") private Integer processedRows;
+    @Column(name="progress_percent") private Integer progressPercent;
+    @Column(name="file_size") private Long fileSize;
+    @JsonIgnore @Column(name="staged_file_path", columnDefinition="TEXT") private String stagedFilePath;
+    @JsonIgnore @Column(name="error_message", columnDefinition="TEXT") private String errorMessage;
+    @JsonIgnore @Column(name="error_report_path", columnDefinition="TEXT") private String errorReportPath;
+
 
     @PrePersist
     protected void onCreate() {

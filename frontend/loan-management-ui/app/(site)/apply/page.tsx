@@ -410,11 +410,11 @@ export default function ApplyPage() {
           <p className="text-gray-600 mb-6 text-lg">
             {queuedOffline ? (
               <>
-                Thanks <strong>{form.firstName}</strong> — you're offline right
-                now, so we've saved your application on this device. It will
-                submit itself the moment this device reconnects to the internet.
-                You don't need to do anything else — just don't clear your
-                browser data before then.
+                Thanks <strong>{form.firstName}</strong> — you&apos;re offline
+                right now, so we&apos;ve saved your application on this device.
+                It will submit itself the moment this device reconnects to the
+                internet. You don&apos;t need to do anything else — just
+                don&apos;t clear your browser data before then.
               </>
             ) : docsComplete ? (
               <>
@@ -425,9 +425,9 @@ export default function ApplyPage() {
             ) : (
               <>
                 Thanks <strong>{form.firstName}</strong> — your application
-                details are saved, but it isn't complete yet. Please upload the
-                required documents below so our team can begin reviewing it —
-                applications without documents can't be processed.
+                details are saved, but it isn&apos;t complete yet. Please upload
+                the required documents below so our team can begin reviewing it
+                — applications without documents can&apos;t be processed.
               </>
             )}
           </p>
@@ -466,8 +466,8 @@ export default function ApplyPage() {
             <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl px-4 py-3 mb-6 text-left">
               ⚠️ <strong>Your application is not yet complete.</strong> Upload
               the documents below to send it for review. You can safely bookmark
-              this page or use "Track Your Application" later — your progress is
-              saved.
+              this page or use &quot;Track Your Application&quot; later — your
+              progress is saved.
             </div>
           )}
 

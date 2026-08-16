@@ -1,6 +1,7 @@
 package com.patrick.fintech.loan_backend.controller;
 
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.ChartOfAccount;
 import com.patrick.fintech.loan_backend.model.JournalEntry;
 import com.patrick.fintech.loan_backend.model.Organization;
@@ -136,7 +137,7 @@ public class AccountingController {
         // ============================================================
 
         @GetMapping("/chart-of-accounts")
-        public ResponseEntity<ApiResponse<List<ChartOfAccount>>> chartOfAccounts() {
+        public ResponseEntity<ApiResponse<Object>> chartOfAccounts() {
 
                 Long orgId = requireOrganizationId();
 
@@ -151,12 +152,12 @@ public class AccountingController {
                 }
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(accounts));
+                                ApiResponse.safe(accounts));
         }
 
         @PostMapping("/chart-of-accounts")
         @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT')")
-        public ResponseEntity<ApiResponse<ChartOfAccount>> createAccount(
+        public ResponseEntity<ApiResponse<Object>> createAccount(
                         @RequestBody Map<String, String> body) {
 
                 Organization organization = requireCurrentOrganization();
@@ -231,14 +232,14 @@ public class AccountingController {
                                 "Accounting");
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(
+                                ApiResponse.safe(
                                                 "Account created",
                                                 created));
         }
 
         @PutMapping("/chart-of-accounts/{id}")
         @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT')")
-        public ResponseEntity<ApiResponse<ChartOfAccount>> updateAccount(
+        public ResponseEntity<ApiResponse<Object>> updateAccount(
                         @PathVariable Long id,
                         @RequestBody Map<String, Object> body) {
 
@@ -316,7 +317,7 @@ public class AccountingController {
                                 "Accounting");
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(
+                                ApiResponse.safe(
                                                 "Account updated",
                                                 updated));
         }
@@ -326,7 +327,7 @@ public class AccountingController {
         // ============================================================
 
         @GetMapping("/journal")
-        public ResponseEntity<ApiResponse<List<JournalEntry>>> journal() {
+        public ResponseEntity<ApiResponse<Object>> journal() {
 
                 Long orgId = requireOrganizationId();
 
@@ -349,7 +350,7 @@ public class AccountingController {
                 }
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(entries));
+                                ApiResponse.safe(entries));
         }
 
         // ============================================================
@@ -388,7 +389,7 @@ public class AccountingController {
                 result.put("created", repaired);
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(
+                                ApiResponse.safe(
                                                 "Historical loan accounting reconciliation completed",
                                                 result));
         }
@@ -399,7 +400,7 @@ public class AccountingController {
 
         @PostMapping("/journal/{id}/reverse")
         @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT')")
-        public ResponseEntity<ApiResponse<JournalEntry>> reverseEntry(
+        public ResponseEntity<ApiResponse<Object>> reverseEntry(
                         @PathVariable Long id,
                         @RequestBody(required = false) Map<String, String> body) {
 
@@ -448,7 +449,7 @@ public class AccountingController {
                                 "Accounting");
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(
+                                ApiResponse.safe(
                                                 "Journal entry reversed",
                                                 reversal));
         }
@@ -473,7 +474,7 @@ public class AccountingController {
                                 accountId);
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(
+                                ApiResponse.safe(
                                                 ledger != null
                                                                 ? ledger
                                                                 : Map.of()));
@@ -491,7 +492,7 @@ public class AccountingController {
                 Map<String, Object> report = accountingService.getTrialBalance(orgId);
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(
+                                ApiResponse.safe(
                                                 report != null
                                                                 ? report
                                                                 : Map.of()));
@@ -509,7 +510,7 @@ public class AccountingController {
                 Map<String, Object> report = accountingService.getBalanceSheet(orgId);
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(
+                                ApiResponse.safe(
                                                 report != null
                                                                 ? report
                                                                 : Map.of()));
@@ -534,7 +535,7 @@ public class AccountingController {
                                 range.to());
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(
+                                ApiResponse.safe(
                                                 report != null
                                                                 ? report
                                                                 : Map.of()));
@@ -624,7 +625,7 @@ public class AccountingController {
                                                 : Map.of());
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(response));
+                                ApiResponse.safe(response));
         }
 
         // ============================================================
@@ -737,7 +738,7 @@ public class AccountingController {
                 }
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(response));
+                                ApiResponse.safe(response));
         }
 
         // ============================================================
@@ -759,7 +760,7 @@ public class AccountingController {
                                 range.to());
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(
+                                ApiResponse.safe(
                                                 report != null
                                                                 ? report
                                                                 : Map.of()));
@@ -784,7 +785,7 @@ public class AccountingController {
                                 range.to());
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(
+                                ApiResponse.safe(
                                                 report != null
                                                                 ? report
                                                                 : List.of()));

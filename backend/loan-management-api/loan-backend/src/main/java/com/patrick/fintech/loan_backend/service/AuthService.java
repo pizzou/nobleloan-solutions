@@ -5,6 +5,7 @@ import com.patrick.fintech.loan_backend.model.*;
 import com.patrick.fintech.loan_backend.repository.*;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.security.SecureRandom;
 
@@ -16,6 +17,12 @@ public class AuthService {
     private final RoleRepository         roleRepository;
     private final OrganizationRepository organizationRepository;
     private final MailService            mailService;
+
+    @Value("${app.auth.public-registration-enabled:false}")
+    private boolean publicRegistrationEnabled;
+
+    @Value("${app.public.default-tenant-slug:}")
+    private String publicRegistrationTenantSlug;
 
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final String UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I/O — avoids look-alike confusion
@@ -42,21 +49,29 @@ public class AuthService {
     /** Public, unauthenticated self-registration — the person chooses their own password.
      *  Do not change this to auto-generate a password; that would break genuine signup. */
     public User register(RegisterRequest request) {
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("Email already registered: " + request.getEmail());
+        if (!publicRegistrationEnabled) {
+            throw new IllegalStateException("Public registration is disabled");
+        }
+        if (request == null || request.getEmail() == null || request.getEmail().isBlank()) {
+            throw new IllegalArgumentException("Email is required");
+        }
+        if (userRepository.existsByEmail(request.getEmail().trim().toLowerCase())) {
+            throw new RuntimeException("Email already registered");
+        }
+        if (publicRegistrationTenantSlug == null || publicRegistrationTenantSlug.isBlank()) {
+            throw new IllegalStateException("Public registration tenant is not configured");
         }
 
-        // RoleRepository.findByName now accepts String
-        String roleName = request.getRole() != null ? request.getRole() : "LOAN_OFFICER";
+        // Never trust tenant or role identifiers supplied by an unauthenticated caller.
+        String roleName = "LOAN_OFFICER";
         Role role = roleRepository.findByName(roleName)
-                .orElseThrow(() -> new RuntimeException("Role not found: " + roleName));
-
-        Organization org = organizationRepository.findById(request.getOrganizationId())
-                .orElseThrow(() -> new RuntimeException("Organization not found: " + request.getOrganizationId()));
+                .orElseThrow(() -> new IllegalStateException("Default registration role is not configured"));
+        Organization org = organizationRepository.findBySlugIgnoreCase(publicRegistrationTenantSlug.trim())
+                .orElseThrow(() -> new IllegalStateException("Public registration tenant is not configured"));
 
         User user = new User();
         user.setName(request.getName());
-        user.setEmail(request.getEmail());
+        user.setEmail(request.getEmail().trim().toLowerCase());
         com.patrick.fintech.loan_backend.security.PasswordPolicy.validate(request.getPassword());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRole(role);

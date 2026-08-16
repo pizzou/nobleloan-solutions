@@ -36,6 +36,11 @@ public final class LedgerFileParser {
         throw new IllegalArgumentException("Unsupported file type — please upload a .csv or .xlsx file.");
     }
 
+    /** Package-safe CSV splitter used by the streaming importer. */
+    public static List<String> splitForStreaming(String line) {
+        return splitCsvLine(line);
+    }
+
     public static String normalizeHeader(String header) {
         if (header == null) {
             return "";

@@ -38,21 +38,6 @@ public class RiskScoringService {
 
         private static final BigDecimal DTI_50 = new BigDecimal("50.00");
 
-        /**
-         * Calculate a risk score from 0 to 100.
-         *
-         * Higher score = lower risk.
-         *
-         * Risk factors:
-         *
-         * 1. Credit score
-         * 2. Debt-to-income ratio
-         * 3. Employment type
-         * 4. Collateral
-         * 5. Loan type
-         * 6. Existing active/overdue loans
-         * 7. Credit bureau history
-         */
         @Transactional(readOnly = true)
         public RiskResult score(Loan loan) {
 

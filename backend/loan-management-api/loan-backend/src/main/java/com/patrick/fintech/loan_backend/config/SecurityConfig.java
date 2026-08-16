@@ -44,174 +44,145 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain filterChain(
-            HttpSecurity http
-    ) throws Exception {
+            HttpSecurity http) throws Exception {
 
         http
 
-            // ----------------------------------------------------
-            // CORS
-            // ----------------------------------------------------
+                // ----------------------------------------------------
+                // CORS
+                // ----------------------------------------------------
 
-            .cors(cors ->
-                cors.configurationSource(corsSource())
-            )
+                .cors(cors -> cors.configurationSource(corsSource()))
 
-            // ----------------------------------------------------
-            // CSRF
-            // ----------------------------------------------------
+                // ----------------------------------------------------
+                // CSRF
+                // ----------------------------------------------------
 
-            .csrf(csrf ->
-                csrf.disable()
-            )
+                .csrf(csrf -> csrf.disable())
 
-            // ----------------------------------------------------
-            // SESSION
-            // ----------------------------------------------------
+                // ----------------------------------------------------
+                // SESSION
+                // ----------------------------------------------------
 
-            .sessionManagement(session ->
-                session.sessionCreationPolicy(
-                    SessionCreationPolicy.STATELESS
-                )
-            )
+                .sessionManagement(session -> session.sessionCreationPolicy(
+                        SessionCreationPolicy.STATELESS))
 
-            // ----------------------------------------------------
-            // EXCEPTION HANDLING
-            // ----------------------------------------------------
+                // ----------------------------------------------------
+                // EXCEPTION HANDLING
+                // ----------------------------------------------------
 
-            .exceptionHandling(exception ->
-                exception
+                .exceptionHandling(exception -> exception
 
-                    // Authentication failure = 401
-                    .authenticationEntryPoint(
-                        (request, response, authException) -> {
+                        // Authentication failure = 401
+                        .authenticationEntryPoint(
+                                (request, response, authException) -> {
 
-                            response.setStatus(
-                                jakarta.servlet.http.HttpServletResponse
-                                    .SC_UNAUTHORIZED
-                            );
+                                    response.setStatus(
+                                            jakarta.servlet.http.HttpServletResponse.SC_UNAUTHORIZED);
 
-                            response.setContentType(
-                                "application/json"
-                            );
+                                    response.setContentType(
+                                            "application/json");
 
-                            response.getWriter().write(
-                                """
-                                {
-                                  "success": false,
-                                  "error": "Your session has expired or is no longer valid. Please log in again."
-                                }
-                                """
-                            );
-                        }
-                    )
+                                    response.getWriter().write(
+                                            """
+                                                    {
+                                                      "success": false,
+                                                      "error": "Your session has expired or is no longer valid. Please log in again."
+                                                    }
+                                                    """);
+                                })
 
-                    // Authorization failure = 403
-                    .accessDeniedHandler(
-                        (request, response, accessDeniedException) -> {
+                        // Authorization failure = 403
+                        .accessDeniedHandler(
+                                (request, response, accessDeniedException) -> {
 
-                            response.setStatus(
-                                jakarta.servlet.http.HttpServletResponse
-                                    .SC_FORBIDDEN
-                            );
+                                    response.setStatus(
+                                            jakarta.servlet.http.HttpServletResponse.SC_FORBIDDEN);
 
-                            response.setContentType(
-                                "application/json"
-                            );
+                                    response.setContentType(
+                                            "application/json");
 
-                            response.getWriter().write(
-                                """
-                                {
-                                  "success": false,
-                                  "error": "You do not have permission to perform this action."
-                                }
-                                """
-                            );
-                        }
-                    )
-            )
+                                    response.getWriter().write(
+                                            """
+                                                    {
+                                                      "success": false,
+                                                      "error": "You do not have permission to perform this action."
+                                                    }
+                                                    """);
+                                }))
 
-            // ----------------------------------------------------
-            // AUTHORIZATION
-            // ----------------------------------------------------
+                // ----------------------------------------------------
+                // AUTHORIZATION
+                // ----------------------------------------------------
 
-            .authorizeHttpRequests(authorize ->
-                authorize
+                .authorizeHttpRequests(authorize -> authorize
 
-                    // ------------------------------------------------
-                    // PUBLIC / INFRASTRUCTURE ENDPOINTS
-                    // ------------------------------------------------
+                        // ------------------------------------------------
+                        // PUBLIC / INFRASTRUCTURE ENDPOINTS
+                        // ------------------------------------------------
 
-                    .requestMatchers(
-                        "/api/auth/**",
-                        "/h2-console/**",
-                        "/swagger-ui/**",
-                        "/swagger-ui.html",
-                        "/api-docs/**",
-                        "/actuator/health",
-                        "/api/public/**",
-                        "/public/**"
-                    )
-                    .permitAll()
+                        .requestMatchers(
+                                "/api/auth/**",
+                                "/h2-console/**",
+                                "/swagger-ui/**",
+                                "/swagger-ui.html",
+                                "/api-docs/**",
+                                "/actuator/health",
+                                "/actuator/health/**",
+                                "/api/public/**",
+                                "/public/**")
+                        .permitAll()
 
-                    // ------------------------------------------------
-                    // WEBSOCKET HANDSHAKE
-                    //
-                    // The browser must be able to establish the
-                    // WebSocket connection before STOMP can subscribe
-                    // to /topic/... destinations.
-                    // ------------------------------------------------
+                        // ------------------------------------------------
+                        // WEBSOCKET HANDSHAKE
+                        //
+                        // The browser must be able to establish the
+                        // WebSocket connection before STOMP can subscribe
+                        // to /topic/... destinations.
+                        // ------------------------------------------------
 
-                    .requestMatchers(
-                        "/ws",
-                        "/ws/**"
-                    )
-                    .permitAll()
+                        .requestMatchers(
+                                "/ws",
+                                "/ws/**")
+                        .permitAll()
 
-                    // ------------------------------------------------
-                    // EVERYTHING ELSE
-                    // ------------------------------------------------
+                        // ------------------------------------------------
+                        // EVERYTHING ELSE
+                        // ------------------------------------------------
 
-                    .anyRequest()
-                    .authenticated()
-            )
+                        .anyRequest()
+                        .authenticated())
 
-            // ----------------------------------------------------
-            // H2
-            // ----------------------------------------------------
+                // ----------------------------------------------------
+                // H2
+                // ----------------------------------------------------
 
-            .headers(headers ->
-                headers.frameOptions(
-                    frame -> frame.sameOrigin()
-                )
-            )
+                .headers(headers -> headers.frameOptions(
+                        frame -> frame.sameOrigin()))
 
-            // ----------------------------------------------------
-            // RATE LIMIT
-            // ----------------------------------------------------
+                // ----------------------------------------------------
+                // RATE LIMIT
+                // ----------------------------------------------------
 
-            .addFilterBefore(
-                rateLimitFilter,
-                UsernamePasswordAuthenticationFilter.class
-            )
+                .addFilterBefore(
+                        rateLimitFilter,
+                        UsernamePasswordAuthenticationFilter.class)
 
-            // ----------------------------------------------------
-            // JWT
-            // ----------------------------------------------------
+                // ----------------------------------------------------
+                // JWT
+                // ----------------------------------------------------
 
-            .addFilterBefore(
-                jwtFilter,
-                UsernamePasswordAuthenticationFilter.class
-            )
+                .addFilterBefore(
+                        jwtFilter,
+                        UsernamePasswordAuthenticationFilter.class)
 
-            // ----------------------------------------------------
-            // REGULATORY API KEY
-            // ----------------------------------------------------
+                // ----------------------------------------------------
+                // REGULATORY API KEY
+                // ----------------------------------------------------
 
-            .addFilterBefore(
-                regulatoryApiKeyAuthFilter,
-                UsernamePasswordAuthenticationFilter.class
-            );
+                .addFilterBefore(
+                        regulatoryApiKeyAuthFilter,
+                        UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
@@ -223,47 +194,38 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsSource() {
 
-        CorsConfiguration configuration =
-                new CorsConfiguration();
+        CorsConfiguration configuration = new CorsConfiguration();
 
-        List<String> origins =
-                Arrays.stream(
-                    allowedOrigins.split(",")
-                )
+        List<String> origins = Arrays.stream(
+                allowedOrigins.split(","))
                 .map(String::trim)
                 .filter(origin -> !origin.isBlank())
                 .toList();
 
         configuration.setAllowedOrigins(
-            origins
-        );
+                origins);
 
         configuration.setAllowedMethods(
-            List.of(
-                "GET",
-                "POST",
-                "PUT",
-                "PATCH",
-                "DELETE",
-                "OPTIONS"
-            )
-        );
+                List.of(
+                        "GET",
+                        "POST",
+                        "PUT",
+                        "PATCH",
+                        "DELETE",
+                        "OPTIONS"));
 
         configuration.setAllowedHeaders(
-            List.of("*")
-        );
+                List.of("Authorization", "Content-Type", "Accept", "Idempotency-Key", "X-Requested-With"));
+        configuration.setExposedHeaders(List.of("Location", "Retry-After", "X-Request-Id"));
 
         configuration.setAllowCredentials(
-            true
-        );
+                true);
 
-        UrlBasedCorsConfigurationSource source =
-                new UrlBasedCorsConfigurationSource();
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
 
         source.registerCorsConfiguration(
-            "/**",
-            configuration
-        );
+                "/**",
+                configuration);
 
         return source;
     }
@@ -274,8 +236,7 @@ public class SecurityConfig {
 
     @Bean
     public AuthenticationManager authenticationManager(
-            AuthenticationConfiguration configuration
-    ) throws Exception {
+            AuthenticationConfiguration configuration) throws Exception {
 
         return configuration.getAuthenticationManager();
     }

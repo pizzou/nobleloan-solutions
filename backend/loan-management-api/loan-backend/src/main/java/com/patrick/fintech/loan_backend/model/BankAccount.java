@@ -19,15 +19,21 @@ public class BankAccount {
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "organization_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Organization organization;
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "branch_id")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Branch branch; 
 @ManyToOne(fetch = FetchType.LAZY)
 @JoinColumn(name = "chart_of_account_id", nullable = false)
 @JsonIgnore
+@ToString.Exclude
+@EqualsAndHashCode.Exclude
 private ChartOfAccount glAccount;
 
 

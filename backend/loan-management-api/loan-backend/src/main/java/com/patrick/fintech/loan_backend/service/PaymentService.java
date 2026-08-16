@@ -14,7 +14,6 @@ import com.patrick.fintech.loan_backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -1078,37 +1077,14 @@ public class PaymentService {
                 // SAVE PAYMENT
                 // ============================================================
 
-                try {
-
-                        installment = paymentRepo.save(
-                                        installment);
-
-                } catch (DataIntegrityViolationException e) {
-
-                        if (normalizedTxnId != null) {
-
-                                Optional<Payment> concurrentPayment = paymentRepo
-                                                .findByOrganization_IdAndTransactionId(
-                                                                organizationId,
-                                                                normalizedTxnId);
-
-                                if (concurrentPayment.isPresent()) {
-
-                                        Payment existing = concurrentPayment.get();
-
-                                        if (existing.getLoan() != null
-                                                        && existing.getLoan().getId() != null
-                                                        && existing.getLoan()
-                                                                        .getId()
-                                                                        .equals(loanId)) {
-
-                                                return existing;
-                                        }
-                                }
-                        }
-
-                        throw e;
-                }
+                // The loan is pessimistically locked for this transaction. A duplicate
+                // transaction reference for the same loan therefore serializes and is
+                // detected by the lookup above. The database unique constraint remains the
+                // final authority for cross-loan duplicate references. We intentionally do
+                // not catch a PostgreSQL unique violation here because doing so inside the
+                // same transaction would leave the transaction aborted (25P02) and could
+                // compromise atomicity of the financial operation.
+                installment = paymentRepo.save(installment);
 
                 // ============================================================
                 // UPDATE LOAN TOTALS

@@ -3,20 +3,26 @@ package com.patrick.fintech.loan_backend.model;
 import jakarta.persistence.*;
 import lombok.Data;
 import java.time.LocalDateTime;
+import lombok.EqualsAndHashCode;
+
+import lombok.ToString;
 
 @Entity
 @Data
 @Table(name = "password_reset_tokens")
 public class PasswordResetToken {
 
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(unique = true, nullable = false)
     private String token;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private User user;
 
     // Maps to expiry_date column in V1 migration

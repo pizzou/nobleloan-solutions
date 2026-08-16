@@ -1151,8 +1151,11 @@ export default function LoanDetailPage() {
     }
   };
 
+  // The loader intentionally owns its own request lifecycle and is keyed only by route identity.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loanId, hasValidLoanId]);
 
   // ==========================================================
@@ -1303,10 +1306,12 @@ export default function LoanDetailPage() {
     }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (hasValidLoanId) {
       void loadComments();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loanId, hasValidLoanId]);
 
   const handleAddComment = async () => {
@@ -1359,10 +1364,12 @@ export default function LoanDetailPage() {
     }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (hasValidLoanId) {
       void loadDocReq();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loanId, hasValidLoanId]);
 
   // ==========================================================
@@ -2587,8 +2594,8 @@ export default function LoanDetailPage() {
             />
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-400 text-sm">
-              No borrower record is linked to this loan, so documents can't be
-              shown.
+              No borrower record is linked to this loan, so documents can&apos;t
+              be shown.
             </div>
           ))}
 
@@ -2909,8 +2916,8 @@ export default function LoanDetailPage() {
 
                 {!commentVisible && (
                   <p className="text-xs text-amber-600 mt-2">
-                    This note will be internal-only — the applicant won't see
-                    it.
+                    This note will be internal-only — the applicant won&apos;t
+                    see it.
                   </p>
                 )}
               </div>

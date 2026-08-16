@@ -24,7 +24,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -74,16 +76,22 @@ public class Payment {
         @JsonIgnore
         @ManyToOne(fetch = FetchType.LAZY, optional = false)
         @JoinColumn(name = "loan_id", nullable = false, foreignKey = @ForeignKey(name = "fk_payment_loan"))
+        @ToString.Exclude
+        @EqualsAndHashCode.Exclude
         private Loan loan;
 
         @JsonIgnore
         @ManyToOne(fetch = FetchType.LAZY, optional = false)
         @JoinColumn(name = "organization_id", nullable = false, foreignKey = @ForeignKey(name = "fk_payment_organization"))
+        @ToString.Exclude
+        @EqualsAndHashCode.Exclude
         private Organization organization;
 
         @JsonIgnore
         @ManyToOne(fetch = FetchType.LAZY)
         @JoinColumn(name = "recorded_by", foreignKey = @ForeignKey(name = "fk_payment_recorded_by"))
+        @ToString.Exclude
+        @EqualsAndHashCode.Exclude
         private User recordedBy;
 
         // ================================================================

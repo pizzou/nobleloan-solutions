@@ -20,11 +20,14 @@ public class BorrowerFileService {
 
     private final BorrowerFileRepository fileRepository;
     private final BorrowerRepository borrowerRepository;
+    private final SecureFileUploadValidator secureFileUploadValidator;
 
     public BorrowerFileService(BorrowerFileRepository fileRepository,
-                               BorrowerRepository borrowerRepository) {
+            BorrowerRepository borrowerRepository,
+            SecureFileUploadValidator secureFileUploadValidator) {
         this.fileRepository = fileRepository;
         this.borrowerRepository = borrowerRepository;
+        this.secureFileUploadValidator = secureFileUploadValidator;
     }
 
     private static final Set<String> ALLOWED_TYPES = Set.of(
@@ -32,8 +35,7 @@ public class BorrowerFileService {
             "image/jpeg",
             "image/jpg",
             "image/png",
-            "image/webp"
-    );
+            "image/webp");
 
     private static final long MAX_FILE_BYTES = 8L * 1024 * 1024;
 
@@ -56,8 +58,7 @@ public class BorrowerFileService {
                 !ALLOWED_TYPES.contains(contentType.toLowerCase())) {
 
             throw new RuntimeException(
-                    "Unsupported file type. Allowed: PDF, JPG, PNG, WEBP."
-            );
+                    "Unsupported file type. Allowed: PDF, JPG, PNG, WEBP.");
         }
     }
 
@@ -65,16 +66,15 @@ public class BorrowerFileService {
      * Upload borrower document.
      */
     public BorrowerFile upload(Long borrowerId,
-                               MultipartFile file,
-                               DocumentType documentType,
-                               boolean uploadedByApplicant)
+            MultipartFile file,
+            DocumentType documentType,
+            boolean uploadedByApplicant)
             throws IOException {
 
-        validate(file);
+        secureFileUploadValidator.validateDocument(file, MAX_FILE_BYTES);
 
         Borrower borrower = borrowerRepository.findById(borrowerId)
-                .orElseThrow(() ->
-                        new RuntimeException("Borrower not found: " + borrowerId));
+                .orElseThrow(() -> new RuntimeException("Borrower not found: " + borrowerId));
 
         BorrowerFile borrowerFile = new BorrowerFile();
 
@@ -88,8 +88,7 @@ public class BorrowerFileService {
         borrowerFile.setDocumentType(
                 documentType != null
                         ? documentType
-                        : DocumentType.OTHER
-        );
+                        : DocumentType.OTHER);
 
         borrowerFile.setUploadedByApplicant(uploadedByApplicant);
 
@@ -102,15 +101,14 @@ public class BorrowerFileService {
      * Default upload.
      */
     public BorrowerFile upload(Long borrowerId,
-                               MultipartFile file)
+            MultipartFile file)
             throws IOException {
 
         return upload(
                 borrowerId,
                 file,
                 DocumentType.OTHER,
-                false
-        );
+                false);
     }
 
     /**
@@ -125,8 +123,7 @@ public class BorrowerFileService {
      */
     public List<BorrowerFile> getByBorrowerMetadataOnly(Long borrowerId) {
 
-        List<BorrowerFile> files =
-                fileRepository.findByBorrowerId(borrowerId);
+        List<BorrowerFile> files = fileRepository.findByBorrowerId(borrowerId);
 
         files.forEach(f -> f.setData(null));
 
@@ -139,8 +136,7 @@ public class BorrowerFileService {
     public BorrowerFile getById(Long fileId) {
 
         return fileRepository.findById(fileId)
-                .orElseThrow(() ->
-                        new RuntimeException("File not found: " + fileId));
+                .orElseThrow(() -> new RuntimeException("File not found: " + fileId));
     }
 
     /**
@@ -167,10 +163,10 @@ public class BorrowerFileService {
      * Verify document.
      */
     public BorrowerFile verify(Long fileId,
-                               Long orgId,
-                               VerificationStatus status,
-                               String comment,
-                               String officerName) {
+            Long orgId,
+            VerificationStatus status,
+            String comment,
+            String officerName) {
 
         BorrowerFile file = getByIdForOrg(fileId, orgId);
 
@@ -200,11 +196,10 @@ public class BorrowerFileService {
             return List.of();
         }
 
-        Set<DocumentType> uploaded =
-                fileRepository.findByBorrowerId(borrowerId)
-                        .stream()
-                        .map(BorrowerFile::getDocumentType)
-                        .collect(Collectors.toSet());
+        Set<DocumentType> uploaded = fileRepository.findByBorrowerId(borrowerId)
+                .stream()
+                .map(BorrowerFile::getDocumentType)
+                .collect(Collectors.toSet());
 
         return required.stream()
                 .filter(doc -> !uploaded.contains(doc))
@@ -222,12 +217,11 @@ public class BorrowerFileService {
             return List.of();
         }
 
-        Set<DocumentType> verified =
-                fileRepository.findByBorrowerId(borrowerId)
-                        .stream()
-                        .filter(f -> f.getVerificationStatus() == VerificationStatus.VERIFIED)
-                        .map(BorrowerFile::getDocumentType)
-                        .collect(Collectors.toSet());
+        Set<DocumentType> verified = fileRepository.findByBorrowerId(borrowerId)
+                .stream()
+                .filter(f -> f.getVerificationStatus() == VerificationStatus.VERIFIED)
+                .map(BorrowerFile::getDocumentType)
+                .collect(Collectors.toSet());
 
         return required.stream()
                 .filter(doc -> !verified.contains(doc))

@@ -214,7 +214,8 @@ export default function ContactPage() {
                   Message Received!
                 </h3>
                 <p className="text-green-700">
-                  Thank you {form.name}. We'll get back to you within 24 hours.
+                  Thank you {form.name}. We&apos;ll get back to you within 24
+                  hours.
                 </p>
                 <button
                   onClick={() => {

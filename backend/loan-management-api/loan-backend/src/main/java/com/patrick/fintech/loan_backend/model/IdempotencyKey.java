@@ -16,6 +16,8 @@ public class IdempotencyKey {
     private String key;
     @JsonIgnore
     @ManyToOne(fetch=FetchType.LAZY) @JoinColumn(name="organization_id",nullable=false) 
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Organization organization;
     private String endpoint;
     private String requestHash;

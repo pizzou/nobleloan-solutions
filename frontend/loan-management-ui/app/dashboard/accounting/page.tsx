@@ -1080,8 +1080,8 @@ export default function AccountingPage() {
                           </h3>
 
                           <p className="text-sm text-gray-500 mt-1">
-                            Add your organization's first bank account or cash
-                            account.
+                            Add your organization&apos;s first bank account or
+                            cash account.
                           </p>
 
                           <button

@@ -26,7 +26,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -177,30 +179,42 @@ public class Loan {
         @JsonIgnore
         @ManyToOne(fetch = FetchType.LAZY, optional = false)
         @JoinColumn(name = "organization_id", nullable = false, foreignKey = @ForeignKey(name = "fk_loan_organization"))
+        @ToString.Exclude
+        @EqualsAndHashCode.Exclude
         private Organization organization;
 
-        @ManyToOne(fetch = FetchType.EAGER)
+        @ManyToOne(fetch = FetchType.LAZY)
         @JoinColumn(name = "branch_id", foreignKey = @ForeignKey(name = "fk_loan_branch"))
+        @ToString.Exclude
+        @EqualsAndHashCode.Exclude
         private Branch branch;
 
         // ================================================================
         // BORROWER / USERS
         // ================================================================
 
-        @ManyToOne(fetch = FetchType.EAGER, optional = false)
+        @ManyToOne(fetch = FetchType.LAZY, optional = false)
         @JoinColumn(name = "borrower_id", nullable = false, foreignKey = @ForeignKey(name = "fk_loan_borrower"))
+        @ToString.Exclude
+        @EqualsAndHashCode.Exclude
         private Borrower borrower;
 
-        @ManyToOne(fetch = FetchType.EAGER)
+        @ManyToOne(fetch = FetchType.LAZY)
         @JoinColumn(name = "created_by", foreignKey = @ForeignKey(name = "fk_loan_created_by"))
+        @ToString.Exclude
+        @EqualsAndHashCode.Exclude
         private User createdBy;
 
-        @ManyToOne(fetch = FetchType.EAGER)
+        @ManyToOne(fetch = FetchType.LAZY)
         @JoinColumn(name = "approved_by", foreignKey = @ForeignKey(name = "fk_loan_approved_by"))
+        @ToString.Exclude
+        @EqualsAndHashCode.Exclude
         private User approvedBy;
 
-        @ManyToOne(fetch = FetchType.EAGER)
+        @ManyToOne(fetch = FetchType.LAZY)
         @JoinColumn(name = "loan_officer_id", foreignKey = @ForeignKey(name = "fk_loan_officer"))
+        @ToString.Exclude
+        @EqualsAndHashCode.Exclude
         private User loanOfficer;
 
         // ================================================================
@@ -620,6 +634,8 @@ public class Loan {
         @JsonIgnore
         @OneToMany(mappedBy = "loan", cascade = CascadeType.ALL, orphanRemoval = false, fetch = FetchType.LAZY)
         @Builder.Default
+        @ToString.Exclude
+        @EqualsAndHashCode.Exclude
         private List<Payment> payments = new ArrayList<>();
 
         // ================================================================

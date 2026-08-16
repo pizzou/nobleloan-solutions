@@ -3,6 +3,9 @@ package com.patrick.fintech.loan_backend.controller;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
+import com.patrick.fintech.loan_backend.dto.OrganizationResponse;
+import com.patrick.fintech.loan_backend.dto.UserResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
@@ -202,7 +205,7 @@ public class OrganizationController {
 
         @PutMapping("/me")
         @PreAuthorize("hasRole('ADMIN')")
-        public ResponseEntity<ApiResponse<Organization>> updateMyOrg(
+        public ResponseEntity<ApiResponse<OrganizationResponse>> updateMyOrg(
                         @RequestBody Map<String, Object> body) {
 
                 Organization org = getCurrentOrganization();
@@ -444,7 +447,7 @@ public class OrganizationController {
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
                                                 "Updated",
-                                                saved));
+                                                ResponseDtoMapper.organization(saved)));
         }
 
         /*
@@ -454,14 +457,15 @@ public class OrganizationController {
          */
 
         @GetMapping("/me/users")
-        public ResponseEntity<ApiResponse<List<User>>> getUsers() {
+        public ResponseEntity<ApiResponse<List<UserResponse>>> getUsers() {
 
                 Organization org = getCurrentOrganization();
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
-                                                userRepo.findByOrganization(
-                                                                org)));
+                                                userRepo.findByOrganization(org).stream()
+                                                                .map(ResponseDtoMapper::user)
+                                                                .toList()));
         }
 
         /*

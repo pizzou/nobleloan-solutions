@@ -25,11 +25,15 @@ public class LoanApproval {
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "loan_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Loan loan;
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "organization_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Organization organization;
 
     private Integer stepOrder;         // 1, 2, 3... — must be decided in order
@@ -39,6 +43,8 @@ public class LoanApproval {
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "approver_id")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private User approver;             // who actually decided it (null while pending)
 
     private String status;             // PENDING, APPROVED, REJECTED

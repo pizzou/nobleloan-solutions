@@ -22,16 +22,22 @@ public class ESignatureRequest {
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "loan_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Loan loan;
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "borrower_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Borrower borrower;
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "organization_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Organization organization;
 
     @Column(name = "signing_token", unique = true, nullable = false)

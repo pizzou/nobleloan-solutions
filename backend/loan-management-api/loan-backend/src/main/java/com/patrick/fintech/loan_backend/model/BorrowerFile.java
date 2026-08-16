@@ -18,6 +18,8 @@ public class BorrowerFile {
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "borrower_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Borrower borrower;
 
     private String fileName;

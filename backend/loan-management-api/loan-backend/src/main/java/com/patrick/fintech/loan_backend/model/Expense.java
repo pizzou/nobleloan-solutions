@@ -75,6 +75,8 @@ public class Expense {
         name = "organization_id",
         nullable = false
     )
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Organization organization;
 
     // ============================================================
@@ -93,6 +95,8 @@ public class Expense {
         "hibernateLazyInitializer",
         "handler"
     })
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Branch branch;
 
     // ============================================================
@@ -108,6 +112,8 @@ public class Expense {
         "hibernateLazyInitializer",
         "handler"
     })
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private BankAccount paymentAccount;
 
     // ============================================================

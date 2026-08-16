@@ -17,6 +17,8 @@ public class KycCheck {
     private Long id;
     @JsonIgnore
     @ManyToOne(fetch=FetchType.LAZY) @JoinColumn(name="borrower_id",nullable=false) 
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Borrower borrower;
 
 
@@ -26,6 +28,8 @@ public class KycCheck {
     @Enumerated(EnumType.STRING) private CheckResult result;
     @Column(precision = 19, scale = 9)
     @JsonProperty("matchScore")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private BigDecimal matchScore;
     @Column(columnDefinition="TEXT") private String rawResponse;
     private String provider;

@@ -13,12 +13,16 @@ import java.time.LocalDateTime;
  * Cached FX rates (updated daily via open exchange API).
  */
 @Entity
-@Table(name = "currency_rates",
-    uniqueConstraints = @UniqueConstraint(columnNames = {"base_currency","target_currency"}))
-@Data @NoArgsConstructor @AllArgsConstructor @Builder
+@Table(name = "currency_rates", uniqueConstraints = @UniqueConstraint(columnNames = { "base_currency",
+        "target_currency" }))
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class CurrencyRate {
 
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     private String baseCurrency;
@@ -28,9 +32,15 @@ public class CurrencyRate {
     private BigDecimal rate;
     private LocalDateTime fetchedAt;
 
-    @PrePersist @PreUpdate protected void onSave() { fetchedAt = LocalDateTime.now(); }
+    @PrePersist
+    @PreUpdate
+    protected void onSave() {
+        fetchedAt = LocalDateTime.now();
+    }
+
     /**
-     * Legacy binary-floating-point read boundary retained for existing service integrations.
+     * Legacy binary-floating-point read boundary retained for existing service
+     * integrations.
      * New financial code should use getRateDecimal().
      */
     @Deprecated
@@ -53,17 +63,19 @@ public class CurrencyRate {
         this.rate = value;
     }
 
-    /** Backward-compatible builder overloads for legacy Double callers.
-     *  Financial state is stored as BigDecimal.
+    /**
+     * Backward-compatible builder overloads for legacy Double callers.
+     * Financial state is stored as BigDecimal.
      */
     public static class CurrencyRateBuilder {
         private BigDecimal rate;
 
-
         public CurrencyRateBuilder rate(Double value) {
             this.rate = value == null ? null : BigDecimal.valueOf(value);
             return this;
-        }        public CurrencyRateBuilder rate(BigDecimal value) {
+        }
+
+        public CurrencyRateBuilder rate(BigDecimal value) {
             this.rate = value;
             return this;
         }

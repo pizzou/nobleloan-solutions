@@ -29,16 +29,22 @@ public class CollectionCase {
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "loan_id", nullable = false, unique = true)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Loan loan;
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "organization_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Organization organization;
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "assigned_agent_id")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private User assignedAgent;
 
     @Enumerated(EnumType.STRING)
@@ -75,6 +81,8 @@ public class CollectionCase {
 
     @JsonIgnore
     @OneToMany(mappedBy = "collectionCase", cascade = CascadeType.ALL)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private List<CollectionAction> actions;
 
     @PrePersist

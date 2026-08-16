@@ -1,8 +1,11 @@
 package com.patrick.fintech.loan_backend.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
 import com.patrick.fintech.loan_backend.dto.PaymentGatewayResponse;
 import com.patrick.fintech.loan_backend.model.Payment;
+import com.patrick.fintech.loan_backend.dto.PaymentResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.service.IdempotencyService;
 import com.patrick.fintech.loan_backend.service.MtnMobileMoneyService;
 import com.patrick.fintech.loan_backend.service.PaymentService;
@@ -20,539 +23,480 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class PaymentController {
 
-    private final PaymentService paymentService;
-    private final CurrentUserUtil currentUserUtil;
-    private final IdempotencyService idempotencyService;
-    private final MtnMobileMoneyService mtnMobileMoneyService;
+        private final PaymentService paymentService;
+        private final CurrentUserUtil currentUserUtil;
+        private final IdempotencyService idempotencyService;
+        private final MtnMobileMoneyService mtnMobileMoneyService;
+        private final ObjectMapper objectMapper;
 
-    // ============================================================
-    // RECORD MANUAL PAYMENT
-    // ============================================================
+        // ============================================================
+        // RECORD MANUAL PAYMENT
+        // ============================================================
 
-    /**
-     * Records a normal/manual payment.
-     *
-     * Supports Idempotency-Key for retry protection.
-     *
-     * Financial allocation is performed by PaymentService:
-     *
-     * 1. Penalty
-     * 2. Interest
-     * 3. Principal
-     * 4. Overpayment
-     */
-    @PostMapping
-    public ResponseEntity<ApiResponse<Payment>> recordPayment(
-            @PathVariable Long loanId,
-            @RequestBody Map<String, Object> body,
-            @RequestHeader(
-                    value = "Idempotency-Key",
-                    required = false
-            ) String idempotencyKey
-    ) {
-
-        var currentUser =
-                currentUserUtil.getCurrentUser();
-
-        if (currentUser == null) {
-            throw new RuntimeException(
-                    "Authenticated user could not be determined."
-            );
-        }
-
-        var org =
-                currentUser.getOrganization();
-
-        if (org == null) {
-            throw new RuntimeException(
-                    "User is not associated with an organization."
-            );
-        }
-
-        // ========================================================
-        // IDEMPOTENCY
-        // ========================================================
-
-        var outcome =
-                idempotencyService.checkOrReserve(
-                        idempotencyKey,
-                        org,
-                        "POST /loans/" + loanId + "/payments",
-                        body.toString()
-                );
-
-        /*
-         * Retry of an already completed request.
+        /**
+         * Records a normal/manual payment.
          *
-         * We do not call PaymentService again.
+         * Supports Idempotency-Key for retry protection.
+         *
+         * Financial allocation is performed by PaymentService:
+         *
+         * 1. Penalty
+         * 2. Interest
+         * 3. Principal
+         * 4. Overpayment
          */
-        if (outcome.isReplay()) {
+        @PostMapping
+        public ResponseEntity<ApiResponse<PaymentResponse>> recordPayment(
+                        @PathVariable Long loanId,
+                        @RequestBody Map<String, Object> body,
+                        @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey)
+                        throws Exception {
 
-            return ResponseEntity.ok(
-                    ApiResponse.ok(
-                            "Payment already recorded",
-                            null
-                    )
-            );
-        }
+                var currentUser = currentUserUtil.getCurrentUser();
 
-        try {
+                if (currentUser == null) {
+                        throw new RuntimeException(
+                                        "Authenticated user could not be determined.");
+                }
 
-            // ====================================================
-            // AMOUNT
-            // ====================================================
+                var org = currentUser.getOrganization();
 
-            Object amountValue =
-                    body.get("amount");
+                if (org == null) {
+                        throw new RuntimeException(
+                                        "User is not associated with an organization.");
+                }
 
-            if (amountValue == null) {
+                // ========================================================
+                // IDEMPOTENCY
+                // ========================================================
 
-                throw new RuntimeException(
-                        "Payment amount is required."
-                );
-            }
+                var outcome = idempotencyService.checkOrReserve(
+                                idempotencyKey,
+                                org,
+                                "POST /loans/" + loanId + "/payments",
+                                objectMapper.writeValueAsString(new java.util.TreeMap<>(body)));
 
-            BigDecimal amount;
+                /*
+                 * Retry of an already completed request.
+                 *
+                 * We do not call PaymentService again.
+                 */
+                if (outcome.isReplay()) {
+                        try {
+                                PaymentResponse cached = outcome.cachedResponseBody() == null
+                                                ? null
+                                                : objectMapper.readValue(outcome.cachedResponseBody(),
+                                                                PaymentResponse.class);
+                                return ResponseEntity
+                                                .status(outcome.cachedStatusCode() == null ? 200
+                                                                : outcome.cachedStatusCode())
+                                                .body(ApiResponse.ok("Payment already recorded", cached));
+                        } catch (Exception ex) {
+                                throw new IllegalStateException("Stored idempotent payment response is invalid", ex);
+                        }
+                }
 
-            try {
+                try {
 
-                amount =
-                        new BigDecimal(
-                                amountValue
+                        // ====================================================
+                        // AMOUNT
+                        // ====================================================
+
+                        Object amountValue = body.get("amount");
+
+                        if (amountValue == null) {
+
+                                throw new RuntimeException(
+                                                "Payment amount is required.");
+                        }
+
+                        BigDecimal amount;
+
+                        try {
+
+                                amount = new BigDecimal(
+                                                amountValue
+                                                                .toString()
+                                                                .trim());
+
+                        } catch (NumberFormatException e) {
+
+                                throw new RuntimeException(
+                                                "Payment amount must be a valid number.");
+                        }
+
+                        if (amount.compareTo(
+                                        BigDecimal.ZERO) <= 0) {
+
+                                throw new RuntimeException(
+                                                "Payment amount must be greater than zero.");
+                        }
+
+                        // ====================================================
+                        // PAYMENT DETAILS
+                        // ====================================================
+
+                        String method = body.getOrDefault(
+                                        "paymentMethod",
+                                        "BANK_TRANSFER")
                                         .toString()
-                                        .trim()
-                        );
+                                        .trim();
 
-            } catch (NumberFormatException e) {
+                        if (method.isBlank()) {
+                                method = "BANK_TRANSFER";
+                        }
 
-                throw new RuntimeException(
-                        "Payment amount must be a valid number."
-                );
-            }
+                        String txnId = body.getOrDefault(
+                                        "transactionId",
+                                        "")
+                                        .toString()
+                                        .trim();
 
-            if (amount.compareTo(
-                    BigDecimal.ZERO
-            ) <= 0) {
+                        if (txnId.isBlank()) {
+                                txnId = null;
+                        }
 
-                throw new RuntimeException(
-                        "Payment amount must be greater than zero."
-                );
-            }
+                        String channel = body.getOrDefault(
+                                        "channel",
+                                        "")
+                                        .toString()
+                                        .trim();
 
-            // ====================================================
-            // PAYMENT DETAILS
-            // ====================================================
+                        if (channel.isBlank()) {
+                                channel = null;
+                        }
 
-            String method =
-                    body.getOrDefault(
-                            "paymentMethod",
-                            "BANK_TRANSFER"
-                    )
-                    .toString()
-                    .trim();
+                        String notes = body.getOrDefault(
+                                        "notes",
+                                        "")
+                                        .toString()
+                                        .trim();
 
-            if (method.isBlank()) {
-                method = "BANK_TRANSFER";
-            }
+                        if (notes.isBlank()) {
+                                notes = null;
+                        }
 
-            String txnId =
-                    body.getOrDefault(
-                            "transactionId",
-                            ""
-                    )
-                    .toString()
-                    .trim();
+                        // ====================================================
+                        // RECORD PAYMENT
+                        // ====================================================
 
-            if (txnId.isBlank()) {
-                txnId = null;
-            }
+                        Payment payment = paymentService.recordPayment(
+                                        loanId,
+                                        amount,
+                                        method,
+                                        txnId,
+                                        channel,
+                                        notes,
+                                        currentUser);
 
-            String channel =
-                    body.getOrDefault(
-                            "channel",
-                            ""
-                    )
-                    .toString()
-                    .trim();
+                        // ====================================================
+                        // RECORD IDEMPOTENCY SUCCESS
+                        // ====================================================
 
-            if (channel.isBlank()) {
-                channel = null;
-            }
+                        idempotencyService.recordSuccess(
+                                        idempotencyKey,
+                                        org,
+                                        ResponseDtoMapper.payment(payment),
+                                        200);
 
-            String notes =
-                    body.getOrDefault(
-                            "notes",
-                            ""
-                    )
-                    .toString()
-                    .trim();
+                        return ResponseEntity.ok(
+                                        ApiResponse.ok(
+                                                        "Payment recorded",
+                                                        ResponseDtoMapper.payment(payment)));
 
-            if (notes.isBlank()) {
-                notes = null;
-            }
+                } catch (Exception e) {
 
-            // ====================================================
-            // RECORD PAYMENT
-            // ====================================================
+                        idempotencyService.recordFailure(
+                                        idempotencyKey,
+                                        org);
 
-            Payment payment =
-                    paymentService.recordPayment(
-                            loanId,
-                            amount,
-                            method,
-                            txnId,
-                            channel,
-                            notes,
-                            currentUser
-                    );
-
-            // ====================================================
-            // RECORD IDEMPOTENCY SUCCESS
-            // ====================================================
-
-            idempotencyService.recordSuccess(
-                    idempotencyKey,
-                    org,
-                    payment,
-                    200
-            );
-
-            return ResponseEntity.ok(
-                    ApiResponse.ok(
-                            "Payment recorded",
-                            payment
-                    )
-            );
-
-        } catch (Exception e) {
-
-            idempotencyService.recordFailure(
-                    idempotencyKey,
-                    org
-            );
-
-            throw e;
-        }
-    }
-
-    // ============================================================
-    // MTN MOBILE MONEY - SANDBOX CONFIRMATION
-    // ============================================================
-
-    /**
-     * Confirms a simulated MTN Mobile Money sandbox payment.
-     *
-     * IMPORTANT:
-     *
-     * This endpoint does NOT stop after returning a successful
-     * MTN response.
-     *
-     * It performs the complete financial flow:
-     *
-     *     sandbox confirmation
-     *             ↓
-     *     PaymentService.recordPayment()
-     *             ↓
-     *     interest allocation
-     *             ↓
-     *     principal allocation
-     *             ↓
-     *     loan outstanding balance updated
-     *             ↓
-     *     PAYMENT_MADE webhook dispatched
-     *
-     * The MTN transaction ID is used as the payment transaction ID.
-     *
-     * Therefore:
-     *
-     *     same MTN transaction ID
-     *             +
-     *     repeated webhook
-     *             =
-     *     existing payment returned
-     *
-     * and the loan is NOT reduced twice.
-     *
-     * This endpoint is intended for sandbox/local testing only.
-     */
-    @PostMapping("/mtn/sandbox/confirm")
-    public ResponseEntity<ApiResponse<Payment>> confirmMtnSandboxPayment(
-            @PathVariable Long loanId,
-            @RequestBody Map<String, Object> body
-    ) {
-
-        // ========================================================
-        // VALIDATE LOAN ID
-        // ========================================================
-
-        if (loanId == null) {
-
-            throw new IllegalArgumentException(
-                    "Loan ID is required."
-            );
+                        throw e;
+                }
         }
 
-        // ========================================================
-        // TRANSACTION ID
-        // ========================================================
+        // ============================================================
+        // MTN MOBILE MONEY - SANDBOX CONFIRMATION
+        // ============================================================
 
-        Object transactionValue =
-                body != null
-                        ? body.get("transactionId")
-                        : null;
-
-        if (transactionValue == null) {
-
-            throw new IllegalArgumentException(
-                    "MTN transactionId is required."
-            );
-        }
-
-        String transactionId =
-                transactionValue
-                        .toString()
-                        .trim();
-
-        if (transactionId.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "MTN transactionId is required."
-            );
-        }
-
-        // ========================================================
-        // AMOUNT
-        // ========================================================
-
-        Object amountValue =
-                body.get("amount");
-
-        if (amountValue == null) {
-
-            throw new IllegalArgumentException(
-                    "MTN payment amount is required."
-            );
-        }
-
-        BigDecimal amount;
-
-        try {
-
-            amount =
-                    new BigDecimal(
-                            amountValue
-                                    .toString()
-                                    .trim()
-                    );
-
-        } catch (NumberFormatException e) {
-
-            throw new IllegalArgumentException(
-                    "MTN payment amount must be a valid number."
-            );
-        }
-
-        if (amount.compareTo(
-                BigDecimal.ZERO
-        ) <= 0) {
-
-            throw new IllegalArgumentException(
-                    "MTN payment amount must be greater than zero."
-            );
-        }
-
-        // ========================================================
-        // CURRENCY
-        // ========================================================
-
-        String currency =
-                body.getOrDefault(
-                        "currency",
-                        "RWF"
-                )
-                .toString()
-                .trim();
-
-        if (currency.isBlank()) {
-            currency = "RWF";
-        }
-
-        // ========================================================
-        // LOG
-        // ========================================================
-
-        org.slf4j.LoggerFactory
-                .getLogger(PaymentController.class)
-                .info(
-                        "[MTN SANDBOX CONFIRM] Starting confirmation. " +
-                                "loanId={}, transactionId={}, amount={}, currency={}",
-                        loanId,
-                        transactionId,
-                        amount,
-                        currency
-                );
-
-        // ========================================================
-        // STEP 1
-        // SIMULATE MTN SUCCESS
-        // ========================================================
-
-        PaymentGatewayResponse confirmation =
-                mtnMobileMoneyService.simulateConfirmation(
-                        loanId,
-                        transactionId,
-                        amount.doubleValue(),
-                        currency
-                );
-
-        if (confirmation == null) {
-
-            throw new IllegalStateException(
-                    "MTN sandbox confirmation returned no response."
-            );
-        }
-
-        // ========================================================
-        // VERIFY SUCCESS
-        // ========================================================
-
-        /*
-         * Your PaymentGatewayResponse.success(...) should produce
-         * a successful response.
+        /**
+         * Confirms a simulated MTN Mobile Money sandbox payment.
          *
-         * To avoid depending on a specific getter name from the
-         * DTO, we use the transaction verification as an additional
-         * sandbox confirmation check.
+         * IMPORTANT:
+         *
+         * This endpoint does NOT stop after returning a successful
+         * MTN response.
+         *
+         * It performs the complete financial flow:
+         *
+         * sandbox confirmation
+         * ↓
+         * PaymentService.recordPayment()
+         * ↓
+         * interest allocation
+         * ↓
+         * principal allocation
+         * ↓
+         * loan outstanding balance updated
+         * ↓
+         * PAYMENT_MADE webhook dispatched
+         *
+         * The MTN transaction ID is used as the payment transaction ID.
+         *
+         * Therefore:
+         *
+         * same MTN transaction ID
+         * +
+         * repeated webhook
+         * =
+         * existing payment returned
+         *
+         * and the loan is NOT reduced twice.
+         *
+         * This endpoint is intended for sandbox/local testing only.
          */
-        boolean verified =
-                mtnMobileMoneyService.verify(
-                        transactionId
-                );
+        @PostMapping("/mtn/sandbox/confirm")
+        public ResponseEntity<ApiResponse<PaymentResponse>> confirmMtnSandboxPayment(
+                        @PathVariable Long loanId,
+                        @RequestBody Map<String, Object> body) {
 
-        if (!verified) {
+                // ========================================================
+                // VALIDATE LOAN ID
+                // ========================================================
 
-            throw new IllegalStateException(
-                    "MTN sandbox transaction could not be verified: "
-                            + transactionId
-            );
-        }
+                if (loanId == null) {
 
-        // ========================================================
-        // STEP 2
-        // RECORD FINANCIAL PAYMENT
-        // ========================================================
+                        throw new IllegalArgumentException(
+                                        "Loan ID is required.");
+                }
 
-        /*
-         * CRITICAL:
-         *
-         * recordedBy = null
-         *
-         * because this is an automatic MTN confirmation and not a
-         * manually recorded staff payment.
-         *
-         * PaymentService already permits recordedBy == null.
-         *
-         * It will:
-         *
-         * - calculate interest
-         * - charge minimum one day interest on first payment
-         * - allocate payment to interest first
-         * - allocate remaining amount to principal
-         * - update loan.outstandingBalance
-         * - update totalPaid
-         * - update payment status
-         * - send email/SMS
-         * - notify loan officer
-         * - dispatch PAYMENT_MADE webhook
-         */
-        Payment payment =
-                paymentService.recordPayment(
-                        loanId,
-                        amount,
-                        "MOBILE_MONEY",
-                        transactionId,
-                        "MTN_MOMO",
-                        "MTN Mobile Money sandbox payment confirmed automatically.",
-                        null
-                );
+                // ========================================================
+                // TRANSACTION ID
+                // ========================================================
 
-        // ========================================================
-        // STEP 3
-        // FINAL LOG
-        // ========================================================
+                Object transactionValue = body != null
+                                ? body.get("transactionId")
+                                : null;
 
-        org.slf4j.LoggerFactory
-                .getLogger(PaymentController.class)
-                .info(
-                        "[MTN SANDBOX CONFIRM] Payment recorded successfully. " +
-                                "loanId={}, transactionId={}, paymentId={}, amount={}",
-                        loanId,
-                        transactionId,
-                        payment != null
-                                ? payment.getId()
-                                : null,
-                        amount
-                );
+                if (transactionValue == null) {
 
-        return ResponseEntity.ok(
-                ApiResponse.ok(
-                        "MTN Mobile Money sandbox payment confirmed and recorded successfully.",
-                        payment
-                )
-        );
-    }
+                        throw new IllegalArgumentException(
+                                        "MTN transactionId is required.");
+                }
 
-    // ============================================================
-    // MTN MOBILE MONEY - SANDBOX WEBHOOK ALIAS
-    // ============================================================
+                String transactionId = transactionValue
+                                .toString()
+                                .trim();
 
-    /**
-     * Sandbox webhook-style endpoint.
-     *
-     * This endpoint exists so the frontend/test simulator can use
-     * a webhook-like URL.
-     *
-     * It intentionally delegates to the exact same confirmation
-     * method so there is only ONE financial recording path.
-     *
-     * DO NOT call PaymentService.recordPayment() separately here.
-     */
-    @PostMapping("/mtn/webhook")
-    public ResponseEntity<ApiResponse<Payment>> mtnWebhook(
-            @PathVariable Long loanId,
-            @RequestBody Map<String, Object> body
-    ) {
+                if (transactionId.isBlank()) {
 
-        return confirmMtnSandboxPayment(
-                loanId,
-                body
-        );
-    }
+                        throw new IllegalArgumentException(
+                                        "MTN transactionId is required.");
+                }
 
-    // ============================================================
-    // GET LOAN SCHEDULE
-    // ============================================================
+                // ========================================================
+                // AMOUNT
+                // ========================================================
 
-    /**
-     * Gets the complete repayment schedule for a loan.
-     */
-    @GetMapping
-    public ResponseEntity<ApiResponse<List<Payment>>>
-    getSchedule(
-            @PathVariable Long loanId
-    ) {
+                Object amountValue = body.get("amount");
 
-        Long organizationId =
-                currentUserUtil
-                        .getCurrentOrganizationId();
+                if (amountValue == null) {
 
-        return ResponseEntity.ok(
-                ApiResponse.ok(
-                        paymentService.getLoanSchedule(
+                        throw new IllegalArgumentException(
+                                        "MTN payment amount is required.");
+                }
+
+                BigDecimal amount;
+
+                try {
+
+                        amount = new BigDecimal(
+                                        amountValue
+                                                        .toString()
+                                                        .trim());
+
+                } catch (NumberFormatException e) {
+
+                        throw new IllegalArgumentException(
+                                        "MTN payment amount must be a valid number.");
+                }
+
+                if (amount.compareTo(
+                                BigDecimal.ZERO) <= 0) {
+
+                        throw new IllegalArgumentException(
+                                        "MTN payment amount must be greater than zero.");
+                }
+
+                // ========================================================
+                // CURRENCY
+                // ========================================================
+
+                String currency = body.getOrDefault(
+                                "currency",
+                                "RWF")
+                                .toString()
+                                .trim();
+
+                if (currency.isBlank()) {
+                        currency = "RWF";
+                }
+
+                // ========================================================
+                // LOG
+                // ========================================================
+
+                org.slf4j.LoggerFactory
+                                .getLogger(PaymentController.class)
+                                .info(
+                                                "[MTN SANDBOX CONFIRM] Starting confirmation. " +
+                                                                "loanId={}, transactionId={}, amount={}, currency={}",
+                                                loanId,
+                                                transactionId,
+                                                amount,
+                                                currency);
+
+                // ========================================================
+                // STEP 1
+                // SIMULATE MTN SUCCESS
+                // ========================================================
+
+                PaymentGatewayResponse confirmation = mtnMobileMoneyService.simulateConfirmation(
                                 loanId,
-                                organizationId
-                        )
-                )
-        );
-    }
+                                transactionId,
+                                amount.doubleValue(),
+                                currency);
+
+                if (confirmation == null) {
+
+                        throw new IllegalStateException(
+                                        "MTN sandbox confirmation returned no response.");
+                }
+
+                // ========================================================
+                // VERIFY SUCCESS
+                // ========================================================
+
+                /*
+                 * Your PaymentGatewayResponse.success(...) should produce
+                 * a successful response.
+                 *
+                 * To avoid depending on a specific getter name from the
+                 * DTO, we use the transaction verification as an additional
+                 * sandbox confirmation check.
+                 */
+                boolean verified = mtnMobileMoneyService.verify(
+                                transactionId);
+
+                if (!verified) {
+
+                        throw new IllegalStateException(
+                                        "MTN sandbox transaction could not be verified: "
+                                                        + transactionId);
+                }
+
+                // ========================================================
+                // STEP 2
+                // RECORD FINANCIAL PAYMENT
+                // ========================================================
+
+                /*
+                 * CRITICAL:
+                 *
+                 * recordedBy = null
+                 *
+                 * because this is an automatic MTN confirmation and not a
+                 * manually recorded staff payment.
+                 *
+                 * PaymentService already permits recordedBy == null.
+                 *
+                 * It will:
+                 *
+                 * - calculate interest
+                 * - charge minimum one day interest on first payment
+                 * - allocate payment to interest first
+                 * - allocate remaining amount to principal
+                 * - update loan.outstandingBalance
+                 * - update totalPaid
+                 * - update payment status
+                 * - send email/SMS
+                 * - notify loan officer
+                 * - dispatch PAYMENT_MADE webhook
+                 */
+                Payment payment = paymentService.recordPayment(
+                                loanId,
+                                amount,
+                                "MOBILE_MONEY",
+                                transactionId,
+                                "MTN_MOMO",
+                                "MTN Mobile Money sandbox payment confirmed automatically.",
+                                null);
+
+                // ========================================================
+                // STEP 3
+                // FINAL LOG
+                // ========================================================
+
+                org.slf4j.LoggerFactory
+                                .getLogger(PaymentController.class)
+                                .info(
+                                                "[MTN SANDBOX CONFIRM] Payment recorded successfully. " +
+                                                                "loanId={}, transactionId={}, paymentId={}, amount={}",
+                                                loanId,
+                                                transactionId,
+                                                payment != null
+                                                                ? payment.getId()
+                                                                : null,
+                                                amount);
+
+                return ResponseEntity.ok(
+                                ApiResponse.ok(
+                                                "MTN Mobile Money sandbox payment confirmed and recorded successfully.",
+                                                ResponseDtoMapper.payment(payment)));
+        }
+
+        // ============================================================
+        // MTN MOBILE MONEY - SANDBOX WEBHOOK ALIAS
+        // ============================================================
+
+        /**
+         * Sandbox webhook-style endpoint.
+         *
+         * This endpoint exists so the frontend/test simulator can use
+         * a webhook-like URL.
+         *
+         * It intentionally delegates to the exact same confirmation
+         * method so there is only ONE financial recording path.
+         *
+         * DO NOT call PaymentService.recordPayment() separately here.
+         */
+        @PostMapping("/mtn/webhook")
+        public ResponseEntity<ApiResponse<PaymentResponse>> mtnWebhook(
+                        @PathVariable Long loanId,
+                        @RequestBody Map<String, Object> body) {
+
+                return confirmMtnSandboxPayment(
+                                loanId,
+                                body);
+        }
+
+        // ============================================================
+        // GET LOAN SCHEDULE
+        // ============================================================
+
+        /**
+         * Gets the complete repayment schedule for a loan.
+         */
+        @GetMapping
+        public ResponseEntity<ApiResponse<List<PaymentResponse>>> getSchedule(
+                        @PathVariable Long loanId) {
+
+                Long organizationId = currentUserUtil
+                                .getCurrentOrganizationId();
+
+                return ResponseEntity.ok(
+                                ApiResponse.ok(
+                                                ResponseDtoMapper.payments(paymentService.getLoanSchedule(
+                                                                loanId,
+                                                                organizationId))));
+        }
 }

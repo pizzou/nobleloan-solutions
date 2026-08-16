@@ -60,6 +60,7 @@ public class ExpenseService {
     private final BranchRepository branchRepository;
 
     private final AccountingService accountingService;
+    private final SecureFileUploadValidator secureFileUploadValidator;
 
     // ============================================================
     // CREATE EXPENSE
@@ -596,11 +597,8 @@ public class ExpenseService {
         MultipartFile receipt
     ) throws IOException {
 
-        if (receipt == null
-            || receipt.isEmpty()) {
-
-            return;
-        }
+        if (receipt == null || receipt.isEmpty()) return;
+        secureFileUploadValidator.validateDocument(receipt, MAX_RECEIPT_BYTES);
 
         if (receipt.getSize()
             > MAX_RECEIPT_BYTES) {

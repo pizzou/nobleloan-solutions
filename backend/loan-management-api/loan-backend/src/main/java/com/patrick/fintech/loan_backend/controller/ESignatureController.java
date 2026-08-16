@@ -1,6 +1,7 @@
 package com.patrick.fintech.loan_backend.controller;
 
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.ESignatureRequest;
 import com.patrick.fintech.loan_backend.service.ESignatureService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
@@ -27,17 +28,17 @@ public class ESignatureController {
             @PathVariable Long loanId, @RequestBody(required = false) Map<String, String> body) {
         String docType = body != null ? body.getOrDefault("documentType", "LOAN_AGREEMENT") : "LOAN_AGREEMENT";
         ESignatureRequest req = esignatureService.initiate(loanId, docType, currentUserUtil.getCurrentUser().getName());
-        // signingToken is deliberately the only borrower-facing identifier — never expose the OTP hash
-        return ResponseEntity.ok(ApiResponse.ok("Signing link sent to borrower's phone", Map.of(
-            "id", req.getId(),
-            "status", req.getStatus(),
-            "signingToken", req.getSigningToken(),
-            "expiresAt", req.getExpiresAt()
-        )));
+        // signingToken is deliberately the only borrower-facing identifier — never
+        // expose the OTP hash
+        return ResponseEntity.ok(ApiResponse.safe("Signing link sent to borrower's phone", Map.of(
+                "id", req.getId(),
+                "status", req.getStatus(),
+                "signingToken", req.getSigningToken(),
+                "expiresAt", req.getExpiresAt())));
     }
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<ESignatureRequest>>> history(@PathVariable Long loanId) {
-        return ResponseEntity.ok(ApiResponse.ok(esignatureService.history(loanId)));
+    public ResponseEntity<ApiResponse<Object>> history(@PathVariable Long loanId) {
+        return ResponseEntity.ok(ApiResponse.safe(esignatureService.history(loanId)));
     }
 }

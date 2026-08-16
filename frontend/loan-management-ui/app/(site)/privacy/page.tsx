@@ -14,7 +14,7 @@ export default function PrivacyPage() {
         and stores (based on its own code), so it starts from something true
         rather than generic boilerplate. It still needs review by a qualified
         lawyer for compliance with the data protection law that applies to{" "}
-        {tenant.name} (e.g. Rwanda's Law No. 058/2021 on the protection of
+        {tenant.name} (e.g. Rwanda&apos;s Law No. 058/2021 on the protection of
         personal data, or the equivalent in your jurisdiction) before this is
         published to real customers.
       </div>

@@ -23,6 +23,8 @@ public class CollectionAction {
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "collection_case_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private CollectionCase collectionCase;
 
     @Enumerated(EnumType.STRING)

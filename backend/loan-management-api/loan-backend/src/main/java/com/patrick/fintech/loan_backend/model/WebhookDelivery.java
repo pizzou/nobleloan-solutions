@@ -59,6 +59,8 @@ public class WebhookDelivery {
             name = "webhook_endpoint_id",
             nullable = false
     )
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private WebhookEndpoint webhookEndpoint;
 
     // ============================================================
@@ -70,6 +72,8 @@ public class WebhookDelivery {
             name = "organization_id",
             nullable = false
     )
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Organization organization;
 
     // ============================================================

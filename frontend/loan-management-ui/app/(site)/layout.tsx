@@ -391,8 +391,8 @@ export default function SiteLayout({
           </h1>
 
           <p className="text-sm leading-6 text-gray-500">
-            We couldn't reach our services. Please try again shortly, or contact
-            us directly if this persists.
+            We couldn&apos;t reach our services. Please try again shortly, or
+            contact us directly if this persists.
           </p>
         </div>
       </div>

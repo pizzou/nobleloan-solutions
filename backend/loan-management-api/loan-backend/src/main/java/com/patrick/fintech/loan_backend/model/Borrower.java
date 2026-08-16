@@ -31,6 +31,8 @@ public class Borrower {
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "organization_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Organization organization;
 
     @Column(nullable = false)
@@ -135,6 +137,8 @@ public class Borrower {
 
 @JoinColumn(name = "blacklisted_by")
 
+@ToString.Exclude
+@EqualsAndHashCode.Exclude
 private User blacklistedBy;
 
     private String  bankName;

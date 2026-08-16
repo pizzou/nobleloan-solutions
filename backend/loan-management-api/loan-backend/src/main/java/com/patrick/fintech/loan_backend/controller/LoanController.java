@@ -3,6 +3,9 @@ package com.patrick.fintech.loan_backend.controller;
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
 import com.patrick.fintech.loan_backend.dto.DashboardStats;
 import com.patrick.fintech.loan_backend.dto.LoanRequest;
+import com.patrick.fintech.loan_backend.dto.LoanResponse;
+import com.patrick.fintech.loan_backend.dto.LoanCommentResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.LoanComment;
 import com.patrick.fintech.loan_backend.model.LoanApproval;
@@ -69,7 +72,7 @@ public class LoanController {
 
         @PostMapping
         @PreAuthorize("hasAnyRole('LOAN_OFFICER','ADMIN','MANAGER')")
-        public ResponseEntity<ApiResponse<Loan>> createLoan(
+        public ResponseEntity<ApiResponse<LoanResponse>> createLoan(
                         @Valid @RequestBody LoanRequest req) {
 
                 User user = currentUserUtil.getCurrentUser();
@@ -91,7 +94,7 @@ public class LoanController {
                                 .body(
                                                 ApiResponse.ok(
                                                                 "Loan application created and submitted for approval",
-                                                                loan));
+                                                                ResponseDtoMapper.loan(loan)));
         }
 
         // ================================================================
@@ -99,7 +102,7 @@ public class LoanController {
         // ================================================================
 
         @GetMapping
-        public ResponseEntity<ApiResponse<Page<Loan>>> getLoans(
+        public ResponseEntity<ApiResponse<Page<LoanResponse>>> getLoans(
                         @RequestParam(defaultValue = "0") int page,
 
                         @RequestParam(defaultValue = "20") int size,
@@ -114,12 +117,12 @@ public class LoanController {
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
-                                                loanService.getLoans(
+                                                ResponseDtoMapper.loans(loanService.getLoans(
                                                                 organization,
                                                                 page,
                                                                 size,
                                                                 status,
-                                                                type)));
+                                                                type))));
         }
 
         // ================================================================
@@ -127,7 +130,7 @@ public class LoanController {
         // ================================================================
 
         @GetMapping("/{id}")
-        public ResponseEntity<ApiResponse<Loan>> getLoan(
+        public ResponseEntity<ApiResponse<LoanResponse>> getLoan(
                         @PathVariable Long id) {
 
                 Long organizationId = currentUserUtil
@@ -135,9 +138,9 @@ public class LoanController {
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
-                                                loanService.getLoanForOrg(
+                                                ResponseDtoMapper.loan(loanService.getLoanForOrg(
                                                                 id,
-                                                                organizationId)));
+                                                                organizationId))));
         }
 
         // ================================================================
@@ -145,7 +148,7 @@ public class LoanController {
         // ================================================================
 
         @GetMapping("/{id}/schedule")
-        public ResponseEntity<ApiResponse<List<Payment>>> getSchedule(
+        public ResponseEntity<ApiResponse<List<com.patrick.fintech.loan_backend.dto.PaymentResponse>>> getSchedule(
                         @PathVariable Long id) {
 
                 Long organizationId = currentUserUtil
@@ -160,9 +163,9 @@ public class LoanController {
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
-                                                paymentService.getLoanSchedule(
+                                                ResponseDtoMapper.payments(paymentService.getLoanSchedule(
                                                                 id,
-                                                                organizationId)));
+                                                                organizationId))));
         }
 
         // ================================================================
@@ -188,7 +191,7 @@ public class LoanController {
         // ================================================================
 
         @GetMapping("/borrower/{borrowerId}")
-        public ResponseEntity<ApiResponse<List<Loan>>> getByBorrower(
+        public ResponseEntity<ApiResponse<List<LoanResponse>>> getByBorrower(
                         @PathVariable Long borrowerId) {
 
                 Long organizationId = currentUserUtil
@@ -196,11 +199,11 @@ public class LoanController {
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
-                                                loanService
+                                                ResponseDtoMapper.loans(loanService
                                                                 .getLoanRepository()
                                                                 .findByBorrowerIdAndOrganizationId(
                                                                                 borrowerId,
-                                                                                organizationId)));
+                                                                                organizationId))));
         }
 
         // ================================================================
@@ -226,7 +229,7 @@ public class LoanController {
 
         @PostMapping("/{id}/approve")
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
-        public ResponseEntity<ApiResponse<Loan>> approveLoan(
+        public ResponseEntity<ApiResponse<LoanResponse>> approveLoan(
                         @PathVariable Long id,
                         @RequestBody(required = false) Map<String, String> body) {
 
@@ -274,7 +277,7 @@ public class LoanController {
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
                                                 "Loan approval decision recorded",
-                                                loan));
+                                                ResponseDtoMapper.loan(loan)));
         }
 
         private String firstNonBlank(
@@ -298,7 +301,7 @@ public class LoanController {
 
         @PostMapping("/{id}/reject")
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
-        public ResponseEntity<ApiResponse<Loan>> rejectLoan(
+        public ResponseEntity<ApiResponse<LoanResponse>> rejectLoan(
                         @PathVariable Long id,
                         @RequestBody(required = false) Map<String, String> body) {
 
@@ -328,12 +331,12 @@ public class LoanController {
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
                                                 "Loan rejection decision recorded",
-                                                loan));
+                                                ResponseDtoMapper.loan(loan)));
         }
 
         @PostMapping("/{id}/disburse")
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
-        public ResponseEntity<ApiResponse<Loan>> disburseLoan(
+        public ResponseEntity<ApiResponse<LoanResponse>> disburseLoan(
                         @PathVariable Long id,
 
                         @RequestBody(required = false) Map<String, String> body) {
@@ -354,7 +357,7 @@ public class LoanController {
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
                                                 "Loan disbursed",
-                                                loan));
+                                                ResponseDtoMapper.loan(loan)));
         }
 
         // ================================================================
@@ -363,7 +366,7 @@ public class LoanController {
 
         @PostMapping("/{id}/extend")
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
-        public ResponseEntity<ApiResponse<Loan>> extendLoan(
+        public ResponseEntity<ApiResponse<LoanResponse>> extendLoan(
                         @PathVariable Long id,
                         @RequestBody Map<String, Object> body) {
 
@@ -398,12 +401,12 @@ public class LoanController {
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
                                                 "Loan extension approved",
-                                                loan));
+                                                ResponseDtoMapper.loan(loan)));
         }
 
         @PostMapping("/{id}/restructure")
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
-        public ResponseEntity<ApiResponse<Loan>> restructureLoan(
+        public ResponseEntity<ApiResponse<LoanResponse>> restructureLoan(
                         @PathVariable Long id,
                         @RequestBody Map<String, Object> body) {
 
@@ -449,7 +452,7 @@ public class LoanController {
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
                                                 "Loan restructured",
-                                                loan));
+                                                ResponseDtoMapper.loan(loan)));
         }
 
         // ================================================================
@@ -458,7 +461,7 @@ public class LoanController {
 
         @PostMapping("/{id}/status")
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
-        public ResponseEntity<ApiResponse<Loan>> updateStatus(
+        public ResponseEntity<ApiResponse<LoanResponse>> updateStatus(
                         @PathVariable Long id,
 
                         @RequestBody Map<String, String> body) {
@@ -498,7 +501,7 @@ public class LoanController {
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
                                                 "Status updated",
-                                                loan));
+                                                ResponseDtoMapper.loan(loan)));
         }
 
         // ================================================================
@@ -527,7 +530,7 @@ public class LoanController {
         @PostMapping("/{id}/comments")
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
         @Transactional
-        public ResponseEntity<ApiResponse<LoanComment>> addComment(
+        public ResponseEntity<ApiResponse<LoanCommentResponse>> addComment(
                         @PathVariable Long id,
 
                         @RequestBody Map<String, Object> body) {
@@ -659,12 +662,12 @@ public class LoanController {
                                 .body(
                                                 ApiResponse.ok(
                                                                 "Comment added",
-                                                                comment));
+                                                                ResponseDtoMapper.loanComment(comment)));
         }
 
         @GetMapping("/{id}/comments")
         @Transactional(readOnly = true)
-        public ResponseEntity<ApiResponse<List<LoanComment>>> getComments(
+        public ResponseEntity<ApiResponse<List<LoanCommentResponse>>> getComments(
                         @PathVariable Long id) {
 
                 User user = currentUserUtil.getCurrentUser();
@@ -678,8 +681,8 @@ public class LoanController {
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
-                                                loanCommentRepo
+                                                ResponseDtoMapper.loanComments(loanCommentRepo
                                                                 .findByLoanIdOrderByCreatedAtAsc(
-                                                                                id)));
+                                                                                id))));
         }
 }

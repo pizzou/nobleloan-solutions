@@ -11,6 +11,8 @@ import axios, {
  * ============================================================
  */
 
+const IMPORT_UPLOAD_TIMEOUT_MS = 120000;
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 
@@ -528,6 +530,23 @@ export const webhookApi = {
  * ============================================================
  */
 
+export const currencyApi = {
+  rates: (base = "USD") => get(`/currencies?base=${encodeURIComponent(base)}`),
+
+  convert: (from: string, to: string, amount: number) =>
+    get(
+      `/currencies/convert?from=${encodeURIComponent(from)}` +
+        `&to=${encodeURIComponent(to)}` +
+        `&amount=${encodeURIComponent(String(amount))}`,
+    ),
+
+  supported: () => get("/currencies/supported"),
+
+  refresh: () => post("/currencies/refresh"),
+
+  status: () => get("/currencies/status"),
+};
+
 /**
  * ============================================================
  * PRIVACY API
@@ -839,9 +858,8 @@ export const importApi = {
     form.append("file", file);
 
     return API.post("/import/legacy-loans/preview", form, {
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
+      timeout: IMPORT_UPLOAD_TIMEOUT_MS,
+      headers: { "Content-Type": "multipart/form-data" },
     }).then((response) => unwrap(response.data));
   },
 
@@ -851,13 +869,17 @@ export const importApi = {
     form.append("file", file);
 
     return API.post("/import/legacy-loans/commit", form, {
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
+      timeout: IMPORT_UPLOAD_TIMEOUT_MS,
+      headers: { "Content-Type": "multipart/form-data" },
     }).then((response) => unwrap(response.data));
   },
 
   batches: () => get("/import/legacy-loans/batches"),
+
+  batch: (id: number) => get(`/import/legacy-loans/batches/${id}`),
+
+  errorReportUrl: (id: number) =>
+    `${API_BASE_URL}/import/legacy-loans/batches/${id}/errors`,
 };
 
 /**

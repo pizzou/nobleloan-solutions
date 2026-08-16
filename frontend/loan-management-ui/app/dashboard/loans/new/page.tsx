@@ -1109,9 +1109,11 @@ export default function LoanDetailPage() {
       });
   };
 
+  // Loader is intentionally keyed by the route id.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     load();
-  }, [id]);
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ==========================================================
   // LOAD CREDIT HISTORY
@@ -1249,7 +1251,7 @@ export default function LoanDetailPage() {
 
   useEffect(() => {
     loadComments();
-  }, [id]);
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAddComment = async () => {
     if (!commentText.trim()) {
@@ -1294,7 +1296,7 @@ export default function LoanDetailPage() {
 
   useEffect(() => {
     loadDocReq();
-  }, [id]);
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ==========================================================
   // ONLINE
@@ -2202,8 +2204,8 @@ export default function LoanDetailPage() {
             />
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-400 text-sm">
-              No borrower record is linked to this loan, so documents can't be
-              shown.
+              No borrower record is linked to this loan, so documents can&apos;t
+              be shown.
             </div>
           ))}
 
@@ -2524,8 +2526,8 @@ export default function LoanDetailPage() {
 
                 {!commentVisible && (
                   <p className="text-xs text-amber-600 mt-2">
-                    This note will be internal-only — the applicant won't see
-                    it.
+                    This note will be internal-only — the applicant won&apos;t
+                    see it.
                   </p>
                 )}
               </div>

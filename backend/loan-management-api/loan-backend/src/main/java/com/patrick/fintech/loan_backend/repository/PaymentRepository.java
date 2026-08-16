@@ -4,6 +4,7 @@ import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.Payment;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -19,14 +20,17 @@ public interface PaymentRepository
     // BASIC QUERIES
     // ============================================================
 
+    @EntityGraph(attributePaths = {"loan", "organization", "recordedBy"})
     List<Payment> findByLoanId(Long loanId);
 
+    @EntityGraph(attributePaths = {"loan", "organization"})
     List<Payment> findByLoan_Organization_Id(Long orgId);
 
     List<Payment> findByPaidFalseAndDueDateBefore(
             LocalDate date
     );
 
+    @EntityGraph(attributePaths = {"loan", "organization"})
     List<Payment> findByOrganization_IdAndPaidFalseAndDueDateBefore(
             Long orgId,
             LocalDate date
@@ -58,6 +62,7 @@ public interface PaymentRepository
      * Returns only payments belonging to the specified loan
      * AND organization.
      */
+    @EntityGraph(attributePaths = {"loan", "organization", "recordedBy"})
     @Query("""
         SELECT p
         FROM Payment p

@@ -1,6 +1,8 @@
 package com.patrick.fintech.loan_backend.controller;
 
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
+import com.patrick.fintech.loan_backend.dto.PaymentResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.Payment;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
@@ -28,23 +30,23 @@ import java.util.List;
 public class PaymentListController {
 
     private final PaymentRepository paymentRepo;
-    private final CurrentUserUtil   currentUserUtil;
+    private final CurrentUserUtil currentUserUtil;
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<Payment>>> getAll() {
+    public ResponseEntity<ApiResponse<List<PaymentResponse>>> getAll() {
         Long orgId = currentUserUtil.getCurrentOrganizationId();
         List<Payment> payments = paymentRepo.findByLoan_Organization_Id(orgId);
         payments.sort(Comparator.comparing(Payment::getDueDate,
-            Comparator.nullsLast(Comparator.reverseOrder())));
-        return ResponseEntity.ok(ApiResponse.ok(payments));
+                Comparator.nullsLast(Comparator.reverseOrder())));
+        return ResponseEntity.ok(ApiResponse.ok(ResponseDtoMapper.payments(payments)));
     }
 
     @GetMapping("/overdue")
-    public ResponseEntity<ApiResponse<List<Payment>>> getOverdue() {
+    public ResponseEntity<ApiResponse<List<PaymentResponse>>> getOverdue() {
         Organization org = currentUserUtil.getCurrentUser().getOrganization();
         List<Payment> overdue = paymentRepo.findByOrganization_IdAndPaidFalseAndDueDateBefore(
-            org.getId(), LocalDate.now());
+                org.getId(), LocalDate.now());
         overdue.sort(Comparator.comparing(Payment::getDueDate, Comparator.nullsLast(Comparator.naturalOrder())));
-        return ResponseEntity.ok(ApiResponse.ok(overdue));
+        return ResponseEntity.ok(ApiResponse.ok(ResponseDtoMapper.payments(overdue)));
     }
 }

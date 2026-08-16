@@ -17,7 +17,7 @@ public class HolidayService {
 
     public Holiday create(Organization org, LocalDate date, String name, boolean recurring) {
         return holidayRepo.save(Holiday.builder()
-            .organization(org).holidayDate(date).name(name).recurringAnnually(recurring).build());
+                .organization(org).holidayDate(date).name(name).recurringAnnually(recurring).build());
     }
 
     public java.util.List<Holiday> list(Long orgId) {
@@ -26,15 +26,20 @@ public class HolidayService {
 
     public void delete(Long orgId, Long id) {
         Holiday h = holidayRepo.findById(id)
-            .filter(x -> x.getOrganization().getId().equals(orgId))
-            .orElseThrow(() -> new RuntimeException("Holiday not found"));
+                .filter(x -> x.getOrganization().getId().equals(orgId))
+                .orElseThrow(() -> new RuntimeException("Holiday not found"));
         holidayRepo.delete(h);
     }
 
-    /** True if this date is a weekend, an exact-date holiday, or a recurring (annual) holiday. */
+    /**
+     * True if this date is a weekend, an exact-date holiday, or a recurring
+     * (annual) holiday.
+     */
     public boolean isNonBusinessDay(Long orgId, LocalDate date) {
-        if (date.getDayOfWeek() == DayOfWeek.SATURDAY || date.getDayOfWeek() == DayOfWeek.SUNDAY) return true;
-        if (holidayRepo.findByOrganization_IdAndHolidayDate(orgId, date).isPresent()) return true;
+        if (date.getDayOfWeek() == DayOfWeek.SATURDAY || date.getDayOfWeek() == DayOfWeek.SUNDAY)
+            return true;
+        if (holidayRepo.findByOrganization_IdAndHolidayDate(orgId, date).isPresent())
+            return true;
         return !holidayRepo.findRecurringForMonthDay(orgId, date.getMonthValue(), date.getDayOfMonth()).isEmpty();
     }
 

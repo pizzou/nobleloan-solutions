@@ -18,6 +18,8 @@ public class Branch {
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "organization_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Organization organization;
 
     private String name;
@@ -29,6 +31,8 @@ public class Branch {
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "manager_id")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private User manager;
 
     @Builder.Default

@@ -1,261 +1,242 @@
-'use client';
+"use client";
 
-import {
-useState,
-useEffect,
-createContext,
-useContext,
-} from 'react';
+import { useState, useEffect, createContext, useContext } from "react";
 
-import { AuthResponse } from '@/types';
+import { AuthResponse } from "@/types";
 
 interface AuthCtx {
-user: AuthResponse | null;
-token: string | null;
+  user: AuthResponse | null;
+  token: string | null;
 
-login: (user: AuthResponse, token: string) => void;
-logout: () => void;
+  login: (user: AuthResponse, token: string) => void;
+  logout: () => void;
 
-loading: boolean;
+  loading: boolean;
 
-isAdmin: boolean;
-isOfficer: boolean;
+  isAdmin: boolean;
+  isOfficer: boolean;
 
-currency: string;
-locale: string;
+  currency: string;
+  locale: string;
 
-mustChangePassword: boolean;
+  mustChangePassword: boolean;
 }
 
 export const AuthContext = createContext<AuthCtx>({
-user: null,
-token: null,
+  user: null,
+  token: null,
 
-login: () => {},
-logout: () => {},
+  login: () => {},
+  logout: () => {},
 
-loading: true,
+  loading: true,
 
-isAdmin: false,
-isOfficer: false,
+  isAdmin: false,
+  isOfficer: false,
 
-currency: 'USD',
-locale: 'en-US',
+  currency: "USD",
+  locale: "en-US",
 
-mustChangePassword: false,
+  mustChangePassword: false,
 });
 
+function isTokenUsable(token: string): boolean {
+  try {
+    const payload = JSON.parse(
+      atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")),
+    );
+    return (
+      typeof payload.exp === "number" &&
+      payload.exp * 1000 > Date.now() + 30_000
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function useAuth() {
-return useContext(AuthContext);
+  return useContext(AuthContext);
 }
 
 export function useAuthState() {
-const [user, setUser] = useState<AuthResponse | null>(null);
-const [token, setToken] = useState<string | null>(null);
-const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<AuthResponse | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-/*
+  /*
 
 * ============================================================
 * RESTORE AUTHENTICATED SESSION
 * ============================================================
   */
   useEffect(() => {
-  try {
-  const storedUser = localStorage.getItem('user');
-  const storedToken = localStorage.getItem('token');
+    try {
+      const storedUser = localStorage.getItem("user");
+      const storedToken = localStorage.getItem("token");
 
-  if (storedUser && storedToken) {
-  const parsedUser: AuthResponse = JSON.parse(storedUser);
+      if (storedUser && storedToken && isTokenUsable(storedToken)) {
+        const parsedUser: AuthResponse = JSON.parse(storedUser);
 
-  /*
-  * Basic validation.
-  *
-  * This prevents malformed localStorage data from being
-  * treated as a valid authenticated session.
-  */
-  if (
-  parsedUser &&
-  typeof parsedUser === 'object' &&
-  typeof parsedUser.name === 'string' &&
-  typeof parsedUser.email === 'string' &&
-  typeof parsedUser.organizationName === 'string'
-  ) {
-  setUser(parsedUser);
-  setToken(storedToken);
-  } else {
-  localStorage.removeItem('user');
-  localStorage.removeItem('token');
-  }
-  }
-  } catch (error) {
-  console.error(
-  'Failed to restore authentication session:',
-  error
-  );
+        /*
+         * Basic validation.
+         *
+         * This prevents malformed localStorage data from being
+         * treated as a valid authenticated session.
+         */
+        if (
+          parsedUser &&
+          typeof parsedUser === "object" &&
+          typeof parsedUser.name === "string" &&
+          typeof parsedUser.email === "string" &&
+          typeof parsedUser.organizationName === "string"
+        ) {
+          setUser(parsedUser);
+          setToken(storedToken);
+        } else {
+          localStorage.removeItem("user");
+          localStorage.removeItem("token");
+        }
+      }
+    } catch (error) {
+      console.error("Failed to restore authentication session:", error);
 
-  localStorage.removeItem('user');
-  localStorage.removeItem('token');
+      localStorage.removeItem("user");
+      localStorage.removeItem("token");
 
-  setUser(null);
-  setToken(null);
-  } finally {
-  setLoading(false);
-  }
+      setUser(null);
+      setToken(null);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-/*
+  /*
 
 * ============================================================
 * LOGIN
 * ============================================================
   */
-  const login = (
-  userData: AuthResponse,
-  tok: string
-  ) => {
-  /*
+  const login = (userData: AuthResponse, tok: string) => {
+    /*
 
   * JWT validation.
     */
     if (
-    !tok ||
-    typeof tok !== 'string' ||
-    tok.split('.').length !== 3
+      !tok ||
+      typeof tok !== "string" ||
+      tok.split(".").length !== 3 ||
+      !isTokenUsable(tok)
     ) {
-    console.error(
-    'useAuth.login() called with an invalid token:',
-    tok
-    );
+      console.error("useAuth.login() called with an invalid token:", tok);
 
-  return;
-  }
+      return;
+    }
 
-
-/*
+    /*
 
 
 
  * Validate the important fields returned by the backend.
  */
-if (
-  !userData ||
-  typeof userData !== 'object' ||
-  typeof userData.userId !== 'number' ||
-  typeof userData.name !== 'string' ||
-  typeof userData.email !== 'string' ||
-  typeof userData.organizationId !== 'number' ||
-  typeof userData.organizationName !== 'string'
-) {
-  console.error(
-    'useAuth.login() received an invalid AuthResponse:',
-    userData
-  );
+    if (
+      !userData ||
+      typeof userData !== "object" ||
+      typeof userData.userId !== "number" ||
+      typeof userData.name !== "string" ||
+      typeof userData.email !== "string" ||
+      typeof userData.organizationId !== "number" ||
+      typeof userData.organizationName !== "string"
+    ) {
+      console.error(
+        "useAuth.login() received an invalid AuthResponse:",
+        userData,
+      );
 
-  return;
-}
+      return;
+    }
 
-/*
- * Persist session.
- */
-localStorage.setItem('token', tok);
-localStorage.setItem(
-  'user',
-  JSON.stringify(userData)
-);
+    /*
+     * Persist session.
+     */
+    localStorage.setItem("token", tok);
+    localStorage.setItem("user", JSON.stringify(userData));
 
-/*
- * Update React state.
- */
-setUser(userData);
-setToken(tok);
+    /*
+     * Update React state.
+     */
+    setUser(userData);
+    setToken(tok);
+  };
 
-
-};
-
-/*
+  /*
 
 * ============================================================
 * LOGOUT
 * ============================================================
   */
   const logout = () => {
-  localStorage.removeItem('token');
-  localStorage.removeItem('user');
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
 
-setUser(null);
+    setUser(null);
 
+    setToken(null);
+  };
 
-
-setToken(null);
-
-
-};
-
-/*
+  /*
 
 * ============================================================
 * ROLE HELPERS
 * ============================================================
   */
-  const isAdmin =
-  user?.role === 'ADMIN';
+  const isAdmin = user?.role === "ADMIN";
 
-const isOfficer =
-[
-'ADMIN',
-'LOAN_OFFICER',
-'CREDIT_ANALYST',
-'MANAGER',
-].includes(user?.role || '');
+  const isOfficer = [
+    "ADMIN",
+    "LOAN_OFFICER",
+    "CREDIT_ANALYST",
+    "MANAGER",
+  ].includes(user?.role || "");
 
-/*
+  /*
 
 * ============================================================
 * ORGANIZATION SETTINGS
 * ============================================================
   */
-  const currency =
-  user?.currency || 'USD';
+  const currency = user?.currency || "USD";
 
-const locale =
-user?.locale || 'en-US';
+  const locale = user?.locale || "en-US";
 
-/*
+  /*
 
 * ============================================================
 * PASSWORD CHANGE
 * ============================================================
   */
-  const mustChangePassword =
-  Boolean(user?.mustChangePassword);
+  const mustChangePassword = Boolean(user?.mustChangePassword);
 
-/*
+  /*
 
 * ============================================================
 * RETURN AUTH STATE
 * ============================================================
   */
   return {
-  user,
-  token,
+    user,
+    token,
 
+    loading,
 
-loading,
+    login,
+    logout,
 
+    isAdmin,
+    isOfficer,
 
+    currency,
+    locale,
 
-login,
-logout,
-
-isAdmin,
-isOfficer,
-
-currency,
-locale,
-
-mustChangePassword,
-
-
-};
+    mustChangePassword,
+  };
 }

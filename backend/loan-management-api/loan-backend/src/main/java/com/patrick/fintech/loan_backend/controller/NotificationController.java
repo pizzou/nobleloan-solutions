@@ -1,6 +1,7 @@
 package com.patrick.fintech.loan_backend.controller;
 
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Notification;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.NotificationRepository;
@@ -22,27 +23,27 @@ public class NotificationController {
     private final CurrentUserUtil currentUserUtil;
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<Notification>>> getMine() {
+    public ResponseEntity<ApiResponse<Object>> getMine() {
         User user = currentUserUtil.getCurrentUser();
-        return ResponseEntity.ok(ApiResponse.ok(notificationRepo.findTop20ByUserOrderByCreatedAtDesc(user)));
+        return ResponseEntity.ok(ApiResponse.safe(notificationRepo.findTop20ByUserOrderByCreatedAtDesc(user)));
     }
 
     @GetMapping("/unread-count")
     public ResponseEntity<ApiResponse<Map<String, Long>>> unreadCount() {
         User user = currentUserUtil.getCurrentUser();
-        return ResponseEntity.ok(ApiResponse.ok(Map.of("count", notificationRepo.countByUserAndReadFalse(user))));
+        return ResponseEntity.ok(ApiResponse.safe(Map.of("count", notificationRepo.countByUserAndReadFalse(user))));
     }
 
     @PostMapping("/{id}/read")
-    public ResponseEntity<ApiResponse<Notification>> markRead(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<Object>> markRead(@PathVariable Long id) {
         User user = currentUserUtil.getCurrentUser();
         Notification n = notificationRepo.findById(id)
-            .orElseThrow(() -> new RuntimeException("Notification not found"));
+                .orElseThrow(() -> new RuntimeException("Notification not found"));
         if (n.getUser() == null || !n.getUser().getId().equals(user.getId()))
             throw new RuntimeException("Access denied");
         n.setRead(true);
         n.setReadAt(LocalDateTime.now());
-        return ResponseEntity.ok(ApiResponse.ok(notificationRepo.save(n)));
+        return ResponseEntity.ok(ApiResponse.safe(notificationRepo.save(n)));
     }
 
     @PostMapping("/read-all")
@@ -50,8 +51,11 @@ public class NotificationController {
         User user = currentUserUtil.getCurrentUser();
         List<Notification> unread = notificationRepo.findByUserAndReadFalseOrderByCreatedAtDesc(user);
         LocalDateTime now = LocalDateTime.now();
-        unread.forEach(n -> { n.setRead(true); n.setReadAt(now); });
+        unread.forEach(n -> {
+            n.setRead(true);
+            n.setReadAt(now);
+        });
         notificationRepo.saveAll(unread);
-        return ResponseEntity.ok(ApiResponse.ok(unread.size() + " notification(s) marked as read"));
+        return ResponseEntity.ok(ApiResponse.safe(unread.size() + " notification(s) marked as read"));
     }
 }

@@ -151,7 +151,7 @@ export default function OrganizationsPage() {
         </h1>
 
         <p className="mt-2 text-sm text-red-700">
-          The current user's organization could not be loaded.
+          The current user&apos;s organization could not be loaded.
         </p>
 
         <button

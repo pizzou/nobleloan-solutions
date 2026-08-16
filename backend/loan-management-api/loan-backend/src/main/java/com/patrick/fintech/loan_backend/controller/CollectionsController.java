@@ -1,6 +1,7 @@
 package com.patrick.fintech.loan_backend.controller;
 
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.CollectionAction;
 import com.patrick.fintech.loan_backend.model.CollectionCase;
 import com.patrick.fintech.loan_backend.service.CollectionsService;
@@ -24,54 +25,57 @@ public class CollectionsController {
     private final CurrentUserUtil currentUserUtil;
 
     @GetMapping("/queue")
-    public ResponseEntity<ApiResponse<List<CollectionCase>>> queue(
+    public ResponseEntity<ApiResponse<Object>> queue(
             @RequestParam(required = false) CollectionCase.CollectionBucket bucket,
             @RequestParam(required = false) CollectionCase.CollectionStatus status,
             @RequestParam(required = false) Long agentId) {
-        return ResponseEntity.ok(ApiResponse.ok(
-            collectionsService.getQueue(currentUserUtil.getCurrentOrganizationId(), bucket, status, agentId)));
+        return ResponseEntity.ok(ApiResponse.safe(
+                collectionsService.getQueue(currentUserUtil.getCurrentOrganizationId(), bucket, status, agentId)));
     }
 
     @GetMapping("/stats")
     public ResponseEntity<ApiResponse<Map<String, Object>>> stats() {
-        return ResponseEntity.ok(ApiResponse.ok(collectionsService.getStats(currentUserUtil.getCurrentOrganizationId())));
+        return ResponseEntity
+                .ok(ApiResponse.safe(collectionsService.getStats(currentUserUtil.getCurrentOrganizationId())));
     }
 
     @GetMapping("/cases/{id}")
-    public ResponseEntity<ApiResponse<CollectionCase>> getCase(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.ok(collectionsService.getCase(id)));
+    public ResponseEntity<ApiResponse<Object>> getCase(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.safe(collectionsService.getCase(id)));
     }
 
     @GetMapping("/cases/{id}/actions")
-    public ResponseEntity<ApiResponse<List<CollectionAction>>> actions(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.ok(collectionsService.getActions(id)));
+    public ResponseEntity<ApiResponse<Object>> actions(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.safe(collectionsService.getActions(id)));
     }
 
     @PostMapping("/cases/{id}/assign")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
-    public ResponseEntity<ApiResponse<CollectionCase>> assign(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+    public ResponseEntity<ApiResponse<Object>> assign(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         Long agentId = Long.valueOf(body.get("agentId").toString());
-        return ResponseEntity.ok(ApiResponse.ok(
-            collectionsService.assignAgent(id, agentId, currentUserUtil.getCurrentUser().getName())));
+        return ResponseEntity.ok(ApiResponse.safe(
+                collectionsService.assignAgent(id, agentId, currentUserUtil.getCurrentUser().getName())));
     }
 
     @PostMapping("/cases/{id}/actions")
-    public ResponseEntity<ApiResponse<CollectionAction>> logAction(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+    public ResponseEntity<ApiResponse<Object>> logAction(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         CollectionAction.ActionType type = CollectionAction.ActionType.valueOf(body.get("actionType").toString());
         String notes = (String) body.get("notes");
         String outcome = (String) body.get("outcome");
-        LocalDate promiseDate = body.get("promiseDate") != null ? LocalDate.parse(body.get("promiseDate").toString()) : null;
-        Double promiseAmount = body.get("promiseAmount") != null ? Double.valueOf(body.get("promiseAmount").toString()) : null;
+        LocalDate promiseDate = body.get("promiseDate") != null ? LocalDate.parse(body.get("promiseDate").toString())
+                : null;
+        Double promiseAmount = body.get("promiseAmount") != null ? Double.valueOf(body.get("promiseAmount").toString())
+                : null;
 
         CollectionAction action = collectionsService.logAction(
-            id, type, notes, currentUserUtil.getCurrentUser().getName(), outcome, promiseDate, promiseAmount);
-        return ResponseEntity.ok(ApiResponse.ok("Action logged", action));
+                id, type, notes, currentUserUtil.getCurrentUser().getName(), outcome, promiseDate, promiseAmount);
+        return ResponseEntity.ok(ApiResponse.safe("Action logged", action));
     }
 
     @PostMapping("/sync")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     public ResponseEntity<ApiResponse<String>> manualSync() {
         int touched = collectionsService.syncCasesFromOverdueLoans();
-        return ResponseEntity.ok(ApiResponse.ok("Collections queue synced: " + touched + " case(s) touched"));
+        return ResponseEntity.ok(ApiResponse.safe("Collections queue synced: " + touched + " case(s) touched"));
     }
 }

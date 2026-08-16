@@ -44,6 +44,8 @@ public class PaymentWebhookController {
 
         private final ObjectMapper objectMapper;
 
+        private final com.patrick.fintech.loan_backend.service.WebhookReplayGuard webhookReplayGuard;
+
         @Value("${flutterwave.webhook-secret:}")
         private String flutterwaveWebhookSecret;
 
@@ -309,6 +311,12 @@ public class PaymentWebhookController {
                          * there.
                          */
 
+                        var webhookClaim = webhookReplayGuard.claim("FLUTTERWAVE", transactionId, rawBody);
+                        if (webhookClaim.replay())
+                                return ResponseEntity.ok("Webhook already processed");
+                        if (!webhookClaim.first())
+                                return ResponseEntity.status(202).body("Webhook is already being processed");
+
                         paymentService.recordPayment(
                                         loanId,
                                         amount,
@@ -318,6 +326,8 @@ public class PaymentWebhookController {
                                         "FLUTTERWAVE_WEBHOOK",
                                         "Payment automatically confirmed by Flutterwave",
                                         null);
+
+                        webhookReplayGuard.markProcessed("FLUTTERWAVE", transactionId, rawBody);
 
                         log.info(
                                         "[FLUTTERWAVE WEBHOOK] PAYMENT RECORDED SUCCESSFULLY. " +
@@ -465,6 +475,12 @@ public class PaymentWebhookController {
                                 return ResponseEntity.badRequest().body("MTN transaction verification failed");
                         }
 
+                        var webhookClaim = webhookReplayGuard.claim("MTN", transactionId, rawBody);
+                        if (webhookClaim.replay())
+                                return ResponseEntity.ok("Webhook already processed");
+                        if (!webhookClaim.first())
+                                return ResponseEntity.status(202).body("Webhook is already being processed");
+
                         PaymentGatewayResponse mtnResponse = mtnWebhookTransactionService.processWebhookConfirmation(
                                         loanId,
                                         transactionId.trim(),
@@ -478,6 +494,8 @@ public class PaymentWebhookController {
                                                 mtnResponse != null ? mtnResponse.getStatus() : null);
                                 return ResponseEntity.status(422).body("Payment was not accepted");
                         }
+
+                        webhookReplayGuard.markProcessed("MTN", transactionId, rawBody);
 
                         log.info(
                                         "[MTN WEBHOOK] PAYMENT RECORDED. " +
@@ -624,6 +642,12 @@ public class PaymentWebhookController {
                                 return ResponseEntity.badRequest().body("Airtel transaction verification failed");
                         }
 
+                        var webhookClaim = webhookReplayGuard.claim("AIRTEL", transactionId, rawBody);
+                        if (webhookClaim.replay())
+                                return ResponseEntity.ok("Webhook already processed");
+                        if (!webhookClaim.first())
+                                return ResponseEntity.status(202).body("Webhook is already being processed");
+
                         paymentService.recordPayment(
                                         loanId,
                                         amount,
@@ -632,6 +656,8 @@ public class PaymentWebhookController {
                                         "AIRTEL_WEBHOOK",
                                         "Payment automatically confirmed by Airtel Money",
                                         null);
+
+                        webhookReplayGuard.markProcessed("AIRTEL", transactionId, rawBody);
 
                         log.info(
                                         "[AIRTEL WEBHOOK] PAYMENT RECORDED. " +

@@ -21,6 +21,8 @@ public class InternalDocument {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "organization_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Organization organization;
 
     private String title;
@@ -42,6 +44,8 @@ public class InternalDocument {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "uploaded_by_id")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private User uploadedBy;
 
     private LocalDateTime createdAt;

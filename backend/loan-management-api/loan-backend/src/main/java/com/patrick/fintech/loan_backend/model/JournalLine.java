@@ -23,260 +23,213 @@ import jakarta.persistence.Transient;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 
 @JsonIgnoreProperties({
-        "hibernateLazyInitializer",
-        "handler"
+                "hibernateLazyInitializer",
+                "handler"
 })
 @Entity
-@Table(
-        name = "journal_lines",
-        indexes = {
+@Table(name = "journal_lines", indexes = {
 
-                @Index(
-                        name = "idx_journal_line_entry",
-                        columnList = "journal_entry_id"
-                ),
+                @Index(name = "idx_journal_line_entry", columnList = "journal_entry_id"),
 
-                @Index(
-                        name = "idx_journal_line_account",
-                        columnList = "account_id"
-                )
-        }
-)
+                @Index(name = "idx_journal_line_account", columnList = "account_id")
+})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
 public class JournalLine {
 
-    // ============================================================
-    // ID
-    // ============================================================
+        // ============================================================
+        // ID
+        // ============================================================
 
-    @Id
-    @GeneratedValue(
-            strategy = GenerationType.IDENTITY
-    )
-    private Long id;
+        @Id
+        @GeneratedValue(strategy = GenerationType.IDENTITY)
+        private Long id;
 
+        // ============================================================
+        // JOURNAL ENTRY
+        // ============================================================
 
-    // ============================================================
-    // JOURNAL ENTRY
-    // ============================================================
+        @JsonIgnore
+        @ManyToOne(fetch = FetchType.LAZY, optional = false)
+        @JoinColumn(name = "journal_entry_id", nullable = false)
+        @ToString.Exclude
+        @EqualsAndHashCode.Exclude
+        private JournalEntry journalEntry;
 
-    @JsonIgnore
-    @ManyToOne(
-            fetch = FetchType.LAZY,
-            optional = false
-    )
-    @JoinColumn(
-            name = "journal_entry_id",
-            nullable = false
-    )
-    private JournalEntry journalEntry;
+        // ============================================================
+        // ACCOUNT
+        // ============================================================
 
+        @JsonIgnore
+        @ManyToOne(fetch = FetchType.LAZY, optional = false)
+        @JoinColumn(name = "account_id", nullable = false)
+        @ToString.Exclude
+        @EqualsAndHashCode.Exclude
+        private ChartOfAccount account;
 
-    // ============================================================
-    // ACCOUNT
-    // ============================================================
+        // ============================================================
+        // DEBIT
+        // ============================================================
 
-    @JsonIgnore
-    @ManyToOne(
-            fetch = FetchType.LAZY,
-            optional = false
-    )
-    @JoinColumn(
-            name = "account_id",
-            nullable = false
-    )
-    private ChartOfAccount account;
+        @Builder.Default
+        @Column(nullable = false, precision = 19, scale = 6)
+        @JsonProperty("debit")
+        private BigDecimal debit = BigDecimal.ZERO;
 
+        // ============================================================
+        // CREDIT
+        // ============================================================
 
-    // ============================================================
-    // DEBIT
-    // ============================================================
+        @Builder.Default
+        @Column(nullable = false, precision = 19, scale = 6)
+        @JsonProperty("credit")
+        private BigDecimal credit = BigDecimal.ZERO;
 
-    @Builder.Default
-    @Column(
-            nullable = false,
-            precision = 19,
-            scale = 6
-    )
-    @JsonProperty("debit")
-    private BigDecimal debit = BigDecimal.ZERO;
+        // ============================================================
+        // DESCRIPTION
+        // ============================================================
 
+        @Column(length = 500)
+        private String description;
 
-    // ============================================================
-    // CREDIT
-    // ============================================================
+        // ============================================================
+        // ENTITY NORMALIZATION
+        // ============================================================
 
-    @Builder.Default
-    @Column(
-            nullable = false,
-            precision = 19,
-            scale = 6
-    )
-    @JsonProperty("credit")
-    private BigDecimal credit = BigDecimal.ZERO;
+        @PrePersist
+        @PreUpdate
+        protected void normalizeAmounts() {
 
+                if (debit == null) {
+                        debit = BigDecimal.ZERO;
+                }
 
-    // ============================================================
-    // DESCRIPTION
-    // ============================================================
+                if (credit == null) {
+                        credit = BigDecimal.ZERO;
+                }
 
-    @Column(
-            length = 500
-    )
-    private String description;
+                debit = debit.setScale(
+                                6,
+                                java.math.RoundingMode.HALF_UP);
 
-
-    // ============================================================
-    // ENTITY NORMALIZATION
-    // ============================================================
-
-    @PrePersist
-    @PreUpdate
-    protected void normalizeAmounts() {
-
-        if (debit == null) {
-            debit = BigDecimal.ZERO;
+                credit = credit.setScale(
+                                6,
+                                java.math.RoundingMode.HALF_UP);
         }
 
-        if (credit == null) {
-            credit = BigDecimal.ZERO;
+        // ============================================================
+        // DEBIT CHECK
+        // ============================================================
+
+        @Transient
+        public boolean isDebit() {
+
+                return debit != null
+                                && debit.compareTo(BigDecimal.ZERO) > 0;
         }
 
-        debit = debit.setScale(
-                6,
-                java.math.RoundingMode.HALF_UP
-        );
+        // ============================================================
+        // CREDIT CHECK
+        // ============================================================
 
-        credit = credit.setScale(
-                6,
-                java.math.RoundingMode.HALF_UP
-        );
-    }
+        @Transient
+        public boolean isCredit() {
 
+                return credit != null
+                                && credit.compareTo(BigDecimal.ZERO) > 0;
+        }
 
-    // ============================================================
-    // DEBIT CHECK
-    // ============================================================
+        // ============================================================
+        // AMOUNT
+        // ============================================================
 
-    @Transient
-    public boolean isDebit() {
+        /**
+         * Returns the larger of debit or credit.
+         *
+         * This is useful for display/reporting where a journal line
+         * has exactly one populated side.
+         */
+        @Transient
+        public BigDecimal getAmount() {
 
-        return debit != null
-                && debit.compareTo(BigDecimal.ZERO) > 0;
-    }
+                BigDecimal debitAmount = debit != null
+                                ? debit
+                                : BigDecimal.ZERO;
 
+                BigDecimal creditAmount = credit != null
+                                ? credit
+                                : BigDecimal.ZERO;
 
-    // ============================================================
-    // CREDIT CHECK
-    // ============================================================
+                return debitAmount.max(
+                                creditAmount);
+        }
 
-    @Transient
-    public boolean isCredit() {
+        // ============================================================
+        // SAFE DEBIT SETTER
+        // ============================================================
 
-        return credit != null
-                && credit.compareTo(BigDecimal.ZERO) > 0;
-    }
+        /**
+         * Keeps the financial value as BigDecimal.
+         *
+         * Do not introduce Double here. Monetary values must remain
+         * decimal throughout the accounting layer.
+         */
+        public void setDebit(BigDecimal value) {
 
+                this.debit = value != null
+                                ? value
+                                : BigDecimal.ZERO;
+        }
 
-    // ============================================================
-    // AMOUNT
-    // ============================================================
+        // ============================================================
+        // SAFE CREDIT SETTER
+        // ============================================================
 
-    /**
-     * Returns the larger of debit or credit.
-     *
-     * This is useful for display/reporting where a journal line
-     * has exactly one populated side.
-     */
-    @Transient
-    public BigDecimal getAmount() {
+        /**
+         * Keeps the financial value as BigDecimal.
+         *
+         * Do not introduce Double here. Monetary values must remain
+         * decimal throughout the accounting layer.
+         */
+        public void setCredit(BigDecimal value) {
 
-        BigDecimal debitAmount =
-                debit != null
-                        ? debit
-                        : BigDecimal.ZERO;
+                this.credit = value != null
+                                ? value
+                                : BigDecimal.ZERO;
+        }
 
-        BigDecimal creditAmount =
-                credit != null
-                        ? credit
-                        : BigDecimal.ZERO;
+        // ============================================================
+        // DECIMAL ACCESSORS
+        // ============================================================
 
-        return debitAmount.max(
-                creditAmount
-        );
-    }
+        /**
+         * Explicit decimal accessor for financial services.
+         */
+        @Transient
+        @JsonIgnore
+        public BigDecimal getDebitDecimal() {
 
+                return debit != null
+                                ? debit
+                                : BigDecimal.ZERO;
+        }
 
-    // ============================================================
-    // SAFE DEBIT SETTER
-    // ============================================================
+        /**
+         * Explicit decimal accessor for financial services.
+         */
+        @Transient
+        @JsonIgnore
+        public BigDecimal getCreditDecimal() {
 
-    /**
-     * Keeps the financial value as BigDecimal.
-     *
-     * Do not introduce Double here. Monetary values must remain
-     * decimal throughout the accounting layer.
-     */
-    public void setDebit(BigDecimal value) {
-
-        this.debit =
-                value != null
-                        ? value
-                        : BigDecimal.ZERO;
-    }
-
-
-    // ============================================================
-    // SAFE CREDIT SETTER
-    // ============================================================
-
-    /**
-     * Keeps the financial value as BigDecimal.
-     *
-     * Do not introduce Double here. Monetary values must remain
-     * decimal throughout the accounting layer.
-     */
-    public void setCredit(BigDecimal value) {
-
-        this.credit =
-                value != null
-                        ? value
-                        : BigDecimal.ZERO;
-    }
-
-
-    // ============================================================
-    // DECIMAL ACCESSORS
-    // ============================================================
-
-    /**
-     * Explicit decimal accessor for financial services.
-     */
-    @Transient
-    @JsonIgnore
-    public BigDecimal getDebitDecimal() {
-
-        return debit != null
-                ? debit
-                : BigDecimal.ZERO;
-    }
-
-
-    /**
-     * Explicit decimal accessor for financial services.
-     */
-    @Transient
-    @JsonIgnore
-    public BigDecimal getCreditDecimal() {
-
-        return credit != null
-                ? credit
-                : BigDecimal.ZERO;
-    }
+                return credit != null
+                                ? credit
+                                : BigDecimal.ZERO;
+        }
 }

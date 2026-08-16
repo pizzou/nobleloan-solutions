@@ -1,6 +1,7 @@
 package com.patrick.fintech.loan_backend.controller;
 
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Branch;
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.repository.BranchRepository;
@@ -21,54 +22,71 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class BranchController {
 
-    private final BranchRepository       branchRepo;
+    private final BranchRepository branchRepo;
     private final OrganizationRepository orgRepo;
-    private final UserRepository         userRepo;
-    private final CurrentUserUtil        currentUserUtil;
-    private final AuditService           auditService;
+    private final UserRepository userRepo;
+    private final CurrentUserUtil currentUserUtil;
+    private final AuditService auditService;
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<Branch>>> list() {
+    public ResponseEntity<ApiResponse<Object>> list() {
         Long orgId = currentUserUtil.getCurrentOrganizationId();
-        return ResponseEntity.ok(ApiResponse.ok(branchRepo.findByOrganization_Id(orgId)));
+        return ResponseEntity.ok(ApiResponse.safe(branchRepo.findByOrganization_Id(orgId)));
     }
 
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
-    public ResponseEntity<ApiResponse<Branch>> create(@RequestBody Map<String,Object> body) {
+    public ResponseEntity<ApiResponse<Object>> create(@RequestBody Map<String, Object> body) {
         Organization org = orgRepo.findById(currentUserUtil.getCurrentOrganizationId())
-            .orElseThrow(() -> new RuntimeException("Organization not found"));
+                .orElseThrow(() -> new RuntimeException("Organization not found"));
         Branch b = Branch.builder()
-            .organization(org)
-            .name(str(body,"name")).code(str(body,"code")).address(str(body,"address"))
-            .city(str(body,"city")).phone(str(body,"phone"))
-            .active(true)
-            .build();
+                .organization(org)
+                .name(str(body, "name")).code(str(body, "code")).address(str(body, "address"))
+                .city(str(body, "city")).phone(str(body, "phone"))
+                .active(true)
+                .build();
         if (body.get("managerId") != null) {
-            userRepo.findById(Long.valueOf(body.get("managerId").toString())).ifPresent(b::setManager);
+            Long managerId = Long.valueOf(body.get("managerId").toString());
+            var manager = userRepo.findById(managerId).orElseThrow(() -> new RuntimeException("Manager not found"));
+            if (manager.getOrganization() == null || !manager.getOrganization().getId().equals(org.getId()))
+                throw new RuntimeException("Manager belongs to another organization");
+            b.setManager(manager);
         }
         b = branchRepo.save(b);
         auditService.log(org, currentUserUtil.getCurrentUser(), "BRANCH_CREATED", "BRANCH",
-            b.getId().toString(), "Branch \"" + b.getName() + "\" created");
-        return ResponseEntity.ok(ApiResponse.ok("Branch created", b));
+                b.getId().toString(), "Branch \"" + b.getName() + "\" created");
+        return ResponseEntity.ok(ApiResponse.safe("Branch created", b));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
-    public ResponseEntity<ApiResponse<Branch>> update(@PathVariable Long id, @RequestBody Map<String,Object> body) {
+    public ResponseEntity<ApiResponse<Object>> update(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         Branch b = branchRepo.findById(id).orElseThrow(() -> new RuntimeException("Branch not found"));
         assertOwnership(b);
-        if (body.get("name")    != null) b.setName(str(body,"name"));
-        if (body.get("code")    != null) b.setCode(str(body,"code"));
-        if (body.get("address") != null) b.setAddress(str(body,"address"));
-        if (body.get("city")    != null) b.setCity(str(body,"city"));
-        if (body.get("phone")   != null) b.setPhone(str(body,"phone"));
-        if (body.get("active")  != null) b.setActive(Boolean.parseBoolean(body.get("active").toString()));
-        if (body.get("managerId") != null) userRepo.findById(Long.valueOf(body.get("managerId").toString())).ifPresent(b::setManager);
+        if (body.get("name") != null)
+            b.setName(str(body, "name"));
+        if (body.get("code") != null)
+            b.setCode(str(body, "code"));
+        if (body.get("address") != null)
+            b.setAddress(str(body, "address"));
+        if (body.get("city") != null)
+            b.setCity(str(body, "city"));
+        if (body.get("phone") != null)
+            b.setPhone(str(body, "phone"));
+        if (body.get("active") != null)
+            b.setActive(Boolean.parseBoolean(body.get("active").toString()));
+        if (body.get("managerId") != null) {
+            Long managerId = Long.valueOf(body.get("managerId").toString());
+            var manager = userRepo.findById(managerId).orElseThrow(() -> new RuntimeException("Manager not found"));
+            if (manager.getOrganization() == null
+                    || !manager.getOrganization().getId().equals(b.getOrganization().getId()))
+                throw new RuntimeException("Manager belongs to another organization");
+            b.setManager(manager);
+        }
         b = branchRepo.save(b);
         auditService.log(b.getOrganization(), currentUserUtil.getCurrentUser(), "BRANCH_UPDATED", "BRANCH",
-            id.toString(), "Branch \"" + b.getName() + "\" updated");
-        return ResponseEntity.ok(ApiResponse.ok("Branch updated", b));
+                id.toString(), "Branch \"" + b.getName() + "\" updated");
+        return ResponseEntity.ok(ApiResponse.safe("Branch updated", b));
     }
 
     @DeleteMapping("/{id}")
@@ -78,8 +96,8 @@ public class BranchController {
         assertOwnership(b);
         branchRepo.delete(b);
         auditService.log(b.getOrganization(), currentUserUtil.getCurrentUser(), "BRANCH_DELETED", "BRANCH",
-            id.toString(), "Branch \"" + b.getName() + "\" deleted");
-        return ResponseEntity.ok(ApiResponse.ok("Branch deleted"));
+                id.toString(), "Branch \"" + b.getName() + "\" deleted");
+        return ResponseEntity.ok(ApiResponse.safe("Branch deleted"));
     }
 
     private void assertOwnership(Branch b) {
@@ -87,5 +105,7 @@ public class BranchController {
             throw new RuntimeException("Access denied");
     }
 
-    private String str(Map<String,Object> b, String k) { return b.get(k) != null ? b.get(k).toString() : null; }
+    private String str(Map<String, Object> b, String k) {
+        return b.get(k) != null ? b.get(k).toString() : null;
+    }
 }

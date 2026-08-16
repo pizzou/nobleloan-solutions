@@ -49,6 +49,8 @@ public class ChartOfAccount {
         name = "organization_id",
         nullable = false
     )
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Organization organization;
 
     /**

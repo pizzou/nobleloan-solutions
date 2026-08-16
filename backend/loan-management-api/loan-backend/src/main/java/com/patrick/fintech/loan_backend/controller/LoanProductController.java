@@ -1,6 +1,7 @@
 package com.patrick.fintech.loan_backend.controller;
 
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.DocumentType;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.LoanProduct;
@@ -74,7 +75,7 @@ public class LoanProductController {
         // ============================================================
 
         @GetMapping
-        public ResponseEntity<ApiResponse<List<LoanProduct>>> list() {
+        public ResponseEntity<ApiResponse<Object>> list() {
 
                 Long organizationId = currentUserUtil.getCurrentOrganizationId();
 
@@ -89,7 +90,7 @@ public class LoanProductController {
                 }
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(products));
+                                ApiResponse.safe(products));
         }
 
         // ============================================================
@@ -98,7 +99,7 @@ public class LoanProductController {
 
         @PostMapping
         @PreAuthorize("hasRole('ADMIN')")
-        public ResponseEntity<ApiResponse<LoanProduct>> create(
+        public ResponseEntity<ApiResponse<Object>> create(
                         @RequestBody Map<String, Object> body) {
 
                 Long organizationId = currentUserUtil.getCurrentOrganizationId();
@@ -167,7 +168,7 @@ public class LoanProductController {
                                 .status(
                                                 HttpStatus.CREATED)
                                 .body(
-                                                ApiResponse.ok(
+                                                ApiResponse.safe(
                                                                 "Product created",
                                                                 product));
         }
@@ -178,7 +179,7 @@ public class LoanProductController {
 
         @PutMapping("/{id}")
         @PreAuthorize("hasRole('ADMIN')")
-        public ResponseEntity<ApiResponse<LoanProduct>> update(
+        public ResponseEntity<ApiResponse<Object>> update(
                         @PathVariable Long id,
                         @RequestBody Map<String, Object> body) {
 
@@ -246,7 +247,7 @@ public class LoanProductController {
                                                 + "%.");
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(
+                                ApiResponse.safe(
                                                 "Product updated",
                                                 product));
         }
@@ -257,7 +258,7 @@ public class LoanProductController {
 
         @PostMapping("/{id}/toggle")
         @PreAuthorize("hasRole('ADMIN')")
-        public ResponseEntity<ApiResponse<LoanProduct>> toggleActive(
+        public ResponseEntity<ApiResponse<Object>> toggleActive(
                         @PathVariable Long id) {
 
                 validateProductId(
@@ -303,7 +304,7 @@ public class LoanProductController {
                                                                 : "INACTIVE"));
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(
+                                ApiResponse.safe(
                                                 product));
         }
 
@@ -355,7 +356,7 @@ public class LoanProductController {
                                                 + "\"");
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok(
+                                ApiResponse.safe(
                                                 "Product deleted"));
         }
 

@@ -67,6 +67,8 @@ public class CreditBureauCheck {
         name = "borrower_id",
         nullable = false
     )
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Borrower borrower;
 
 
@@ -80,6 +82,8 @@ public class CreditBureauCheck {
         name = "organization_id",
         nullable = false
     )
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Organization organization;
 
 

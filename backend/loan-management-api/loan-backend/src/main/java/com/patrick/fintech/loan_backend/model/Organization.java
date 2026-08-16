@@ -24,7 +24,9 @@ import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 
 @JsonIgnoreProperties({
         "hibernateLazyInitializer",
@@ -210,10 +212,14 @@ public class Organization {
 
     @JsonIgnore
     @OneToMany(mappedBy = "organization", fetch = FetchType.LAZY)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private List<User> users;
 
     @JsonIgnore
     @OneToMany(mappedBy = "organization", fetch = FetchType.LAZY)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private List<Loan> loans;
 
     /*
