@@ -202,18 +202,22 @@ public class Loan {
         @EqualsAndHashCode.Exclude
         private Borrower borrower;
 
+        @JsonIgnore
+
         @ManyToOne(fetch = FetchType.LAZY)
         @JoinColumn(name = "created_by", foreignKey = @ForeignKey(name = "fk_loan_created_by"))
         @ToString.Exclude
         @EqualsAndHashCode.Exclude
         private User createdBy;
 
+        @JsonIgnore
         @ManyToOne(fetch = FetchType.LAZY)
         @JoinColumn(name = "approved_by", foreignKey = @ForeignKey(name = "fk_loan_approved_by"))
         @ToString.Exclude
         @EqualsAndHashCode.Exclude
         private User approvedBy;
 
+        @JsonIgnore
         @ManyToOne(fetch = FetchType.LAZY)
         @JoinColumn(name = "loan_officer_id", foreignKey = @ForeignKey(name = "fk_loan_officer"))
         @ToString.Exclude
