@@ -186,25 +186,22 @@ public class Loan {
         // BORROWER / USERS
         // ================================================================
 
+        @JsonIgnore
         @ManyToOne(fetch = FetchType.EAGER, optional = false)
         @JoinColumn(name = "borrower_id", nullable = false, foreignKey = @ForeignKey(name = "fk_loan_borrower"))
         private Borrower borrower;
 
+        @JsonIgnore
         @ManyToOne(fetch = FetchType.EAGER)
         @JoinColumn(name = "created_by", foreignKey = @ForeignKey(name = "fk_loan_created_by"))
         private User createdBy;
 
-        /**
-         * Approving user is audit metadata, not part of the public loan
-         * representation. Keeping the association out of JSON prevents
-         * Jackson from traversing User -> Role after the Hibernate session
-         * has closed.
-         */
         @JsonIgnore
         @ManyToOne(fetch = FetchType.EAGER)
         @JoinColumn(name = "approved_by", foreignKey = @ForeignKey(name = "fk_loan_approved_by"))
         private User approvedBy;
 
+        @JsonIgnore
         @ManyToOne(fetch = FetchType.EAGER)
         @JoinColumn(name = "loan_officer_id", foreignKey = @ForeignKey(name = "fk_loan_officer"))
         private User loanOfficer;
@@ -222,29 +219,11 @@ public class Loan {
         @Builder.Default
         private LoanStatus status = LoanStatus.PENDING;
 
-        /**
-         * Credit quality is owned by Loan because it is a loan-level
-         * financial/risk classification.
-         *
-         * Classification is based on daysOverdue:
-         *
-         * 0 = CURRENT
-         * 1-89 = WATCH
-         * 90-179 = SUBSTANDARD
-         * 180-359 = DOUBTFUL
-         * 360+ = WRITTEN_OFF
-         */
         @Enumerated(EnumType.STRING)
         @Builder.Default
         @Column(name = "credit_quality", nullable = false, length = 20)
         private CreditQuality creditQuality = CreditQuality.CURRENT;
 
-        /**
-         * Simple arrears state.
-         *
-         * NOT_DUE = no overdue amount / no overdue days
-         * PAST_DUE = loan is overdue
-         */
         @Enumerated(EnumType.STRING)
         @Builder.Default
         @Column(name = "arrears_status", nullable = false, length = 20)

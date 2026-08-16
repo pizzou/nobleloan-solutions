@@ -88,7 +88,7 @@ export const useTenant = () => useContext(TenantCtx);
    API
    ============================================================ */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 /* ============================================================
    BRAND COLORS
@@ -391,7 +391,7 @@ export default function SiteLayout({
           </h1>
 
           <p className="text-sm leading-6 text-gray-500">
-            We couldn&apos;t reach our services. Please try again shortly, or
+            We could not reach our services. Please try again shortly, or
             contact us directly if this persists.
           </p>
         </div>

@@ -1,765 +1,496 @@
 "use client";
-import Link from "next/link";
-import React from "react";
-import { useTenant } from "./layout";
-import { useScrollReveal, useCountUp } from "../../hooks/useScrollReveal";
 
-function IconCheck() {
+import Link from "next/link";
+import { useTenant } from "./layout";
+
+const Arrow = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M5 12h14" />
+    <path d="m13 6 6 6-6 6" />
+  </svg>
+);
+const Shield = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-5 w-5"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+  >
+    <path d="M12 3 20 6v5c0 5-3.4 8.3-8 10-4.6-1.7-8-5-8-10V6l8-3Z" />
+    <path d="m8.5 12 2.2 2.2 4.8-5" />
+  </svg>
+);
+const Clock = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-5 w-5"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+  >
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
+  </svg>
+);
+const User = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-5 w-5"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+  >
+    <circle cx="12" cy="8" r="3" />
+    <path d="M5 20c.7-3.2 3.1-5 7-5s6.3 1.8 7 5" />
+  </svg>
+);
+const Building = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-5 w-5"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+  >
+    <path d="M4 21V5l8-3 8 3v16" />
+    <path d="M8 9h1M15 9h1M8 13h1M15 13h1M8 17h1M15 17h1" />
+  </svg>
+);
+const Check = () => (
+  <svg
+    viewBox="0 0 24 24"
+    className="h-4 w-4"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.4"
+  >
+    <path d="m5 12 4 4L19 6" />
+  </svg>
+);
+
+function SectionTitle({
+  eyebrow,
+  title,
+  text,
+  light = false,
+}: {
+  eyebrow: string;
+  title: string;
+  text?: string;
+  light?: boolean;
+}) {
   return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  );
-}
-function IconBolt() {
-  return (
-    <svg
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
-    </svg>
-  );
-}
-function IconShieldLg() {
-  return (
-    <svg
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      <path d="m9 12 2 2 4-4" />
-    </svg>
-  );
-}
-function IconHandshake() {
-  return (
-    <svg
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M11 17 6 12l-4 4 5 5 4-4Z" />
-      <path d="m8 14 4-4 3 3 5-5" />
-      <path d="M14 6h6v6" />
-    </svg>
-  );
-}
-function IconHeadset() {
-  return (
-    <svg
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
-      <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
-    </svg>
+    <div className="mx-auto max-w-3xl text-center">
+      <div
+        className="public-eyebrow"
+        style={{ color: light ? "#D9B95B" : "#B08A27" }}
+      >
+        {eyebrow}
+      </div>
+      <h2 className={`public-title ${light ? "text-white" : "text-[#0B1F3A]"}`}>
+        {title}
+      </h2>
+      {text && (
+        <p
+          className={`mt-4 text-base leading-7 ${light ? "text-white/65" : "text-slate-500"}`}
+        >
+          {text}
+        </p>
+      )}
+    </div>
   );
 }
 
 export default function HomePage() {
   const tenant = useTenant();
   if (!tenant) return null;
+  const primary = tenant.primaryColor || "#0D2C54";
+  const gold = tenant.accentColor || "#D4AF37";
+  const country =
+    tenant.country === "RW" ? "Rwanda" : tenant.country || "Rwanda";
 
-  const primary = tenant.primaryColor;
-  const accent = tenant.accentColor;
-  const serif: React.CSSProperties = {
-    fontFamily: "'Playfair Display', serif",
-  };
-
-  const pillars = [
-    {
-      Icon: IconBolt,
-      title: "Fast Decisions",
-      desc: "Applications reviewed by our credit team within 24 hours — no unnecessary delays.",
-    },
-    {
-      Icon: IconShieldLg,
-      title: "Secure & Regulated",
-      desc: "Licensed lending, bank-grade encryption, and strict data protection standards.",
-    },
-    {
-      Icon: IconHandshake,
-      title: "Transparent Terms",
-      desc: "Every rate and fee is disclosed upfront — what we quote is what you pay.",
-    },
-    {
-      Icon: IconHeadset,
-      title: "Dedicated Support",
-      desc: "A real loan officer assigned to your application, from submission to disbursement.",
-    },
-  ];
+  const services = (tenant.services || []).slice(0, 6);
+  const stats = tenant.stats || [];
 
   return (
-    <div>
-      {/* ── HERO — light, formal, split with a credibility card (not a calculator) ── */}
-      <section className="relative overflow-hidden bg-white border-b border-gray-100">
-        <div
-          className="absolute inset-0 opacity-[0.03]"
-          style={{
-            backgroundImage: `radial-gradient(circle at 2px 2px, ${primary} 1px, transparent 0)`,
-            backgroundSize: "28px 28px",
-          }}
-        />
-        <div className="relative max-w-7xl mx-auto px-4 py-20 md:py-28 grid md:grid-cols-2 gap-14 items-center">
+    <div className="public-site">
+      <section className="relative overflow-hidden bg-[#071B35] text-white">
+        <div className="public-grid absolute inset-0 opacity-30" />
+        <div className="absolute -right-32 -top-32 h-[520px] w-[520px] rounded-full border border-white/10 bg-[#D4AF37]/10 blur-2xl" />
+        <div className="absolute -bottom-40 left-1/3 h-[420px] w-[420px] rounded-full bg-[#0D6B5B]/20 blur-3xl" />
+        <div className="relative mx-auto grid max-w-7xl gap-14 px-5 pb-20 pt-16 lg:grid-cols-[1.08fr_.92fr] lg:items-center lg:pb-28 lg:pt-24">
           <div>
-            <div
-              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border text-xs font-bold mb-6 tracking-wide uppercase"
-              style={{
-                borderColor: accent,
-                color: primary,
-                backgroundColor: accent + "14",
-              }}
-            >
-              Licensed &amp; Regulated in{" "}
-              {tenant.country === "RW" ? "Rwanda" : tenant.country}
+            <div className="public-kicker mb-6 border border-[#D4AF37]/35 bg-white/5 text-[#E7CC78]">
+              Private-standard lending, built around you
             </div>
-            <h1
-              className="text-4xl md:text-5xl font-bold leading-[1.15] mb-6 text-gray-900"
-              style={serif}
-            >
-              {tenant.hero?.headline ??
-                "Need Cash Fast? We've Got You Covered!"}
+            <h1 className="max-w-4xl font-serif text-5xl font-semibold leading-[1.02] tracking-[-.035em] md:text-6xl lg:text-7xl">
+              Financial confidence for the decisions that matter.
             </h1>
-            <p className="text-gray-500 text-lg leading-relaxed mb-8 max-w-lg">
-              {tenant.hero?.subtext ??
-                "Your trusted partner in financial support — personal, business, vehicle, salary advance, and agriculture loans, backed by a secure, fully compliant lending platform."}
+            <p className="mt-7 max-w-2xl text-lg leading-8 text-white/70 md:text-xl">
+              {tenant.hero?.subtext ||
+                `Thoughtful lending for individuals, professionals and growing businesses across ${country}. Clear terms, disciplined credit processes and a premium client experience.`}
             </p>
-            <div className="flex flex-wrap gap-4 mb-10">
+            <div className="mt-9 flex flex-wrap gap-3">
               <Link
                 href="/apply"
-                className="px-8 py-3.5 rounded-full font-bold text-base shadow-md hover:opacity-90 transition-opacity"
-                style={{ backgroundColor: primary, color: "#fff" }}
+                className="public-btn-primary"
+                style={{ backgroundColor: gold, color: "#071B35" }}
               >
-                Apply for a Loan →
+                Start an application <Arrow />
               </Link>
-              <Link
-                href="/services"
-                className="px-8 py-3.5 rounded-full font-semibold text-base border-2 text-gray-700 hover:bg-gray-50 transition-colors"
-                style={{ borderColor: "#E5E7EB" }}
-              >
-                View Our Services
+              <Link href="/services" className="public-btn-ghost">
+                Explore lending solutions <Arrow />
               </Link>
             </div>
-            <div className="flex flex-wrap gap-x-8 gap-y-3">
+            <div className="mt-9 flex flex-wrap gap-x-7 gap-y-3 text-sm text-white/60">
               {[
-                "No hidden fees",
-                "Same-day response",
-                "Apply from anywhere",
-              ].map((label) => (
-                <div
-                  key={label}
-                  className="flex items-center gap-2 text-gray-600 text-sm font-medium"
-                >
-                  <span style={{ color: accent }}>
-                    <IconCheck />
-                  </span>{" "}
-                  {label}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Credibility card — formal ledger-style, not a calculator */}
-          <div
-            className="rounded-2xl shadow-xl p-8 border-t-4"
-            style={{ backgroundColor: primary, borderColor: accent }}
-          >
-            <div className="text-white/50 text-xs font-bold uppercase tracking-widest mb-1">
-              {tenant.name}
-            </div>
-            <div className="text-white text-2xl font-bold mb-6" style={serif}>
-              Why Clients Choose Us
-            </div>
-            <div className="space-y-5">
-              {pillars.slice(0, 3).map((p) => (
-                <div key={p.title} className="flex items-start gap-3">
-                  <div
-                    className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: accent, color: primary }}
-                  >
-                    <p.Icon />
-                  </div>
-                  <div>
-                    <div className="text-white font-semibold text-sm">
-                      {p.title}
-                    </div>
-                    <div className="text-white/50 text-xs leading-relaxed mt-0.5">
-                      {p.desc}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <Link
-              href="/apply"
-              className="block text-center mt-7 py-3 rounded-full font-bold text-sm"
-              style={{ backgroundColor: accent, color: primary }}
-            >
-              Start Your Application →
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* ── STATS — by the numbers ── */}
-      {tenant.stats && tenant.stats.length > 0 && (
-        <section className="border-b border-gray-100 bg-gray-50/80">
-          <div className="max-w-7xl mx-auto px-4 py-10">
-            <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-gray-200">
-              {tenant.stats.map((stat, i) => (
-                <StatCard
-                  key={stat.label}
-                  stat={stat}
-                  primary={primary}
-                  delay={i}
-                />
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── TRUST STRIP ── */}
-      <section
-        className="py-6 border-b border-gray-100"
-        style={{ backgroundColor: primary + "06" }}
-      >
-        <div
-          className="max-w-7xl mx-auto px-4 flex flex-wrap items-center justify-center gap-x-10 gap-y-3 text-sm font-semibold"
-          style={{ color: primary }}
-        >
-          <span className="flex items-center gap-2">
-            🛡️ Regulated Institution
-          </span>
-          <span className="flex items-center gap-2">
-            🔒 Bank-Grade Security
-          </span>
-          <span className="flex items-center gap-2">
-            📄 Transparent Documentation
-          </span>
-          <span className="flex items-center gap-2">⏱ 24-Hour Response</span>
-        </div>
-      </section>
-
-      {/* ── WHY CHOOSE US — pillars ── */}
-      <section className="py-20 max-w-7xl mx-auto px-4">
-        <div className="text-center mb-14">
-          <div
-            className="text-xs font-bold uppercase tracking-widest mb-2"
-            style={{ color: accent }}
-          >
-            Our Commitment
-          </div>
-          <h2 className="text-3xl font-bold text-gray-900" style={serif}>
-            Why Clients Choose {tenant.name}
-          </h2>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {pillars.map((p) => (
-            <div
-              key={p.title}
-              className="text-center p-6 rounded-xl border border-gray-100 hover:shadow-md transition-shadow"
-            >
-              <div
-                className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4"
-                style={{ backgroundColor: primary + "10", color: primary }}
-              >
-                <p.Icon />
-              </div>
-              <div className="font-bold text-gray-900 mb-2">{p.title}</div>
-              <div className="text-gray-500 text-sm leading-relaxed">
-                {p.desc}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── SERVICES ── */}
-      <section className="py-20" style={{ backgroundColor: "#FAFAFA" }}>
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="text-center mb-14">
-            <div
-              className="text-xs font-bold uppercase tracking-widest mb-2"
-              style={{ color: accent }}
-            >
-              Our Products
-            </div>
-            <h2 className="text-3xl font-bold text-gray-900 mb-4" style={serif}>
-              Lending Solutions For Every Need
-            </h2>
-            <p className="text-gray-500 text-lg max-w-2xl mx-auto">
-              Tailored credit for individuals, businesses, and salaried
-              employees across{" "}
-              {tenant.country === "RW" ? "Rwanda" : tenant.country}.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {tenant.services?.map((service, i) => (
-              <div
-                key={service.title}
-                className="relative bg-white rounded-xl border border-gray-200 p-7 pt-9 hover:shadow-lg transition-all duration-200"
-              >
-                <div
-                  className="absolute -top-4 left-7 w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white shadow"
-                  style={{ backgroundColor: accent }}
-                >
-                  {String(i + 1).padStart(2, "0")}
-                </div>
-                <h3
-                  className="text-lg font-bold text-gray-900 mb-2"
-                  style={serif}
-                >
-                  {service.title}
-                </h3>
-                <p className="text-gray-500 text-sm leading-relaxed mb-5">
-                  {service.description}
-                </p>
-                <div className="flex items-center justify-between text-xs mb-5 pb-5 border-b border-gray-100">
-                  <span
-                    className="font-bold px-3 py-1.5 rounded-full"
-                    style={{ backgroundColor: primary + "12", color: primary }}
-                  >
-                    From {service.rate} p.a.
+                "Transparent lending terms",
+                "Secure digital application",
+                "Dedicated client support",
+              ].map((x) => (
+                <span key={x} className="flex items-center gap-2">
+                  <span className="text-[#D4AF37]">
+                    <Check />
                   </span>
-                  <span className="text-gray-400">
-                    Up to {tenant.currency} {service.maxAmount}
-                  </span>
-                </div>
-                <Link
-                  href={`/apply?type=${service.title.replace(/ /g, "_").toUpperCase()}`}
-                  className="block text-center py-2.5 rounded-full text-sm font-bold border-2 transition-colors"
-                  style={{ borderColor: primary, color: primary }}
-                  onMouseEnter={(e) => {
-                    (e.target as HTMLElement).style.backgroundColor = primary;
-                    (e.target as HTMLElement).style.color = "#fff";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.target as HTMLElement).style.backgroundColor =
-                      "transparent";
-                    (e.target as HTMLElement).style.color = primary;
-                  }}
-                >
-                  Apply Now →
-                </Link>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── LOAN CALCULATOR — its own dedicated section ── */}
-      <section className="py-20 max-w-5xl mx-auto px-4">
-        <div className="rounded-2xl border border-gray-200 shadow-sm overflow-hidden grid md:grid-cols-2">
-          <div
-            className="p-10 text-white flex flex-col justify-center"
-            style={{ backgroundColor: primary }}
-          >
-            <div
-              className="text-xs font-bold uppercase tracking-widest mb-3"
-              style={{ color: accent }}
-            >
-              Plan Ahead
+                  {x}
+                </span>
+              ))}
             </div>
-            <h2 className="text-2xl font-bold mb-4" style={serif}>
-              Estimate Your Repayment
-            </h2>
-            <p className="text-white/55 text-sm leading-relaxed">
-              Use our calculator to get an instant estimate of your monthly
-              repayment. Final rates and terms are confirmed after credit
-              assessment.
-            </p>
           </div>
-          <div className="p-8 bg-white">
-            <LoanCalculator
-              primary={primary}
-              accent={accent}
-              currency={tenant.currency}
-            />
-          </div>
-        </div>
-      </section>
 
-      {/* ── HOW IT WORKS — vertical stepper ── */}
-      <section className="py-20" style={{ backgroundColor: "#FAFAFA" }}>
-        <div className="max-w-3xl mx-auto px-4">
-          <div className="text-center mb-14">
-            <div
-              className="text-xs font-bold uppercase tracking-widest mb-2"
-              style={{ color: accent }}
-            >
-              Our Process
-            </div>
-            <h2 className="text-3xl font-bold text-gray-900" style={serif}>
-              How to Get a Loan
-            </h2>
-          </div>
           <div className="relative">
-            <div
-              className="absolute left-5 top-2 bottom-2 w-[2px]"
-              style={{ backgroundColor: primary + "20" }}
-            />
-            {[
-              {
-                step: "1",
-                title: "Apply Online",
-                desc: "Complete our application form in a few minutes, from any device.",
-              },
-              {
-                step: "2",
-                title: "Submit Documents",
-                desc: "Upload your ID and supporting documents securely — no branch visit required.",
-              },
-              {
-                step: "3",
-                title: "Get Approved",
-                desc: "Our credit team reviews your application and responds within 24 hours.",
-              },
-              {
-                step: "4",
-                title: "Receive Funds",
-                desc: "Approved funds are disbursed directly to your mobile money or bank account.",
-              },
-            ].map((item) => (
-              <div
-                key={item.step}
-                className="relative flex items-start gap-6 pb-10 last:pb-0"
-              >
-                <div
-                  className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0 relative z-10"
-                  style={{ backgroundColor: primary }}
-                >
-                  {item.step}
-                </div>
-                <div className="bg-white rounded-lg p-5 border border-gray-100 flex-1">
-                  <div className="font-bold text-gray-900 mb-1">
-                    {item.title}
+            <div className="public-hero-card">
+              <div className="flex items-center justify-between border-b border-white/10 pb-5">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-[.22em] text-white/40">
+                    Client experience
                   </div>
-                  <div className="text-gray-500 text-sm">{item.desc}</div>
+                  <div className="mt-1 font-serif text-2xl">
+                    A better way to borrow
+                  </div>
+                </div>
+                <div className="public-seal">
+                  <Shield />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 py-6">
+                {[
+                  ["01", "Assess", "Understand your needs and affordability."],
+                  [
+                    "02",
+                    "Structure",
+                    "Match you with an appropriate facility.",
+                  ],
+                  [
+                    "03",
+                    "Review",
+                    "Credit decisions follow a disciplined process.",
+                  ],
+                  ["04", "Support", "Stay informed throughout the facility."],
+                ].map(([n, t, d]) => (
+                  <div
+                    key={n}
+                    className="rounded-2xl border border-white/10 bg-white/[.035] p-4"
+                  >
+                    <div className="text-xs font-bold text-[#D4AF37]">{n}</div>
+                    <div className="mt-2 font-semibold">{t}</div>
+                    <div className="mt-1 text-xs leading-5 text-white/45">
+                      {d}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-2xl bg-white p-5 text-[#0B1F3A] shadow-2xl">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">
+                      Application journey
+                    </div>
+                    <div className="mt-1 text-sm font-bold">
+                      Simple. Secure. Structured.
+                    </div>
+                  </div>
+                  <div className="rounded-full bg-[#0D6B5B]/10 px-3 py-1 text-xs font-bold text-[#0D6B5B]">
+                    Online
+                  </div>
+                </div>
+                <div className="mt-5 h-1.5 rounded-full bg-slate-100">
+                  <div
+                    className="h-full w-2/3 rounded-full"
+                    style={{ backgroundColor: gold }}
+                  />
+                </div>
+                <div className="mt-2 flex justify-between text-[10px] font-semibold text-slate-400">
+                  <span>Application</span>
+                  <span>Review</span>
+                  <span>Decision</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-slate-200 bg-white">
+        <div className="mx-auto grid max-w-7xl grid-cols-2 divide-x divide-slate-200 px-5 py-7 md:grid-cols-4">
+          {(stats.length
+            ? stats
+            : [
+                { value: "Secure", label: "Digital applications" },
+                { value: "Clear", label: "Transparent terms" },
+                { value: "Human", label: "Dedicated support" },
+                { value: "Focused", label: "Responsible lending" },
+              ]
+          )
+            .slice(0, 4)
+            .map((s: any, i: number) => (
+              <div
+                key={s.label}
+                className="px-5 text-center first:pl-0 last:pr-0"
+              >
+                <div className="font-serif text-2xl font-semibold text-[#0B1F3A] md:text-3xl">
+                  {s.value}
+                </div>
+                <div className="mt-1 text-[11px] font-bold uppercase tracking-[.15em] text-slate-400">
+                  {s.label}
                 </div>
               </div>
             ))}
-          </div>
-          <div className="text-center mt-4">
+        </div>
+      </section>
+
+      <section className="public-section bg-[#F7F8FA]">
+        <SectionTitle
+          eyebrow="Lending solutions"
+          title="Purpose-built facilities for real financial needs"
+          text="Choose a lending solution designed around the way you earn, operate, invest or grow."
+        />
+        <div className="mx-auto mt-14 grid max-w-7xl gap-5 px-5 md:grid-cols-2 lg:grid-cols-3">
+          {services.map((s: any, i: number) => (
+            <div key={s.title} className="public-product-card group">
+              <div className="flex items-start justify-between">
+                <div
+                  className="public-icon-box"
+                  style={{ backgroundColor: primary + "12", color: primary }}
+                >
+                  {s.icon || ["◈", "◌", "◇"][i % 3]}
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-[.18em] text-slate-400">
+                  Facility {String(i + 1).padStart(2, "0")}
+                </span>
+              </div>
+              <h3 className="mt-6 font-serif text-2xl font-semibold text-[#0B1F3A]">
+                {s.title}
+              </h3>
+              <p className="mt-3 min-h-[72px] text-sm leading-6 text-slate-500">
+                {s.description}
+              </p>
+              <div className="mt-6 grid grid-cols-2 gap-2 border-y border-slate-100 py-4">
+                <div>
+                  <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                    Rate
+                  </div>
+                  <div className="mt-1 text-sm font-bold text-[#0B1F3A]">
+                    {s.rate}
+                    {s.rateType === "MONTHLY" ? " / month" : ""}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                    Term
+                  </div>
+                  <div className="mt-1 text-sm font-bold text-[#0B1F3A]">
+                    {s.term}
+                  </div>
+                </div>
+              </div>
+              <Link
+                href="/apply"
+                className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-[#0D6B5B]"
+              >
+                Explore this facility <Arrow />
+              </Link>
+            </div>
+          ))}
+          {!services.length && (
+            <div className="public-empty col-span-full">
+              Our lending solutions are being prepared. Please contact our team
+              for current facilities.
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="public-section bg-white">
+        <div className="mx-auto grid max-w-7xl gap-12 px-5 lg:grid-cols-[.8fr_1.2fr] lg:items-center">
+          <div>
+            <div className="public-eyebrow text-[#B08A27]">
+              Institutional standard
+            </div>
+            <h2 className="public-title text-[#0B1F3A]">
+              A lending relationship should feel considered, not transactional.
+            </h2>
+            <p className="mt-5 text-base leading-7 text-slate-500">
+              We combine digital convenience with the discipline clients expect
+              from a serious financial institution: clear documentation,
+              responsible assessment, secure information handling and human
+              support.
+            </p>
             <Link
-              href="/apply"
-              className="inline-block px-10 py-3.5 rounded-full text-white font-bold text-base shadow-md hover:opacity-90 transition-opacity"
-              style={{ backgroundColor: primary }}
+              href="/about"
+              className="mt-7 inline-flex items-center gap-2 text-sm font-bold text-[#0D6B5B]"
             >
-              Start Your Application →
+              Meet the institution <Arrow />
             </Link>
           </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {[
+              [
+                "01",
+                Shield,
+                "Security by design",
+                "Client information and application activity are handled through a secure digital workflow.",
+              ],
+              [
+                "02",
+                Clock,
+                "Clear process",
+                "Know what happens next from application through review and servicing.",
+              ],
+              [
+                "03",
+                User,
+                "Human guidance",
+                "A premium experience still has people behind it when you need help.",
+              ],
+              [
+                "04",
+                Building,
+                "Built for growth",
+                "Solutions can support personal priorities, professional needs and business expansion.",
+              ],
+            ].map(([n, Icon, title, desc]: any) => (
+              <div key={title} className="public-standard-card">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-bold text-[#B08A27]">{n}</span>
+                  <span className="public-icon-box small">
+                    <Icon />
+                  </span>
+                </div>
+                <h3 className="mt-5 font-semibold text-[#0B1F3A]">{title}</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-500">{desc}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* ── TEAM ── */}
-      {tenant.team && tenant.team.length > 0 && (
-        <section className="py-20 max-w-7xl mx-auto px-4">
-          <div className="text-center mb-14">
+      <section className="public-section bg-[#071B35] text-white">
+        <SectionTitle
+          light
+          eyebrow="How it works"
+          title="A calm, clear path from need to facility"
+          text="No unnecessary complexity. We keep the journey structured so you can focus on the decision itself."
+        />
+        <div className="mx-auto mt-14 grid max-w-7xl gap-4 px-5 md:grid-cols-4">
+          {[
+            [
+              "01",
+              "Tell us what you need",
+              "Submit your application and the essential information.",
+            ],
+            [
+              "02",
+              "We review responsibly",
+              "Our process considers the information required for an informed credit decision.",
+            ],
+            [
+              "03",
+              "Understand the offer",
+              "Review the facility structure, pricing and obligations before proceeding.",
+            ],
+            [
+              "04",
+              "Stay supported",
+              "Once active, your account remains connected to our servicing and support team.",
+            ],
+          ].map(([n, t, d]) => (
             <div
-              className="text-xs font-bold uppercase tracking-widest mb-2"
-              style={{ color: accent }}
+              key={n}
+              className="relative rounded-3xl border border-white/10 bg-white/[.035] p-6"
             >
-              Our People
+              <div className="text-4xl font-serif text-[#D4AF37]/50">{n}</div>
+              <h3 className="mt-7 font-semibold">{t}</h3>
+              <p className="mt-2 text-sm leading-6 text-white/50">{d}</p>
             </div>
-            <h2 className="text-3xl font-bold text-gray-900" style={serif}>
-              Meet the {tenant.name} Team
-            </h2>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            {tenant.team.map((member) => (
-              <div
-                key={member.name}
-                className="text-center p-6 rounded-xl border border-gray-100 hover:shadow-md transition-shadow"
-              >
-                <div
-                  className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-white font-bold text-lg"
-                  style={{ backgroundColor: primary }}
-                >
-                  {member.initials}
+          ))}
+        </div>
+      </section>
+
+      {tenant.testimonials?.length ? (
+        <section className="public-section bg-white">
+          <SectionTitle
+            eyebrow="Client perspective"
+            title="Trust is built through the experience"
+          />
+          <div className="mx-auto mt-12 grid max-w-7xl gap-5 px-5 md:grid-cols-3">
+            {tenant.testimonials.slice(0, 3).map((t: any) => (
+              <div key={t.name} className="public-quote">
+                <div className="text-[#D4AF37]">
+                  {"★".repeat(Math.min(5, t.rating || 5))}
                 </div>
-                <div className="font-bold text-gray-900 mb-1">
-                  {member.name}
+                <p className="mt-5 text-base leading-7 text-slate-600">
+                  “{t.text}”
+                </p>
+                <div className="mt-7 border-t border-slate-100 pt-4">
+                  <div className="font-semibold text-[#0B1F3A]">{t.name}</div>
+                  <div className="text-xs text-slate-400">{t.role}</div>
                 </div>
-                <div className="text-gray-500 text-sm">{member.role}</div>
               </div>
             ))}
           </div>
         </section>
-      )}
+      ) : null}
 
-      {/* ── TESTIMONIALS ── */}
-      {tenant.testimonials && tenant.testimonials.length > 0 && (
-        <section className="py-20 max-w-7xl mx-auto px-4">
-          <div className="text-center mb-14">
-            <div
-              className="text-xs font-bold uppercase tracking-widest mb-2"
-              style={{ color: accent }}
-            >
-              Client Stories
-            </div>
-            <h2 className="text-3xl font-bold text-gray-900" style={serif}>
-              What Our Clients Say
-            </h2>
-          </div>
-          <div className="grid md:grid-cols-3 gap-6">
-            {tenant.testimonials.map((t, i) => (
-              <TestimonialCard
-                key={t.name}
-                t={t}
-                primary={primary}
-                accent={accent}
-                delay={i}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── CTA BANNER — light, formal ── */}
-      <section className="py-16 mx-4 md:mx-auto max-w-7xl mb-16">
-        <div
-          className="rounded-2xl p-12 text-center relative overflow-hidden border-2"
-          style={{ backgroundColor: accent + "10", borderColor: accent + "40" }}
-        >
-          <h2
-            className="text-3xl md:text-4xl font-bold mb-4 relative z-10 text-gray-900"
-            style={serif}
-          >
-            Ready to Take the Next Step?
-          </h2>
-          <p className="text-gray-600 text-lg mb-8 relative z-10 max-w-xl mx-auto">
-            Apply today and get a response within 24 hours. No hidden fees, no
-            surprises — just honest lending.
-          </p>
-          <Link
-            href="/apply"
-            className="inline-block px-12 py-3.5 rounded-full font-bold text-base shadow-lg hover:opacity-90 transition-opacity relative z-10"
-            style={{ backgroundColor: primary, color: "#fff" }}
-          >
-            Apply for a Loan Now →
-          </Link>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-// Inline calculator component
-function LoanCalculator({
-  primary,
-  accent,
-  currency,
-}: {
-  primary: string;
-  accent: string;
-  currency: string;
-}) {
-  const [amount, setAmount] = React.useState(500000);
-  const [months, setMonths] = React.useState(12);
-  const [rate, setRate] = React.useState(15);
-  const mr = rate / 100 / 12;
-  const monthly =
-    mr === 0
-      ? amount / months
-      : (amount * (mr * Math.pow(1 + mr, months))) /
-        (Math.pow(1 + mr, months) - 1);
-  const total = monthly * months;
-  const interest = total - amount;
-  const fmt = (n: number) =>
-    n.toLocaleString("en-RW", { maximumFractionDigits: 0 });
-
-  return (
-    <div>
-      <div className="mb-4">
-        <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-          Loan Amount ({currency})
-        </label>
-        <input
-          type="range"
-          min={100000}
-          max={10000000}
-          step={100000}
-          value={amount}
-          onChange={(e) => setAmount(Number(e.target.value))}
-          className="w-full mt-2"
-          style={{ accentColor: primary }}
-        />
-        <div className="text-2xl font-bold mt-1" style={{ color: primary }}>
-          {currency} {fmt(amount)}
-        </div>
-      </div>
-      <div className="mb-4">
-        <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-          Loan Term
-        </label>
-        <div className="flex gap-2 flex-wrap mt-2">
-          {[3, 6, 12, 24, 36, 48].map((m) => (
-            <button
-              key={m}
-              onClick={() => setMonths(m)}
-              className="px-3 py-1.5 rounded-full text-sm font-semibold border-2 transition-all"
-              style={
-                months === m
-                  ? {
-                      backgroundColor: primary,
-                      color: "#fff",
-                      borderColor: primary,
-                    }
-                  : { borderColor: "#e5e7eb", color: "#6b7280" }
-              }
-            >
-              {m}mo
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="grid grid-cols-3 gap-3 my-6 bg-gray-50 rounded-lg p-4 border border-gray-100">
-        {[
-          ["Monthly", currency + " " + fmt(monthly)],
-          ["Total", currency + " " + fmt(total)],
-          ["Interest", currency + " " + fmt(interest)],
-        ].map(([label, value]) => (
-          <div key={label} className="text-center">
-            <div className="text-[10px] text-gray-400 uppercase font-bold">
-              {label}
-            </div>
-            <div
-              className="text-sm font-bold mt-0.5"
-              style={{ color: primary }}
-            >
-              {value}
-            </div>
-          </div>
-        ))}
-      </div>
-      <p className="text-[11px] text-gray-400 mb-4">
-        Estimate only. Final rate and terms are confirmed after credit
-        assessment.
-      </p>
-      <Link
-        href="/apply"
-        className="block text-center py-3.5 rounded-full text-white font-bold text-base shadow-md hover:opacity-90 transition-opacity"
+      <section
+        className="public-cta mx-5 mb-20 overflow-hidden rounded-[2rem]"
         style={{ backgroundColor: primary }}
       >
-        Apply for This Loan →
-      </Link>
-    </div>
-  );
-}
-
-function StatCard({
-  stat,
-  primary,
-  delay,
-}: {
-  stat: { icon?: string; value: string; label: string };
-  primary: string;
-  delay: number;
-}) {
-  const { ref, visible } = useScrollReveal();
-  const numericMatch = stat.value.match(/^([\d,]+)$/);
-  const numericTarget = numericMatch
-    ? Number(numericMatch[1].replace(/,/g, ""))
-    : null;
-  const animated = useCountUp(
-    numericTarget ?? 0,
-    visible && numericTarget !== null,
-  );
-
-  return (
-    <div
-      ref={ref}
-      className={`reveal reveal-delay-${Math.min(delay + 1, 4)} ${visible ? "reveal-visible" : ""} text-center px-4`}
-    >
-      {stat.icon && <div className="text-2xl mb-1">{stat.icon}</div>}
-      <div
-        className="text-2xl md:text-3xl font-black"
-        style={{ color: primary }}
-      >
-        {numericTarget !== null ? `${animated.toLocaleString()}+` : stat.value}
-      </div>
-      <div className="text-xs md:text-sm text-gray-500 font-semibold mt-1">
-        {stat.label}
-      </div>
-    </div>
-  );
-}
-
-function TestimonialCard({
-  t,
-  primary,
-  accent,
-  delay,
-}: {
-  t: { name: string; role: string; text: string; rating?: number };
-  primary: string;
-  accent: string;
-  delay: number;
-}) {
-  const { ref, visible } = useScrollReveal();
-  return (
-    <div
-      ref={ref}
-      className={`reveal reveal-delay-${Math.min(delay + 1, 4)} ${visible ? "reveal-visible" : ""}
-      card-lift bg-white rounded-xl p-6 border border-gray-100 border-t-4`}
-      style={{ borderTopColor: accent }}
-    >
-      <div className="flex mb-3">
-        {"★★★★★".split("").map((s, i) => (
-          <span key={i} style={{ color: accent }} className="text-lg">
-            {s}
-          </span>
-        ))}
-      </div>
-      <p className="text-gray-600 text-sm leading-relaxed mb-4">
-        &ldquo;{t.text}&rdquo;
-      </p>
-      <div className="flex items-center gap-3">
-        <div
-          className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm"
-          style={{ backgroundColor: primary }}
-        >
-          {t.name[0]}
+        <div className="public-grid absolute inset-0 opacity-10" />
+        <div className="relative mx-auto max-w-4xl px-6 py-16 text-center text-white md:py-20">
+          <div className="public-eyebrow text-[#D9B95B]">
+            Your next financial move
+          </div>
+          <h2 className="mt-3 font-serif text-4xl font-semibold md:text-5xl">
+            Let’s structure the right solution for you.
+          </h2>
+          <p className="mx-auto mt-5 max-w-2xl text-white/65">
+            Start online, review our solutions or speak with our team before you
+            apply.
+          </p>
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            <Link
+              href="/apply"
+              className="public-btn-primary"
+              style={{ backgroundColor: gold, color: "#071B35" }}
+            >
+              Apply securely <Arrow />
+            </Link>
+            <Link href="/contact" className="public-btn-ghost">
+              Speak to our team <Arrow />
+            </Link>
+          </div>
         </div>
-        <div>
-          <div className="font-bold text-gray-900 text-sm">{t.name}</div>
-          <div className="text-gray-400 text-xs">{t.role}</div>
-        </div>
-      </div>
+      </section>
     </div>
   );
 }
