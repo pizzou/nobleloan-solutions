@@ -240,8 +240,23 @@ export interface Loan {
   managementFee?: number;
   managementFeeRate?: number;
   managementFeePaid?: number;
+  extensionFeeAssessed?: number;
+  extensionFeePaid?: number;
+  extensionFeeOutstanding?: number;
+  extensionCount?: number;
+  lastExtensionDate?: string;
 
   totalPaid?: number;
+
+  // Historical/opening financial balances imported from legacy portfolios.
+  principalPaid?: number;
+  interestOutstanding?: number;
+  managementFeeOutstanding?: number;
+  penaltiesAssessed?: number;
+  penaltiesPaid?: number;
+
+  imported?: boolean;
+  importBatchId?: number;
 
   outstandingBalance?: number;
 
@@ -274,6 +289,13 @@ export interface Loan {
   maturityDate?: string;
 
   nextDueDate?: string;
+
+  /**
+   * Current next scheduled installment amount.
+   * This is supplied by the loan API and is updated when the
+   * repayment schedule is rebuilt from the outstanding principal.
+   */
+  nextInstallmentAmount?: number;
 
   lastPaymentDate?: string;
 

@@ -619,6 +619,8 @@ export const accountingApi = {
 
   journal: () => get("/accounting/journal"),
 
+  reconcileLegacyLoans: () => post("/accounting/legacy-loans/reconcile"),
+
   reverseEntry: (id: number, reason?: string) =>
     post(`/accounting/journal/${id}/reverse`, {
       reason,
@@ -717,6 +719,14 @@ export const contactMessageApi = {
  */
 
 export const publicApi = {
+  submitContact: (data: {
+    tenantSlug?: string;
+    name: string;
+    email?: string;
+    phone: string;
+    subject: string;
+    message: string;
+  }) => post("/public/contact", data),
   getTenant: (slug: string) =>
     get(`/public/tenant/${encodeURIComponent(slug)}`),
 
