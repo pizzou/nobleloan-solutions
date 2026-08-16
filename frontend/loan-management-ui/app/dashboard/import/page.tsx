@@ -1,9 +1,12 @@
 "use client";
-import { useEffect, useState } from "react";
-import { importApi } from "../../../services/api";
-import { toast } from "../../../hooks/useToast";
-import { PageSpinner } from "../../../components/ui/Skeleton";
-import { Pill } from "../../../components/ui/Badge";
+
+import { ChangeEvent, useEffect, useState } from "react";
+import { importApi } from "@/services/api";
+import { toast } from "@/hooks/useToast";
+import { Button } from "@/components/ui/Button";
+import { Card, CardBody, CardHeader, StatCard } from "@/components/ui/Card";
+import { Pill } from "@/components/ui/Badge";
+import { PageSpinner } from "@/components/ui/Skeleton";
 
 interface RowResult {
   rowNumber: number;
@@ -13,7 +16,6 @@ interface RowResult {
   loanReferenceNumber?: string;
   error?: string;
 }
-
 interface Batch {
   id: number;
   fileName: string;
@@ -30,264 +32,394 @@ interface Batch {
 export default function ImportLegacyLoansPage() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<RowResult[] | null>(null);
-  const [previewMsg, setPreviewMsg] = useState("");
+  const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [batches, setBatches] = useState<Batch[]>([]);
-  const [loadingBatches, setLoadingBatches] = useState(true);
+  const [loading, setLoading] = useState(true);
 
-  const loadBatches = () =>
-    importApi
-      .batches()
-      .then((b: any) => setBatches(Array.isArray(b) ? b : []))
-      .finally(() => setLoadingBatches(false));
+  const loadBatches = async () => {
+    setLoading(true);
+    try {
+      const result: any = await importApi.batches();
+      setBatches(Array.isArray(result) ? result : []);
+    } catch (err: any) {
+      toast("error", err?.message || "Unable to load import history.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    loadBatches();
+    void loadBatches();
   }, []);
 
-  const handleDownloadTemplate = async () => {
-    const res: any = await importApi.template();
-    const url = window.URL.createObjectURL(new Blob([res.data]));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "legacy-loan-import-template.csv";
-    a.click();
-    window.URL.revokeObjectURL(url);
-  };
-
-  const handleFileChange = (f: File | null) => {
-    setFile(f);
+  const selectFile = (event: ChangeEvent<HTMLInputElement>) => {
+    setFile(event.target.files?.[0] || null);
     setPreview(null);
-    setPreviewMsg("");
+    setMessage("");
   };
 
-  const handlePreview = async () => {
+  const downloadTemplate = async () => {
+    try {
+      const response: any = await importApi.template();
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "legacy-loan-import-template.csv";
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast("error", err?.message || "Template download failed.");
+    }
+  };
+
+  const previewFile = async () => {
     if (!file) return;
     setBusy(true);
+    setMessage("Validating file…");
     try {
       const result: any = await importApi.preview(file);
-      const rows: RowResult[] = Array.isArray(result) ? result : [];
+      const rows = Array.isArray(result) ? result : [];
       setPreview(rows);
-      const ok = rows.filter((r) => r.success).length;
-      setPreviewMsg(
-        `${ok}/${rows.length} rows would import successfully. Nothing has been saved yet — review below, then Commit.`,
+      const valid = rows.filter((row: RowResult) => row.success).length;
+      setMessage(
+        `${valid} of ${rows.length} rows passed validation. Nothing has been committed.`,
       );
     } catch (err: any) {
-      toast("error", err.message);
+      toast("error", err?.message || "File validation failed.");
+      setMessage("");
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   };
 
-  const handleCommit = async () => {
-    if (!file) return;
+  const commit = async () => {
+    if (!file || !preview) return;
+    const valid = preview.filter((row) => row.success).length;
+    if (!valid) return;
     if (
-      !confirm(
-        "This will actually create borrowers and loans in the system from this file. Continue?",
+      !window.confirm(
+        `Commit ${valid} validated rows? This will create borrowers and loan records.`,
       )
     )
       return;
     setBusy(true);
+    setMessage("Submitting import batch…");
     try {
       const batch: any = await importApi.commit(file);
       setFile(null);
       setPreview(null);
-      setPreviewMsg("");
-      toast(
-        "success",
-        `Import #${batch.id} queued. Processing continues in the background.`,
-      );
+      setMessage(`Import #${batch.id} is processing in the background.`);
+      toast("success", `Import #${batch.id} queued.`);
       let current = batch;
       for (let attempt = 0; attempt < 180; attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
         current = await importApi.batch(batch.id);
-        if (["COMPLETED", "PARTIAL", "FAILED"].includes(current?.status)) break;
-        setPreviewMsg(
-          `Import #${batch.id}: ${current?.progressPercent ?? 0}% — ${current?.processedRows ?? 0} rows processed.`,
+        setMessage(
+          `Import #${batch.id}: ${current?.progressPercent ?? 0}% · ${current?.processedRows ?? 0} rows processed.`,
         );
+        if (["COMPLETED", "PARTIAL", "FAILED"].includes(current?.status)) break;
       }
       if (current?.status === "COMPLETED")
         toast(
           "success",
-          `Import completed: ${current.successCount}/${current.processedRows ?? current.totalRows} rows succeeded.`,
+          `Import completed: ${current.successCount}/${current.processedRows ?? current.totalRows} succeeded.`,
         );
-      else if (current?.status === "PARTIAL")
+      if (current?.status === "PARTIAL")
         toast(
           "error",
-          `Import completed with ${current.failureCount} failed rows. Download the error report.`,
+          `Import completed with ${current.failureCount} failed rows.`,
         );
-      else if (current?.status === "FAILED")
+      if (current?.status === "FAILED")
         toast("error", current?.errorMessage || "Import failed.");
-      loadBatches();
+      await loadBatches();
     } catch (err: any) {
-      toast("error", err.message);
+      toast("error", err?.message || "Import failed.");
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   };
 
+  const last = batches[0];
+  const totalRows = batches.reduce(
+    (sum, batch) => sum + (batch.totalRows || 0),
+    0,
+  );
+  const totalFailed = batches.reduce(
+    (sum, batch) => sum + (batch.failureCount || 0),
+    0,
+  );
+
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">
-          Import Legacy Loans
-        </h1>
-        <p className="text-gray-500 text-sm mt-1">
-          Bring in loans your clients were previously tracking manually (e.g. in
-          Excel) — each row becomes a borrower (matched by National ID if they
-          already exist) and a loan record.
-        </p>
-      </div>
-
-      <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-gray-900">1. Get the template</h2>
-          <button
-            onClick={handleDownloadTemplate}
-            className="text-sm font-semibold text-blue-600 hover:underline"
-          >
-            ⬇️ Download CSV template
-          </button>
-        </div>
-        <p className="text-xs text-gray-400">
-          Fill it in with your existing records (or export your Excel sheet as
-          CSV/XLSX and rename the columns to match). National ID, name, phone,
-          gender, amount, interest rate, duration, start date, and status are
-          required — everything else is optional.
-        </p>
-
-        <h2 className="font-semibold text-gray-900 pt-2">
-          2. Upload your file
-        </h2>
-        <input
-          type="file"
-          accept=".csv,.xlsx"
-          onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
-          className="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 file:font-semibold hover:file:bg-blue-100"
-        />
-
-        {file && (
-          <div className="flex gap-2">
-            <button
-              onClick={handlePreview}
-              disabled={busy}
-              className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-60"
-            >
-              {busy ? "Checking…" : "🔍 Preview (no data saved)"}
-            </button>
-            {preview && preview.some((r) => r.success) && (
-              <button
-                onClick={handleCommit}
-                disabled={busy}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-60"
-              >
-                {busy
-                  ? "Importing…"
-                  : `✅ Commit Import (${preview.filter((r) => r.success).length} rows)`}
-              </button>
-            )}
+    <main className="premium-page pb-12">
+      <div className="mx-auto max-w-[1450px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+        <section className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="premium-eyebrow">Controlled data migration</div>
+            <h1 className="premium-section-title">Historical loan import</h1>
+            <p className="premium-section-copy">
+              Upload, validate, review and commit legacy portfolio records
+              through the existing idempotent import workflow. No financial
+              records are committed during preview.
+            </p>
           </div>
-        )}
+          <Button variant="secondary" onClick={downloadTemplate}>
+            Download official template
+          </Button>
+        </section>
 
-        {previewMsg && <p className="text-sm text-gray-600">{previewMsg}</p>}
+        <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatCard
+            icon="B"
+            label="Import batches"
+            value={batches.length.toLocaleString()}
+            sub="Historical migration runs"
+            color="#0B1F3A"
+          />
+          <StatCard
+            icon="R"
+            label="Rows processed"
+            value={totalRows.toLocaleString()}
+            sub="Across visible batches"
+            color="#0F766E"
+          />
+          <StatCard
+            icon="!"
+            label="Rejected rows"
+            value={totalFailed.toLocaleString()}
+            sub="Requires remediation"
+            color="#B42318"
+          />
+          <StatCard
+            icon="✓"
+            label="Latest status"
+            value={last?.status || "No imports"}
+            sub={last?.fileName || "Awaiting first upload"}
+            color="#C8A84E"
+          />
+        </section>
 
-        {preview && (
-          <div className="border border-gray-200 rounded-lg overflow-hidden max-h-96 overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 sticky top-0">
-                <tr className="text-left text-gray-500">
-                  <th className="p-2">Row</th>
-                  <th className="p-2">Status</th>
-                  <th className="p-2">Borrower</th>
-                  <th className="p-2">Loan Ref</th>
-                  <th className="p-2">Detail</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {preview.map((r) => (
-                  <tr
-                    key={r.rowNumber}
-                    className={r.success ? "" : "bg-red-50"}
+        <section className="grid gap-5 xl:grid-cols-[1fr_380px]">
+          <Card>
+            <CardHeader
+              title="01 · Upload & validate"
+              subtitle="CSV and XLSX files are accepted. Preview is read-only."
+            />
+            <CardBody>
+              <label className="block cursor-pointer rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 p-8 text-center transition hover:border-[#0F766E] hover:bg-emerald-50/30">
+                <input
+                  type="file"
+                  accept=".csv,.xlsx"
+                  onChange={selectFile}
+                  className="sr-only"
+                />
+                <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#07152A] text-sm font-black text-[#C8A84E]">
+                  XLS
+                </div>
+                <div className="mt-4 text-sm font-black text-slate-900">
+                  {file ? file.name : "Choose a legacy portfolio file"}
+                </div>
+                <div className="mt-1 text-xs text-slate-400">
+                  Drag-and-drop styling is available; click to select a CSV or
+                  XLSX file.
+                </div>
+              </label>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  disabled={!file || busy}
+                  onClick={() => void previewFile()}
+                >
+                  {busy ? "Working…" : "Validate file"}
+                </Button>
+                {preview?.some((row) => row.success) ? (
+                  <Button disabled={busy} onClick={() => void commit()}>
+                    Commit validated rows
+                  </Button>
+                ) : null}
+              </div>
+              {message ? (
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600">
+                  {message}
+                </div>
+              ) : null}
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Migration controls"
+              subtitle="Operational safeguards"
+            />
+            <CardBody>
+              <div className="space-y-3 text-xs">
+                {[
+                  [
+                    "Preview is read-only",
+                    "No borrowers or loans are created until commit.",
+                  ],
+                  [
+                    "Duplicate-safe",
+                    "The backend import process is designed to avoid replaying the same opening operation.",
+                  ],
+                  [
+                    "Review before commit",
+                    "Rows that fail validation remain visible for correction.",
+                  ],
+                  [
+                    "Reconcile after import",
+                    "Historical accounting should be reconciled in the accounting workspace.",
+                  ],
+                ].map(([title, copy]) => (
+                  <div
+                    key={title}
+                    className="rounded-xl border border-slate-100 bg-slate-50/60 p-3"
                   >
-                    <td className="p-2 text-gray-500">{r.rowNumber}</td>
-                    <td className="p-2">
-                      {r.success ? (
-                        <Pill label="Would import" color="green" />
-                      ) : (
-                        <Pill label="Would fail" color="red" />
-                      )}
-                    </td>
-                    <td className="p-2">{r.borrowerName ?? "—"}</td>
-                    <td className="p-2 font-mono text-xs">
-                      {r.loanReferenceNumber ?? "—"}
-                    </td>
-                    <td className="p-2 text-xs text-gray-600">
-                      {r.success
-                        ? r.borrowerAction === "CREATED_NEW_BORROWER"
-                          ? "New borrower created"
-                          : "Matched existing borrower"
-                        : r.error}
-                    </td>
-                  </tr>
+                    <div className="font-black text-slate-800">{title}</div>
+                    <div className="mt-1 leading-5 text-slate-500">{copy}</div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+              </div>
+            </CardBody>
+          </Card>
+        </section>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-6">
-        <h2 className="font-semibold text-gray-900 mb-3">Import history</h2>
-        {loadingBatches ? (
-          <PageSpinner />
-        ) : batches.length === 0 ? (
-          <p className="text-sm text-gray-400">No imports yet.</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-gray-500 border-b border-gray-200">
-                <th className="p-2">File</th>
-                <th className="p-2">Rows</th>
-                <th className="p-2">Status</th>
-                <th className="p-2">Imported by</th>
-                <th className="p-2">Date</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {batches.map((b) => (
-                <tr key={b.id}>
-                  <td className="p-2">{b.fileName}</td>
-                  <td className="p-2">
-                    {b.successCount}/{b.totalRows} succeeded
-                    {b.failureCount > 0 ? `, ${b.failureCount} failed` : ""}
-                  </td>
-                  <td className="p-2">
-                    <Pill
-                      label={b.status}
-                      color={
-                        b.status === "COMPLETED"
-                          ? "green"
-                          : b.status === "PARTIAL"
-                            ? "yellow"
-                            : b.status === "FAILED"
-                              ? "red"
-                              : "yellow"
-                      }
-                    />
-                    {b.status === "PROCESSING" && (
-                      <div className="text-xs text-gray-400 mt-1">
-                        {b.progressPercent ?? 0}%
-                      </div>
-                    )}
-                  </td>
-                  <td className="p-2">{b.importedBy?.name ?? "—"}</td>
-                  <td className="p-2 text-gray-500">
-                    {new Date(b.createdAt).toLocaleString()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        {preview ? (
+          <Card>
+            <CardHeader
+              title="02 · Validation review"
+              subtitle={`${preview.length.toLocaleString()} rows returned by the server validator`}
+            />
+            <div className="max-h-[520px] overflow-auto">
+              <table className="premium-table min-w-[850px] w-full text-sm">
+                <thead>
+                  <tr>
+                    <th>Row</th>
+                    <th>Result</th>
+                    <th>Borrower</th>
+                    <th>Loan reference</th>
+                    <th>Detail</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.map((row) => (
+                    <tr
+                      key={row.rowNumber}
+                      className={!row.success ? "bg-red-50/40" : ""}
+                    >
+                      <td className="font-mono text-xs text-slate-500">
+                        {row.rowNumber}
+                      </td>
+                      <td>
+                        <Pill
+                          label={row.success ? "Valid" : "Rejected"}
+                          color={row.success ? "green" : "red"}
+                        />
+                      </td>
+                      <td className="font-semibold text-slate-800">
+                        {row.borrowerName || "—"}
+                      </td>
+                      <td className="font-mono text-xs text-slate-600">
+                        {row.loanReferenceNumber || "—"}
+                      </td>
+                      <td className="text-xs text-slate-500">
+                        {row.success
+                          ? row.borrowerAction === "CREATED_NEW_BORROWER"
+                            ? "New borrower will be created"
+                            : "Existing borrower matched"
+                          : row.error}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        ) : null}
+
+        <Card>
+          <CardHeader
+            title="03 · Import history"
+            subtitle="Background processing and migration audit trail"
+          />
+          {loading ? (
+            <PageSpinner />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="premium-table min-w-[900px] w-full text-sm">
+                <thead>
+                  <tr>
+                    <th>Batch</th>
+                    <th>File</th>
+                    <th>Rows</th>
+                    <th>Status</th>
+                    <th>Imported by</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batches.map((batch) => (
+                    <tr key={batch.id}>
+                      <td className="font-black text-[#07152A]">#{batch.id}</td>
+                      <td className="font-semibold text-slate-800">
+                        {batch.fileName}
+                      </td>
+                      <td className="text-xs text-slate-600">
+                        {batch.successCount}/{batch.totalRows} succeeded
+                        {batch.failureCount
+                          ? ` · ${batch.failureCount} failed`
+                          : ""}
+                      </td>
+                      <td>
+                        <Pill
+                          label={batch.status}
+                          color={
+                            batch.status === "COMPLETED"
+                              ? "green"
+                              : batch.status === "FAILED"
+                                ? "red"
+                                : batch.status === "PARTIAL"
+                                  ? "yellow"
+                                  : "blue"
+                          }
+                        />
+                        {batch.status === "PROCESSING" ? (
+                          <div className="mt-2 h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full bg-[#0F766E]"
+                              style={{
+                                width: `${batch.progressPercent || 0}%`,
+                              }}
+                            />
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="text-xs text-slate-500">
+                        {batch.importedBy?.name || "—"}
+                      </td>
+                      <td className="text-xs text-slate-500">
+                        {batch.createdAt
+                          ? new Date(batch.createdAt).toLocaleString()
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                  {!batches.length ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="py-14 text-center text-xs text-slate-400"
+                      >
+                        No import batches yet.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
       </div>
-    </div>
+    </main>
   );
 }

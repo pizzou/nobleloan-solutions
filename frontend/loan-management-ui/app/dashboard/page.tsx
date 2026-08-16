@@ -1,1246 +1,637 @@
+"use client";
 
-'use client';
-
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-
-import { loanApi } from '@/services/api';
-import { DashboardStats, Loan } from '@/types';
-
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
-  StatCard,
-  Card,
-  CardHeader,
-  CardBody,
-} from '@/components/ui/Card';
-
-import {
-  StatusBadge,
-  RiskBadge,
-} from '@/components/ui/Badge';
-
-import { Button } from '@/components/ui/Button';
-
-import {
-  Table,
-  Thead,
-  Th,
-  Tbody,
-  Tr,
-  Td,
-} from '@/components/ui/Table';
-
-import {
-  formatCurrency,
-  formatDate,
-  formatNumber,
-  LOAN_TYPE_META,
-} from '@/lib/utils';
-
-import { useAuth } from '@/hooks/useAuth';
-
-import {
+  ResponsiveContainer,
   BarChart,
   Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
   PieChart,
   Pie,
   Cell,
-  Legend,
-} from 'recharts';
+} from "recharts";
 
-/* ============================================================
-   NOBLE LOAN SOLUTIONS BRAND
-   ============================================================ */
+import { loanApi } from "@/services/api";
+import { DashboardStats, Loan } from "@/types";
+import { Button } from "@/components/ui/Button";
+import { Card, CardBody, CardHeader, StatCard } from "@/components/ui/Card";
+import { StatusBadge, RiskBadge } from "@/components/ui/Badge";
+import { PageSpinner } from "@/components/ui/Skeleton";
+import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  IconAlertTriangle,
+  IconCard,
+  IconCheckCircle,
+  IconClock,
+  IconCoins,
+  IconFileText,
+  IconSend,
+} from "@/components/ui/Icons";
 
-const NAVY = '#0B1F3A';
-const NAVY_LIGHT = '#16365F';
-const NAVY_DARK = '#07152A';
+const CHART_COLORS = ["#0B1F3A", "#0F766E", "#C8A84E", "#B42318", "#64748B"];
 
-const YELLOW = '#F4C430';
-const YELLOW_DARK = '#C99A00';
+const n = (value: unknown) => {
+  const result = Number(value ?? 0);
+  return Number.isFinite(result) ? result : 0;
+};
 
-const COLORS = [
-  NAVY,
-  YELLOW,
-  '#2563EB',
-  '#F59E0B',
-  '#1E40AF',
-  '#D97706',
-];
+function borrowerName(loan: Loan) {
+  const first = loan.borrower?.firstName?.trim() || "";
+  const last = loan.borrower?.lastName?.trim() || "";
+  return `${first} ${last}`.trim() || "Unnamed borrower";
+}
 
-/* ============================================================
-   DASHBOARD
-   ============================================================ */
+function money(value: unknown, currency: string, locale: string) {
+  return formatCurrency(n(value), currency, locale);
+}
+
+function statusData(stats: DashboardStats) {
+  return [
+    { name: "Active", value: n(stats.activeLoans) },
+    { name: "Pending", value: n(stats.pendingLoans) },
+    { name: "Overdue", value: n(stats.overdueLoans) },
+    { name: "Defaulted", value: n(stats.defaultedLoans) },
+    { name: "Paid", value: n(stats.completedLoans) },
+  ].filter((row) => row.value > 0);
+}
+
+function PerformanceBar({
+  label,
+  value,
+  total,
+  currency,
+  locale,
+}: {
+  label: string;
+  value: number;
+  total: number;
+  currency: string;
+  locale: string;
+}) {
+  const percentage =
+    total > 0 ? Math.min(100, Math.max(0, (value / total) * 100)) : 0;
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-4">
+        <span className="text-xs font-bold text-slate-700">{label}</span>
+        <span className="text-xs font-black tabular-nums text-slate-950">
+          {money(value, currency, locale)}
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+        <div
+          className="h-full rounded-full bg-[#0B1F3A] transition-all"
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+      <div className="mt-1 text-[10px] text-slate-400">
+        {percentage.toFixed(1)}% of gross disbursed
+      </div>
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const router = useRouter();
-
   const { currency, locale, user } = useAuth();
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const [stats, setStats] =
-    useState<DashboardStats | null>(null);
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [error, setError] =
-    useState('');
-
-  /* ==========================================================
-     LOAD DASHBOARD
-     ========================================================== */
-
-  useEffect(() => {
-    let mounted = true;
-
+  const load = useCallback(async () => {
     setLoading(true);
-    setError('');
-
-    loanApi
-      .dashboard()
-      .then((data: DashboardStats) => {
-        if (!mounted) return;
-
-        setStats(data);
-      })
-      .catch((e: any) => {
-        if (!mounted) return;
-
-        setError(
-          e?.message ||
-            'Unable to load dashboard information.'
-        );
-      })
-      .finally(() => {
-        if (!mounted) return;
-
-        setLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-    };
+    setError("");
+    try {
+      const result = await loanApi.dashboard();
+      setStats(result as DashboardStats);
+    } catch (err: any) {
+      setError(err?.message || "Unable to retrieve the current portfolio.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  /* ==========================================================
-     HELPERS
-     ========================================================== */
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  const fc = (value?: number | null) =>
-    formatCurrency(
-      Number(value || 0),
-      currency,
-      locale
-    );
+  const distribution = useMemo(() => (stats ? statusData(stats) : []), [stats]);
+  const activeExposure = n(stats?.outstandingBalance);
+  const grossDisbursed = n(stats?.totalDisbursed);
+  const collected = n(stats?.totalCollected);
+  const collectionCoverage =
+    grossDisbursed > 0 ? Math.min(100, (collected / grossDisbursed) * 100) : 0;
+  const par = n(stats?.portfolioAtRiskPct);
+  const riskLabel =
+    par <= 3
+      ? "Controlled"
+      : par <= 5
+        ? "Watch"
+        : par <= 10
+          ? "Elevated"
+          : "Critical";
+  const today = new Intl.DateTimeFormat(locale || "en-RW", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date());
 
-  const today = new Date().toLocaleDateString(
-    locale || 'en-US',
-    {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    }
-  );
+  if (loading) return <PageSpinner />;
 
-  /* ==========================================================
-     LOADING
-     ========================================================== */
-
-  if (loading) {
+  if (error || !stats) {
     return (
-      <div className="min-h-[70vh] flex items-center justify-center bg-gray-50">
-        <div className="flex flex-col items-center gap-4">
-
-          <div className="relative">
-            <div className="w-12 h-12 rounded-full border-4 border-[#E8EEF6]" />
-
-            <div className="absolute inset-0 w-12 h-12 rounded-full border-4 border-[#0B1F3A] border-t-transparent animate-spin" />
+      <div className="premium-page grid min-h-[calc(100vh-72px)] place-items-center p-6">
+        <div className="premium-card w-full max-w-lg p-8 text-center">
+          <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-red-50 text-red-700">
+            <IconAlertTriangle className="h-7 w-7" />
           </div>
-
-          <div className="text-center">
-            <p className="text-sm font-semibold text-[#0B1F3A]">
-              Loading your dashboard
-            </p>
-
-            <p className="text-xs text-gray-400 mt-1">
-              Preparing your portfolio overview...
-            </p>
-          </div>
-
-        </div>
-      </div>
-    );
-  }
-
-  /* ==========================================================
-     ERROR
-     ========================================================== */
-
-  if (error) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center bg-gray-50 px-4">
-
-        <div className="max-w-md w-full bg-white border border-red-200 rounded-2xl shadow-sm p-8 text-center">
-
-          <div className="w-12 h-12 mx-auto rounded-full bg-red-50 flex items-center justify-center text-xl">
-            ⚠️
-          </div>
-
-          <h2 className="mt-4 text-lg font-bold text-gray-900">
-            Unable to load dashboard
-          </h2>
-
-          <p className="mt-2 text-sm text-gray-500">
-            {error}
+          <p className="premium-eyebrow mt-5">Portfolio service</p>
+          <h1 className="mt-2 text-2xl font-black tracking-tight text-[#07152A]">
+            Dashboard unavailable
+          </h1>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+            {error || "The server did not return portfolio statistics."}
           </p>
-
-          <Button
-            className="mt-6"
-            onClick={() => window.location.reload()}
-          >
-            Try Again
+          <Button className="mt-6" onClick={() => void load()}>
+            Try again
           </Button>
-
         </div>
       </div>
     );
   }
-
-  /* ==========================================================
-     EMPTY STATE
-     ========================================================== */
-
-  if (!stats) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center bg-gray-50">
-
-        <div className="text-center">
-
-          <div className="text-4xl mb-3">
-            📊
-          </div>
-
-          <h2 className="text-lg font-bold text-gray-900">
-            No dashboard data
-          </h2>
-
-          <p className="text-sm text-gray-500 mt-1">
-            There is currently no portfolio information available.
-          </p>
-
-        </div>
-      </div>
-    );
-  }
-
-  /* ==========================================================
-     DERIVED DATA
-     ========================================================== */
-
-  const pieData = [
-    {
-      name: 'Active',
-      value: Number(stats.activeLoans || 0),
-    },
-    {
-      name: 'Pending',
-      value: Number(stats.pendingLoans || 0),
-    },
-    {
-      name: 'Overdue',
-      value: Number(stats.overdueLoans || 0),
-    },
-    {
-      name: 'Paid',
-      value: Number(stats.completedLoans || 0),
-    },
-    {
-      name: 'Defaulted',
-      value: Number(stats.defaultedLoans || 0),
-    },
-  ].filter((item) => item.value > 0);
-
-  const typeData = (
-    stats.loanTypeBreakdown || []
-  ).map((item) => ({
-    name:
-      LOAN_TYPE_META[String(item.type)]?.label ??
-      String(item.type),
-
-    count: Number(item.count || 0),
-
-    amount: Number(item.amount || 0),
-  }));
-
-  const totalDisbursed =
-    Number(stats.totalDisbursed || 0);
-
-  const outstandingBalance =
-    Number(stats.outstandingBalance || 0);
-
-  const calculatedPar =
-    totalDisbursed > 0
-      ? (outstandingBalance / totalDisbursed) * 100
-      : 0;
-
-  const portfolioAtRisk =
-    Number(
-      stats.portfolioAtRiskPct ??
-        calculatedPar ??
-        0
-    );
-
-  const recentLoans =
-    stats.recentLoans || [];
-
-  /* ==========================================================
-     RENDER
-     ========================================================== */
 
   return (
-    <div className="space-y-6 pb-10">
-
-      {/* ======================================================
-          HEADER
-          ====================================================== */}
-
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#07152A] via-[#0B1F3A] to-[#16365F] text-white shadow-lg">
-
-        {/* Decorative circles */}
-
-        <div className="absolute -right-16 -top-16 w-56 h-56 rounded-full bg-[#F4C430]/20" />
-
-        <div className="absolute right-20 -bottom-20 w-48 h-48 rounded-full bg-[#F4C430]/10" />
-
-        <div className="absolute left-1/2 -top-20 w-40 h-40 rounded-full bg-white/5" />
-
-        <div className="relative px-6 py-7 lg:px-8">
-
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-
+    <main className="premium-page pb-12">
+      <div className="mx-auto max-w-[1680px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+        <section className="relative overflow-hidden rounded-[26px] border border-[#173252] bg-[#07152A] px-6 py-7 text-white shadow-[0_28px_80px_rgba(7,21,42,.18)] sm:px-8 lg:px-10">
+          <div className="absolute -right-24 -top-28 h-80 w-80 rounded-full border border-[#C8A84E]/10 bg-[#C8A84E]/5" />
+          <div className="absolute -bottom-40 right-48 h-80 w-80 rounded-full border border-teal-300/10 bg-teal-400/5" />
+          <div className="relative flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
             <div>
-
-              {/* Brand */}
-
-              <div className="flex flex-wrap items-center gap-2 mb-3">
-
-                <span className="inline-flex items-center px-3 py-1 rounded-full bg-[#F4C430] text-[#07152A] text-xs font-extrabold tracking-wide">
-                  NOBLE LOAN SOLUTIONS
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="premium-kicker">
+                  Executive portfolio command centre
                 </span>
-
-                <span className="text-blue-100 text-xs">
-                  Loan Management Platform
+                <span className="h-1 w-1 rounded-full bg-[#C8A84E]" />
+                <span className="text-[10px] font-bold uppercase tracking-[.14em] text-slate-400">
+                  {user?.organizationName || "Organization"}
                 </span>
-
               </div>
-
-              <h1 className="text-2xl lg:text-3xl font-extrabold tracking-tight">
-                Welcome back
-                {user?.name
-                  ? `, ${user.name}`
-                  : ''}
+              <h1 className="mt-3 text-3xl font-black tracking-[-.04em] sm:text-4xl">
+                Good to see you
+                {user?.name ? `, ${user.name.split(" ")[0]}` : ""}.
               </h1>
-
-              <p className="text-blue-100 text-sm mt-1">
-                Here is your portfolio overview for today.
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
+                A controlled view of portfolio exposure, collections, credit
+                quality and operational attention. Financial values displayed
+                here remain authoritative to the lending engine.
               </p>
-
-              <p className="text-blue-200 text-xs mt-3">
-                {user?.organizationName ||
-                  'Organization'}{' '}
-                · {today}
-              </p>
-
+              <div className="mt-5 flex items-center gap-3 text-[11px] font-semibold text-slate-400">
+                <span className="h-2 w-2 rounded-full bg-emerald-400" /> Live
+                portfolio snapshot <span className="text-slate-600">•</span>{" "}
+                {today}
+              </div>
             </div>
-
-            {/* Header actions */}
-
-            <div className="flex flex-wrap gap-3">
-
+            <div className="flex flex-wrap gap-2.5">
               <Button
                 variant="secondary"
-                icon="👥"
-                onClick={() =>
-                  router.push(
-                    '/dashboard/borrowers'
-                  )
-                }
+                onClick={() => router.push("/dashboard/borrowers")}
               >
                 Borrowers
               </Button>
-
               <Button
-                icon="💼"
-                onClick={() =>
-                  router.push(
-                    '/dashboard/loans'
-                  )
-                }
+                variant="secondary"
+                onClick={() => router.push("/dashboard/import")}
               >
-                View Loans
+                Import
               </Button>
-
+              <Button onClick={() => router.push("/dashboard/loans/new")}>
+                New loan
+              </Button>
             </div>
-
           </div>
+        </section>
 
-        </div>
-      </div>
-
-      {/* ======================================================
-          EXECUTIVE KPI SECTION
-          ====================================================== */}
-
-      <div>
-
-        <div className="flex items-center justify-between mb-3">
-
-          <div>
-
-            <h2 className="text-sm font-bold text-[#0B1F3A] uppercase tracking-wide">
-              Portfolio Overview
-            </h2>
-
-            <p className="text-xs text-gray-400 mt-1">
-              Real-time lending performance
-            </p>
-
-          </div>
-
-        </div>
-
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-
+        <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
           <StatCard
-            icon="💼"
-            label="Total Loans"
-            value={formatNumber(
-              stats.totalLoans || 0
-            )}
-            sub={`${formatNumber(
-              stats.activeLoans || 0
-            )} active`}
-            color={NAVY}
+            icon={<IconFileText className="h-5 w-5" />}
+            label="Total facilities"
+            value={formatNumber(n(stats.totalLoans))}
+            sub={`${formatNumber(n(stats.activeLoans))} currently active`}
+            color="#0B1F3A"
           />
-
           <StatCard
-            icon="👥"
-            label="Total Borrowers"
-            value={formatNumber(
-              stats.totalBorrowers || 0
-            )}
-            sub="Registered clients"
-            color={NAVY_LIGHT}
+            icon={<IconCoins className="h-5 w-5" />}
+            label="Outstanding principal"
+            value={money(activeExposure, currency, locale)}
+            sub="Current portfolio exposure"
+            color="#0F766E"
           />
-
           <StatCard
-            icon="💰"
-            label="Total Disbursed"
-            value={fc(
-              stats.totalDisbursed
-            )}
-            sub="Loan portfolio"
-            color={NAVY}
+            icon={<IconSend className="h-5 w-5" />}
+            label="Gross disbursed"
+            value={money(grossDisbursed, currency, locale)}
+            sub="Eligible lifetime disbursements"
+            color="#16365F"
           />
-
           <StatCard
-            icon="📊"
-            label="Outstanding"
-            value={fc(
-              stats.outstandingBalance
-            )}
-            sub="Current balance"
-            color={YELLOW_DARK}
+            icon={<IconCheckCircle className="h-5 w-5" />}
+            label="Portfolio at risk"
+            value={`${par.toFixed(2)}%`}
+            sub={`${riskLabel} monitoring position`}
+            color={par > 5 ? "#B42318" : "#C8A84E"}
           />
+        </section>
 
-        </div>
+        <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <StatCard
+            icon={<IconClock className="h-5 w-5" />}
+            label="Pending review"
+            value={formatNumber(n(stats.pendingLoans))}
+            sub="Applications awaiting decision"
+            color="#C8A84E"
+          />
+          <StatCard
+            icon={<IconAlertTriangle className="h-5 w-5" />}
+            label="Overdue loans"
+            value={formatNumber(n(stats.overdueLoans))}
+            sub={`${formatNumber(n(stats.latePaymentsCount))} late payments`}
+            color="#B42318"
+          />
+          <StatCard
+            icon={<IconCard className="h-5 w-5" />}
+            label="Collections this month"
+            value={money(stats.collectedThisMonth, currency, locale)}
+            sub={`Lifetime collected ${money(collected, currency, locale)}`}
+            color="#0F766E"
+          />
+          <StatCard
+            icon={<IconCheckCircle className="h-5 w-5" />}
+            label="Completed facilities"
+            value={formatNumber(n(stats.completedLoans))}
+            sub={`${formatNumber(n(stats.defaultedLoans))} defaulted`}
+            color="#64748B"
+          />
+        </section>
 
-      </div>
-
-      {/* ======================================================
-          ATTENTION / PERFORMANCE KPI
-          ====================================================== */}
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-
-        <StatCard
-          icon="⏳"
-          label="Pending Review"
-          value={formatNumber(
-            stats.pendingLoans || 0
-          )}
-          sub="Awaiting action"
-          color={YELLOW_DARK}
-        />
-
-        <StatCard
-          icon="⚠️"
-          label="Overdue Loans"
-          value={formatNumber(
-            stats.overdueLoans || 0
-          )}
-          sub={`${formatNumber(
-            stats.latePaymentsCount || 0
-          )} late payments`}
-          color="#DC2626"
-        />
-
-        <StatCard
-          icon="✅"
-          label="Collected"
-          value={fc(
-            stats.totalCollected
-          )}
-          sub={`${fc(
-            stats.collectedThisMonth
-          )} this month`}
-          color={NAVY}
-        />
-
-        <StatCard
-          icon="🎯"
-          label="Portfolio at Risk"
-          value={`${portfolioAtRisk.toFixed(
-            1
-          )}%`}
-          sub={
-            portfolioAtRisk > 5
-              ? 'Requires attention'
-              : 'Healthy portfolio'
-          }
-          color={
-            portfolioAtRisk > 5
-              ? '#DC2626'
-              : NAVY
-          }
-        />
-
-      </div>
-
-      {/* ======================================================
-          MANAGEMENT ATTENTION PANEL
-          ====================================================== */}
-
-      {(stats.pendingLoans > 0 ||
-        stats.overdueLoans > 0 ||
-        stats.defaultedLoans > 0) && (
-
-        <Card className="border-[#F4C430]/50 bg-gradient-to-r from-[#FFF9DB] via-[#FFFDF0] to-white">
-
-          <CardBody>
-
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-
-              <div className="flex items-start gap-4">
-
-                <div className="w-11 h-11 rounded-xl bg-[#FFF3B0] flex items-center justify-center text-xl shrink-0">
-                  ⚡
-                </div>
-
+        {n(stats.pendingLoans) > 0 ||
+        n(stats.overdueLoans) > 0 ||
+        n(stats.defaultedLoans) > 0 ? (
+          <section className="premium-card border-amber-200 bg-[linear-gradient(90deg,#fffdf6,#fff)]">
+            <CardBody>
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-
-                  <h3 className="font-bold text-[#0B1F3A]">
-                    Management attention required
-                  </h3>
-
-                  <p className="text-sm text-gray-500 mt-1">
-                    There are portfolio items that may require
-                    immediate action.
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-[#C8A84E]" />
+                    <p className="text-sm font-black text-[#07152A]">
+                      Management attention
+                    </p>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Priority items should be reviewed from their authoritative
+                    operational workspaces.
                   </p>
-
-                  <div className="flex flex-wrap gap-2 mt-3">
-
-                    {stats.pendingLoans > 0 && (
-                      <span className="px-2.5 py-1 rounded-full bg-[#FFF3B0] text-[#806200] text-xs font-semibold">
-                        {stats.pendingLoans}{' '}
-                        pending
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {n(stats.pendingLoans) > 0 ? (
+                      <span className="premium-badge border border-amber-100 bg-amber-50 text-amber-800">
+                        {formatNumber(n(stats.pendingLoans))} pending
                       </span>
-                    )}
-
-                    {stats.overdueLoans > 0 && (
-                      <span className="px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-xs font-semibold">
-                        {stats.overdueLoans}{' '}
-                        overdue
+                    ) : null}
+                    {n(stats.overdueLoans) > 0 ? (
+                      <span className="premium-badge border border-red-100 bg-red-50 text-red-800">
+                        {formatNumber(n(stats.overdueLoans))} overdue
                       </span>
-                    )}
-
-                    {stats.defaultedLoans > 0 && (
-                      <span className="px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-xs font-semibold">
-                        {stats.defaultedLoans}{' '}
-                        defaulted
+                    ) : null}
+                    {n(stats.defaultedLoans) > 0 ? (
+                      <span className="premium-badge border border-red-100 bg-red-50 text-red-800">
+                        {formatNumber(n(stats.defaultedLoans))} defaulted
                       </span>
-                    )}
-
+                    ) : null}
                   </div>
-
                 </div>
-
-              </div>
-
-              <Button
-                onClick={() =>
-                  router.push(
-                    '/dashboard/loans'
-                  )
-                }
-              >
-                Review Portfolio →
-              </Button>
-
-            </div>
-
-          </CardBody>
-
-        </Card>
-      )}
-
-      {/* ======================================================
-          ANALYTICS
-          ====================================================== */}
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-
-        {/* ====================================================
-            LOAN TYPE
-            ==================================================== */}
-
-        <Card className="xl:col-span-2">
-
-          <CardHeader
-            title="Portfolio by Loan Type"
-            action={
-              <span className="text-xs text-gray-400">
-                Number of loans
-              </span>
-            }
-          />
-
-          <CardBody>
-
-            {typeData.length > 0 ? (
-
-              <ResponsiveContainer
-                width="100%"
-                height={280}
-              >
-
-                <BarChart
-                  data={typeData}
-                  barSize={28}
-                  margin={{
-                    top: 10,
-                    right: 10,
-                    left: -10,
-                    bottom: 5,
-                  }}
-                >
-
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="#E5E7EB"
-                    vertical={false}
-                  />
-
-                  <XAxis
-                    dataKey="name"
-                    tick={{
-                      fontSize: 10,
-                      fill: '#6B7280',
-                    }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{
-                      fontSize: 10,
-                      fill: '#9CA3AF',
-                    }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-
-                  <Tooltip
-                    formatter={(value: number) =>
-                      formatNumber(
-                        Number(value || 0)
-                      )
-                    }
-                    contentStyle={{
-                      borderRadius: 12,
-                      border: '1px solid #E5E7EB',
-                      boxShadow:
-                        '0 10px 30px rgba(0,0,0,0.08)',
-                    }}
-                  />
-
-                  <Bar
-                    dataKey="count"
-                    fill={NAVY}
-                    radius={[6, 6, 0, 0]}
-                    name="Loans"
-                  />
-
-                </BarChart>
-
-              </ResponsiveContainer>
-
-            ) : (
-
-              <div className="h-[280px] flex flex-col items-center justify-center">
-
-                <div className="text-3xl mb-3">
-                  📊
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={() => router.push("/dashboard/loans")}>
+                    Review portfolio
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => router.push("/dashboard/collections")}
+                  >
+                    Open collections
+                  </Button>
                 </div>
-
-                <p className="text-sm font-medium text-gray-500">
-                  No loan data yet
-                </p>
-
-                <p className="text-xs text-gray-400 mt-1">
-                  Loan analytics will appear here.
-                </p>
-
               </div>
+            </CardBody>
+          </section>
+        ) : null}
 
-            )}
-
-          </CardBody>
-
-        </Card>
-
-        {/* ====================================================
-            STATUS DISTRIBUTION
-            ==================================================== */}
-
-        <Card>
-
-          <CardHeader
-            title="Loan Status"
-            action={
-              <span className="text-xs text-gray-400">
-                Distribution
-              </span>
-            }
-          />
-
-          <CardBody>
-
-            {pieData.length > 0 ? (
-
-              <ResponsiveContainer
-                width="100%"
-                height={280}
-              >
-
-                <PieChart>
-
-                  <Pie
-                    data={pieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="45%"
-                    outerRadius={82}
-                    innerRadius={48}
-                    paddingAngle={3}
-                  >
-
-                    {pieData.map(
-                      (_, index) => (
-                        <Cell
-                          key={`status-${index}`}
-                          fill={
-                            COLORS[
-                              index %
-                                COLORS.length
-                            ]
-                          }
-                        />
-                      )
-                    )}
-
-                  </Pie>
-
-                  <Tooltip />
-
-                  <Legend
-                    iconSize={8}
-                    wrapperStyle={{
-                      fontSize: 11,
-                    }}
+        <div className="grid gap-5 xl:grid-cols-3">
+          <Card className="xl:col-span-2">
+            <CardHeader
+              title="Portfolio position"
+              subtitle="Backend-authoritative balances presented for executive review"
+            />
+            <CardBody>
+              <div className="grid gap-7 lg:grid-cols-[1.2fr_.8fr]">
+                <div className="space-y-7">
+                  <PerformanceBar
+                    label="Outstanding principal"
+                    value={activeExposure}
+                    total={grossDisbursed}
+                    currency={currency}
+                    locale={locale}
                   />
-
-                </PieChart>
-
-              </ResponsiveContainer>
-
-            ) : (
-
-              <div className="h-[280px] flex items-center justify-center text-sm text-gray-400">
-                No loan status data
-              </div>
-
-            )}
-
-          </CardBody>
-
-        </Card>
-
-      </div>
-
-      {/* ======================================================
-          COLLECTION PERFORMANCE
-          ====================================================== */}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-
-        <Card className="lg:col-span-2">
-
-          <CardHeader
-            title="Collections Performance"
-            action={
-              <span className="text-xs text-gray-400">
-                Current portfolio
-              </span>
-            }
-          />
-
-          <CardBody>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-
-              {/* Total collected */}
-
-              <div className="rounded-xl bg-[#EEF3F9] p-4 border border-[#DCE5F0]">
-
-                <p className="text-xs font-medium text-[#16365F]">
-                  Total Collected
-                </p>
-
-                <p className="text-lg font-extrabold text-[#0B1F3A] mt-1">
-                  {fc(
-                    stats.totalCollected
-                  )}
-                </p>
-
-              </div>
-
-              {/* This month */}
-
-              <div className="rounded-xl bg-[#FFF9DB] p-4 border border-[#F4C430]/30">
-
-                <p className="text-xs font-medium text-[#806200]">
-                  This Month
-                </p>
-
-                <p className="text-lg font-extrabold text-[#665000] mt-1">
-                  {fc(
-                    stats.collectedThisMonth
-                  )}
-                </p>
-
-              </div>
-
-              {/* Outstanding */}
-
-              <div className="rounded-xl bg-gray-50 p-4 border border-gray-100">
-
-                <p className="text-xs font-medium text-gray-600">
-                  Outstanding
-                </p>
-
-                <p className="text-lg font-extrabold text-gray-900 mt-1">
-                  {fc(
-                    stats.outstandingBalance
-                  )}
-                </p>
-
-              </div>
-
-              {/* Overdue */}
-
-              <div className="rounded-xl bg-red-50 p-4 border border-red-100">
-
-                <p className="text-xs font-medium text-red-600">
-                  Overdue
-                </p>
-
-                <p className="text-lg font-extrabold text-red-900 mt-1">
-                  {formatNumber(
-                    stats.overdueLoans || 0
-                  )}
-                </p>
-
-              </div>
-
-            </div>
-
-          </CardBody>
-
-        </Card>
-
-        {/* ====================================================
-            QUICK ACTIONS
-            ==================================================== */}
-
-        <Card>
-
-          <CardHeader title="Quick Actions" />
-
-          <CardBody>
-
-            <div className="space-y-2">
-
-              {/* Loans */}
-
-              <button
-                type="button"
-                onClick={() =>
-                  router.push(
-                    '/dashboard/loans'
-                  )
-                }
-                className="w-full flex items-center gap-3 rounded-xl border border-gray-100 px-4 py-3 text-left hover:bg-[#EEF3F9] hover:border-[#C7D5E5] transition"
-              >
-
-                <span className="w-9 h-9 rounded-lg bg-[#E1EAF4] flex items-center justify-center">
-                  💼
-                </span>
-
-                <span>
-
-                  <span className="block text-sm font-semibold text-gray-900">
-                    Manage Loans
-                  </span>
-
-                  <span className="block text-xs text-gray-400">
-                    Review loan portfolio
-                  </span>
-
-                </span>
-
-              </button>
-
-              {/* Borrowers */}
-
-              <button
-                type="button"
-                onClick={() =>
-                  router.push(
-                    '/dashboard/borrowers'
-                  )
-                }
-                className="w-full flex items-center gap-3 rounded-xl border border-gray-100 px-4 py-3 text-left hover:bg-[#FFF9DB] hover:border-[#F4C430]/50 transition"
-              >
-
-                <span className="w-9 h-9 rounded-lg bg-[#FFF3B0] flex items-center justify-center">
-                  👥
-                </span>
-
-                <span>
-
-                  <span className="block text-sm font-semibold text-gray-900">
-                    Borrowers
-                  </span>
-
-                  <span className="block text-xs text-gray-400">
-                    Manage customer profiles
-                  </span>
-
-                </span>
-
-              </button>
-
-              {/* Payments */}
-
-              <button
-                type="button"
-                onClick={() =>
-                  router.push(
-                    '/dashboard/payments'
-                  )
-                }
-                className="w-full flex items-center gap-3 rounded-xl border border-gray-100 px-4 py-3 text-left hover:bg-[#EEF3F9] hover:border-[#C7D5E5] transition"
-              >
-
-                <span className="w-9 h-9 rounded-lg bg-[#E1EAF4] flex items-center justify-center">
-                  💳
-                </span>
-
-                <span>
-
-                  <span className="block text-sm font-semibold text-gray-900">
-                    Payments
-                  </span>
-
-                  <span className="block text-xs text-gray-400">
-                    Track collections
-                  </span>
-
-                </span>
-
-              </button>
-
-            </div>
-
-          </CardBody>
-
-        </Card>
-
-      </div>
-
-      {/* ======================================================
-          RECENT LOANS
-          ====================================================== */}
-
-      <Card>
-
-        <CardHeader
-          title="Recent Loan Applications"
-          action={
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                router.push(
-                  '/dashboard/loans'
-                )
-              }
-            >
-              See all →
-            </Button>
-          }
-        />
-
-        <Table>
-
-          <Thead>
-
-            <tr>
-
-              <Th>Reference</Th>
-              <Th>Borrower</Th>
-              <Th>Type</Th>
-              <Th>Amount</Th>
-              <Th>Rate</Th>
-              <Th>Risk</Th>
-              <Th>Status</Th>
-              <Th>Applied</Th>
-
-            </tr>
-
-          </Thead>
-
-          <Tbody>
-
-            {recentLoans.length === 0 ? (
-
-              <Tr>
-
-                <Td className="text-center py-12 text-gray-400">
-
-                  <div className="flex flex-col items-center">
-
-                    <span className="text-3xl mb-2">
-                      💼
-                    </span>
-
-                    <span className="text-sm font-medium">
-                      No loan applications yet
-                    </span>
-
-                    <span className="text-xs mt-1">
-                      New applications will appear here.
-                    </span>
-
-                  </div>
-
-                </Td>
-
-              </Tr>
-
-            ) : (
-
-              recentLoans.map(
-                (loan: Loan) => (
-
-                  <Tr
-                    key={loan.id}
-                    onClick={() =>
-                      router.push(
-                        `/dashboard/loans/${loan.id}`
-                      )
-                    }
-                  >
-
-                    {/* Reference */}
-
-                    <Td>
-
-                      <code className="text-xs bg-[#EEF3F9] text-[#0B1F3A] px-2 py-1 rounded-md font-mono">
-                        {loan.referenceNumber}
-                      </code>
-
-                    </Td>
-
-                    {/* Borrower */}
-
-                    <Td>
-
-                      <div className="flex items-center gap-3">
-
-                        <div className="w-8 h-8 rounded-full bg-[#E1EAF4] text-[#0B1F3A] flex items-center justify-center text-xs font-bold">
-
-                          {(
-                            loan.borrower?.firstName
-                              ?.charAt(0) || ''
-                          ).toUpperCase()}
-
-                          {(
-                            loan.borrower?.lastName
-                              ?.charAt(0) || ''
-                          ).toUpperCase()}
-
-                        </div>
-
-                        <div>
-
-                          <div className="font-semibold text-gray-900 text-sm">
-                            {loan.borrower?.firstName}{' '}
-                            {loan.borrower?.lastName}
-                          </div>
-
-                          <div className="text-xs text-gray-400">
-                            {loan.borrower?.nationalId ||
-                              loan.borrower?.email ||
-                              'Borrower'}
-                          </div>
-
-                        </div>
-
-                      </div>
-
-                    </Td>
-
-                    {/* Loan type */}
-
-                    <Td>
-
-                      <span className="text-xs font-medium">
-
-                        {LOAN_TYPE_META[
-                          loan.loanType
-                        ]?.icon}{' '}
-
-                        {LOAN_TYPE_META[
-                          loan.loanType
-                        ]?.label ??
-                          loan.loanType}
-
+                  <PerformanceBar
+                    label="Lifetime collections"
+                    value={collected}
+                    total={grossDisbursed}
+                    currency={currency}
+                    locale={locale}
+                  />
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700">
+                        Collection coverage
                       </span>
-
-                    </Td>
-
-                    {/* Amount */}
-
-                    <Td>
-
-                      <span className="font-bold text-gray-900">
-                        {fc(loan.amount)}
+                      <span className="text-xs font-black text-[#07152A]">
+                        {collectionCoverage.toFixed(1)}%
                       </span>
-
-                    </Td>
-
-                    {/* Rate */}
-
-                    <Td className="text-gray-500">
-                      {loan.interestRate}%
-                    </Td>
-
-                    {/* Risk */}
-
-                    <Td>
-
-                      {loan.riskCategory ? (
-
-                        <RiskBadge
-                          category={
-                            loan.riskCategory
-                          }
-                          score={
-                            loan.riskScore
-                          }
-                        />
-
-                      ) : (
-
-                        <span className="text-gray-400">
-                          —
-                        </span>
-
-                      )}
-
-                    </Td>
-
-                    {/* Status */}
-
-                    <Td>
-
-                      <StatusBadge
-                        status={loan.status}
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full bg-[#0F766E]"
+                        style={{ width: `${collectionCoverage}%` }}
                       />
+                    </div>
+                    <p className="mt-1 text-[10px] text-slate-400">
+                      Display ratio of lifetime collected against gross
+                      disbursed.
+                    </p>
+                  </div>
+                </div>
+                <div className="min-h-[220px]">
+                  {distribution.length ? (
+                    <ResponsiveContainer width="100%" height={230}>
+                      <PieChart>
+                        <Pie
+                          data={distribution}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius={58}
+                          outerRadius={82}
+                          paddingAngle={3}
+                          stroke="none"
+                        >
+                          {distribution.map((row, index) => (
+                            <Cell
+                              key={row.name}
+                              fill={CHART_COLORS[index % CHART_COLORS.length]}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(value: number) => formatNumber(value)}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="grid h-full min-h-[220px] place-items-center text-xs text-slate-400">
+                      No status distribution is available.
+                    </div>
+                  )}
+                  <div className="flex flex-wrap justify-center gap-x-4 gap-y-2">
+                    {distribution.map((row, index) => (
+                      <div
+                        key={row.name}
+                        className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500"
+                      >
+                        <span
+                          className="h-2 w-2 rounded-full"
+                          style={{
+                            background:
+                              CHART_COLORS[index % CHART_COLORS.length],
+                          }}
+                        />
+                        {row.name} {formatNumber(row.value)}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </CardBody>
+          </Card>
 
-                    </Td>
+          <Card>
+            <CardHeader
+              title="Portfolio quality"
+              subtitle="Current facility distribution"
+            />
+            <CardBody>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart
+                  data={distribution}
+                  layout="vertical"
+                  margin={{ left: 4, right: 12, top: 5, bottom: 5 }}
+                >
+                  <CartesianGrid horizontal={false} stroke="#edf1f5" />
+                  <XAxis type="number" allowDecimals={false} hide />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    width={70}
+                    tick={{ fontSize: 10, fill: "#64748b", fontWeight: 700 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip cursor={{ fill: "#f8fafc" }} />
+                  <Bar
+                    dataKey="value"
+                    radius={[0, 6, 6, 0]}
+                    fill="#0B1F3A"
+                    barSize={18}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardBody>
+          </Card>
+        </div>
 
-                    {/* Applied */}
+        <div className="grid gap-5 xl:grid-cols-[1.35fr_.65fr]">
+          <Card>
+            <CardHeader
+              title="Recent lending activity"
+              subtitle="Latest facilities returned by the lending engine"
+              action={
+                <Link
+                  href="/dashboard/loans"
+                  className="text-[11px] font-black text-[#0F766E]"
+                >
+                  View portfolio →
+                </Link>
+              }
+            />
+            <div className="overflow-x-auto">
+              <table className="premium-table min-w-[760px] w-full text-sm">
+                <thead>
+                  <tr>
+                    <th>Facility</th>
+                    <th>Borrower</th>
+                    <th>Status</th>
+                    <th>Principal</th>
+                    <th>Outstanding</th>
+                    <th>Next due</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(stats.recentLoans || []).slice(0, 8).map((loan) => (
+                    <tr key={loan.id}>
+                      <td>
+                        <Link
+                          href={`/dashboard/loans/${loan.id}`}
+                          className="font-black text-[#07152A] hover:text-[#0F766E]"
+                        >
+                          {loan.referenceNumber}
+                        </Link>
+                        <div className="mt-1 text-[10px] text-slate-400">
+                          {loan.createdAt
+                            ? formatDate(loan.createdAt, locale)
+                            : "—"}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="font-semibold text-slate-800">
+                          {borrowerName(loan)}
+                        </div>
+                        <div className="mt-1 text-[10px] text-slate-400">
+                          {loan.borrower?.phone ||
+                            loan.borrower?.nationalId ||
+                            "—"}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex flex-wrap gap-1.5">
+                          <StatusBadge status={loan.status} />
+                          {loan.riskCategory ? (
+                            <RiskBadge category={loan.riskCategory} />
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="font-bold tabular-nums text-slate-900">
+                        {money(loan.amount, currency, locale)}
+                      </td>
+                      <td className="font-bold tabular-nums text-slate-900">
+                        {money(loan.outstandingBalance, currency, locale)}
+                      </td>
+                      <td>
+                        <div className="font-semibold text-slate-700">
+                          {loan.nextDueDate
+                            ? formatDate(loan.nextDueDate, locale)
+                            : "Not scheduled"}
+                        </div>
+                        {loan.daysOverdue && loan.daysOverdue > 0 ? (
+                          <div className="mt-1 text-[10px] font-bold text-red-600">
+                            {loan.daysOverdue} days overdue
+                          </div>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                  {!stats.recentLoans?.length ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="py-14 text-center text-xs text-slate-400"
+                      >
+                        No recent lending activity is available.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </Card>
 
-                    <Td className="text-gray-400 text-xs">
+          <Card>
+            <CardHeader
+              title="Executive actions"
+              subtitle="Controlled operational shortcuts"
+            />
+            <CardBody>
+              <div className="space-y-2">
+                {[
+                  [
+                    "Create a loan application",
+                    "/dashboard/loans/new",
+                    "Start a new credit facility",
+                  ],
+                  [
+                    "Review approvals",
+                    "/dashboard/approvals",
+                    "Maker-checker workflow",
+                  ],
+                  [
+                    "Open collections",
+                    "/dashboard/collections",
+                    "Prioritize overdue exposure",
+                  ],
+                  [
+                    "Reconcile imports",
+                    "/dashboard/import",
+                    "Validate historical portfolios",
+                  ],
+                  [
+                    "Financial reports",
+                    "/dashboard/reports",
+                    "Statements and management reporting",
+                  ],
+                ].map(([title, href, copy]) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    className="group flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 transition hover:border-slate-200 hover:bg-white"
+                  >
+                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#07152A] text-xs font-black text-[#C8A84E]">
+                      →
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-black text-slate-800 group-hover:text-[#0F766E]">
+                        {title}
+                      </span>
+                      <span className="mt-0.5 block text-[10px] text-slate-400">
+                        {copy}
+                      </span>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </CardBody>
+          </Card>
+        </div>
 
-                      {formatDate(
-                        loan.startDate ||
-                          loan.createdAt,
-                        locale
-                      )}
-
-                    </Td>
-
-                  </Tr>
-
-                )
-              )
-
-            )}
-
-          </Tbody>
-
-        </Table>
-
-      </Card>
-
-      {/* ======================================================
-          FOOTER
-          ====================================================== */}
-
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-1">
-
-        <p className="text-xs text-gray-400">
-          Noble Loan Solutions · Loan Management Platform
-        </p>
-
-        <p className="text-xs text-gray-400">
-          Portfolio data is updated from your organization account.
-        </p>
-
+        <section className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="premium-eyebrow">Lending policy display</div>
+              <div className="mt-1 text-xs font-bold text-slate-700">
+                5% monthly interest · 5% monthly management fee · 2% one-time
+                processing fee
+              </div>
+            </div>
+            <div className="text-[10px] leading-5 text-slate-500 lg:max-w-2xl lg:text-right">
+              The dashboard does not recreate the repayment engine. Actual
+              calendar-day accrual, principal reduction and schedule
+              recalculation remain backend responsibilities.
+            </div>
+          </div>
+        </section>
       </div>
-
-    </div>
+    </main>
   );
 }

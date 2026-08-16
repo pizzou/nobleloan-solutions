@@ -1,7 +1,5 @@
 package com.patrick.fintech.loan_backend.model;
 
-import com.patrick.fintech.loan_backend.util.FinancialPolicy;
-
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -19,7 +17,6 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -28,9 +25,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
-import lombok.ToString;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -89,29 +84,28 @@ public class Loan {
          *
          * ALL loan types use 5% monthly interest.
          */
-        public static final BigDecimal DEFAULT_MONTHLY_INTEREST_RATE = FinancialPolicy.MONTHLY_INTEREST_RATE;
+        public static final BigDecimal DEFAULT_MONTHLY_INTEREST_RATE = new BigDecimal("5.00");
 
         /**
          * Unified monthly loan management fee rate.
          *
          * ALL loan types use 5% monthly management fee.
          */
-        public static final BigDecimal DEFAULT_MONTHLY_MANAGEMENT_FEE_RATE = FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE;
+        public static final BigDecimal DEFAULT_MONTHLY_MANAGEMENT_FEE_RATE = new BigDecimal("5.00");
 
         /**
          * Unified one-time processing fee rate.
          *
          * ALL loan types use 2%.
          */
-        public static final BigDecimal DEFAULT_PROCESSING_FEE_RATE = FinancialPolicy.PROCESSING_FEE_RATE;
+        public static final BigDecimal DEFAULT_PROCESSING_FEE_RATE = new BigDecimal("2.00");
 
         /**
          * Total recurring monthly charge:
          *
          * 5% interest + 5% management fee = 10%.
          */
-        public static final BigDecimal DEFAULT_TOTAL_MONTHLY_CHARGE_RATE = FinancialPolicy.MONTHLY_INTEREST_RATE
-                        .add(FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE);
+        public static final BigDecimal DEFAULT_TOTAL_MONTHLY_CHARGE_RATE = new BigDecimal("10.00");
 
         // ================================================================
         // CREDIT CLASSIFICATION THRESHOLDS
@@ -182,46 +176,37 @@ public class Loan {
         @JsonIgnore
         @ManyToOne(fetch = FetchType.LAZY, optional = false)
         @JoinColumn(name = "organization_id", nullable = false, foreignKey = @ForeignKey(name = "fk_loan_organization"))
-        @ToString.Exclude
-        @EqualsAndHashCode.Exclude
         private Organization organization;
 
-        @ManyToOne(fetch = FetchType.LAZY)
+        @ManyToOne(fetch = FetchType.EAGER)
         @JoinColumn(name = "branch_id", foreignKey = @ForeignKey(name = "fk_loan_branch"))
-        @ToString.Exclude
-        @EqualsAndHashCode.Exclude
         private Branch branch;
 
         // ================================================================
         // BORROWER / USERS
         // ================================================================
 
-        @ManyToOne(fetch = FetchType.LAZY, optional = false)
+        @ManyToOne(fetch = FetchType.EAGER, optional = false)
         @JoinColumn(name = "borrower_id", nullable = false, foreignKey = @ForeignKey(name = "fk_loan_borrower"))
-        @ToString.Exclude
-        @EqualsAndHashCode.Exclude
         private Borrower borrower;
 
-        @JsonIgnore
-
-        @ManyToOne(fetch = FetchType.LAZY)
+        @ManyToOne(fetch = FetchType.EAGER)
         @JoinColumn(name = "created_by", foreignKey = @ForeignKey(name = "fk_loan_created_by"))
-        @ToString.Exclude
-        @EqualsAndHashCode.Exclude
         private User createdBy;
 
+        /**
+         * Approving user is audit metadata, not part of the public loan
+         * representation. Keeping the association out of JSON prevents
+         * Jackson from traversing User -> Role after the Hibernate session
+         * has closed.
+         */
         @JsonIgnore
-        @ManyToOne(fetch = FetchType.LAZY)
+        @ManyToOne(fetch = FetchType.EAGER)
         @JoinColumn(name = "approved_by", foreignKey = @ForeignKey(name = "fk_loan_approved_by"))
-        @ToString.Exclude
-        @EqualsAndHashCode.Exclude
         private User approvedBy;
 
-        @JsonIgnore
-        @ManyToOne(fetch = FetchType.LAZY)
+        @ManyToOne(fetch = FetchType.EAGER)
         @JoinColumn(name = "loan_officer_id", foreignKey = @ForeignKey(name = "fk_loan_officer"))
-        @ToString.Exclude
-        @EqualsAndHashCode.Exclude
         private User loanOfficer;
 
         // ================================================================
@@ -301,19 +286,6 @@ public class Loan {
         @Column(name = "amount", precision = 19, scale = 2, nullable = false)
         @JsonProperty("amount")
         private BigDecimal amount;
-
-        /**
-         * Request-bound legacy Double compatibility value.
-         *
-         * The persisted accounting value remains normalized to 2 decimal
-         * places, while legacy callers that still consume getAmountDouble()
-         * can receive the original input precision during the lifetime of
-         * this entity instance. The field is deliberately transient and is
-         * never persisted as financial state.
-         */
-        @Transient
-        @JsonIgnore
-        private Double legacyAmountDouble;
 
         /**
          * Gross principal actually used for disbursement calculations.
@@ -511,33 +483,35 @@ public class Loan {
         // ================================================================
 
         /**
-         * Total extension/restructuring fees assessed over the life of the loan.
-         * This is never part of principal.
+         * Cumulative extension fees assessed on this loan.
+         *
+         * Extension fees are separate from principal, interest, management
+         * fees and the one-time processing fee.
          */
         @Column(name = "extension_fee_assessed", precision = 19, scale = 2, nullable = false)
         @Builder.Default
         @JsonProperty("extensionFeeAssessed")
         private BigDecimal extensionFeeAssessed = BigDecimal.ZERO;
 
-        /** Extension/restructuring fees actually collected. */
+        /** Amount of extension fees actually collected. */
         @Column(name = "extension_fee_paid", precision = 19, scale = 2, nullable = false)
         @Builder.Default
         @JsonProperty("extensionFeePaid")
         private BigDecimal extensionFeePaid = BigDecimal.ZERO;
 
-        /** Extension/restructuring fees still receivable. */
+        /** Extension fees currently outstanding. */
         @Column(name = "extension_fee_outstanding", precision = 19, scale = 2, nullable = false)
         @Builder.Default
         @JsonProperty("extensionFeeOutstanding")
         private BigDecimal extensionFeeOutstanding = BigDecimal.ZERO;
 
-        /** Number of approved extensions/restructurings on this facility. */
+        /** Number of approved extensions/restructuring extensions. */
         @Column(name = "extension_count", nullable = false)
         @Builder.Default
         @JsonProperty("extensionCount")
         private Integer extensionCount = 0;
 
-        /** Date of the most recent approved extension/restructuring. */
+        /** Date of the most recent approved extension. */
         @Column(name = "last_extension_date")
         @JsonProperty("lastExtensionDate")
         private LocalDate lastExtensionDate;
@@ -641,8 +615,6 @@ public class Loan {
         @JsonIgnore
         @OneToMany(mappedBy = "loan", cascade = CascadeType.ALL, orphanRemoval = false, fetch = FetchType.LAZY)
         @Builder.Default
-        @ToString.Exclude
-        @EqualsAndHashCode.Exclude
         private List<Payment> payments = new ArrayList<>();
 
         // ================================================================
@@ -775,21 +747,6 @@ public class Loan {
                 }
                 if (managementFeeOutstanding == null) {
                         managementFeeOutstanding = MoneyMath.ZERO;
-                }
-                if (extensionFeeAssessed == null) {
-                        extensionFeeAssessed = MoneyMath.ZERO;
-                }
-
-                if (extensionFeePaid == null) {
-                        extensionFeePaid = MoneyMath.ZERO;
-                }
-
-                if (extensionFeeOutstanding == null) {
-                        extensionFeeOutstanding = MoneyMath.ZERO;
-                }
-
-                if (extensionCount == null || extensionCount < 0) {
-                        extensionCount = 0;
                 }
                 if (penaltiesAssessed == null) {
                         penaltiesAssessed = MoneyMath.ZERO;
@@ -1213,6 +1170,18 @@ public class Loan {
                 return processingFeePaid;
         }
 
+        public BigDecimal getExtensionFeeAssessedDecimal() {
+                return extensionFeeAssessed == null ? MoneyMath.ZERO : extensionFeeAssessed;
+        }
+
+        public BigDecimal getExtensionFeePaidDecimal() {
+                return extensionFeePaid == null ? MoneyMath.ZERO : extensionFeePaid;
+        }
+
+        public BigDecimal getExtensionFeeOutstandingDecimal() {
+                return extensionFeeOutstanding == null ? MoneyMath.ZERO : extensionFeeOutstanding;
+        }
+
         @JsonIgnore
         public BigDecimal getDisbursedAmountDecimal() {
                 return disbursedAmount;
@@ -1248,30 +1217,11 @@ public class Loan {
                 return nextInstallmentAmount;
         }
 
-        @JsonIgnore
-        public BigDecimal getExtensionFeeAssessedDecimal() {
-                return extensionFeeAssessed == null ? MoneyMath.ZERO : extensionFeeAssessed;
-        }
-
-        @JsonIgnore
-        public BigDecimal getExtensionFeePaidDecimal() {
-                return extensionFeePaid == null ? MoneyMath.ZERO : extensionFeePaid;
-        }
-
-        @JsonIgnore
-        public BigDecimal getExtensionFeeOutstandingDecimal() {
-                return extensionFeeOutstanding == null ? MoneyMath.ZERO : extensionFeeOutstanding;
-        }
-
         // ================================================================
         // LEGACY DOUBLE COMPATIBILITY GETTERS
         // ================================================================
 
         public Double getAmountDouble() {
-                if (legacyAmountDouble != null) {
-                        return legacyAmountDouble;
-                }
-
                 return amount == null
                                 ? null
                                 : amount.doubleValue();
@@ -1378,9 +1328,6 @@ public class Loan {
         // ================================================================
 
         public void setAmount(BigDecimal value) {
-                this.legacyAmountDouble = value == null
-                                ? null
-                                : value.doubleValue();
                 this.amount = normalizeMoney(value);
         }
 
@@ -1420,6 +1367,18 @@ public class Loan {
                 this.processingFeePaid = normalizeMoney(value);
         }
 
+        public void setExtensionFeeAssessed(BigDecimal value) {
+                this.extensionFeeAssessed = normalizeMoney(value);
+        }
+
+        public void setExtensionFeePaid(BigDecimal value) {
+                this.extensionFeePaid = normalizeMoney(value);
+        }
+
+        public void setExtensionFeeOutstanding(BigDecimal value) {
+                this.extensionFeeOutstanding = normalizeMoney(value);
+        }
+
         public void setDisbursedAmount(BigDecimal value) {
                 this.disbursedAmount = normalizeMoney(value);
         }
@@ -1448,24 +1407,11 @@ public class Loan {
                 this.nextInstallmentAmount = normalizeMoney(value);
         }
 
-        public void setExtensionFeeAssessed(BigDecimal value) {
-                this.extensionFeeAssessed = normalizeMoney(value);
-        }
-
-        public void setExtensionFeePaid(BigDecimal value) {
-                this.extensionFeePaid = normalizeMoney(value);
-        }
-
-        public void setExtensionFeeOutstanding(BigDecimal value) {
-                this.extensionFeeOutstanding = normalizeMoney(value);
-        }
-
         // ================================================================
         // LEGACY DOUBLE SETTERS
         // ================================================================
 
         public void setAmount(Double value) {
-                this.legacyAmountDouble = value;
                 this.amount = MoneyMath.of(value);
         }
 
