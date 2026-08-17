@@ -1,176 +1,179 @@
-"use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { borrowerApi } from "@/services/api";
-import { Borrower } from "@/types";
-import { Button } from "@/components/ui/Button";
-import { Card, CardBody, CardHeader, StatCard } from "@/components/ui/Card";
-import { formatNumber } from "@/lib/utils";
-const name = (b: Borrower) =>
-  `${b.firstName || ""} ${b.lastName || ""}`.trim() || "Unnamed client";
-export default function Borrowers() {
-  const [rows, setRows] = useState<Borrower[]>([]);
-  const [q, setQ] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const load = useCallback(async () => {
+'use client';
+import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { borrowerApi } from '@/services/api';
+import { Borrower } from '@/types';
+import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Table, Thead, Th, Tbody, Tr, Td, EmptyRow } from '@/components/ui/Table';
+import { Modal } from '@/components/ui/Modal';
+import { FormGroup, Input, Select, FormRow, Alert } from '@/components/ui/Form';
+import { formatCurrency, formatDate, formatNumber, COUNTRIES, SUPPORTED_CURRENCIES } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
+
+export default function BorrowersPage() {
+  const [borrowers, setBorrowers] = useState<Borrower[]>([]);
+  const [total, setTotal]         = useState(0);
+  const [page, setPage]           = useState(0);
+  const [q, setQ]                 = useState('');
+  const [loading, setLoading]     = useState(true);
+  const [addOpen, setAddOpen]     = useState(false);
+  const [msg, setMsg]             = useState('');
+  const [saving, setSaving]       = useState(false);
+  const { currency, locale }      = useAuth();
+
+  const blank = { firstName:'', lastName:'', email:'', phone:'', nationalId:'',
+    dateOfBirth:'', gender:'', nationality:'KE', employerName:'', employmentType:'PERMANENT',
+    jobTitle:'', monthlyIncome:'', monthlyExpenses:'', creditScore:'', addressLine1:'',
+    city:'', country:'KE', bankName:'', bankAccountNumber:'' };
+  const [form, setForm] = useState<Record<string,string>>(blank);
+
+  const load = useCallback(() => {
     setLoading(true);
+    borrowerApi.list(page, 20, q)
+      .then((r: any) => { setBorrowers(r.content ?? r); setTotal(r.totalElements ?? (r.content ?? r).length); })
+      .catch(console.error).finally(() => setLoading(false));
+  }, [page, q]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault(); setSaving(true); setMsg('');
     try {
-      const r: any = await borrowerApi.list(0, 100, q);
-      setRows(Array.isArray(r) ? r : r?.content || r?.items || r?.data || []);
-    } catch (e: any) {
-      setError(e?.message || "Unable to load client relationships.");
-    } finally {
-      setLoading(false);
-    }
-  }, [q]);
-  useEffect(() => {
-    const t = setTimeout(() => void load(), 250);
-    return () => clearTimeout(t);
-  }, [load]);
-  const active = rows.filter((x) => x.status === "ACTIVE").length,
-    verified = rows.filter((x) => x.kycStatus === "VERIFIED").length;
-  const visible = useMemo(() => rows, [rows]);
+      await borrowerApi.create({ ...form, monthlyIncome: Number(form.monthlyIncome), monthlyExpenses: Number(form.monthlyExpenses), creditScore: Number(form.creditScore) });
+      setAddOpen(false); setForm(blank); load();
+    } catch (err: any) { setMsg(err.message); }
+    setSaving(false);
+  };
+
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement|HTMLSelectElement>) =>
+    setForm(f => ({...f, [k]: e.target.value}));
+
   return (
-    <main className="premium-page pb-14">
-      <div className="mx-auto max-w-[1600px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="premium-eyebrow">Client relationships</div>
-            <h1 className="premium-section-title">Borrower portfolio</h1>
-            <p className="premium-section-copy">
-              Present customers as lending relationships: identity, KYC status,
-              contactability and credit context.
-            </p>
-          </div>
-          <Button onClick={() => (location.href = "/dashboard/borrowers/new")}>
-            Add client
-          </Button>
-        </section>
-        <section className="grid gap-4 sm:grid-cols-3">
-          <StatCard
-            icon={<span>♙</span>}
-            label="Clients in view"
-            value={formatNumber(rows.length)}
-            sub="Current search result"
-            color="#0b2944"
-          />
-          <StatCard
-            icon={<span>✓</span>}
-            label="Active relationships"
-            value={formatNumber(active)}
-            sub="Active customer records"
-            color="#087f74"
-          />
-          <StatCard
-            icon={<span>◇</span>}
-            label="KYC verified"
-            value={formatNumber(verified)}
-            sub="Verified in current view"
-            color="#c9a227"
-          />
-        </section>
-        <Card>
-          <CardBody>
-            <div className="flex gap-3">
-              <input
-                className="premium-input"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search name, national ID, phone or email"
-              />
-              <Button variant="outline" onClick={() => setQ("")}>
-                Clear
-              </Button>
-            </div>
-          </CardBody>
-        </Card>
-        {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-bold text-red-800">
-            {error}
-          </div>
-        )}
-        <Card>
-          <CardHeader
-            title="Relationship register"
-            subtitle="Select a customer to open the full relationship workspace."
-          />
-          <div className="overflow-x-auto">
-            <table className="premium-table">
-              <thead>
-                <tr>
-                  <th>Client</th>
-                  <th>Contact</th>
-                  <th>Identity</th>
-                  <th>KYC</th>
-                  <th>Status</th>
-                  <th>Employment</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((b) => (
-                  <tr key={b.id}>
-                    <td>
-                      <Link
-                        href={`/dashboard/borrowers/${b.id}`}
-                        className="font-black text-[#071a2d] hover:text-[#087f74]"
-                      >
-                        {name(b)}
-                      </Link>
-                      <div className="mt-1 text-[9px] text-slate-400">
-                        Client #{b.id}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="font-semibold">{b.phone || "—"}</div>
-                      <div className="mt-1 text-[9px] text-slate-400">
-                        {b.email || "No email"}
-                      </div>
-                    </td>
-                    <td className="text-[10px]">
-                      {b.nationalId || b.passportNumber || "—"}
-                    </td>
-                    <td>
-                      <span
-                        className={`premium-badge ${b.kycStatus === "VERIFIED" ? "bg-emerald-50 text-emerald-700" : b.kycStatus === "REJECTED" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}
-                      >
-                        {b.kycStatus}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="premium-badge bg-slate-100 text-slate-600">
-                        {b.status}
-                      </span>
-                    </td>
-                    <td className="text-[10px]">
-                      {b.employerName || b.employmentType || "—"}
-                    </td>
-                    <td>
-                      <Link
-                        href={`/dashboard/borrowers/${b.id}`}
-                        className="text-[10px] font-black text-[#087f74]"
-                      >
-                        Open →
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-                {!visible.length && !loading ? (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="py-16 text-center text-xs text-slate-400"
-                    >
-                      No client relationships match the search.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+    <div>
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-extrabold text-gray-900">Borrowers</h1>
+          <p className="text-sm text-gray-500 mt-0.5">{formatNumber(total)} registered clients</p>
+        </div>
+        <Button icon="+" onClick={() => setAddOpen(true)}>Add Borrower</Button>
       </div>
-    </main>
+
+      <div className="flex gap-3 mb-4">
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+          <Input placeholder="Search name, email, ID…" className="pl-9 w-64"
+            value={q} onChange={e => { setQ(e.target.value); setPage(0); }} />
+        </div>
+      </div>
+
+      <Card>
+        {loading ? (
+          <div className="flex items-center justify-center py-16"><div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" /></div>
+        ) : (
+          <Table>
+            <Thead>
+              <tr><Th>Name</Th><Th>Email</Th><Th>Phone</Th><Th>National ID</Th><Th>Employer</Th><Th>Income</Th><Th>Credit Score</Th><Th>Country</Th><Th>Since</Th></tr>
+            </Thead>
+            <Tbody>
+              {borrowers.length === 0 ? <EmptyRow cols={9} message="No borrowers found" /> :
+                borrowers.map((b: Borrower) => (
+                  <Tr key={b.id}>
+                    <Td>
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 bg-teal-100 rounded-full flex items-center justify-center text-sm font-bold text-teal-700 flex-shrink-0">
+                          {b.firstName?.[0]}{b.lastName?.[0]}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-sm text-gray-900">{b.firstName} {b.lastName}</div>
+                          <div className="text-xs text-gray-400">{b.employmentType}</div>
+                        </div>
+                      </div>
+                    </Td>
+                    <Td className="text-sm text-gray-600">{b.email ?? '—'}</Td>
+                    <Td className="text-sm text-gray-600">{b.phone ?? '—'}</Td>
+                    <Td><code className="text-xs bg-gray-100 px-2 py-0.5 rounded">{b.nationalId ?? '—'}</code></Td>
+                    <Td className="text-sm text-gray-600">{b.employerName ?? '—'}</Td>
+                    <Td className="font-semibold text-sm">{formatCurrency(b.monthlyIncome, currency, locale)}</Td>
+                    <Td>
+                      <span className={`font-bold text-sm ${(b.creditScore ?? 0) >= 700 ? 'text-teal-600' : (b.creditScore ?? 0) >= 600 ? 'text-yellow-600' : 'text-red-500'}`}>
+                        {b.creditScore ?? '—'}
+                      </span>
+                    </Td>
+                    <Td className="text-xs text-gray-500">{b.country ?? '—'}</Td>
+                    <Td className="text-xs text-gray-400">{formatDate(b.createdAt, locale)}</Td>
+                  </Tr>
+                ))
+              }
+            </Tbody>
+          </Table>
+        )}
+      </Card>
+
+      {/* Add Borrower Modal */}
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add New Borrower" size="lg"
+        footer={<>
+          <Button variant="secondary" onClick={() => setAddOpen(false)}>Cancel</Button>
+          <Button loading={saving} onClick={handleAdd as any}>Save Borrower</Button>
+        </>}>
+        <form onSubmit={handleAdd}>
+          {msg && <Alert type="error">{msg}</Alert>}
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Personal Information</div>
+          <FormRow>
+            <FormGroup label="First Name" required><Input required value={form.firstName} onChange={set('firstName')} /></FormGroup>
+            <FormGroup label="Last Name" required><Input required value={form.lastName} onChange={set('lastName')} /></FormGroup>
+          </FormRow>
+          <FormRow>
+            <FormGroup label="Email"><Input type="email" value={form.email} onChange={set('email')} /></FormGroup>
+            <FormGroup label="Phone"><Input value={form.phone} onChange={set('phone')} /></FormGroup>
+          </FormRow>
+          <FormRow>
+            <FormGroup label="National ID"><Input value={form.nationalId} onChange={set('nationalId')} /></FormGroup>
+            <FormGroup label="Date of Birth"><Input type="date" value={form.dateOfBirth} onChange={set('dateOfBirth')} /></FormGroup>
+          </FormRow>
+          <FormRow>
+            <FormGroup label="Gender">
+              <Select value={form.gender} onChange={set('gender')}>
+                <option value="">Select…</option>
+                {['Male','Female','Other','Prefer not to say'].map(g => <option key={g}>{g}</option>)}
+              </Select>
+            </FormGroup>
+            <FormGroup label="Nationality">
+              <Select value={form.nationality} onChange={set('nationality')}>
+                {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+              </Select>
+            </FormGroup>
+          </FormRow>
+
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 mt-4">Employment & Finance</div>
+          <FormRow>
+            <FormGroup label="Employer Name"><Input value={form.employerName} onChange={set('employerName')} /></FormGroup>
+            <FormGroup label="Employment Type">
+              <Select value={form.employmentType} onChange={set('employmentType')}>
+                {['PERMANENT','CONTRACT','SELF_EMPLOYED','UNEMPLOYED'].map(t => <option key={t}>{t}</option>)}
+              </Select>
+            </FormGroup>
+          </FormRow>
+          <FormRow>
+            <FormGroup label="Monthly Income"><Input type="number" value={form.monthlyIncome} onChange={set('monthlyIncome')} /></FormGroup>
+            <FormGroup label="Monthly Expenses"><Input type="number" value={form.monthlyExpenses} onChange={set('monthlyExpenses')} /></FormGroup>
+          </FormRow>
+          <FormRow>
+            <FormGroup label="Credit Score"><Input type="number" min="300" max="850" value={form.creditScore} onChange={set('creditScore')} /></FormGroup>
+            <FormGroup label="Country">
+              <Select value={form.country} onChange={set('country')}>
+                {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+              </Select>
+            </FormGroup>
+          </FormRow>
+
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 mt-4">Bank Details</div>
+          <FormRow>
+            <FormGroup label="Bank Name"><Input value={form.bankName} onChange={set('bankName')} /></FormGroup>
+            <FormGroup label="Account Number"><Input value={form.bankAccountNumber} onChange={set('bankAccountNumber')} /></FormGroup>
+          </FormRow>
+        </form>
+      </Modal>
+    </div>
   );
 }

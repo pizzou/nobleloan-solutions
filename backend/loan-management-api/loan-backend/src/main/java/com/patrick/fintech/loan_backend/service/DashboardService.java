@@ -2,26 +2,25 @@ package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.dto.DashboardStats;
 import com.patrick.fintech.loan_backend.model.Loan;
-import com.patrick.fintech.loan_backend.model.LoanStatus;
-import com.patrick.fintech.loan_backend.model.Organization;
-import com.patrick.fintech.loan_backend.model.Payment;
 import com.patrick.fintech.loan_backend.repository.BorrowerRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
-import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import org.hibernate.Hibernate;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.util.Comparator;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -29,392 +28,275 @@ import java.util.List;
 @Transactional(readOnly = true)
 public class DashboardService {
 
-        private final LoanRepository loanRepository;
-        private final PaymentRepository paymentRepository;
-        private final BorrowerRepository borrowerRepository;
-        private final OrganizationRepository organizationRepository;
-
-        private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-
-        private static final BigDecimal ONE_HUNDRED = new BigDecimal("100.00");
-
-        // ================================================================
-        // DASHBOARD STATISTICS
-        // ================================================================
-
-        public DashboardStats getStats(Long orgId) {
-
-                if (orgId == null) {
-                        throw new IllegalArgumentException(
-                                        "Organization ID is required");
-                }
-
-                /*
-                 * Load the organization once.
-                 *
-                 * The repository's gross-disbursement query expects an
-                 * Organization entity rather than a Long ID.
-                 */
-                Organization organization = organizationRepository
-                                .findById(orgId)
-                                .orElseThrow(() -> new IllegalArgumentException(
-                                                "Organization not found: " + orgId));
-
-                LocalDate today = LocalDate.now();
-                LocalDate firstOfMonth = today.withDayOfMonth(1);
-
-                // ================================================================
-                // BASIC COUNTS
-                // ================================================================
-
-                long totalLoans = loanRepository.countByOrganization_Id(orgId);
-
-                long activeLoans = loanRepository.countByOrganization_IdAndStatus(
-                                orgId,
-                                LoanStatus.ACTIVE);
-
-                long pendingLoans = loanRepository.countByOrganization_IdAndStatus(
-                                orgId,
-                                LoanStatus.PENDING);
-
-                long completedLoans = loanRepository.countByOrganization_IdAndStatus(
-                                orgId,
-                                LoanStatus.PAID);
-
-                long defaultedLoans = loanRepository.countByOrganization_IdAndStatus(
-                                orgId,
-                                LoanStatus.DEFAULTED);
-
-                // ================================================================
-                // BORROWERS
-                // ================================================================
-
-                long totalBorrowers = borrowerRepository
-                                .findByOrganization_Id(orgId)
-                                .size();
-
-                // ================================================================
-                // OVERDUE PAYMENTS
-                // ================================================================
-
-                List<Payment> overduePayments = paymentRepository
-                                .findByOrganization_IdAndPaidFalseAndDueDateBefore(
-                                                orgId,
-                                                today);
-
-                if (overduePayments == null) {
-                        overduePayments = List.of();
-                }
-
-                long overdueLoans = overduePayments.stream()
-                                .filter(payment -> payment != null &&
-                                                payment.getLoan() != null)
-                                .map(payment -> payment.getLoan().getId())
-                                .filter(id -> id != null)
-                                .distinct()
-                                .count();
-
-                long latePaymentsCount = overduePayments.size();
-
-                // ================================================================
-                // ORGANIZATION LOANS
-                // ================================================================
-
-                List<Loan> loans = loanRepository.findByOrganization_Id(orgId);
-
-                if (loans == null) {
-                        loans = List.of();
-                }
-
-                // ================================================================
-                // TOTAL GROSS DISBURSED
-                // ================================================================
-
-                BigDecimal totalDisbursed = money(
-                                loanRepository.sumGrossDisbursedPrincipal(
-                                                organization));
-
-                // ================================================================
-                // PORTFOLIO TOTALS
-                // ================================================================
-
-                BigDecimal totalOutstanding = ZERO;
-                BigDecimal activePortfolioPrincipal = ZERO;
-                BigDecimal atRiskPrincipal = ZERO;
-
-                for (Loan loan : loans) {
-
-                        if (loan == null) {
-                                continue;
-                        }
-
-                        LoanStatus status = loan.getStatus();
-
-                        BigDecimal outstanding = money(loan.getOutstandingBalanceDecimal());
-
-                        /*
-                         * Current outstanding portfolio:
-                         *
-                         * ACTIVE
-                         * OVERDUE
-                         * RESTRUCTURED
-                         */
-                        boolean outstandingLoan = status == LoanStatus.ACTIVE
-                                        || status == LoanStatus.OVERDUE
-                                        || status == LoanStatus.RESTRUCTURED;
-
-                        if (outstandingLoan) {
-
-                                totalOutstanding = money(
-                                                totalOutstanding.add(
-                                                                outstanding));
-
-                                activePortfolioPrincipal = money(
-                                                activePortfolioPrincipal.add(
-                                                                outstanding));
-                        }
-
-                        /*
-                         * Portfolio at risk:
-                         *
-                         * OVERDUE
-                         * DEFAULTED
-                         * RESTRUCTURED
-                         */
-                        boolean atRisk = status == LoanStatus.OVERDUE
-                                        || status == LoanStatus.DEFAULTED
-                                        || status == LoanStatus.RESTRUCTURED;
-
-                        if (atRisk) {
-
-                                atRiskPrincipal = money(
-                                                atRiskPrincipal.add(
-                                                                outstanding));
-                        }
-                }
-
-                // ================================================================
-                // PAYMENT COLLECTIONS
-                // ================================================================
-
-                List<Payment> organizationPayments = paymentRepository
-                                .findByLoan_Organization_Id(orgId);
-
-                if (organizationPayments == null) {
-                        organizationPayments = List.of();
-                }
-
-                BigDecimal totalCollected = ZERO;
-                BigDecimal collectedThisMonth = ZERO;
-
-                for (Payment payment : organizationPayments) {
-
-                        if (payment == null) {
-                                continue;
-                        }
-
-                        if (!Boolean.TRUE.equals(payment.getPaid())) {
-                                continue;
-                        }
-
-                        BigDecimal paymentAmount = money(payment.getAmountPaidDecimal());
-
-                        totalCollected = money(
-                                        totalCollected.add(
-                                                        paymentAmount));
-
-                        LocalDate paidDate = payment.getPaidDate();
-
-                        if (paidDate != null
-                                        && !paidDate.isBefore(firstOfMonth)
-                                        && !paidDate.isAfter(today)) {
-
-                                collectedThisMonth = money(
-                                                collectedThisMonth.add(
-                                                                paymentAmount));
-                        }
-                }
-
-                // ================================================================
-                // PORTFOLIO AT RISK %
-                // ================================================================
-
-                BigDecimal portfolioAtRiskPct = ZERO;
-
-                if (activePortfolioPrincipal.compareTo(ZERO) > 0) {
-
-                        portfolioAtRiskPct = money(
-                                        atRiskPrincipal
-                                                        .multiply(ONE_HUNDRED)
-                                                        .divide(
-                                                                        activePortfolioPrincipal,
-                                                                        16,
-                                                                        RoundingMode.HALF_UP));
-
-                        if (portfolioAtRiskPct.compareTo(
-                                        ONE_HUNDRED) > 0) {
-
-                                portfolioAtRiskPct = ONE_HUNDRED.setScale(
-                                                2,
-                                                RoundingMode.HALF_UP);
-                        }
-                }
-
-                // ================================================================
-                // RECENT LOANS
-                // ================================================================
-
-                // ================================================================
-                // RECENT LOANS
-                // ================================================================
-
-                List<Loan> recentLoans = loans.stream()
-                                .filter(loan -> loan != null
-                                                && loan.getCreatedAt() != null)
-                                .sorted(
-                                                Comparator.comparing(
-                                                                Loan::getCreatedAt,
-                                                                Comparator.nullsLast(
-                                                                                Comparator.reverseOrder())))
-                                .limit(8)
-                                .toList();
-
-                /*
-                 * IMPORTANT:
-                 *
-                 * DashboardStats intentionally continues returning Loan entities.
-                 * We are NOT changing DashboardStats and we are NOT introducing
-                 * another DTO.
-                 *
-                 * Jackson serializes recentLoans after this service method has
-                 * finished its database work. Therefore lazy relationships that
-                 * Jackson can reach must be initialized while the transaction is
-                 * still active.
-                 *
-                 * Current production error:
-                 *
-                 * Loan
-                 * -> approvedBy
-                 * -> User
-                 * -> role
-                 * -> Role.name
-                 *
-                 * The failure occurs because role is a Hibernate lazy proxy and
-                 * the Hibernate session is no longer available when Jackson tries
-                 * to serialize Role.name.
-                 */
-
-                for (Loan loan : recentLoans) {
-
-                        if (loan == null) {
-                                continue;
-                        }
-
-                        if (loan.getApprovedBy() != null) {
-
-                                Hibernate.initialize(loan.getApprovedBy());
-
-                                if (loan.getApprovedBy().getRole() != null) {
-                                        Hibernate.initialize(
-                                                        loan.getApprovedBy().getRole());
-                                }
-                        }
-
-                        if (loan.getBorrower() != null) {
-                                Hibernate.initialize(loan.getBorrower());
-                        }
-
-                        if (loan.getOrganization() != null) {
-                                Hibernate.initialize(loan.getOrganization());
-                        }
-                }
-
-                // ================================================================
-                // LOG
-                // ================================================================
-
-                log.debug(
-                                "Dashboard calculated. " +
-                                                "orgId={}, totalLoans={}, activeLoans={}, " +
-                                                "pendingLoans={}, overdueLoans={}, " +
-                                                "defaultedLoans={}, totalDisbursed={}, " +
-                                                "totalCollected={}, outstanding={}, " +
-                                                "collectedThisMonth={}, PAR={}",
-                                orgId,
-                                totalLoans,
-                                activeLoans,
-                                pendingLoans,
-                                overdueLoans,
-                                defaultedLoans,
-                                totalDisbursed,
-                                totalCollected,
-                                totalOutstanding,
-                                collectedThisMonth,
-                                portfolioAtRiskPct);
-
-                // ================================================================
-                // RESPONSE
-                // ================================================================
-
-                return DashboardStats.builder()
-
-                                .totalLoans(
-                                                totalLoans)
-
-                                .activeLoans(
-                                                activeLoans)
-
-                                .pendingLoans(
-                                                pendingLoans)
-
-                                .completedLoans(
-                                                completedLoans)
-
-                                .defaultedLoans(
-                                                defaultedLoans)
-
-                                .overdueLoans(
-                                                overdueLoans)
-
-                                .totalBorrowers(
-                                                totalBorrowers)
-
-                                .totalDisbursed(
-                                                totalDisbursed)
-
-                                .totalCollected(
-                                                totalCollected)
-
-                                .outstandingBalance(
-                                                totalOutstanding)
-
-                                .collectedThisMonth(
-                                                collectedThisMonth)
-
-                                .latePaymentsCount(
-                                                latePaymentsCount)
-
-                                .portfolioAtRiskPct(
-                                                portfolioAtRiskPct)
-
-                                .recentLoans(
-                                                recentLoans)
-
-                                .build();
+    private final LoanRepository loanRepository;
+    private final PaymentRepository paymentRepository;
+    private final BorrowerRepository borrowerRepository;
+
+    private static final BigDecimal ZERO =
+            BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+
+    private static final BigDecimal ONE_HUNDRED =
+            new BigDecimal("100.00");
+
+    /**
+     * Builds the dashboard from database aggregates rather than loading
+     * every loan, borrower and payment into JVM memory.
+     *
+     * This is deliberately read-only and tenant-scoped. The dashboard
+     * endpoint should stay fast even when an organization has thousands
+     * of loans and a large payment history.
+     */
+    public DashboardStats getStats(Long orgId) {
+
+        if (orgId == null) {
+            throw new IllegalArgumentException(
+                    "Organization ID is required");
         }
 
-        // ================================================================
-        // MONEY
-        // ================================================================
+        final LocalDate today = LocalDate.now();
+        final LocalDate firstOfMonth = today.withDayOfMonth(1);
 
-        private BigDecimal money(BigDecimal value) {
+        /*
+         * ------------------------------------------------------------
+         * LOAN AGGREGATES
+         * ------------------------------------------------------------
+         *
+         * One SQL query replaces multiple COUNT queries plus the old
+         * full-portfolio load.
+         */
+        Object[] loanAggregate =
+                loanRepository.getDashboardLoanAggregate(orgId);
 
-                if (value == null) {
-                        return ZERO;
-                }
+        long totalLoans = asLong(valueAt(loanAggregate, 0));
+        long pendingLoans = asLong(valueAt(loanAggregate, 1));
+        long activeLoans = asLong(valueAt(loanAggregate, 2));
+        long completedLoans = asLong(valueAt(loanAggregate, 3));
+        long defaultedLoans = asLong(valueAt(loanAggregate, 4));
 
-                return value.setScale(
+        BigDecimal totalDisbursed =
+                money(valueAt(loanAggregate, 5));
+
+        BigDecimal totalOutstanding =
+                money(valueAt(loanAggregate, 6));
+
+        BigDecimal atRiskPrincipal =
+                money(valueAt(loanAggregate, 7));
+
+        /*
+         * ------------------------------------------------------------
+         * PAYMENT AGGREGATES
+         * ------------------------------------------------------------
+         *
+         * One SQL query replaces the old full payment-history load.
+         */
+        Object[] paymentAggregate =
+                paymentRepository.getDashboardPaymentAggregate(
+                        orgId,
+                        firstOfMonth,
+                        today);
+
+        BigDecimal totalCollected =
+                money(valueAt(paymentAggregate, 0));
+
+        BigDecimal collectedThisMonth =
+                money(valueAt(paymentAggregate, 1));
+
+        long latePaymentsCount =
+                asLong(valueAt(paymentAggregate, 2));
+
+        /*
+         * Distinct overdue loans are calculated in SQL. This avoids
+         * loading all overdue Payment entities and de-duplicating them
+         * in application memory.
+         */
+        long overdueLoans =
+                paymentRepository.countDistinctOverdueLoans(
+                        orgId,
+                        today);
+
+        /*
+         * ------------------------------------------------------------
+         * BORROWER COUNT
+         * ------------------------------------------------------------
+         *
+         * Count directly in SQL. Never load every borrower just to call
+         * List.size().
+         */
+        long totalBorrowers =
+                borrowerRepository.countByOrganization_Id(orgId);
+
+        /*
+         * ------------------------------------------------------------
+         * PORTFOLIO AT RISK
+         * ------------------------------------------------------------
+         *
+         * PAR = at-risk outstanding / active outstanding * 100.
+         *
+         * We keep the denominator consistent with the dashboard's
+         * outstanding portfolio definition.
+         */
+        BigDecimal portfolioAtRiskPct = ZERO;
+
+        if (totalOutstanding.compareTo(ZERO) > 0) {
+            portfolioAtRiskPct =
+                    money(
+                            atRiskPrincipal
+                                    .multiply(ONE_HUNDRED)
+                                    .divide(
+                                            totalOutstanding,
+                                            16,
+                                            RoundingMode.HALF_UP));
+
+            if (portfolioAtRiskPct.compareTo(ONE_HUNDRED) > 0) {
+                portfolioAtRiskPct =
+                        ONE_HUNDRED.setScale(
                                 2,
                                 RoundingMode.HALF_UP);
+            }
         }
+
+        /*
+         * ------------------------------------------------------------
+         * LOAN TYPE BREAKDOWN
+         * ------------------------------------------------------------
+         */
+        List<Map<String, Object>> typeBreakdown =
+                new ArrayList<>();
+
+        List<Object[]> typeRows =
+                loanRepository.getLoanTypeBreakdownByOrganizationId(
+                        orgId);
+
+        if (typeRows != null) {
+            for (Object[] row : typeRows) {
+                if (row == null || row.length < 3) {
+                    continue;
+                }
+
+                Map<String, Object> item =
+                        new LinkedHashMap<>();
+
+                item.put("type", row[0]);
+                item.put("count", asLong(row[1]));
+                item.put(
+                        "amount",
+                        money(row[2]));
+
+                typeBreakdown.add(item);
+            }
+        }
+
+        /*
+         * ------------------------------------------------------------
+         * RECENT LOANS
+         * ------------------------------------------------------------
+         *
+         * Only eight records are returned and only the relationships
+         * required by the dashboard are eagerly loaded.
+         */
+        List<Loan> recentLoans =
+                loanRepository.findRecentByOrganizationId(
+                        orgId,
+                        PageRequest.of(0, 8));
+
+        if (recentLoans == null) {
+            recentLoans = List.of();
+        }
+
+        log.debug(
+                "Dashboard calculated efficiently. " +
+                        "orgId={}, totalLoans={}, activeLoans={}, " +
+                        "pendingLoans={}, overdueLoans={}, " +
+                        "defaultedLoans={}, totalDisbursed={}, " +
+                        "totalCollected={}, outstanding={}, " +
+                        "collectedThisMonth={}, PAR={}",
+                orgId,
+                totalLoans,
+                activeLoans,
+                pendingLoans,
+                overdueLoans,
+                defaultedLoans,
+                totalDisbursed,
+                totalCollected,
+                totalOutstanding,
+                collectedThisMonth,
+                portfolioAtRiskPct);
+
+        return DashboardStats.builder()
+                .totalLoans(totalLoans)
+                .pendingLoans(pendingLoans)
+                .activeLoans(activeLoans)
+                .overdueLoans(overdueLoans)
+                .completedLoans(completedLoans)
+                .defaultedLoans(defaultedLoans)
+                .totalBorrowers(totalBorrowers)
+                .totalDisbursed(totalDisbursed)
+                .totalCollected(totalCollected)
+                .outstandingBalance(totalOutstanding)
+                .collectedThisMonth(collectedThisMonth)
+                .latePaymentsCount(latePaymentsCount)
+                .portfolioAtRiskPct(portfolioAtRiskPct)
+                .loanTypeBreakdown(typeBreakdown)
+                .recentLoans(recentLoans)
+                .build();
+    }
+
+    private Object valueAt(Object[] values, int index) {
+        if (values == null || index < 0 || index >= values.length) {
+            return null;
+        }
+
+        return values[index];
+    }
+
+    private long asLong(Object value) {
+        if (value == null) {
+            return 0L;
+        }
+
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+
+        try {
+            return Long.parseLong(value.toString());
+        } catch (NumberFormatException ignored) {
+            return 0L;
+        }
+    }
+
+    private BigDecimal money(Object value) {
+        if (value == null) {
+            return ZERO;
+        }
+
+        if (value instanceof BigDecimal decimal) {
+            return decimal.setScale(
+                    2,
+                    RoundingMode.HALF_UP);
+        }
+
+        if (value instanceof BigInteger integer) {
+            return new BigDecimal(integer)
+                    .setScale(
+                            2,
+                            RoundingMode.HALF_UP);
+        }
+
+        if (value instanceof Number number) {
+            return BigDecimal.valueOf(number.doubleValue())
+                    .setScale(
+                            2,
+                            RoundingMode.HALF_UP);
+        }
+
+        try {
+            return new BigDecimal(value.toString())
+                    .setScale(
+                            2,
+                            RoundingMode.HALF_UP);
+        } catch (NumberFormatException ignored) {
+            return ZERO;
+        }
+    }
 }

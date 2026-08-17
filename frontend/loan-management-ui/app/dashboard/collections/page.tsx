@@ -1,433 +1,194 @@
-"use client";
-
-import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+'use client';
+import { useEffect, useState, useCallback } from 'react';
 import {
-  CollectionBucket,
-  CollectionCase,
-  CollectionStats,
-  getCollectionsQueue,
-  getCollectionsStats,
-  logCollectionAction,
-  syncCollectionsQueue,
-} from "@/services/collectionsService";
-import { PageSpinner } from "@/components/ui/Skeleton";
-import { Pill } from "@/components/ui/Badge";
-import { Card, CardBody, CardHeader, StatCard } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
-import { toast } from "@/hooks/useToast";
+  getCollectionsQueue, getCollectionsStats, logCollectionAction, syncCollectionsQueue,
+  CollectionCase, CollectionStats, CollectionBucket,
+} from '../../../services/collectionsService';
+import { PageSpinner } from '../../../components/ui/Skeleton';
+import { Pill } from '../../../components/ui/Badge';
+import { toast } from '../../../hooks/useToast';
 
 const BUCKET_LABEL: Record<CollectionBucket, string> = {
-  CURRENT: "Current",
-  DPD_1_30: "1–30 DPD",
-  DPD_31_60: "31–60 DPD",
-  DPD_61_90: "61–90 DPD",
-  DPD_90_PLUS: "90+ DPD",
-  WRITE_OFF: "Written off",
+  CURRENT: 'Current', DPD_1_30: '1-30 DPD', DPD_31_60: '31-60 DPD',
+  DPD_61_90: '61-90 DPD', DPD_90_PLUS: '90+ DPD', WRITE_OFF: 'Written Off',
 };
-
 const BUCKET_COLOR: Record<CollectionBucket, string> = {
-  CURRENT: "green",
-  DPD_1_30: "yellow",
-  DPD_31_60: "yellow",
-  DPD_61_90: "red",
-  DPD_90_PLUS: "red",
-  WRITE_OFF: "gray",
+  CURRENT: 'green', DPD_1_30: 'yellow', DPD_31_60: 'yellow',
+  DPD_61_90: 'red', DPD_90_PLUS: 'red', WRITE_OFF: 'gray',
 };
-
-const PRIORITY_COLOR: Record<string, string> = {
-  LOW: "gray",
-  MEDIUM: "blue",
-  HIGH: "yellow",
-  URGENT: "red",
-};
-
-const money = (value: unknown, currency = "RWF") =>
-  new Intl.NumberFormat("en-RW", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(Number(value || 0));
+const PRIORITY_COLOR: Record<string, string> = { LOW: 'gray', MEDIUM: 'blue', HIGH: 'yellow', URGENT: 'red' };
 
 export default function CollectionsPage() {
   const [cases, setCases] = useState<CollectionCase[]>([]);
   const [stats, setStats] = useState<CollectionStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [bucketFilter, setBucketFilter] = useState<CollectionBucket | "">("");
+  const [bucketFilter, setBucketFilter] = useState<CollectionBucket | ''>('');
   const [activeCase, setActiveCase] = useState<CollectionCase | null>(null);
-  const [notes, setNotes] = useState("");
-  const [promiseDate, setPromiseDate] = useState("");
-  const [promiseAmount, setPromiseAmount] = useState("");
+  const [notes, setNotes] = useState('');
+  const [promiseDate, setPromiseDate] = useState('');
+  const [promiseAmount, setPromiseAmount] = useState('');
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
-  const getMsg = (e: unknown) =>
-    e instanceof Error ? e.message : "Something went wrong";
+  const getMsg = (err: unknown) => err instanceof Error ? err.message : 'Something went wrong';
 
-  const load = useCallback(async () => {
+  const load = useCallback(() => {
     setLoading(true);
-    try {
-      let [queue, summary] = await Promise.all([
-        getCollectionsQueue(
-          bucketFilter ? { bucket: bucketFilter } : undefined,
-        ),
-        getCollectionsStats(),
-      ]);
-
-      // A new overdue facility may have been classified since the last scheduled
-      // synchronization. Only perform the write-side reconciliation when the
-      // queue is genuinely empty, so normal navigation remains fast.
-      if (queue.length === 0 && Number(summary?.totalOpenCases || 0) === 0) {
-        try {
-          await syncCollectionsQueue();
-          [queue, summary] = await Promise.all([
-            getCollectionsQueue(
-              bucketFilter ? { bucket: bucketFilter } : undefined,
-            ),
-            getCollectionsStats(),
-          ]);
-        } catch {
-          // The read result remains valid even when synchronization is unavailable.
-        }
-      }
-
-      setCases(queue);
-      setStats(summary);
-    } catch (e) {
-      toast("error", getMsg(e));
-    } finally {
-      setLoading(false);
-    }
+    Promise.all([
+      getCollectionsQueue(bucketFilter ? { bucket: bucketFilter } : undefined),
+      getCollectionsStats(),
+    ]).then(([q, s]) => { setCases(q); setStats(s); })
+      .catch((e) => toast('error', getMsg(e)))
+      .finally(() => setLoading(false));
   }, [bucketFilter]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   const handleSync = async () => {
     setSyncing(true);
-    try {
-      await syncCollectionsQueue();
-      toast("success", "Collections queue synchronized.");
-      await load();
-    } catch (e) {
-      toast("error", getMsg(e));
-    } finally {
-      setSyncing(false);
-    }
+    try { const r = await syncCollectionsQueue(); toast('success', typeof r === 'string' ? r : 'Queue synced'); await load(); }
+    catch (e) { toast('error', getMsg(e)); }
+    finally { setSyncing(false); }
   };
 
-  const handleAction = async (
-    type: "CALL" | "PROMISE_TO_PAY" | "ESCALATED" | "FIELD_VISIT",
-  ) => {
+  const handleAction = async (type: 'CALL' | 'PROMISE_TO_PAY' | 'ESCALATED' | 'FIELD_VISIT') => {
     if (!activeCase) return;
     setBusy(true);
     try {
       await logCollectionAction(activeCase.id, {
         actionType: type,
         notes: notes || undefined,
-        promiseDate: type === "PROMISE_TO_PAY" ? promiseDate : undefined,
-        promiseAmount:
-          type === "PROMISE_TO_PAY" ? Number(promiseAmount) : undefined,
+        promiseDate: type === 'PROMISE_TO_PAY' ? promiseDate : undefined,
+        promiseAmount: type === 'PROMISE_TO_PAY' ? Number(promiseAmount) : undefined,
       });
-      toast("success", "Collection action logged.");
-      setActiveCase(null);
-      setNotes("");
-      setPromiseDate("");
-      setPromiseAmount("");
+      toast('success', 'Action logged');
+      setActiveCase(null); setNotes(''); setPromiseDate(''); setPromiseAmount('');
       await load();
-    } catch (e) {
-      toast("error", getMsg(e));
-    } finally {
-      setBusy(false);
-    }
+    } catch (e) { toast('error', getMsg(e)); }
+    finally { setBusy(false); }
   };
 
   if (loading && !stats) return <PageSpinner />;
 
-  const buckets = Object.keys(BUCKET_LABEL) as CollectionBucket[];
-
   return (
-    <main className="premium-page pb-16">
-      <div className="mx-auto max-w-[1680px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="premium-hero px-7 py-8 text-white sm:px-10">
-          <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <div className="premium-kicker">
-                Collections · loan-linked operations
-              </div>
-              <h1 className="mt-2 text-4xl font-black tracking-[-.045em]">
-                Collection command centre
-              </h1>
-              <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-                Every collection case is anchored to the underlying borrower and
-                loan. Overdue facilities are synchronized into this queue so
-                collections never becomes a disconnected list.
-              </p>
-            </div>
-            <Button
-              variant="secondary"
-              loading={syncing}
-              onClick={() => void handleSync()}
-            >
-              Synchronize overdue loans
-            </Button>
-          </div>
-        </section>
-
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            icon={<span>!</span>}
-            label="Open cases"
-            value={String(stats?.totalOpenCases ?? 0)}
-            sub="Facilities requiring collection action"
-            color="#b42318"
-          />
-          <StatCard
-            icon={<span>◆</span>}
-            label="Overdue exposure"
-            value={money(stats?.totalOverdueAmount)}
-            sub="Outstanding amount in open cases"
-            color="#087f74"
-          />
-          <StatCard
-            icon={<span>◷</span>}
-            label="Active promises"
-            value={String(stats?.activePromises ?? 0)}
-            sub="Promises to pay being monitored"
-            color="#315b7f"
-          />
-          <StatCard
-            icon={<span>!</span>}
-            label="90+ DPD"
-            value={String(stats?.casesByBucket?.DPD_90_PLUS ?? 0)}
-            sub="Highest-priority delinquency"
-            color="#b42318"
-          />
-        </section>
-
-        <Card>
-          <CardBody>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setBucketFilter("")}
-                className={`rounded-full border px-3 py-1.5 text-[10px] font-black ${!bucketFilter ? "border-[#071a2d] bg-[#071a2d] text-white" : "border-slate-200 bg-white text-slate-600"}`}
-              >
-                All · {stats?.totalOpenCases ?? 0}
-              </button>
-              {buckets.map((bucket) => (
-                <button
-                  key={bucket}
-                  onClick={() => setBucketFilter(bucket)}
-                  className={`rounded-full border px-3 py-1.5 text-[10px] font-black ${bucketFilter === bucket ? "border-[#071a2d] bg-[#071a2d] text-white" : "border-slate-200 bg-white text-slate-600"}`}
-                >
-                  {BUCKET_LABEL[bucket]} · {stats?.casesByBucket?.[bucket] ?? 0}
-                </button>
-              ))}
-            </div>
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardHeader
-            title="Delinquency queue"
-            subtitle="The loan remains the source record; the case is the controlled collection workflow."
-          />
-          <div className="overflow-x-auto">
-            <table className="premium-table">
-              <thead>
-                <tr>
-                  <th>Borrower</th>
-                  <th>Loan</th>
-                  <th>DPD</th>
-                  <th>Bucket</th>
-                  <th>Priority</th>
-                  <th className="text-right">Overdue</th>
-                  <th>Owner</th>
-                  <th>Status</th>
-                  <th className="text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cases.length ? (
-                  cases.map((item) => (
-                    <tr key={item.id}>
-                      <td>
-                        <Link
-                          href={
-                            item.loan?.id
-                              ? `/dashboard/borrowers`
-                              : "/dashboard/borrowers"
-                          }
-                          className="font-black text-[#071a2d] hover:text-[#087f74]"
-                        >
-                          {item.loan?.borrower?.firstName}{" "}
-                          {item.loan?.borrower?.lastName}
-                        </Link>
-                        <div className="mt-1 text-[9px] text-slate-400">
-                          {item.loan?.borrower?.phone || "Client relationship"}
-                        </div>
-                      </td>
-                      <td>
-                        <Link
-                          href={
-                            item.loan?.id
-                              ? `/dashboard/loans/${item.loan.id}`
-                              : "/dashboard/loans"
-                          }
-                          className="font-black text-[#071a2d] hover:text-[#087f74]"
-                        >
-                          {item.loan?.referenceNumber || `#${item.loan?.id}`}
-                        </Link>
-                      </td>
-                      <td className="font-black">{item.daysPastDue ?? 0}</td>
-                      <td>
-                        <Pill
-                          label={BUCKET_LABEL[item.bucket]}
-                          color={BUCKET_COLOR[item.bucket]}
-                        />
-                      </td>
-                      <td>
-                        <Pill
-                          label={item.priority}
-                          color={PRIORITY_COLOR[item.priority]}
-                        />
-                      </td>
-                      <td className="text-right font-black tabular-nums">
-                        {money(
-                          item.overdueAmount,
-                          item.loan?.currency || "RWF",
-                        )}
-                      </td>
-                      <td>
-                        {item.assignedAgent?.name || (
-                          <span className="text-slate-400">Unassigned</span>
-                        )}
-                      </td>
-                      <td>
-                        <Pill
-                          label={String(item.status).replace(/_/g, " ")}
-                          color="gray"
-                        />
-                      </td>
-                      <td className="text-right">
-                        <button
-                          onClick={() => setActiveCase(item)}
-                          className="text-[10px] font-black text-[#087f74]"
-                        >
-                          Log action →
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={9} className="py-16 text-center">
-                      <div className="text-sm font-black text-[#071a2d]">
-                        No collection cases are currently open.
-                      </div>
-                      <p className="mt-2 text-xs text-slate-500">
-                        If the loan portfolio shows overdue facilities, use
-                        synchronization to reconcile them into the collection
-                        workflow.
-                      </p>
-                      <button
-                        onClick={() => void handleSync()}
-                        className="mt-4 text-[10px] font-black text-[#087f74]"
-                      >
-                        Synchronize overdue loans →
-                      </button>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Collections</h1>
+          <p className="text-sm text-gray-500">Delinquency queue, aging buckets and contact history</p>
+        </div>
+        <button onClick={handleSync} disabled={syncing}
+          className="border border-gray-300 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-60">
+          {syncing ? 'Syncing…' : '↻ Sync Overdue Loans'}
+        </button>
       </div>
 
-      {activeCase ? (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-[#061729]/65 p-4 backdrop-blur-sm"
-          onClick={() => setActiveCase(null)}
-        >
-          <div
-            className="w-full max-w-lg rounded-3xl border border-white/10 bg-white p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="premium-eyebrow">Collection action</div>
-                <h2 className="mt-1 text-xl font-black text-[#071a2d]">
-                  {activeCase.loan?.borrower?.firstName}{" "}
-                  {activeCase.loan?.borrower?.lastName}
-                </h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  {activeCase.loan?.referenceNumber}
-                </p>
-              </div>
-              <button
-                onClick={() => setActiveCase(null)}
-                className="text-slate-400"
-              >
-                ✕
-              </button>
-            </div>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Action notes"
-              rows={3}
-              className="premium-input mt-5 w-full resize-none"
-            />
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <input
-                type="date"
-                value={promiseDate}
-                onChange={(e) => setPromiseDate(e.target.value)}
-                className="premium-input"
-              />
-              <input
-                type="number"
-                value={promiseAmount}
-                onChange={(e) => setPromiseAmount(e.target.value)}
-                placeholder="Promise amount"
-                className="premium-input"
-              />
-            </div>
-            <div className="mt-5 grid grid-cols-2 gap-2">
-              <button
-                disabled={busy}
-                onClick={() => void handleAction("CALL")}
-                className="rounded-xl border border-slate-200 py-3 text-[10px] font-black text-[#071a2d]"
-              >
-                Call logged
-              </button>
-              <button
-                disabled={busy}
-                onClick={() => void handleAction("FIELD_VISIT")}
-                className="rounded-xl border border-slate-200 py-3 text-[10px] font-black text-[#071a2d]"
-              >
-                Field visit
-              </button>
-              <button
-                disabled={busy || !promiseDate || !promiseAmount}
-                onClick={() => void handleAction("PROMISE_TO_PAY")}
-                className="rounded-xl bg-[#071a2d] py-3 text-[10px] font-black text-white disabled:opacity-40"
-              >
-                Promise to pay
-              </button>
-              <button
-                disabled={busy}
-                onClick={() => void handleAction("ESCALATED")}
-                className="rounded-xl bg-red-700 py-3 text-[10px] font-black text-white disabled:opacity-40"
-              >
-                Escalate
-              </button>
-            </div>
+      {stats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <p className="text-xs text-gray-400">Open Cases</p>
+            <p className="text-2xl font-bold text-gray-900">{stats.totalOpenCases}</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <p className="text-xs text-gray-400">Total Overdue</p>
+            <p className="text-2xl font-bold text-red-600">{stats.totalOverdueAmount?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <p className="text-xs text-gray-400">Active Promises</p>
+            <p className="text-2xl font-bold text-blue-600">{stats.activePromises}</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <p className="text-xs text-gray-400">90+ DPD Cases</p>
+            <p className="text-2xl font-bold text-gray-900">{stats.casesByBucket?.DPD_90_PLUS ?? 0}</p>
           </div>
         </div>
-      ) : null}
-    </main>
+      )}
+
+      <div className="flex gap-2 flex-wrap">
+        <button onClick={() => setBucketFilter('')}
+          className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${!bucketFilter ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}>
+          All
+        </button>
+        {(Object.keys(BUCKET_LABEL) as CollectionBucket[]).map((b) => (
+          <button key={b} onClick={() => setBucketFilter(b)}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${bucketFilter === b ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}>
+            {BUCKET_LABEL[b]} {stats ? `(${stats.casesByBucket?.[b] ?? 0})` : ''}
+          </button>
+        ))}
+      </div>
+
+      {cases.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-16 text-center">
+          <p className="text-3xl mb-3">✅</p>
+          <p className="text-gray-500 font-medium">No delinquent cases in this bucket.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
+              <tr>
+                <th className="text-left px-4 py-3">Borrower</th>
+                <th className="text-left px-4 py-3">Loan Ref</th>
+                <th className="text-left px-4 py-3">Bucket</th>
+                <th className="text-left px-4 py-3">Priority</th>
+                <th className="text-right px-4 py-3">Overdue Amount</th>
+                <th className="text-left px-4 py-3">Agent</th>
+                <th className="text-left px-4 py-3">Status</th>
+                <th className="text-right px-4 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {cases.map((c) => (
+                <tr key={c.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 font-medium text-gray-800">
+                    {c.loan?.borrower?.firstName} {c.loan?.borrower?.lastName}
+                    <div className="text-xs text-gray-400">{c.loan?.borrower?.phone}</div>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">{c.loan?.referenceNumber}</td>
+                  <td className="px-4 py-3"><Pill label={BUCKET_LABEL[c.bucket]} color={BUCKET_COLOR[c.bucket]} /></td>
+                  <td className="px-4 py-3"><Pill label={c.priority} color={PRIORITY_COLOR[c.priority]} /></td>
+                  <td className="px-4 py-3 text-right font-semibold text-gray-800">
+                    {c.loan?.currency} {c.overdueAmount?.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">{c.assignedAgent?.name ?? '—'}</td>
+                  <td className="px-4 py-3"><Pill label={c.status.replace(/_/g, ' ')} color="gray" /></td>
+                  <td className="px-4 py-3 text-right">
+                    <button onClick={() => setActiveCase(c)} className="text-teal-600 hover:underline text-xs font-semibold">
+                      Log Action
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {activeCase && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setActiveCase(null)}>
+          <div className="bg-white rounded-xl p-6 w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-bold text-gray-900">
+              Log action — {activeCase.loan?.borrower?.firstName} {activeCase.loan?.borrower?.lastName}
+            </h3>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes (optional)" rows={2}
+              className="w-full border border-gray-300 rounded-lg p-3 text-sm resize-none" />
+            <div className="grid grid-cols-2 gap-3">
+              <input type="date" value={promiseDate} onChange={(e) => setPromiseDate(e.target.value)}
+                placeholder="Promise date" className="border border-gray-300 rounded-lg p-2 text-sm" />
+              <input type="number" value={promiseAmount} onChange={(e) => setPromiseAmount(e.target.value)}
+                placeholder="Promise amount" className="border border-gray-300 rounded-lg p-2 text-sm" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button disabled={busy} onClick={() => handleAction('CALL')} className="border border-gray-300 rounded-lg py-2 text-sm font-medium hover:bg-gray-50">📞 Called</button>
+              <button disabled={busy} onClick={() => handleAction('FIELD_VISIT')} className="border border-gray-300 rounded-lg py-2 text-sm font-medium hover:bg-gray-50">🚶 Field Visit</button>
+              <button disabled={busy || !promiseDate || !promiseAmount} onClick={() => handleAction('PROMISE_TO_PAY')}
+                className="bg-blue-600 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50">🤝 Promise to Pay</button>
+              <button disabled={busy} onClick={() => handleAction('ESCALATED')} className="bg-red-600 text-white rounded-lg py-2 text-sm font-medium">⚠ Escalate</button>
+            </div>
+            <button onClick={() => setActiveCase(null)} className="text-gray-500 text-sm w-full text-center pt-1">Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

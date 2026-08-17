@@ -1,863 +1,296 @@
-"use client";
+'use client';
+import Link from 'next/link';
+import React from 'react';
+import { useTenant } from './layout';
+import { useScrollReveal, useCountUp } from '../../hooks/useScrollReveal';
 
-import Link from "next/link";
-import { useTenant } from "./layout";
-import LoanCalculator from "../../components/public/LoanCalculator";
-import FxRatePanel from "../../components/public/FxRatePanel";
-
-function numberValue(value: unknown): number | null {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
+function IconCheck() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>;
 }
-
-function money(value: unknown, currency: string) {
-  const amount = numberValue(value);
-
-  if (amount == null) return "—";
-
-  return new Intl.NumberFormat("en-RW", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(amount);
+function IconShield() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>;
 }
-
-function SectionEyebrow({
-  children,
-  color,
-}: {
-  children: React.ReactNode;
-  color: string;
-}) {
-  return (
-    <div
-      className="text-[10px] font-black uppercase tracking-[0.24em]"
-      style={{ color }}
-    >
-      {children}
-    </div>
-  );
+function IconClock() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>;
 }
-
-function Check({ color }: { color: string }) {
-  return (
-    <span
-      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-black text-white"
-      style={{ backgroundColor: color }}
-    >
-      ✓
-    </span>
-  );
+function IconDevice() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>;
 }
 
 export default function HomePage() {
   const tenant = useTenant();
-
   if (!tenant) return null;
 
   const primary = tenant.primaryColor;
-  const accent = tenant.accentColor;
-  const currency = tenant.currency || "RWF";
-
-  const services = tenant.services ?? [];
-  const stats = tenant.stats ?? [];
-  const testimonials = tenant.testimonials ?? [];
-
-  const highlight = services[0];
-
-  const interestRate = numberValue(
-    highlight?.monthlyInterestRate ?? tenant.monthlyInterestRate,
-  );
-
-  const managementRate = numberValue(
-    highlight?.monthlyManagementFeeRate ?? tenant.monthlyManagementFeeRate,
-  );
-
-  const processingRate = numberValue(
-    highlight?.processingFeeRate ?? tenant.processingFeeRate,
-  );
+  const accent  = tenant.accentColor;
 
   return (
-    <div className="overflow-hidden bg-white">
-      {/* ======================================================
-          HERO
-      ====================================================== */}
-      <section className="relative overflow-hidden bg-[#f7f8fa]">
-        <div
-          className="absolute inset-0 opacity-[0.035]"
-          style={{
-            backgroundImage: `
-              linear-gradient(${primary} 1px, transparent 1px),
-              linear-gradient(90deg, ${primary} 1px, transparent 1px)
-            `,
-            backgroundSize: "54px 54px",
-          }}
-        />
-
-        <div
-          className="absolute -right-32 top-10 h-[520px] w-[520px] rounded-full blur-3xl"
-          style={{
-            backgroundColor: `${accent}18`,
-          }}
-        />
-
-        <div
-          className="absolute -left-32 bottom-0 h-72 w-72 rounded-full blur-3xl"
-          style={{
-            backgroundColor: `${primary}10`,
-          }}
-        />
-
-        <div className="relative mx-auto grid max-w-7xl gap-12 px-4 pb-20 pt-16 md:pb-28 md:pt-24 lg:grid-cols-[1.08fr_0.92fr] lg:items-center">
-          <div>
-            <div
-              className="inline-flex items-center gap-3 rounded-full border bg-white px-4 py-2.5 text-[10px] font-black uppercase tracking-[0.18em] shadow-sm"
-              style={{
-                borderColor: `${accent}70`,
-                color: primary,
-              }}
-            >
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: accent }}
-              />
-              Official {tenant.name} website
+    <div>
+      {/* ── HERO ── */}
+      <section className="relative overflow-hidden"
+        style={{ background: `linear-gradient(160deg, #0B1220 0%, ${primary} 130%)` }}>
+        <div className="relative max-w-7xl mx-auto px-4 py-20 md:py-28 grid md:grid-cols-2 gap-12 items-center">
+          <div className="text-white">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded border border-white/20 text-xs font-semibold mb-6 tracking-wide uppercase text-white/80">
+              Licensed &amp; regulated in {tenant.country === 'RW' ? 'Rwanda' : tenant.country}
             </div>
-
-            <h1 className="mt-8 max-w-4xl text-[3.3rem] font-black leading-[0.96] tracking-[-0.055em] text-slate-950 sm:text-6xl lg:text-[5.4rem]">
-              {tenant.hero?.headline ||
-                tenant.tagline ||
-                `Financial solutions from ${tenant.name}`}
+            <h1 className="text-4xl md:text-5xl font-bold leading-[1.15] mb-6 tracking-tight">
+              {tenant.hero?.headline ?? 'Your Trusted Financial Partner'}
             </h1>
-
-            <p className="mt-7 max-w-2xl text-base leading-8 text-slate-600 sm:text-lg">
-              {tenant.hero?.subtext ||
-                tenant.mission ||
-                `Professional lending solutions designed around real financial needs.`}
+            <p className="text-white/75 text-lg leading-relaxed mb-8 max-w-lg">
+              {tenant.hero?.subtext ?? 'Fast approvals, competitive rates, and flexible terms — built on a secure, compliant lending platform.'}
             </p>
-
-            <div className="mt-9 flex flex-wrap gap-3">
-              <Link
-                href="/apply"
-                className="group inline-flex items-center gap-3 rounded-xl px-6 py-4 text-sm font-black text-white shadow-xl transition duration-300 hover:-translate-y-1 hover:shadow-2xl"
-                style={{ backgroundColor: primary }}
-              >
-                Start an Application
-                <span className="transition-transform group-hover:translate-x-1">
-                  →
-                </span>
+            <div className="flex flex-wrap gap-4">
+              <Link href="/apply"
+                className="px-7 py-3.5 rounded-md font-bold text-base shadow-lg hover:opacity-90 transition-opacity"
+                style={{ backgroundColor: accent, color: '#111' }}>
+                Apply for a Loan →
               </Link>
-
-              <Link
-                href="/services"
-                className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-6 py-4 text-sm font-black text-slate-800 transition hover:-translate-y-0.5 hover:border-slate-400 hover:shadow-lg"
-              >
-                Explore Financing
+              <Link href="/services"
+                className="px-7 py-3.5 rounded-md font-semibold text-base border border-white/30 text-white hover:bg-white/10 transition-colors">
+                View Our Services
               </Link>
             </div>
-
-            <div className="mt-10 grid max-w-2xl gap-3 sm:grid-cols-3">
-              {[
-                ["01", "Transparent", "Published products and terms."],
-                ["02", "Professional", "Structured lending experience."],
-                ["03", "Secure", "Protected digital workflow."],
-              ].map(([number, title, text]) => (
-                <div
-                  key={number}
-                  className="border-l-2 bg-white/70 px-4 py-3"
-                  style={{
-                    borderColor: accent,
-                  }}
-                >
-                  <div
-                    className="text-[10px] font-black tracking-[0.2em]"
-                    style={{ color: accent }}
-                  >
-                    {number}
+            {/* Trust badges */}
+            <div className="flex flex-wrap items-center gap-x-8 gap-y-4 mt-12 pt-8 border-t border-white/10">
+              {[[IconClock,'Fast approval'],[IconShield,'Bank-grade security'],[IconDevice,'Apply online'],[IconCheck,'No hidden fees']].map(([Icon, label]) => {
+                const IconComp = Icon as React.FC;
+                return (
+                  <div key={label as string} className="flex items-center gap-2 text-white/70">
+                    <IconComp />
+                    <span className="text-sm font-medium">{label as string}</span>
                   </div>
-
-                  <div className="mt-1 text-sm font-black text-slate-900">
-                    {title}
-                  </div>
-
-                  <div className="mt-1 text-[11px] leading-5 text-slate-500">
-                    {text}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
-          {/* Premium lending panel */}
-          <div className="relative">
-            <div
-              className="relative overflow-hidden rounded-[2.25rem] p-7 text-white shadow-[0_35px_100px_rgba(15,23,42,0.22)] md:p-9"
-              style={{
-                background: `linear-gradient(145deg, ${primary}, #071426)`,
-              }}
-            >
-              <div
-                className="absolute -right-24 -top-24 h-64 w-64 rounded-full blur-3xl"
-                style={{
-                  backgroundColor: `${accent}22`,
-                }}
-              />
-
-              <div className="relative">
-                <div className="flex items-start justify-between gap-5">
-                  <div>
-                    <div className="text-[9px] font-black uppercase tracking-[0.25em] text-white/40">
-                      Lending institution
-                    </div>
-
-                    <div className="mt-2 text-2xl font-black tracking-tight">
-                      {tenant.name}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-right">
-                    <div className="text-[8px] font-black uppercase tracking-widest text-white/35">
-                      Currency
-                    </div>
-
-                    <div className="mt-1 text-sm font-black">{currency}</div>
-                  </div>
-                </div>
-
-                <div className="mt-9">
-                  <div className="text-[9px] font-black uppercase tracking-[0.22em] text-white/40">
-                    Published lending profile
-                  </div>
-
-                  <div className="mt-5 grid grid-cols-2 gap-3">
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-5">
-                      <div className="text-[9px] uppercase tracking-widest text-white/35">
-                        Products
-                      </div>
-
-                      <div className="mt-2 text-3xl font-black">
-                        {services.length}
-                      </div>
-
-                      <div className="mt-1 text-xs text-white/40">
-                        published
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-5">
-                      <div className="text-[9px] uppercase tracking-widest text-white/35">
-                        Market
-                      </div>
-
-                      <div className="mt-2 text-2xl font-black">
-                        {tenant.country || "—"}
-                      </div>
-
-                      <div className="mt-1 text-xs text-white/40">
-                        operating market
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.045] p-5">
-                  <div className="text-[9px] font-black uppercase tracking-[0.2em] text-white/35">
-                    Representative published pricing
-                  </div>
-
-                  <div className="mt-4 divide-y divide-white/10">
-                    {[
-                      [
-                        "Interest",
-                        interestRate == null
-                          ? "Published per product"
-                          : `${interestRate.toFixed(2)}% / month`,
-                      ],
-                      [
-                        "Management fee",
-                        managementRate == null
-                          ? "Published per product"
-                          : `${managementRate.toFixed(2)}% / month`,
-                      ],
-                      [
-                        "Processing fee",
-                        processingRate == null
-                          ? "Published per product"
-                          : `${processingRate.toFixed(2)}% once`,
-                      ],
-                    ].map(([label, value]) => (
-                      <div
-                        key={label}
-                        className="flex items-center justify-between gap-4 py-3"
-                      >
-                        <span className="text-sm text-white/50">{label}</span>
-
-                        <span className="text-sm font-black text-white">
-                          {value}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="mt-5 grid grid-cols-2 gap-3">
-                  <Link
-                    href="/calculator"
-                    className="rounded-xl bg-white px-4 py-3.5 text-center text-xs font-black transition hover:-translate-y-0.5"
-                    style={{
-                      color: primary,
-                    }}
-                  >
-                    Calculate
-                  </Link>
-
-                  <Link
-                    href="/track"
-                    className="rounded-xl border border-white/15 px-4 py-3.5 text-center text-xs font-black text-white transition hover:bg-white/5"
-                  >
-                    Track application
-                  </Link>
-                </div>
-              </div>
-            </div>
-
-            <div className="absolute -bottom-8 -left-6 hidden w-56 rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl md:block">
-              <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">
-                Noble standard
-              </div>
-
-              <div className="mt-2 text-sm font-black leading-6 text-slate-900">
-                Clear information for confident financial decisions.
-              </div>
-
-              <div className="mt-4 flex gap-1.5">
-                {[1, 2, 3, 4, 5].map((item) => (
-                  <span
-                    key={item}
-                    className="h-1.5 flex-1 rounded-full"
-                    style={{
-                      backgroundColor: item < 5 ? accent : "#e2e8f0",
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
+          {/* Loan calculator card */}
+          <div className="bg-white rounded-xl shadow-2xl p-8">
+            <h3 className="text-lg font-bold mb-1 text-gray-900">Loan Calculator</h3>
+            <p className="text-gray-500 text-sm mb-6">Estimate your monthly repayment</p>
+            <LoanCalculator primary={primary} accent={accent} currency={tenant.currency} />
           </div>
         </div>
       </section>
 
-      {/* ======================================================
-          STATS
-      ====================================================== */}
-      {stats.length > 0 && (
-        <section className="border-y border-slate-200 bg-white">
-          <div className="mx-auto grid max-w-7xl grid-cols-2 md:grid-cols-4">
-            {stats.slice(0, 4).map((stat, index) => (
-              <div
-                key={`${stat.label}-${stat.value}`}
-                className={`px-6 py-8 ${
-                  index !== 0 ? "border-l border-slate-200" : ""
-                }`}
-              >
-                <div className="text-lg">{stat.icon || "•"}</div>
-
-                <div className="mt-3 text-2xl font-black tracking-tight text-slate-950 md:text-3xl">
-                  {stat.value}
-                </div>
-
-                <div className="mt-2 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">
-                  {stat.label}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ======================================================
-          INSTITUTIONAL VALUE
-      ====================================================== */}
-      <section className="mx-auto max-w-7xl px-4 py-20 md:py-28">
-        <div className="grid gap-12 lg:grid-cols-[0.75fr_1.25fr] lg:items-end">
-          <div>
-            <SectionEyebrow color={accent}>The Noble experience</SectionEyebrow>
-
-            <h2 className="mt-4 text-4xl font-black tracking-[-0.035em] text-slate-950 md:text-5xl">
-              A more considered way to access finance.
-            </h2>
-
-            <p className="mt-5 max-w-xl text-base leading-8 text-slate-600">
-              {tenant.name} combines professional lending, transparent product
-              information and digital convenience in one client experience.
-            </p>
-
-            <Link
-              href="/about"
-              className="mt-7 inline-flex items-center gap-2 text-sm font-black"
-              style={{ color: primary }}
-            >
-              Discover {tenant.name}
-              <span>→</span>
-            </Link>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            {[
-              [
-                "01",
-                "Responsible lending",
-                "Loan products and published terms are presented clearly before an application is submitted.",
-              ],
-              [
-                "02",
-                "Digital convenience",
-                "Apply, submit information and follow your application through a professional online workflow.",
-              ],
-              [
-                "03",
-                "Financial visibility",
-                "Use planning tools to understand indicative amounts before proceeding.",
-              ],
-              [
-                "04",
-                "Human support",
-                "When you need assistance, verified contact channels remain available throughout your journey.",
-              ],
-            ].map(([number, title, text]) => (
-              <div
-                key={number}
-                className="group rounded-2xl border border-slate-200 bg-white p-6 transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-xl"
-              >
-                <div
-                  className="text-[10px] font-black tracking-[0.18em]"
-                  style={{ color: accent }}
-                >
-                  {number}
-                </div>
-
-                <h3 className="mt-4 text-lg font-black text-slate-950">
-                  {title}
-                </h3>
-
-                <p className="mt-2 text-sm leading-6 text-slate-500">{text}</p>
-              </div>
-            ))}
-          </div>
+      {/* ── STATS ── */}
+      <section className="py-14 bg-gray-50 border-b border-gray-100">
+        <div className="max-w-7xl mx-auto px-4 grid grid-cols-2 md:grid-cols-4 gap-6">
+          {(tenant.stats ?? [
+            { value: '5,000+', label: 'Clients served', icon: '' },
+            { value: '24 hrs', label: 'Average approval time', icon: '' },
+          ]).map((stat, i) => (
+            <StatCard key={stat.label} stat={stat} primary={primary} delay={i} />
+          ))}
         </div>
       </section>
 
-      {/* ======================================================
-          SERVICES
-      ====================================================== */}
-      <section className="border-y border-slate-200 bg-[#f7f8fa] py-20 md:py-28">
-        <div className="mx-auto max-w-7xl px-4">
-          <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
-            <div className="max-w-2xl">
-              <SectionEyebrow color={accent}>Lending solutions</SectionEyebrow>
-
-              <h2 className="mt-4 text-4xl font-black tracking-[-0.035em] text-slate-950 md:text-5xl">
-                Financing designed around your needs.
-              </h2>
-
-              <p className="mt-4 text-base leading-8 text-slate-600">
-                Explore the products currently published by {tenant.name}.
-              </p>
-            </div>
-
-            <Link
-              href="/services"
-              className="text-sm font-black"
-              style={{ color: primary }}
-            >
-              View all services →
-            </Link>
-          </div>
-
-          {services.length > 0 ? (
-            <div className="mt-12 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-              {services.slice(0, 6).map((service, index) => (
-                <article
-                  key={service.id ?? service.title}
-                  className="group relative overflow-hidden rounded-[1.7rem] border border-slate-200 bg-white p-7 transition duration-300 hover:-translate-y-1 hover:shadow-2xl"
-                >
-                  <div
-                    className="absolute right-0 top-0 h-28 w-28 rounded-full blur-3xl opacity-0 transition group-hover:opacity-100"
-                    style={{
-                      backgroundColor: `${accent}25`,
-                    }}
-                  />
-
-                  <div className="relative">
-                    <div className="flex items-start justify-between">
-                      <div
-                        className="flex h-14 w-14 items-center justify-center rounded-2xl text-2xl"
-                        style={{
-                          backgroundColor: `${primary}10`,
-                          color: primary,
-                        }}
-                      >
-                        {service.icon || "◈"}
-                      </div>
-
-                      <span className="text-[9px] font-black tracking-[0.2em] text-slate-300">
-                        {String(index + 1).padStart(2, "0")}
-                      </span>
-                    </div>
-
-                    <h3 className="mt-7 text-xl font-black text-slate-950">
-                      {service.title}
-                    </h3>
-
-                    <p className="mt-3 min-h-[72px] text-sm leading-6 text-slate-500">
-                      {service.description ||
-                        "Product-specific terms are disclosed during the application and approval process."}
-                    </p>
-
-                    <div className="mt-6 grid grid-cols-2 gap-3">
-                      <div className="rounded-xl bg-slate-50 p-3">
-                        <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                          Interest
-                        </div>
-
-                        <div
-                          className="mt-1 text-sm font-black"
-                          style={{ color: primary }}
-                        >
-                          {service.rate || "Published"}
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl bg-slate-50 p-3">
-                        <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                          Term
-                        </div>
-
-                        <div
-                          className="mt-1 text-sm font-black"
-                          style={{ color: primary }}
-                        >
-                          {service.term || "Published"}
-                        </div>
-                      </div>
-                    </div>
-
-                    <Link
-                      href={`/apply?type=${encodeURIComponent(service.title)}`}
-                      className="mt-7 inline-flex items-center gap-2 text-sm font-black"
-                      style={{ color: primary }}
-                    >
-                      Explore this product
-                      <span className="transition-transform group-hover:translate-x-1">
-                        →
-                      </span>
-                    </Link>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-10 rounded-3xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-500">
-              Products are currently being configured.
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* ======================================================
-          CALCULATOR
-      ====================================================== */}
-      <section className="mx-auto max-w-7xl px-4 py-20 md:py-28">
-        <div className="mb-10 max-w-2xl">
-          <SectionEyebrow color={accent}>Plan with confidence</SectionEyebrow>
-
-          <h2 className="mt-4 text-4xl font-black tracking-[-0.035em] text-slate-950 md:text-5xl">
-            Understand the numbers before you apply.
-          </h2>
-
-          <p className="mt-4 text-base leading-8 text-slate-600">
-            Use the published product information to explore an indicative
-            financing scenario.
+      {/* ── SERVICES PREVIEW ── */}
+      <section className="py-20 max-w-7xl mx-auto px-4">
+        <div className="text-center mb-12">
+          <h2 className="text-3xl font-bold text-gray-900 mb-4 tracking-tight">Our Financial Products</h2>
+          <p className="text-gray-500 text-lg max-w-2xl mx-auto">
+            Tailored lending solutions for individuals, businesses, and farmers across {tenant.country === 'RW' ? 'Rwanda' : tenant.country}.
           </p>
         </div>
-
-        <LoanCalculator tenant={tenant} />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {tenant.services?.map(service => (
+            <div key={service.title}
+              className="group bg-white rounded-lg border border-gray-200 p-6 hover:shadow-lg hover:border-gray-300 transition-all duration-200">
+              <h3 className="text-lg font-bold text-gray-900 mb-2">{service.title}</h3>
+              <p className="text-gray-500 text-sm leading-relaxed mb-4">{service.description}</p>
+              <div className="flex items-center justify-between text-xs mb-4">
+                <span className="font-bold px-3 py-1.5 rounded" style={{ backgroundColor: primary + '12', color: primary }}>
+                  From {service.rate} {service.rateType === 'MONTHLY' ? 'per month' : 'p.a.'}
+                </span>
+                <span className="text-gray-400">Up to {tenant.currency} {service.maxAmount}</span>
+              </div>
+              <Link href={`/apply?type=${service.title.replace(/ /g,'_').toUpperCase()}`}
+                className="block text-center py-2.5 rounded-md text-sm font-bold border transition-colors"
+                style={{ borderColor: primary, color: primary }}
+                onMouseEnter={e => { (e.target as HTMLElement).style.backgroundColor = primary; (e.target as HTMLElement).style.color = '#fff'; }}
+                onMouseLeave={e => { (e.target as HTMLElement).style.backgroundColor = 'transparent'; (e.target as HTMLElement).style.color = primary; }}>
+                Apply Now →
+              </Link>
+            </div>
+          ))}
+        </div>
       </section>
 
-      {/* ======================================================
-          HOW IT WORKS
-      ====================================================== */}
-      <section className="bg-[#f7f8fa] py-20 md:py-28">
-        <div className="mx-auto max-w-7xl px-4">
-          <div className="max-w-2xl">
-            <SectionEyebrow color={accent}>Your journey</SectionEyebrow>
-
-            <h2 className="mt-4 text-4xl font-black tracking-[-0.035em] text-slate-950 md:text-5xl">
-              A clear path from application to servicing.
-            </h2>
+      {/* ── HOW IT WORKS ── */}
+      <section className="py-20" style={{ backgroundColor: primary + '06' }}>
+        <div className="max-w-5xl mx-auto px-4">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4 tracking-tight">How to Get a Loan</h2>
+            <p className="text-gray-500 text-lg">A simple, secure 4-step process</p>
           </div>
-
-          <div className="mt-12 grid gap-4 md:grid-cols-5">
+          <div className="grid md:grid-cols-4 gap-6">
             {[
-              ["01", "Explore", "Review the available financing solutions."],
-              ["02", "Apply", "Submit your application securely."],
-              [
-                "03",
-                "Review",
-                "Your information is assessed through the lender's process.",
-              ],
-              ["04", "Approval", "Receive the lender's approved terms."],
-              ["05", "Service", "Manage repayment and ongoing support."],
-            ].map(([number, title, text], index) => (
-              <div
-                key={number}
-                className="relative rounded-2xl border border-slate-200 bg-white p-6"
-              >
-                {index < 4 && (
-                  <div
-                    className="absolute right-[-17px] top-10 z-10 hidden h-px w-8 md:block"
-                    style={{
-                      backgroundColor: `${accent}70`,
-                    }}
-                  />
-                )}
-
-                <div
-                  className="text-[10px] font-black tracking-[0.2em]"
-                  style={{ color: accent }}
-                >
-                  {number}
-                </div>
-
-                <h3 className="mt-5 text-base font-black text-slate-950">
-                  {title}
-                </h3>
-
-                <p className="mt-2 text-xs leading-6 text-slate-500">{text}</p>
+              { step:'1', title:'Apply Online', desc:'Complete our application form in a few minutes, from any device.' },
+              { step:'2', title:'Submit Documents', desc:'Upload your ID and supporting documents securely — no branch visit required.' },
+              { step:'3', title:'Get Approved', desc:'Our credit team reviews your application and responds within 24 hours.' },
+              { step:'4', title:'Receive Funds', desc:'Approved funds are disbursed directly to your mobile money or bank account.' },
+            ].map(item => (
+              <div key={item.step} className="text-center bg-white rounded-lg p-6 border border-gray-100 relative">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-7 h-7 rounded-full text-white font-bold text-xs flex items-center justify-center"
+                  style={{ backgroundColor: primary }}>{item.step}</div>
+                <div className="font-bold text-gray-900 mb-2 mt-3">{item.title}</div>
+                <div className="text-gray-500 text-sm">{item.desc}</div>
               </div>
             ))}
           </div>
-        </div>
-      </section>
-
-      {/* ======================================================
-          TRUST
-      ====================================================== */}
-      <section className="mx-auto max-w-7xl px-4 py-20 md:py-28">
-        <div className="grid gap-6 lg:grid-cols-[1fr_0.85fr]">
-          <div
-            className="rounded-[2rem] p-8 text-white md:p-10"
-            style={{
-              background: `linear-gradient(145deg, ${primary}, #071426)`,
-            }}
-          >
-            <SectionEyebrow color={`${accent}`}>
-              Confidence matters
-            </SectionEyebrow>
-
-            <h2 className="mt-4 max-w-2xl text-3xl font-black tracking-tight md:text-4xl">
-              A lending experience built around clarity.
-            </h2>
-
-            <p className="mt-5 max-w-2xl text-sm leading-7 text-white/60">
-              {tenant.name} provides a structured digital experience while
-              keeping the important financial information visible throughout the
-              customer journey.
-            </p>
-
-            <div className="mt-8 grid gap-3 sm:grid-cols-2">
-              {[
-                "Published product information",
-                "Secure digital application",
-                "Clear repayment visibility",
-                "Verified support channels",
-              ].map((item) => (
-                <div
-                  key={item}
-                  className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-4"
-                >
-                  <Check color={accent} />
-
-                  <span className="text-sm font-bold text-white/80">
-                    {item}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm md:p-10">
-            <SectionEyebrow color={accent}>Financial tools</SectionEyebrow>
-
-            <h2 className="mt-4 text-3xl font-black tracking-tight text-slate-950">
-              More than an application form.
-            </h2>
-
-            <p className="mt-4 text-sm leading-7 text-slate-500">
-              Explore financing, calculate indicative scenarios and access
-              financial reference tools from one place.
-            </p>
-
-            <div className="mt-7 space-y-3">
-              <Link
-                href="/calculator"
-                className="flex items-center justify-between rounded-xl border border-slate-200 p-4 transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                <span className="text-sm font-black text-slate-900">
-                  Loan calculator
-                </span>
-                <span style={{ color: primary }}>→</span>
-              </Link>
-
-              <Link
-                href="/services"
-                className="flex items-center justify-between rounded-xl border border-slate-200 p-4 transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                <span className="text-sm font-black text-slate-900">
-                  Compare services
-                </span>
-                <span style={{ color: primary }}>→</span>
-              </Link>
-
-              <Link
-                href="/track"
-                className="flex items-center justify-between rounded-xl border border-slate-200 p-4 transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                <span className="text-sm font-black text-slate-900">
-                  Track application
-                </span>
-                <span style={{ color: primary }}>→</span>
-              </Link>
-            </div>
+          <div className="text-center mt-10">
+            <Link href="/apply"
+              className="inline-block px-10 py-3.5 rounded-md text-white font-bold text-base shadow-md hover:opacity-90 transition-opacity"
+              style={{ backgroundColor: primary }}>
+              Start Your Application →
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* ======================================================
-          FX
-      ====================================================== */}
-      <section className="border-y border-slate-200 bg-[#f7f8fa] py-20 md:py-28">
-        <div className="mx-auto max-w-7xl px-4">
-          <div className="mb-10 max-w-2xl">
-            <SectionEyebrow color={accent}>Market reference</SectionEyebrow>
-
-            <h2 className="mt-4 text-4xl font-black tracking-tight text-slate-950">
-              Financial visibility in one place.
-            </h2>
-
-            <p className="mt-4 text-base leading-7 text-slate-600">
-              Access the platform&apos;s available foreign-exchange reference
-              information without leaving the Noble Loan experience.
-            </p>
+      {/* ── TESTIMONIALS ── */}
+      {tenant.testimonials && tenant.testimonials.length > 0 && (
+        <section className="py-20 max-w-7xl mx-auto px-4">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4 tracking-tight">What Our Clients Say</h2>
           </div>
-
-          <FxRatePanel />
-        </div>
-      </section>
-
-      {/* ======================================================
-          TESTIMONIALS
-      ====================================================== */}
-      {testimonials.length > 0 && (
-        <section className="mx-auto max-w-7xl px-4 py-20 md:py-28">
-          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
-            <div className="max-w-2xl">
-              <SectionEyebrow color={accent}>Client experience</SectionEyebrow>
-
-              <h2 className="mt-4 text-4xl font-black tracking-tight text-slate-950 md:text-5xl">
-                Trusted by the people we serve.
-              </h2>
-            </div>
-          </div>
-
-          <div className="mt-12 grid gap-5 md:grid-cols-3">
-            {testimonials.slice(0, 6).map((item) => (
-              <article
-                key={`${item.name}-${item.text.slice(0, 15)}`}
-                className="rounded-[1.7rem] border border-slate-200 bg-white p-7 shadow-sm transition hover:-translate-y-1 hover:shadow-xl"
-              >
-                <div
-                  className="text-sm tracking-wide"
-                  style={{ color: accent }}
-                >
-                  {"★".repeat(Math.max(1, Math.min(5, item.rating || 5)))}
-                </div>
-
-                <p className="mt-5 text-sm leading-7 text-slate-600">
-                  “{item.text}”
-                </p>
-
-                <div className="mt-7 border-t border-slate-100 pt-5">
-                  <div className="text-sm font-black text-slate-950">
-                    {item.name}
-                  </div>
-
-                  {item.role && (
-                    <div className="mt-1 text-xs text-slate-400">
-                      {item.role}
-                    </div>
-                  )}
-                </div>
-              </article>
+          <div className="grid md:grid-cols-3 gap-6">
+            {tenant.testimonials.map((t, i) => (
+              <TestimonialCard key={t.name} t={t} primary={primary} accent={accent} delay={i} />
             ))}
           </div>
         </section>
       )}
 
-      {/* ======================================================
-          FINAL CTA
-      ====================================================== */}
-      <section className="px-4 pb-24">
-        <div
-          className="mx-auto max-w-7xl overflow-hidden rounded-[2.25rem] text-white shadow-[0_35px_100px_rgba(15,23,42,0.18)]"
-          style={{
-            background: `linear-gradient(135deg, ${primary}, #071426)`,
-          }}
-        >
-          <div className="relative grid gap-10 px-8 py-12 md:px-14 md:py-16 lg:grid-cols-[1fr_auto] lg:items-center">
-            <div
-              className="absolute -right-32 -top-32 h-80 w-80 rounded-full blur-3xl"
-              style={{
-                backgroundColor: `${accent}18`,
-              }}
-            />
-
-            <div className="relative">
-              <SectionEyebrow color={`${accent}`}>
-                Your next step
-              </SectionEyebrow>
-
-              <h2 className="mt-4 max-w-3xl text-3xl font-black tracking-tight md:text-5xl">
-                Ready to explore your financing options?
-              </h2>
-
-              <p className="mt-4 max-w-2xl text-sm leading-7 text-white/60">
-                Review the available products, calculate an indicative scenario
-                and submit your application through {tenant.name}.
-              </p>
-            </div>
-
-            <div className="relative flex flex-wrap gap-3">
-              <Link
-                href="/apply"
-                className="rounded-xl px-6 py-4 text-sm font-black"
-                style={{
-                  backgroundColor: accent,
-                  color: primary,
-                }}
-              >
-                Start an Application
-              </Link>
-
-              <Link
-                href="/contact"
-                className="rounded-xl border border-white/15 px-6 py-4 text-sm font-bold text-white transition hover:bg-white/5"
-              >
-                Talk to Us
-              </Link>
-            </div>
-          </div>
+      {/* ── CTA BANNER ── */}
+      <section className="py-16 mx-4 md:mx-auto max-w-7xl mb-16">
+        <div className="rounded-xl p-12 text-center text-white relative overflow-hidden"
+          style={{ background: `linear-gradient(135deg, #0B1220, ${primary})` }}>
+          <h2 className="text-3xl md:text-4xl font-bold mb-4 relative z-10 tracking-tight">
+            Ready to Take the Next Step?
+          </h2>
+          <p className="text-white/75 text-lg mb-8 relative z-10 max-w-xl mx-auto">
+            Apply today and get a response within 24 hours. No hidden fees, no surprises.
+          </p>
+          <Link href="/apply"
+            className="inline-block px-12 py-3.5 rounded-md font-bold text-base shadow-lg hover:opacity-90 transition-opacity relative z-10"
+            style={{ backgroundColor: accent, color: '#111' }}>
+            Apply for a Loan Now →
+          </Link>
         </div>
       </section>
+    </div>
+  );
+}
+
+// Inline calculator component
+function LoanCalculator({ primary, accent, currency }: { primary: string; accent: string; currency: string }) {
+  const [amount, setAmount]   = React.useState(500000);
+  const [months, setMonths]   = React.useState(12);
+  
+  // 1. Force the monthly interest rate calculation to exactly 10% (0.10)
+  const monthlyRate = 0.10; 
+  
+  // 2. Calculate the monthly interest amount accumulated (Flat rate math)
+  const monthlyInterest = amount * monthlyRate;
+  
+  // 3. Calculate the monthly principal payback allocation
+  const monthlyPrincipal = amount / months;
+  
+  // 4. Combine them to get the total fixed monthly installment payment
+  const monthly = monthlyPrincipal + monthlyInterest;
+  
+  // 5. Aggregate totals
+  const total    = monthly * months;
+  const interest = total - amount;
+  
+  const fmt = (n: number) => n.toLocaleString('en-RW', { maximumFractionDigits: 0 });
+
+
+  return (
+    <div>
+      <div className="mb-4">
+        <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Loan Amount ({currency})</label>
+        <input type="range" min={100000} max={10000000} step={100000} value={amount}
+          onChange={e => setAmount(Number(e.target.value))}
+          className="w-full mt-2" style={{ accentColor: primary }} />
+        <div className="text-2xl font-bold mt-1" style={{ color: primary }}>{currency} {fmt(amount)}</div>
+      </div>
+      <div className="mb-4">
+        <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Loan Term</label>
+        <div className="flex gap-2 flex-wrap mt-2">
+          {[3,6,12,24,36,48].map(m => (
+            <button key={m} onClick={() => setMonths(m)}
+              className="px-3 py-1.5 rounded-md text-sm font-semibold border transition-all"
+              style={months === m ? { backgroundColor: primary, color: '#fff', borderColor: primary }
+                : { borderColor: '#e5e7eb', color: '#6b7280' }}>
+              {m}mo
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3 my-6 bg-gray-50 rounded-lg p-4 border border-gray-100">
+        {[
+          ['Monthly', currency + ' ' + fmt(monthly)],
+          ['Total',   currency + ' ' + fmt(total)],
+          ['Interest',currency + ' ' + fmt(interest)],
+        ].map(([label, value]) => (
+          <div key={label} className="text-center">
+            <div className="text-[10px] text-gray-400 uppercase font-bold">{label}</div>
+            <div className="text-sm font-bold mt-0.5" style={{ color: primary }}>{value}</div>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-gray-400 mb-4">Estimate only. Final rate and terms are confirmed after credit assessment.</p>
+      <Link href="/apply"
+        className="block text-center py-3.5 rounded-md text-white font-bold text-base shadow-md hover:opacity-90 transition-opacity"
+        style={{ backgroundColor: accent, color: '#111' }}>
+        Apply for This Loan →
+      </Link>
+    </div>
+  );
+}
+
+function TestimonialCard({ t, primary, accent, delay }: { t: { name: string; role: string; text: string; rating?: number }; primary: string; accent: string; delay: number }) {
+  const { ref, visible } = useScrollReveal();
+  return (
+    <div ref={ref} className={`reveal reveal-delay-${Math.min(delay + 1, 4)} ${visible ? 'reveal-visible' : ''}
+      card-lift bg-white rounded-lg p-6 border border-gray-100`}>
+      <div className="flex mb-3">
+        {'★★★★★'.split('').map((s, i) => (
+          <span key={i} style={{ color: accent }} className="text-lg">{s}</span>
+        ))}
+      </div>
+      <p className="text-gray-600 text-sm leading-relaxed mb-4">&ldquo;{t.text}&rdquo;</p>
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm"
+          style={{ backgroundColor: primary }}>
+          {t.name[0]}
+        </div>
+        <div>
+          <div className="font-bold text-gray-900 text-sm">{t.name}</div>
+          <div className="text-gray-400 text-xs">{t.role}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ stat, primary, delay }: { stat: { icon: string; value: string; label: string }; primary: string; delay: number }) {
+  const { ref, visible } = useScrollReveal();
+  const numericMatch = stat.value.match(/^([\d,]+)$/);
+  const numericTarget = numericMatch ? Number(numericMatch[1].replace(/,/g, '')) : null;
+  const animated = useCountUp(numericTarget ?? 0, visible && numericTarget !== null);
+
+  return (
+    <div ref={ref} className={`reveal reveal-delay-${Math.min(delay + 1, 4)} ${visible ? 'reveal-visible' : ''}
+      card-lift bg-white rounded-lg p-6 text-center border border-gray-100`}>
+      <div className="text-3xl font-bold mb-1" style={{ color: primary }}>
+        {numericTarget !== null ? animated.toLocaleString() : stat.value}
+      </div>
+      <div className="text-gray-500 text-sm">{stat.label}</div>
     </div>
   );
 }

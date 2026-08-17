@@ -242,29 +242,6 @@ public class RegulatoryReportingService {
                         return new ArrayList<>();
                 }
 
-                /*
-                 * IMPORTANT:
-                 *
-                 * Loan.disbursedAt is LocalDateTime.
-                 *
-                 * We therefore convert an inclusive reporting date into
-                 * the exclusive beginning of the next day.
-                 *
-                 * Example:
-                 *
-                 * asOf = 2026-08-31
-                 *
-                 * query value:
-                 *
-                 * 2026-09-01T00:00:00
-                 *
-                 * Repository condition:
-                 *
-                 * l.disbursedAt < :asOf
-                 *
-                 * This includes all loans disbursed on 2026-08-31,
-                 * regardless of their exact time.
-                 */
                 LocalDateTime asOfDateTime = exclusiveEndOfDay(asOf);
 
                 return loanRepository.findPortfolioAsOf(
@@ -299,27 +276,6 @@ public class RegulatoryReportingService {
                                         "'to' cannot be before 'from'.");
                 }
 
-                /*
-                 * Reporting dates are inclusive.
-                 *
-                 * Example:
-                 *
-                 * from = 2026-08-01
-                 * to = 2026-08-31
-                 *
-                 * becomes:
-                 *
-                 * fromDateTime = 2026-08-01T00:00:00
-                 * toDateTime = 2026-09-01T00:00:00
-                 *
-                 * Repository must use:
-                 *
-                 * l.disbursedAt >= :from
-                 * AND
-                 * l.disbursedAt < :to
-                 *
-                 * This correctly includes all disbursements on August 31.
-                 */
                 LocalDateTime fromDateTime = startOfDay(from);
 
                 LocalDateTime toDateTime = exclusiveEndOfDay(to);
@@ -332,10 +288,6 @@ public class RegulatoryReportingService {
                                 from,
                                 to);
         }
-
-        // ============================================================
-        // PAYMENTS
-        // ============================================================
 
         private List<Payment> fetchPayments(
                         Long organizationId,

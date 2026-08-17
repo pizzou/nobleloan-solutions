@@ -1,384 +1,3690 @@
-"use client";
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { loanApi, paymentApi } from "@/services/api";
-import { Loan } from "@/types";
-import { useAuth } from "@/hooks/useAuth";
-import { Button } from "@/components/ui/Button";
-import { Card, CardBody, CardHeader, StatCard } from "@/components/ui/Card";
-import { StatusBadge, RiskBadge } from "@/components/ui/Badge";
-import { PageSpinner } from "@/components/ui/Skeleton";
-import { formatCurrency, formatDate } from "@/lib/utils";
-const n = (v: unknown) =>
-  Number.isFinite(Number(v ?? 0)) ? Number(v ?? 0) : 0;
-export default function LoanDetail() {
-  const params = useParams<{ id: string }>();
-  const router = useRouter();
-  const { currency, locale } = useAuth();
-  const id = Number(params.id);
-  const [loan, setLoan] = useState<Loan | null>(null);
-  const [schedule, setSchedule] = useState<any[]>([]);
-  const [payments, setPayments] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let on = true;
-    Promise.all([
-      loanApi.get(id),
-      loanApi.schedule(id),
-      paymentApi.schedule(id),
-    ])
-      .then(([l, s, p]) => {
-        if (!on) return;
-        setLoan(l as Loan);
-        setSchedule(Array.isArray(s) ? s : s?.content || s?.items || []);
-        setPayments(Array.isArray(p) ? p : p?.content || p?.items || []);
-      })
-      .catch((e) => on && setError(e?.message || "Unable to load facility."))
-      .finally(() => on && setLoading(false));
-    return () => {
-      on = false;
-    };
-  }, [id]);
-  const borrower = loan
-    ? `${loan.borrower?.firstName || ""} ${loan.borrower?.lastName || ""}`.trim()
-    : "—";
-  const paid = n(loan?.totalPaid),
-    principal = n(loan?.amount),
-    progress = principal ? Math.min(100, (paid / principal) * 100) : 0;
-  const next =
-    schedule.find(
-      (x) => !x.paid && String(x.status || "").toUpperCase() !== "PAID",
-    ) || schedule.find((x) => !x.paid);
-  const nextAmount = n(
-    next?.amount ?? next?.totalDue ?? next?.installmentAmount,
-  );
-  const outstanding = n(loan?.outstandingBalance);
-  if (loading) return <PageSpinner />;
-  if (!loan)
-    return (
-      <main className="premium-page grid min-h-[80vh] place-items-center p-6">
-        <Card>
-          <CardBody>
-            <h1 className="text-xl font-black">Facility unavailable</h1>
-            <p className="mt-2 text-xs text-slate-500">
-              {error || "No facility data was returned."}
-            </p>
-            <Button className="mt-4" onClick={() => router.back()}>
-              Go back
-            </Button>
-          </CardBody>
-        </Card>
-      </main>
-    );
+'use client';
+
+import {
+  useEffect,
+  useState,
+} from 'react';
+
+import {
+  useParams,
+  useRouter,
+} from 'next/navigation';
+
+import {
+  loanApi,
+  paymentApi,
+  creditBureauApi,
+  esignatureApi,
+  orgApi,
+} from '@/services/api';
+
+import {
+  Loan,
+  Payment,
+} from '@/types';
+
+import {
+  Card,
+  CardHeader,
+  CardBody,
+} from '@/components/ui/Card';
+
+import {
+  Button,
+} from '@/components/ui/Button';
+
+import {
+  StatusBadge,
+  RiskBadge,
+  Pill,
+} from '@/components/ui/Badge';
+
+import {
+  Table,
+  Thead,
+  Th,
+  Tbody,
+  Tr,
+  Td,
+} from '@/components/ui/Table';
+
+import {
+  Modal,
+} from '@/components/ui/Modal';
+
+import {
+  FormGroup,
+  Input,
+  Select,
+  Textarea,
+  Alert,
+} from '@/components/ui/Form';
+
+import {
+  formatCurrency,
+  formatDate,
+  LOAN_TYPE_META,
+} from '@/lib/utils';
+
+import {
+  IconBank,
+  IconSignature,
+  IconCard,
+  IconCoins,
+  IconSend,
+  IconCheckCircle,
+  IconClock,
+  IconFileText,
+  IconAlertTriangle,
+  IconFileEdit,
+  IconSearch,
+  IconCalendar,
+  IconFlag,
+} from '@/components/ui/Icons';
+
+import {
+  useAuth,
+} from '@/hooks/useAuth';
+
+import {
+  useOnlineStatus,
+} from '@/hooks/useOnlineStatus';
+
+import {
+  queueAction,
+  cacheGet,
+  cacheSet,
+} from '@/lib/offlineDb';
+
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+
+import DocumentsPanel from '@/components/DocumentsPanel';
+
+import {
+  DOCUMENT_TYPE_LABELS,
+} from '@/services/fileService';
+
+
+/* =========================================================
+   TYPES
+========================================================= */
+
+const TABS = [
+  'Overview',
+  'Borrower',
+  'Documents',
+  'Schedule',
+  'Timeline',
+  'Comments',
+] as const;
+
+type Tab = typeof TABS[number];
+
+
+type CreditBureauResult = {
+  id?: number;
+  provider?: string;
+  creditScore?: number;
+  riskGrade?: string;
+  status?: string;
+  checkedAt?: string;
+  message?: string;
+  [key: string]: unknown;
+};
+
+
+type OrganizationInfo = {
+  id?: number;
+  organizationId?: number;
+  name?: string;
+  domain?: string;
+  [key: string]: unknown;
+};
+
+
+/* =========================================================
+   FIELD
+========================================================= */
+
+function Field({
+  label,
+  value,
+}: {
+  label: string;
+  value?: React.ReactNode;
+}) {
+
   return (
-    <main className="premium-page pb-14">
-      <div className="mx-auto max-w-[1680px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <Link
-          href="/dashboard/loans"
-          className="text-[10px] font-black uppercase tracking-wider text-[#087f74]"
-        >
-          ← Portfolio
-        </Link>
-        <section className="premium-hero px-6 py-7 text-white sm:px-9">
-          <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <div className="premium-kicker">Facility workspace</div>
-              <div className="mt-2 flex flex-wrap items-center gap-3">
-                <h1 className="text-3xl font-black tracking-[-.04em]">
-                  {loan.referenceNumber}
-                </h1>
-                <StatusBadge status={loan.status} />
-              </div>
-              <p className="mt-2 text-sm text-slate-300">
-                {borrower} · Facility #{loan.id}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                onClick={() => router.push(`/dashboard/payments?loanId=${id}`)}
-              >
-                Record payment
-              </Button>
-              <Button onClick={() => router.push("/dashboard/collections")}>
-                Collections
-              </Button>
-            </div>
-          </div>
-        </section>
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            icon={<span>◆</span>}
-            label="Outstanding principal"
-            value={formatCurrency(outstanding, currency, locale)}
-            sub="Current backend balance"
-            color="#087f74"
-          />
-          <StatCard
-            icon={<span>₣</span>}
-            label="Original principal"
-            value={formatCurrency(principal, currency, locale)}
-            sub={`${progress.toFixed(0)}% paid`}
-            color="#0b2944"
-          />
-          <StatCard
-            icon={<span>◷</span>}
-            label="Next installment"
-            value={
-              nextAmount ? formatCurrency(nextAmount, currency, locale) : "—"
-            }
-            sub={
-              next?.dueDate
-                ? `Due ${formatDate(next.dueDate, locale)}`
-                : "No future installment returned"
-            }
-            color="#c9a227"
-          />
-          <StatCard
-            icon={<span>!</span>}
-            label="Risk / arrears"
-            value={loan.riskCategory || loan.creditQuality || "CURRENT"}
-            sub={
-              n(loan.daysOverdue) > 0
-                ? `${loan.daysOverdue} days overdue`
-                : "No overdue days"
-            }
-            color={n(loan.daysOverdue) > 0 ? "#b42318" : "#087f74"}
-          />
-        </section>
-        <section className="grid gap-5 xl:grid-cols-[1.35fr_.65fr]">
-          <Card>
-            <CardHeader
-              title="Facility financial profile"
-              subtitle="Authoritative values returned by the loan service"
-            />
-            <CardBody>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Metric
-                  label="Interest rate"
-                  value={`${n(loan.interestRate).toFixed(2)}%`}
-                />
-                <Metric
-                  label="Management fee"
-                  value={`${n(loan.managementFeeRate).toFixed(2)}%`}
-                />
-                <Metric
-                  label="Processing fee"
-                  value={
-                    loan.processingFeeRate != null
-                      ? `${n(loan.processingFeeRate).toFixed(2)}%`
-                      : "—"
-                  }
-                />
-                <Metric
-                  label="Duration"
-                  value={`${n(loan.durationMonths)} months`}
-                />
-                <Metric
-                  label="Disbursed"
-                  value={
-                    loan.disbursedAt
-                      ? formatDate(loan.disbursedAt, locale)
-                      : "Not disbursed"
-                  }
-                />
-                <Metric
-                  label="Maturity"
-                  value={
-                    loan.maturityDate
-                      ? formatDate(loan.maturityDate, locale)
-                      : "—"
-                  }
-                />
-                <Metric
-                  label="Last payment"
-                  value={
-                    loan.lastPaymentDate
-                      ? formatDate(loan.lastPaymentDate, locale)
-                      : "—"
-                  }
-                />
-                <Metric
-                  label="Collection stage"
-                  value={loan.collectionsStage || "NORMAL"}
-                />
-              </div>
-            </CardBody>
-          </Card>
-          <Card>
-            <CardHeader title="Client relationship" />
-            <CardBody>
-              <div className="text-lg font-black text-[#071a2d]">
-                {borrower}
-              </div>
-              <div className="mt-2 text-xs text-slate-500">
-                {loan.borrower?.phone ||
-                  loan.borrower?.email ||
-                  "Contact information unavailable"}
-              </div>
-              <div className="mt-5 grid grid-cols-2 gap-2">
-                <Metric label="KYC" value={loan.borrower?.kycStatus || "—"} />
-                <Metric
-                  label="Client status"
-                  value={loan.borrower?.status || "—"}
-                />
-              </div>
-              <Link
-                href={`/dashboard/borrowers/${loan.borrower?.id}`}
-                className="mt-5 inline-flex text-[10px] font-black text-[#087f74]"
-              >
-                Open client profile →
-              </Link>
-            </CardBody>
-          </Card>
-        </section>
-        <Card>
-          <CardHeader
-            title="Repayment schedule"
-            subtitle="Schedule returned by the backend. The browser does not recalculate accruals."
-          />
-          <div className="overflow-x-auto">
-            <table className="premium-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Due</th>
-                  <th>Principal</th>
-                  <th>Interest</th>
-                  <th>Management fee</th>
-                  <th>Total</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {schedule.slice(0, 24).map((r, i) => (
-                  <tr key={r.id || i}>
-                    <td className="font-black">
-                      {r.installmentNumber ?? i + 1}
-                    </td>
-                    <td>{r.dueDate ? formatDate(r.dueDate, locale) : "—"}</td>
-                    <td className="font-bold">
-                      {formatCurrency(
-                        n(r.principalComponent ?? r.principal),
-                        currency,
-                        locale,
-                      )}
-                    </td>
-                    <td>
-                      {formatCurrency(
-                        n(r.interestComponent ?? r.interest),
-                        currency,
-                        locale,
-                      )}
-                    </td>
-                    <td>
-                      {formatCurrency(
-                        n(r.managementFeeComponent ?? r.managementFee),
-                        currency,
-                        locale,
-                      )}
-                    </td>
-                    <td className="font-black">
-                      {formatCurrency(
-                        n(r.amount ?? r.totalDue ?? r.installmentAmount),
-                        currency,
-                        locale,
-                      )}
-                    </td>
-                    <td>
-                      {r.paid ? (
-                        <span className="premium-badge bg-emerald-50 text-emerald-700">
-                          Paid
-                        </span>
-                      ) : (
-                        <span className="premium-badge bg-slate-100 text-slate-600">
-                          Open
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-        <Card>
-          <CardHeader
-            title="Payment activity"
-            subtitle="Posted collection transactions associated with this facility"
-          />
-          <div className="overflow-x-auto">
-            <table className="premium-table">
-              <thead>
-                <tr>
-                  <th>Reference</th>
-                  <th>Date</th>
-                  <th>Amount</th>
-                  <th>Principal</th>
-                  <th>Interest</th>
-                  <th>Management fee</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {payments.slice(0, 15).map((p, i) => (
-                  <tr key={p.id || i}>
-                    <td className="font-black">
-                      {p.paymentReference ||
-                        p.transactionId ||
-                        `Payment ${i + 1}`}
-                    </td>
-                    <td>
-                      {p.paidDate
-                        ? formatDate(p.paidDate, locale)
-                        : p.dueDate
-                          ? formatDate(p.dueDate, locale)
-                          : "—"}
-                    </td>
-                    <td className="font-black">
-                      {formatCurrency(
-                        n(p.amountPaid ?? p.amount),
-                        currency,
-                        locale,
-                      )}
-                    </td>
-                    <td>
-                      {formatCurrency(
-                        n(p.principalComponent),
-                        currency,
-                        locale,
-                      )}
-                    </td>
-                    <td>
-                      {formatCurrency(n(p.interestComponent), currency, locale)}
-                    </td>
-                    <td>
-                      {formatCurrency(
-                        n(p.managementFeeComponent ?? p.managementFee),
-                        currency,
-                        locale,
-                      )}
-                    </td>
-                    <td>{p.status || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      </div>
-    </main>
-  );
-}
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl bg-slate-50 p-3">
-      <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+    <div>
+      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
         {label}
       </div>
-      <div className="mt-1 text-xs font-black text-[#071a2d]">{value}</div>
+
+      <div className="text-sm font-medium text-gray-800">
+        {value ?? '—'}
+      </div>
+    </div>
+  );
+}
+
+
+/* =========================================================
+   PAGE
+========================================================= */
+
+export default function LoanDetailPage() {
+
+  const { id } =
+    useParams<{ id: string }>();
+
+  const router =
+    useRouter();
+
+  const {
+    currency,
+    locale,
+    isOfficer,
+  } = useAuth();
+
+  const fc =
+    (n?: number) =>
+      formatCurrency(
+        n,
+        currency,
+        locale
+      );
+
+
+  /* =======================================================
+     LOAN
+  ======================================================= */
+
+  const [loan, setLoan] =
+    useState<Loan | null>(null);
+
+  const [schedule, setSchedule] =
+    useState<Payment[]>([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [tab, setTab] =
+    useState<Tab>('Overview');
+
+  const [msg, setMsg] =
+    useState<{
+      type: 'error' | 'success';
+      text: string;
+    } | null>(null);
+
+
+  /* =======================================================
+     ORGANIZATION
+  ======================================================= */
+
+  const [organization, setOrganization] =
+    useState<OrganizationInfo | null>(null);
+
+  const [organizationLoading, setOrganizationLoading] =
+    useState(true);
+
+
+  /**
+   * Resolve organization ID.
+   *
+   * Supports responses such as:
+   *
+   * { id: 1 }
+   *
+   * { organizationId: 1 }
+   *
+   * { data: { id: 1 } }
+   *
+   * because your API helper already unwraps `data`.
+   */
+  const organizationId =
+    organization?.id ??
+    organization?.organizationId ??
+    null;
+
+
+  /* =======================================================
+     CREDIT BUREAU
+  ======================================================= */
+
+  const [cbBusy, setCbBusy] =
+    useState(false);
+
+  const [creditBureauResult, setCreditBureauResult] =
+    useState<CreditBureauResult | null>(null);
+
+  const [creditBureauLoaded, setCreditBureauLoaded] =
+    useState(false);
+
+
+  /* =======================================================
+     E-SIGNATURE
+  ======================================================= */
+
+  const [esignBusy, setEsignBusy] =
+    useState(false);
+
+
+  /* =======================================================
+     PAYMENT MODAL
+  ======================================================= */
+
+  const [payOpen, setPayOpen] =
+    useState(false);
+
+  const [payForm, setPayForm] =
+    useState({
+      amount: '',
+      paymentMethod: 'BANK_TRANSFER',
+      transactionId: '',
+      channel: '',
+      notes: '',
+    });
+
+  const [paying, setPaying] =
+    useState(false);
+
+
+  /* =======================================================
+     STATUS MODAL
+  ======================================================= */
+
+  const [stOpen, setStOpen] =
+    useState(false);
+
+  const [stForm, setStForm] =
+    useState({
+      status: '',
+      rejectionReason: '',
+      internalNotes: '',
+      interestRate: '',
+    });
+
+  const [stSaving, setStSaving] =
+    useState(false);
+
+
+  /* =======================================================
+     COMMENTS
+  ======================================================= */
+
+  const [comments, setComments] =
+    useState<any[]>([]);
+
+  const [commentText, setCommentText] =
+    useState('');
+
+  const [commentVisible, setCommentVisible] =
+    useState(true);
+
+  const [commentSaving, setCommentSaving] =
+    useState(false);
+
+
+  /* =======================================================
+     DOCUMENT REQUIREMENTS
+  ======================================================= */
+
+  const [docReq, setDocReq] =
+    useState<{
+      required: string[];
+      missing: string[];
+      unverified: string[];
+      readyToApprove: boolean;
+      readyToDisburse: boolean;
+    } | null>(null);
+
+
+  /* =======================================================
+     ONLINE STATUS
+  ======================================================= */
+
+  const online =
+    useOnlineStatus();
+
+
+  /* =======================================================
+     LOAD ORGANIZATION
+  ======================================================= */
+
+  useEffect(() => {
+
+    let cancelled = false;
+
+    const loadOrganization =
+      async () => {
+
+        setOrganizationLoading(true);
+
+        try {
+
+          const result =
+            await orgApi.me();
+
+          if (!cancelled) {
+
+            setOrganization(
+              (result ?? null) as OrganizationInfo | null
+            );
+          }
+
+        } catch (error) {
+
+          console.error(
+            'Failed to load organization:',
+            error
+          );
+
+          if (!cancelled) {
+            setOrganization(null);
+          }
+
+        } finally {
+
+          if (!cancelled) {
+            setOrganizationLoading(false);
+          }
+        }
+      };
+
+
+    loadOrganization();
+
+
+    return () => {
+      cancelled = true;
+    };
+
+  }, []);
+
+
+  /* =======================================================
+     LOAD LOAN
+  ======================================================= */
+
+  const load = async () => {
+
+    setLoading(true);
+
+    try {
+
+      const [
+        loanResult,
+        scheduleResult,
+      ] =
+        await Promise.all([
+          loanApi.get(Number(id)),
+          loanApi.schedule(Number(id)),
+        ]);
+
+
+      const loadedLoan =
+        loanResult as Loan;
+
+      const loadedSchedule =
+        Array.isArray(scheduleResult)
+          ? scheduleResult as Payment[]
+          : [];
+
+
+      setLoan(
+        loadedLoan
+      );
+
+      setSchedule(
+        loadedSchedule
+      );
+
+
+      await cacheSet(
+        `/loans/${id}`,
+        {
+          loan: loadedLoan,
+          schedule: loadedSchedule,
+        }
+      );
+
+
+    } catch (e: any) {
+
+      try {
+
+        const cached =
+          await cacheGet<{
+            loan: Loan;
+            schedule: Payment[];
+          }>(
+            `/loans/${id}`
+          );
+
+
+        if (cached) {
+
+          setLoan(
+            cached.loan
+          );
+
+          setSchedule(
+            cached.schedule
+          );
+
+          setMsg({
+            type: 'error',
+            text:
+              "You're offline — showing the last saved version of this loan.",
+          });
+
+        } else {
+
+          setMsg({
+            type: 'error',
+            text:
+              e?.message ||
+              'Failed to load loan.',
+          });
+        }
+
+      } catch {
+
+        setMsg({
+          type: 'error',
+          text:
+            e?.message ||
+            'Failed to load loan.',
+        });
+      }
+
+    } finally {
+
+      setLoading(false);
+    }
+  };
+
+
+  useEffect(() => {
+
+    if (!id) {
+      return;
+    }
+
+    load();
+
+  }, [id]);
+
+
+  /* =======================================================
+     DOCUMENT REQUIREMENTS
+  ======================================================= */
+
+  const loadDocReq =
+    async () => {
+
+      try {
+
+        const result =
+          await loanApi.documentRequirements(
+            Number(id)
+          );
+
+        setDocReq(
+          result as any
+        );
+
+      } catch {
+
+        setDocReq(null);
+      }
+    };
+
+
+  useEffect(() => {
+
+    if (!id) {
+      return;
+    }
+
+    loadDocReq();
+
+  }, [id]);
+
+
+  /* =======================================================
+     COMMENTS
+  ======================================================= */
+
+  const loadComments =
+    async () => {
+
+      try {
+
+        const result =
+          await loanApi.getComments(
+            Number(id)
+          );
+
+        setComments(
+          Array.isArray(result)
+            ? result
+            : []
+        );
+
+      } catch {
+
+        setComments([]);
+      }
+    };
+
+
+  useEffect(() => {
+
+    if (!id) {
+      return;
+    }
+
+    loadComments();
+
+  }, [id]);
+
+
+  /* =======================================================
+     CREDIT BUREAU LATEST RESULT
+  ======================================================= */
+
+  const loadLatestCreditBureau =
+    async () => {
+
+      if (
+        !loan?.borrower?.id ||
+        !organizationId
+      ) {
+        return;
+      }
+
+
+      try {
+
+       const result =
+  await creditBureauApi.latest(
+    loan.borrower.id
+  );
+
+        if (result) {
+
+          setCreditBureauResult(
+            result as CreditBureauResult
+          );
+
+        } else {
+
+          setCreditBureauResult(null);
+        }
+
+
+      } catch (error) {
+
+        console.error(
+          'Failed to load latest credit bureau check:',
+          error
+        );
+
+      } finally {
+
+        setCreditBureauLoaded(true);
+      }
+    };
+
+
+  useEffect(() => {
+
+    if (
+      loan?.borrower?.id &&
+      organizationId
+    ) {
+
+      loadLatestCreditBureau();
+    }
+
+  }, [
+    loan?.borrower?.id,
+    organizationId,
+  ]);
+
+
+  /* =======================================================
+     ADD COMMENT
+  ======================================================= */
+
+  const handleAddComment =
+    async () => {
+
+      if (
+        !commentText.trim()
+      ) {
+        return;
+      }
+
+
+      setCommentSaving(true);
+
+
+      try {
+
+        await loanApi.addComment(
+          Number(id),
+          commentText.trim(),
+          commentVisible
+        );
+
+
+        setCommentText('');
+
+        await loadComments();
+
+
+      } catch (e: any) {
+
+        setMsg({
+          type: 'error',
+          text:
+            e?.message ||
+            'Failed to add comment.',
+        });
+
+      } finally {
+
+        setCommentSaving(false);
+      }
+    };
+
+
+  /* =======================================================
+     CREDIT BUREAU CHECK
+  ======================================================= */
+
+const handleCreditBureauCheck = async () => {
+  if (!loan?.borrower?.id) {
+    setMsg({
+      type: 'error',
+      text: 'This loan has no borrower linked to it.',
+    });
+    return;
+  }
+
+  setCbBusy(true);
+  setMsg(null);
+
+  try {
+    const result: any =
+      await creditBureauApi.check(
+        loan.borrower.id
+      );
+
+    const simulated =
+      result?.provider === 'INTERNAL_SIMULATED';
+
+    if (simulated) {
+      setMsg({
+        type: 'error',
+        text:
+          `⚠️ No live credit bureau connected — ` +
+          `this is an internal ESTIMATE ` +
+          `(score ${result?.creditScore ?? 'N/A'}, ` +
+          `${result?.riskGrade ?? 'N/A'}), ` +
+          `not a verified bureau report. ` +
+          `Do not treat this as confirmed credit history.`,
+      });
+    } else {
+      setMsg({
+        type: 'success',
+        text:
+          `Credit bureau check complete via ` +
+          `${result?.provider ?? 'credit bureau'} — ` +
+          `score ${result?.creditScore ?? 'N/A'} ` +
+          `(${result?.riskGrade ?? 'N/A'})`,
+      });
+    }
+  } catch (err: any) {
+    setMsg({
+      type: 'error',
+      text:
+        err?.message ||
+        'Credit bureau check failed.',
+    });
+  } finally {
+    setCbBusy(false);
+  }
+};
+
+
+  /* =======================================================
+     E-SIGNATURE
+  ======================================================= */
+
+  const handleSendForSignature =
+    async () => {
+
+      setEsignBusy(true);
+
+      setMsg(null);
+
+
+      try {
+
+        await esignatureApi.initiate(
+          Number(id)
+        );
+
+
+        setMsg({
+          type: 'success',
+          text:
+            'Signing link + verification code sent to the borrower by SMS.',
+        });
+
+
+      } catch (err: any) {
+
+        setMsg({
+          type: 'error',
+          text:
+            err?.message ||
+            'Failed to initiate e-signature.',
+        });
+
+      } finally {
+
+        setEsignBusy(false);
+      }
+    };
+
+
+  /* =======================================================
+     PAYMENT
+  ======================================================= */
+
+  const handlePay =
+    async (
+      e: React.FormEvent
+    ) => {
+
+      e.preventDefault();
+
+      setPaying(true);
+
+      setMsg(null);
+
+
+      if (!online) {
+
+        try {
+
+          await queueAction({
+            url:
+              `/loans/${id}/payments`,
+
+            method:
+              'POST',
+
+            body: {
+              ...payForm,
+              amount:
+                Number(payForm.amount),
+            },
+
+            label:
+              `Payment — ${
+                loan?.borrower?.firstName ??
+                'Loan'
+              } ${
+                loan?.referenceNumber ??
+                ''
+              } (${
+                payForm.amount
+              })`,
+          });
+
+
+          setMsg({
+            type: 'success',
+            text:
+              "Saved offline — you're not connected. This payment will submit automatically once you're back online.",
+          });
+
+
+          setPayOpen(false);
+
+
+        } catch (err: any) {
+
+          setMsg({
+            type: 'error',
+            text:
+              'Could not save offline: ' +
+              err.message,
+          });
+        }
+
+
+        setPaying(false);
+
+        return;
+      }
+
+
+      try {
+
+        await paymentApi.record(
+          Number(id),
+          {
+            ...payForm,
+            amount:
+              Number(payForm.amount),
+          }
+        );
+
+
+        setMsg({
+          type: 'success',
+          text:
+            'Payment recorded successfully!',
+        });
+
+
+        setPayOpen(false);
+
+        await load();
+
+
+      } catch (err: any) {
+
+        setMsg({
+          type: 'error',
+          text:
+            err?.message ||
+            'Payment failed.',
+        });
+
+      } finally {
+
+        setPaying(false);
+      }
+    };
+
+
+  /* =======================================================
+     STATUS
+  ======================================================= */
+
+  const handleStatus =
+    async (
+      e: React.FormEvent
+    ) => {
+
+      e.preventDefault();
+
+      setStSaving(true);
+
+      setMsg(null);
+
+
+      try {
+
+        if (
+          stForm.status ===
+          'APPROVED'
+        ) {
+
+          await loanApi.approve(
+            Number(id),
+            stForm.internalNotes,
+            stForm.interestRate
+              ? Number(stForm.interestRate)
+              : undefined
+          );
+
+        } else if (
+          stForm.status ===
+          'REJECTED'
+        ) {
+
+          await loanApi.reject(
+            Number(id),
+            stForm.rejectionReason
+          );
+
+        } else if (
+          stForm.status ===
+          'DISBURSED'
+        ) {
+
+          await loanApi.disburse(
+            Number(id),
+            'BANK_TRANSFER'
+          );
+
+        } else if (
+          stForm.status
+        ) {
+
+          await loanApi.updateStatus(
+            Number(id),
+            stForm.status,
+            stForm.internalNotes
+          );
+
+        } else {
+
+          throw new Error(
+            'Select a status first'
+          );
+        }
+
+
+        setMsg({
+          type: 'success',
+          text:
+            'Status updated!',
+        });
+
+
+        setStOpen(false);
+
+        await load();
+
+        await loadDocReq();
+
+
+      } catch (err: any) {
+
+        setMsg({
+          type: 'error',
+          text:
+            err?.message ||
+            'Failed to update status.',
+        });
+
+      } finally {
+
+        setStSaving(false);
+      }
+    };
+
+
+  /* =======================================================
+     LOADING
+  ======================================================= */
+
+  if (loading) {
+
+    return (
+      <div className="flex items-center justify-center h-64">
+
+        <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+
+      </div>
+    );
+  }
+
+
+  /* =======================================================
+     NOT FOUND
+  ======================================================= */
+
+  if (!loan) {
+
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-red-700">
+        Loan not found
+      </div>
+    );
+  }
+
+
+  /* =======================================================
+     CALCULATIONS
+  ======================================================= */
+
+  const prog =
+    loan.totalRepayable &&
+    loan.totalPaid
+      ? Math.min(
+          100,
+          Math.round(
+            (
+              loan.totalPaid /
+              loan.totalRepayable
+            ) * 100
+          )
+        )
+      : 0;
+
+
+  const chartData =
+    schedule
+      .filter(
+        p => p.paid
+      )
+      .slice(-12)
+      .map(
+        p => ({
+          n:
+            `#${p.installmentNumber}`,
+
+          balance:
+            p.outstandingAfter ??
+            0,
+
+          principal:
+            p.principalComponent,
+
+          interest:
+            p.interestComponent,
+        })
+      );
+
+
+  const totalPenalty =
+    schedule.reduce(
+      (
+        sum,
+        p
+      ) =>
+        sum +
+        (p.penalty ?? 0),
+      0
+    );
+
+
+  /* =======================================================
+     RENDER
+  ======================================================= */
+
+  return (
+    <div>
+
+
+      {/* =================================================
+          HEADER
+      ================================================= */}
+
+      <div className="flex items-start justify-between mb-6">
+
+        <div>
+
+          <button
+            onClick={() =>
+              router.back()
+            }
+            className="text-sm text-gray-400 hover:text-gray-600 mb-2 flex items-center gap-1"
+          >
+            ← Back
+          </button>
+
+
+          <h1 className="text-2xl font-extrabold text-gray-900">
+            {loan.referenceNumber}
+          </h1>
+
+
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+
+            <StatusBadge
+              status={loan.status}
+            />
+
+
+            {loan.riskCategory && (
+              <RiskBadge
+                category={
+                  loan.riskCategory
+                }
+                score={
+                  loan.riskScore
+                }
+              />
+            )}
+
+
+            <Pill
+              label={`${
+                LOAN_TYPE_META[
+                  loan.loanType
+                ]?.icon
+              } ${
+                LOAN_TYPE_META[
+                  loan.loanType
+                ]?.label ??
+                loan.loanType
+              }`}
+              color="blue"
+            />
+
+
+            <Pill
+              label={
+                loan.currency
+              }
+              color="teal"
+            />
+
+
+            {loan.daysOverdue &&
+            loan.daysOverdue > 0 ? (
+
+              <Pill
+                label={
+                  <span className="inline-flex items-center gap-1">
+
+                    <IconAlertTriangle className="w-3 h-3" />
+
+                    {
+                      loan.daysOverdue
+                    }d overdue
+
+                  </span>
+                }
+                color="red"
+              />
+
+            ) : null}
+
+          </div>
+
+        </div>
+
+
+        <div className="flex gap-2 flex-wrap justify-end">
+
+
+          {/* =================================================
+              CREDIT BUREAU BUTTON
+              
+              IMPORTANT:
+              No `isOfficer` condition here.
+              This makes the button visible whenever
+              a borrower is linked to the loan.
+          ================================================= */}
+
+          {loan.borrower?.id && (
+
+            <Button
+              variant="outline"
+              onClick={
+                handleCreditBureauCheck
+              }
+              disabled={
+                cbBusy ||
+                organizationLoading ||
+                !organizationId
+              }
+            >
+
+              <IconBank className="w-4 h-4" />
+
+              {cbBusy
+                ? 'Checking…'
+                : organizationLoading
+                  ? 'Loading…'
+                  : 'Credit Bureau Check'}
+
+            </Button>
+
+          )}
+
+
+          {isOfficer &&
+          (
+            loan.status ===
+              'APPROVED' ||
+            loan.status ===
+              'DISBURSED' ||
+            loan.status ===
+              'ACTIVE'
+          ) && (
+
+            <Button
+              variant="outline"
+              onClick={
+                handleSendForSignature
+              }
+              disabled={
+                esignBusy
+              }
+            >
+
+              <IconSignature className="w-4 h-4" />
+
+              {esignBusy
+                ? 'Sending…'
+                : 'Send for E-Signature'}
+
+            </Button>
+
+          )}
+
+
+          {isOfficer && (
+
+            <Button
+              variant="outline"
+              onClick={() =>
+                setStOpen(true)
+              }
+            >
+              Update Status
+            </Button>
+
+          )}
+
+
+          {loan.status ===
+            'ACTIVE' && (
+
+            <Button
+              onClick={() => {
+
+                setPayForm(
+                  f => ({
+                    ...f,
+
+                    amount:
+                      String(
+                        loan.totalRepayable
+                          ? Math.round(
+                              (
+                                loan.totalRepayable /
+                                loan.durationMonths!
+                              ) *
+                              100
+                            ) / 100
+                          : ''
+                      ),
+                  })
+                );
+
+                setPayOpen(
+                  true
+                );
+              }}
+            >
+
+              <IconCard className="w-4 h-4" />
+
+              Record Payment
+
+            </Button>
+
+          )}
+
+        </div>
+
+      </div>
+
+
+      {/* =================================================
+          MESSAGE
+      ================================================= */}
+
+      {msg && (
+        <div className="mb-5">
+          <Alert type={msg.type}>
+            {msg.text}
+          </Alert>
+        </div>
+      )}
+
+
+      {/* =================================================
+          CREDIT BUREAU STATUS CARD
+      ================================================= */}
+
+      {loan.borrower?.id && (
+        <Card className="mb-5">
+
+          <CardHeader
+            title="Credit Bureau"
+          />
+
+          <CardBody>
+
+            {!organizationId && (
+              <div className="text-sm text-gray-500">
+                Loading organization information…
+              </div>
+            )}
+
+
+            {organizationId &&
+            !creditBureauResult &&
+            !cbBusy && (
+
+              <div className="flex items-center justify-between gap-4">
+
+                <div>
+
+                  <div className="font-semibold text-gray-800">
+                    No credit bureau check available
+                  </div>
+
+                  <div className="text-xs text-gray-500 mt-1">
+                    Run a check to retrieve the latest borrower credit information.
+                  </div>
+
+                </div>
+
+
+                <Button
+                  variant="outline"
+                  onClick={
+                    handleCreditBureauCheck
+                  }
+                  disabled={
+                    cbBusy
+                  }
+                >
+
+                  <IconBank className="w-4 h-4" />
+
+                  Run Check
+
+                </Button>
+
+              </div>
+
+            )}
+
+
+            {cbBusy && (
+
+              <div className="flex items-center gap-3 text-sm text-gray-600">
+
+                <div className="w-5 h-5 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+
+                Running credit bureau check…
+
+              </div>
+
+            )}
+
+
+            {creditBureauResult &&
+            !cbBusy && (
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+
+                <div>
+
+                  <div className="text-xs text-gray-400 uppercase font-bold">
+                    Provider
+                  </div>
+
+                  <div className="font-semibold text-gray-800 mt-1">
+                    {
+                      creditBureauResult.provider ??
+                      '—'
+                    }
+                  </div>
+
+                </div>
+
+
+                <div>
+
+                  <div className="text-xs text-gray-400 uppercase font-bold">
+                    Credit Score
+                  </div>
+
+                  <div className="text-2xl font-extrabold text-teal-600 mt-1">
+                    {
+                      creditBureauResult.creditScore ??
+                      '—'
+                    }
+                  </div>
+
+                </div>
+
+
+                <div>
+
+                  <div className="text-xs text-gray-400 uppercase font-bold">
+                    Risk Grade
+                  </div>
+
+                  <div className="font-semibold text-gray-800 mt-1">
+                    {
+                      creditBureauResult.riskGrade ??
+                      '—'
+                    }
+                  </div>
+
+                </div>
+
+
+                <div>
+
+                  <div className="text-xs text-gray-400 uppercase font-bold">
+                    Status
+                  </div>
+
+                  <div className="font-semibold text-gray-800 mt-1">
+                    {
+                      creditBureauResult.status ??
+                      'COMPLETED'
+                    }
+                  </div>
+
+                </div>
+
+              </div>
+
+            )}
+
+          </CardBody>
+
+        </Card>
+      )}
+
+
+      {/* =================================================
+          HERO KPIs
+      ================================================= */}
+
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+
+        {[
+          {
+            label: 'Principal',
+            value: fc(loan.amount),
+            Icon: IconCoins,
+          },
+
+          {
+            label: 'Disbursed',
+            value: fc(
+              loan.disbursedAmount
+            ),
+            Icon: IconSend,
+          },
+
+          {
+            label: 'Total Paid',
+            value: fc(
+              loan.totalPaid
+            ),
+            Icon: IconCheckCircle,
+          },
+
+          {
+            label: 'Outstanding',
+            value: fc(
+              loan.outstandingBalance
+            ),
+            Icon: IconClock,
+          },
+
+          {
+            label: 'Penalty',
+            value: fc(
+              totalPenalty
+            ),
+            Icon: IconFileText,
+          },
+
+        ].map(
+          ({
+            label,
+            value,
+            Icon,
+          }) => (
+
+            <div
+              key={label}
+              className="bg-white rounded-xl border border-gray-200 p-4"
+            >
+
+              <Icon
+                className="w-5 h-5 mb-1.5 text-teal-600"
+              />
+
+              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                {label}
+              </div>
+
+              <div className="text-lg font-extrabold text-gray-900 font-mono mt-0.5">
+                {value}
+              </div>
+
+            </div>
+
+          )
+        )}
+
+      </div>
+
+
+      {/* =================================================
+          PROGRESS
+      ================================================= */}
+
+      <Card className="mb-5">
+
+        <CardBody>
+
+          <div className="flex items-center justify-between mb-2">
+
+            <span className="text-sm font-semibold text-gray-700">
+              Repayment Progress
+            </span>
+
+            <span className="text-lg font-extrabold text-teal-600">
+              {prog}%
+            </span>
+
+          </div>
+
+
+          <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+
+            <div
+              className="h-3 rounded-full transition-all duration-500"
+              style={{
+                width:
+                  `${prog}%`,
+
+                background:
+                  prog >= 100
+                    ? '#0D9488'
+                    : prog > 50
+                      ? '#3B82F6'
+                      : '#F59E0B',
+              }}
+            />
+
+          </div>
+
+
+          <div className="flex justify-between text-xs text-gray-400 mt-1.5">
+
+            <span>
+              {fc(
+                loan.totalPaid
+              )}{' '}
+              paid
+            </span>
+
+            <span>
+              {fc(
+                loan.outstandingBalance
+              )}{' '}
+              remaining
+            </span>
+
+            <span>
+              {fc(
+                loan.totalRepayable
+              )}{' '}
+              total
+            </span>
+
+          </div>
+
+
+          {loan.status ===
+            'PAID' && (
+
+            <div className="mt-2 bg-teal-50 border border-teal-200 text-teal-700 text-xs rounded-lg px-3 py-2 flex items-center gap-1.5">
+
+              <IconCheckCircle className="w-4 h-4" />
+
+              Loan fully repaid
+
+            </div>
+
+          )}
+
+        </CardBody>
+
+      </Card>
+
+
+      {/* =================================================
+          DOCUMENT REQUIREMENTS
+      ================================================= */}
+
+      {docReq &&
+      (
+        docReq.missing.length >
+          0 ||
+        docReq.unverified.length >
+          0
+      ) && (
+
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5 text-sm">
+
+          <div className="font-bold text-amber-800 mb-1 flex items-center gap-1.5">
+
+            <IconAlertTriangle className="w-4 h-4" />
+
+            Required documents not yet in order
+
+          </div>
+
+
+          {docReq.missing.length >
+            0 && (
+
+            <div className="text-amber-700">
+
+              Not uploaded (blocks{' '}
+
+              <strong>
+                Approve
+              </strong>
+              ):{' '}
+
+              {docReq.missing
+                .map(
+                  t =>
+                    DOCUMENT_TYPE_LABELS[
+                      t
+                    ] ??
+                    t
+                )
+                .join(', ')}
+
+            </div>
+
+          )}
+
+
+          {docReq.missing.length ===
+            0 &&
+          docReq.unverified.length >
+            0 && (
+
+            <div className="text-amber-700">
+
+              Uploaded but not yet staff-verified (blocks{' '}
+
+              <strong>
+                Disburse
+              </strong>
+              ):{' '}
+
+              {docReq.unverified
+                .map(
+                  t =>
+                    DOCUMENT_TYPE_LABELS[
+                      t
+                    ] ??
+                    t
+                )
+                .join(', ')}
+
+            </div>
+
+          )}
+
+
+          <button
+            onClick={() =>
+              setTab('Documents')
+            }
+            className="text-xs font-bold text-amber-800 underline mt-1"
+          >
+            Go to Documents →
+          </button>
+
+        </div>
+
+      )}
+
+
+      {/* =================================================
+          TABS
+      ================================================= */}
+
+      <div className="flex border-b border-gray-200 mb-5 gap-0 overflow-x-auto">
+
+        {TABS.map(
+          t => (
+
+            <button
+              key={t}
+              onClick={() =>
+                setTab(t)
+              }
+              className={`
+                px-5 py-2.5
+                text-sm font-semibold
+                border-b-2
+                transition-colors
+                -mb-px
+                whitespace-nowrap
+                ${
+                  tab === t
+                    ? 'border-teal-500 text-teal-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }
+              `}
+            >
+              {t}
+            </button>
+
+          )
+        )}
+
+      </div>
+
+
+      {/* =================================================
+          OVERVIEW
+      ================================================= */}
+
+      {tab ===
+        'Overview' && (
+
+        <Card>
+
+          <CardHeader
+            title="Loan Details"
+          />
+
+          <CardBody>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-5">
+
+              <Field
+                label="Loan Type"
+                value={
+                  `${
+                    LOAN_TYPE_META[
+                      loan.loanType
+                    ]?.icon
+                  } ${
+                    LOAN_TYPE_META[
+                      loan.loanType
+                    ]?.label
+                  }`
+                }
+              />
+
+              <Field
+                label="Interest Rate"
+                value={`${loan.interestRate}% p.a.`}
+              />
+
+              <Field
+                label="Term"
+                value={`${loan.durationMonths} months`}
+              />
+
+              <Field
+                label="Schedule"
+                value={loan.repaymentFrequency}
+              />
+
+              <Field
+                label="Processing Fee"
+                value={fc(
+                  loan.processingFee
+                )}
+              />
+
+              <Field
+                label="DTI Ratio"
+                value={
+                  loan.debtToIncomeRatio
+                    ? `${loan.debtToIncomeRatio.toFixed(1)}%`
+                    : undefined
+                }
+              />
+
+              <Field
+                label="Credit Score"
+                value={
+                  loan.creditScoreSnapshot
+                }
+              />
+
+              <Field
+                label="Risk Category"
+                value={
+                  loan.riskCategory
+                }
+              />
+
+              <Field
+                label="Start Date"
+                value={formatDate(
+                  loan.startDate,
+                  locale
+                )}
+              />
+
+              <Field
+                label="Approved"
+                value={formatDate(
+                  loan.approvedAt,
+                  locale
+                )}
+              />
+
+              <Field
+                label="Disbursed"
+                value={formatDate(
+                  loan.disbursedAt,
+                  locale
+                )}
+              />
+
+              <Field
+                label="Maturity"
+                value={formatDate(
+                  loan.maturityDate,
+                  locale
+                )}
+              />
+
+              <Field
+                label="Purpose"
+                value={
+                  <span className="whitespace-pre-wrap">
+                    {loan.purpose}
+                  </span>
+                }
+              />
+
+              <Field
+                label="Collateral"
+                value={
+                  loan.collateralDescription
+                }
+              />
+
+              <Field
+                label="Collateral Value"
+                value={fc(
+                  loan.collateralValue
+                )}
+              />
+
+              <Field
+                label="Currency"
+                value={
+                  loan.currency
+                }
+              />
+
+            </div>
+
+
+            {(
+              loan.rejectionReason ||
+              loan.internalNotes
+            ) && (
+
+              <>
+                <hr className="my-4 border-gray-100" />
+
+                {loan.rejectionReason && (
+
+                  <Field
+                    label="Rejection Reason"
+                    value={
+                      <span className="text-red-600">
+                        {loan.rejectionReason}
+                      </span>
+                    }
+                  />
+
+                )}
+
+                {loan.internalNotes && (
+
+                  <div className="mt-3">
+
+                    <Field
+                      label="Internal Notes"
+                      value={
+                        loan.internalNotes
+                      }
+                    />
+
+                  </div>
+
+                )}
+
+              </>
+            )}
+
+
+            <hr className="my-4 border-gray-100" />
+
+
+            <div className="flex gap-3 flex-wrap text-xs text-gray-500">
+
+              {loan.loanOfficer && (
+
+                <span className="bg-gray-100 px-3 py-1.5 rounded-lg">
+
+                  👤 Officer:{' '}
+
+                  <strong>
+                    {loan.loanOfficer.name}
+                  </strong>
+
+                </span>
+
+              )}
+
+
+              {loan.approvedBy && (
+
+                <span className="bg-gray-100 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5">
+
+                  <IconCheckCircle className="w-3.5 h-3.5 text-teal-600" />
+
+                  Approved by:{' '}
+
+                  <strong>
+                    {loan.approvedBy.name}
+                  </strong>
+
+                </span>
+
+              )}
+
+            </div>
+
+          </CardBody>
+
+        </Card>
+
+      )}
+
+
+      {/* =================================================
+          BORROWER
+      ================================================= */}
+
+      {tab ===
+        'Borrower' &&
+      loan.borrower && (
+
+        <div className="space-y-5">
+
+
+          <Card>
+
+            <CardHeader
+              title="Borrower Profile"
+            />
+
+            <CardBody>
+
+              <div className="flex items-center gap-4 mb-5">
+
+                <div className="w-14 h-14 bg-teal-100 rounded-full flex items-center justify-center text-2xl font-bold text-teal-700">
+
+                  {
+                    loan.borrower.firstName?.[0]
+                  }
+
+                  {
+                    loan.borrower.lastName?.[0]
+                  }
+
+                </div>
+
+
+                <div>
+
+                  <div className="font-bold text-lg text-gray-900">
+
+                    {
+                      loan.borrower.firstName
+                    }{' '}
+
+                    {
+                      loan.borrower.lastName
+                    }
+
+                  </div>
+
+                  <div className="text-sm text-gray-500">
+
+                    {
+                      loan.borrower.email
+                    }{' '}
+
+                    ·{' '}
+
+                    {
+                      loan.borrower.phone
+                    }
+
+                  </div>
+
+                </div>
+
+
+                <div className="ml-auto flex items-center gap-6">
+
+                  <div>
+
+                    <div className="text-xs text-gray-400 mb-0.5">
+                      Credit Score
+                    </div>
+
+                    <div
+                      className={`
+                        text-2xl
+                        font-extrabold
+                        ${
+                          (
+                            loan.borrower.creditScore ??
+                            0
+                          ) >= 700
+                            ? 'text-teal-600'
+                            : 'text-orange-500'
+                        }
+                      `}
+                    >
+
+                      {
+                        loan.borrower.creditScore ??
+                        '—'
+                      }
+
+                    </div>
+
+                  </div>
+
+
+                  <button
+                    onClick={() =>
+                      setTab('Documents')
+                    }
+                    className="text-xs font-bold px-3 py-2 rounded-lg border border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100 transition whitespace-nowrap"
+                  >
+                    View KYC Documents →
+                  </button>
+
+                </div>
+
+              </div>
+
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-4">
+
+                <Field
+                  label="National ID"
+                  value={
+                    loan.borrower.nationalId
+                  }
+                />
+
+                <Field
+                  label="Nationality"
+                  value={
+                    loan.borrower.nationality
+                  }
+                />
+
+                <Field
+                  label="Date of Birth"
+                  value={formatDate(
+                    loan.borrower.dateOfBirth,
+                    locale
+                  )}
+                />
+
+                <Field
+                  label="Gender"
+                  value={
+                    loan.borrower.gender
+                  }
+                />
+
+                <Field
+                  label="Employer"
+                  value={
+                    loan.borrower.employerName
+                  }
+                />
+
+                <Field
+                  label="Job Title"
+                  value={
+                    loan.borrower.jobTitle
+                  }
+                />
+
+                <Field
+                  label="Employment Type"
+                  value={
+                    loan.borrower.employmentType
+                  }
+                />
+
+                <Field
+                  label="Monthly Income"
+                  value={fc(
+                    loan.borrower.monthlyIncome
+                  )}
+                />
+
+                <Field
+                  label="Monthly Expenses"
+                  value={fc(
+                    loan.borrower.monthlyExpenses
+                  )}
+                />
+
+                <Field
+                  label="Net Worth"
+                  value={fc(
+                    loan.borrower.netWorth
+                  )}
+                />
+
+                <Field
+                  label="City"
+                  value={
+                    loan.borrower.city
+                  }
+                />
+
+                <Field
+                  label="Country"
+                  value={
+                    loan.borrower.country
+                  }
+                />
+
+                <Field
+                  label="Bank"
+                  value={
+                    loan.borrower.bankName
+                  }
+                />
+
+                <Field
+                  label="Account Number"
+                  value={
+                    loan.borrower.bankAccountNumber
+                  }
+                />
+
+              </div>
+
+            </CardBody>
+
+          </Card>
+
+
+          {/* =================================================
+              CREDIT BUREAU IN BORROWER TAB
+          ================================================= */}
+
+          <Card>
+
+            <CardHeader
+              title="Credit Bureau Check"
+            />
+
+            <CardBody>
+
+              <div className="flex items-center justify-between gap-4 mb-5">
+
+                <div>
+
+                  <div className="font-semibold text-gray-900">
+                    {
+                      loan.borrower.firstName
+                    }{' '}
+
+                    {
+                      loan.borrower.lastName
+                    }
+                  </div>
+
+                  <div className="text-xs text-gray-500 mt-1">
+                    Borrower ID:{' '}
+                    {loan.borrower.id}
+                  </div>
+
+                  <div className="text-xs text-gray-500">
+                    Organization ID:{' '}
+                    {
+                      organizationId ??
+                      'Loading…'
+                    }
+                  </div>
+
+                </div>
+
+
+                <Button
+                  variant="outline"
+                  onClick={
+                    handleCreditBureauCheck
+                  }
+                  disabled={
+                    cbBusy ||
+                    !organizationId
+                  }
+                >
+
+                  <IconBank className="w-4 h-4" />
+
+                  {cbBusy
+                    ? 'Checking…'
+                    : 'Run Credit Bureau Check'}
+
+                </Button>
+
+              </div>
+
+
+              {creditBureauResult && (
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+
+                  <div className="bg-gray-50 rounded-xl p-4">
+
+                    <div className="text-xs text-gray-400 uppercase font-bold">
+                      Provider
+                    </div>
+
+                    <div className="font-semibold mt-1">
+                      {
+                        creditBureauResult.provider ??
+                        '—'
+                      }
+                    </div>
+
+                  </div>
+
+
+                  <div className="bg-gray-50 rounded-xl p-4">
+
+                    <div className="text-xs text-gray-400 uppercase font-bold">
+                      Credit Score
+                    </div>
+
+                    <div className="text-2xl font-extrabold text-teal-600 mt-1">
+                      {
+                        creditBureauResult.creditScore ??
+                        '—'
+                      }
+                    </div>
+
+                  </div>
+
+
+                  <div className="bg-gray-50 rounded-xl p-4">
+
+                    <div className="text-xs text-gray-400 uppercase font-bold">
+                      Risk Grade
+                    </div>
+
+                    <div className="font-semibold mt-1">
+                      {
+                        creditBureauResult.riskGrade ??
+                        '—'
+                      }
+                    </div>
+
+                  </div>
+
+
+                  <div className="bg-gray-50 rounded-xl p-4">
+
+                    <div className="text-xs text-gray-400 uppercase font-bold">
+                      Status
+                    </div>
+
+                    <div className="font-semibold mt-1">
+                      {
+                        creditBureauResult.status ??
+                        'COMPLETED'
+                      }
+                    </div>
+
+                  </div>
+
+                </div>
+
+              )}
+
+            </CardBody>
+
+          </Card>
+
+        </div>
+
+      )}
+
+
+      {/* =================================================
+          DOCUMENTS
+      ================================================= */}
+
+      {tab ===
+        'Documents' && (
+
+        loan.borrower?.id ? (
+
+          <DocumentsPanel
+            borrowerId={
+              loan.borrower.id
+            }
+            key={
+              loan.borrower.id
+            }
+          />
+
+        ) : (
+
+          <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-400 text-sm">
+
+            No borrower record is linked to this loan, so documents can't be shown.
+
+          </div>
+
+        )
+
+      )}
+
+
+      {/* =================================================
+          SCHEDULE
+      ================================================= */}
+
+      {tab ===
+        'Schedule' && (
+
+        <>
+
+          {chartData.length >
+            1 && (
+
+            <Card className="mb-4">
+
+              <CardHeader
+                title="Outstanding Balance Over Time"
+              />
+
+              <CardBody>
+
+                <ResponsiveContainer
+                  width="100%"
+                  height={180}
+                >
+
+                  <AreaChart
+                    data={chartData}
+                  >
+
+                    <defs>
+
+                      <linearGradient
+                        id="balGrad"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+
+                        <stop
+                          offset="5%"
+                          stopColor="#0D9488"
+                          stopOpacity={0.15}
+                        />
+
+                        <stop
+                          offset="95%"
+                          stopColor="#0D9488"
+                          stopOpacity={0}
+                        />
+
+                      </linearGradient>
+
+                    </defs>
+
+
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="#F3F4F6"
+                      vertical={false}
+                    />
+
+
+                    <XAxis
+                      dataKey="n"
+                      tick={{
+                        fontSize: 11,
+                        fill: '#9CA3AF',
+                      }}
+                    />
+
+
+                    <YAxis
+                      tick={{
+                        fontSize: 11,
+                        fill: '#9CA3AF',
+                      }}
+                      tickFormatter={
+                        v => fc(v)
+                      }
+                    />
+
+
+                    <Tooltip
+                      formatter={
+                        (v: number) =>
+                          fc(v)
+                      }
+                    />
+
+
+                    <Area
+                      type="monotone"
+                      dataKey="balance"
+                      stroke="#0D9488"
+                      fill="url(#balGrad)"
+                      strokeWidth={2}
+                      name="Balance"
+                    />
+
+                  </AreaChart>
+
+                </ResponsiveContainer>
+
+              </CardBody>
+
+            </Card>
+
+          )}
+
+
+          <Card>
+
+            <CardHeader
+              title={`Repayment Schedule (${schedule.length} installments)`}
+            />
+
+
+            <Table>
+
+              <Thead>
+
+                <tr>
+
+                  <Th>#</Th>
+                  <Th>Due Date</Th>
+                  <Th>Amount</Th>
+                  <Th>Principal</Th>
+                  <Th>Interest</Th>
+                  <Th>Penalty</Th>
+                  <Th>Balance After</Th>
+                  <Th>Status</Th>
+                  <Th>Paid Date</Th>
+                  <Th>Method</Th>
+
+                </tr>
+
+              </Thead>
+
+
+              <Tbody>
+
+                {schedule.length ===
+                  0 ? (
+
+                  <Tr>
+
+                    <Td className="text-center py-10 text-gray-400">
+
+                      No schedule generated yet
+
+                    </Td>
+
+                  </Tr>
+
+                ) : (
+
+                  schedule.map(
+                    p => (
+
+                      <Tr
+                        key={p.id}
+                        className={
+                          p.isLate
+                            ? 'bg-orange-50'
+                            : ''
+                        }
+                      >
+
+                        <Td className="font-mono text-xs text-gray-500">
+                          {
+                            p.installmentNumber
+                          }
+                        </Td>
+
+                        <Td>
+                          {formatDate(
+                            p.dueDate,
+                            locale
+                          )}
+                        </Td>
+
+                        <Td className="font-semibold">
+                          {fc(
+                            p.amount
+                          )}
+                        </Td>
+
+                        <Td className="text-blue-600">
+                          {fc(
+                            p.principalComponent
+                          )}
+                        </Td>
+
+                        <Td className="text-purple-600">
+                          {fc(
+                            p.interestComponent
+                          )}
+                        </Td>
+
+                        <Td className="text-red-500">
+
+                          {p.penalty &&
+                          p.penalty > 0
+                            ? fc(
+                                p.penalty
+                              )
+                            : '—'}
+
+                        </Td>
+
+                        <Td>
+                          {fc(
+                            p.outstandingAfter
+                          )}
+                        </Td>
+
+                        <Td>
+
+                          {p.paid ? (
+
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full">
+                              ✓ Paid
+                            </span>
+
+                          ) : p.isLate ? (
+
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-orange-700 bg-orange-50 px-2 py-0.5 rounded-full">
+                              ⚠ Overdue
+                            </span>
+
+                          ) : (
+
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full">
+                              Pending
+                            </span>
+
+                          )}
+
+                        </Td>
+
+                        <Td className="text-gray-400 text-xs">
+                          {formatDate(
+                            p.paidDate,
+                            locale
+                          )}
+                        </Td>
+
+                        <Td className="text-xs">
+
+                          {p.paid &&
+                          p.paymentMethod ? (
+
+                            <span
+                              title={
+                                p.transactionId
+                                  ? `Ref: ${p.transactionId}`
+                                  : ''
+                              }
+                              className="text-gray-600 font-medium"
+                            >
+                              {
+                                p.paymentMethod.replace(
+                                  /_/g,
+                                  ' '
+                                )
+                              }
+                            </span>
+
+                          ) : (
+
+                            <span className="text-gray-300">
+                              —
+                            </span>
+
+                          )}
+
+                        </Td>
+
+                      </Tr>
+
+                    )
+                  )
+
+                )}
+
+              </Tbody>
+
+            </Table>
+
+          </Card>
+
+        </>
+
+      )}
+
+
+      {/* =================================================
+          TIMELINE
+      ================================================= */}
+
+      {tab ===
+        'Timeline' && (
+
+        <Card>
+
+          <CardHeader
+            title="Loan Timeline"
+          />
+
+          <CardBody>
+
+            <div className="relative">
+
+              {[
+                {
+                  icon: IconFileEdit,
+                  label: 'Application Submitted',
+                  date: loan.startDate,
+                  done: true,
+                },
+
+                {
+                  icon: IconSearch,
+                  label: 'Under Review',
+                  date: loan.startDate,
+                  done:
+                    loan.status !==
+                    'PENDING',
+                },
+
+                {
+                  icon: IconCheckCircle,
+                  label: 'Approved',
+                  date: loan.approvedAt,
+                  done:
+                    !!loan.approvedAt,
+                },
+
+                {
+                  icon: IconCoins,
+                  label: 'Disbursed',
+                  date: loan.disbursedAt,
+                  done:
+                    !!loan.disbursedAt,
+                },
+
+                {
+                  icon: IconCalendar,
+                  label: 'Next Payment Due',
+                  date: loan.nextDueDate,
+                  done: false,
+                },
+
+                {
+                  icon: IconFlag,
+                  label: 'Maturity Date',
+                  date: loan.maturityDate,
+                  done:
+                    loan.status ===
+                    'PAID',
+                },
+
+              ].map(
+                (
+                  step,
+                  i,
+                  arr
+                ) => (
+
+                  <div
+                    key={i}
+                    className="flex gap-4 pb-6 relative"
+                  >
+
+                    <div className="flex flex-col items-center">
+
+                      <div
+                        className={`
+                          w-9 h-9
+                          rounded-full
+                          flex items-center
+                          justify-center
+                          text-lg
+                          border-2
+                          z-10
+                          ${
+                            step.done
+                              ? 'bg-teal-500 border-teal-500 text-white'
+                              : 'bg-white border-gray-200 text-gray-400'
+                          }
+                        `}
+                      >
+
+                        <step.icon
+                          className="w-4 h-4"
+                        />
+
+                      </div>
+
+
+                      {i <
+                        arr.length -
+                          1 && (
+
+                        <div
+                          className={`
+                            w-0.5 flex-1 mt-1
+                            ${
+                              step.done
+                                ? 'bg-teal-300'
+                                : 'bg-gray-200'
+                            }
+                          `}
+                          style={{
+                            minHeight: 28,
+                          }}
+                        />
+
+                      )}
+
+                    </div>
+
+
+                    <div className="pt-1.5">
+
+                      <div
+                        className={`
+                          font-semibold
+                          text-sm
+                          ${
+                            step.done
+                              ? 'text-gray-900'
+                              : 'text-gray-400'
+                          }
+                        `}
+                      >
+                        {step.label}
+                      </div>
+
+
+                      <div className="text-xs text-gray-400 mt-0.5">
+
+                        {formatDate(
+                          step.date,
+                          locale
+                        )}
+
+                      </div>
+
+                    </div>
+
+                  </div>
+
+                )
+              )}
+
+            </div>
+
+          </CardBody>
+
+        </Card>
+
+      )}
+
+
+      {/* =================================================
+          COMMENTS
+      ================================================= */}
+
+      {tab ===
+        'Comments' && (
+
+        <Card>
+
+          <CardHeader
+            title="Comments & Document Requests"
+          />
+
+          <CardBody>
+
+            <div className="mb-6 bg-gray-50 rounded-xl p-4">
+
+              <Textarea
+                placeholder="e.g. Please upload your land title document, or a recent utility bill as proof of address."
+                value={
+                  commentText
+                }
+                onChange={
+                  e =>
+                    setCommentText(
+                      e.target.value
+                    )
+                }
+                rows={3}
+              />
+
+
+              <div className="flex items-center justify-between mt-3">
+
+                <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+
+                  <input
+                    type="checkbox"
+                    checked={
+                      commentVisible
+                    }
+                    onChange={
+                      e =>
+                        setCommentVisible(
+                          e.target.checked
+                        )
+                    }
+                  />
+
+                  Visible to applicant on the tracking page
+
+                </label>
+
+
+                <Button
+                  loading={
+                    commentSaving
+                  }
+                  disabled={
+                    !commentText.trim()
+                  }
+                  onClick={
+                    handleAddComment
+                  }
+                >
+                  Post
+                </Button>
+
+              </div>
+
+
+              {!commentVisible && (
+
+                <p className="text-xs text-amber-600 mt-2">
+
+                  This note will be internal-only — the applicant won't see it.
+
+                </p>
+
+              )}
+
+            </div>
+
+
+            {comments.length ===
+              0 && (
+
+              <p className="text-sm text-gray-400 text-center py-6">
+                No comments yet.
+              </p>
+
+            )}
+
+
+            <div className="space-y-4">
+
+              {comments
+                .slice()
+                .reverse()
+                .map(
+                  (
+                    c: any
+                  ) => (
+
+                    <div
+                      key={c.id}
+                      className="flex gap-3"
+                    >
+
+                      <div className="w-8 h-8 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center text-xs font-bold shrink-0">
+
+                        {
+                          (
+                            c.author?.name ||
+                            'S'
+                          )[0]
+                        }
+
+                      </div>
+
+
+                      <div className="flex-1 min-w-0">
+
+                        <div className="flex items-center gap-2 flex-wrap">
+
+                          <span className="text-sm font-semibold text-gray-800">
+
+                            {
+                              c.author?.name ||
+                              'Staff'
+                            }
+
+                          </span>
+
+
+                          <span className="text-xs text-gray-400">
+
+                            {formatDate(
+                              c.createdAt,
+                              locale
+                            )}
+
+                          </span>
+
+
+                          {c.visibleToApplicant ? (
+
+                            <Pill
+                              label="Visible to applicant"
+                              color="blue"
+                            />
+
+                          ) : (
+
+                            <Pill
+                              label="Internal only"
+                              color="gray"
+                            />
+
+                          )}
+
+                        </div>
+
+
+                        <p className="text-sm text-gray-700 mt-1">
+                          {c.message}
+                        </p>
+
+                      </div>
+
+                    </div>
+
+                  )
+                )}
+
+            </div>
+
+          </CardBody>
+
+        </Card>
+
+      )}
+
+
+      {/* =================================================
+          PAYMENT MODAL
+      ================================================= */}
+
+      <Modal
+        open={payOpen}
+        onClose={() =>
+          setPayOpen(false)
+        }
+        title="Record Payment"
+        footer={
+
+          <>
+
+            <Button
+              variant="secondary"
+              onClick={() =>
+                setPayOpen(false)
+              }
+            >
+              Cancel
+            </Button>
+
+
+            <Button
+              loading={
+                paying
+              }
+              onClick={
+                handlePay as any
+              }
+            >
+              Confirm Payment
+            </Button>
+
+          </>
+
+        }
+      >
+
+        <form
+          onSubmit={
+            handlePay
+          }
+        >
+
+          <div className="bg-gray-50 rounded-xl p-4 mb-4 grid grid-cols-2 gap-3 text-sm">
+
+            {[
+              [
+                'Outstanding',
+                fc(
+                  loan.outstandingBalance
+                ),
+              ],
+
+              [
+                'Next Due',
+                formatDate(
+                  loan.nextDueDate,
+                  locale
+                ),
+              ],
+
+              [
+                'Penalty',
+                fc(0),
+              ],
+
+              [
+                'Currency',
+                loan.currency,
+              ],
+
+            ].map(
+              ([l, v]) => (
+
+                <div key={l}>
+
+                  <div className="text-xs text-gray-400">
+                    {l}
+                  </div>
+
+                  <div className="font-bold">
+                    {v}
+                  </div>
+
+                </div>
+
+              )
+            )}
+
+          </div>
+
+
+          <div className="grid grid-cols-2 gap-4">
+
+            <FormGroup
+              label="Amount"
+              required
+            >
+
+              <Input
+                type="number"
+                min="1"
+                required
+                value={
+                  payForm.amount
+                }
+                onChange={
+                  e =>
+                    setPayForm(
+                      f => ({
+                        ...f,
+                        amount:
+                          e.target.value,
+                      })
+                    )
+                }
+              />
+
+            </FormGroup>
+
+
+            <FormGroup
+              label="Method"
+              required
+            >
+
+              <Select
+                value={
+                  payForm.paymentMethod
+                }
+                onChange={
+                  e =>
+                    setPayForm(
+                      f => ({
+                        ...f,
+                        paymentMethod:
+                          e.target.value,
+                      })
+                    )
+                }
+              >
+
+                {[
+                  'BANK_TRANSFER',
+                  'MOBILE_MONEY',
+                  'CASH',
+                  'CARD',
+                  'CHEQUE',
+                  'DIRECT_DEBIT',
+                ].map(
+                  m => (
+
+                    <option
+                      key={m}
+                    >
+                      {
+                        m.replace(
+                          /_/g,
+                          ' '
+                        )
+                      }
+                    </option>
+
+                  )
+                )}
+
+              </Select>
+
+            </FormGroup>
+
+
+            <FormGroup
+              label="Transaction ID"
+            >
+
+              <Input
+                placeholder="e.g. MPesa code"
+                value={
+                  payForm.transactionId
+                }
+                onChange={
+                  e =>
+                    setPayForm(
+                      f => ({
+                        ...f,
+                        transactionId:
+                          e.target.value,
+                      })
+                    )
+                }
+              />
+
+            </FormGroup>
+
+
+            <FormGroup
+              label="Channel"
+            >
+
+              <Input
+                placeholder="e.g. Mobile, Branch"
+                value={
+                  payForm.channel
+                }
+                onChange={
+                  e =>
+                    setPayForm(
+                      f => ({
+                        ...f,
+                        channel:
+                          e.target.value,
+                      })
+                    )
+                }
+              />
+
+            </FormGroup>
+
+          </div>
+
+
+          <FormGroup
+            label="Notes"
+          >
+
+            <Textarea
+              value={
+                payForm.notes
+              }
+              onChange={
+                e =>
+                  setPayForm(
+                    f => ({
+                      ...f,
+                      notes:
+                        e.target.value,
+                    })
+                  )
+              }
+            />
+
+          </FormGroup>
+
+        </form>
+
+      </Modal>
+
+
+      {/* =================================================
+          STATUS MODAL
+      ================================================= */}
+
+      <Modal
+        open={stOpen}
+        onClose={() =>
+          setStOpen(false)
+        }
+        title="Update Loan Status"
+        footer={
+
+          <>
+
+            <Button
+              variant="secondary"
+              onClick={() =>
+                setStOpen(false)
+              }
+            >
+              Cancel
+            </Button>
+
+
+            <Button
+              loading={
+                stSaving
+              }
+              onClick={
+                handleStatus as any
+              }
+            >
+              Update
+            </Button>
+
+          </>
+
+        }
+      >
+
+        <form
+          onSubmit={
+            handleStatus
+          }
+        >
+
+          <div className="bg-gray-50 rounded-xl p-3 mb-4 text-sm flex items-center gap-2">
+
+            Current:
+
+            <StatusBadge
+              status={
+                loan.status
+              }
+            />
+
+          </div>
+
+
+          <FormGroup
+            label="New Status"
+            required
+          >
+
+            <Select
+              value={
+                stForm.status
+              }
+              onChange={
+                e =>
+                  setStForm(
+                    f => ({
+                      ...f,
+                      status:
+                        e.target.value,
+                    })
+                  )
+              }
+              required
+            >
+
+              <option value="">
+                Select status…
+              </option>
+
+
+              {(() => {
+
+                const VALID_FROM:
+                  Record<
+                    string,
+                    string[]
+                  > = {
+
+                    PENDING: [
+                      'UNDER_REVIEW',
+                      'APPROVED',
+                      'REJECTED',
+                    ],
+
+                    UNDER_REVIEW: [
+                      'APPROVED',
+                      'REJECTED',
+                    ],
+
+                    APPROVED: [
+                      'DISBURSED',
+                    ],
+
+                    ACTIVE: [
+                      'DEFAULTED',
+                    ],
+
+                    OVERDUE: [
+                      'DEFAULTED',
+                    ],
+
+                    PAID: [
+                      'CLOSED',
+                    ],
+
+                    WRITTEN_OFF: [
+                      'CLOSED',
+                    ],
+                  };
+
+
+                const options =
+                  VALID_FROM[
+                    loan.status
+                  ] ??
+                  [];
+
+
+                if (
+                  options.length ===
+                  0
+                ) {
+
+                  return (
+                    <option
+                      disabled
+                    >
+                      No status changes available from{' '}
+                      {
+                        loan.status.replace(
+                          /_/g,
+                          ' '
+                        )
+                      }
+                    </option>
+                  );
+                }
+
+
+                return options.map(
+                  s => (
+
+                    <option
+                      key={s}
+                      value={s}
+                    >
+                      {
+                        s.replace(
+                          /_/g,
+                          ' '
+                        )
+                      }
+                    </option>
+
+                  )
+                );
+
+              })()}
+
+            </Select>
+
+          </FormGroup>
+
+
+          {stForm.status ===
+            'APPROVED' && (
+
+            <FormGroup
+              label={`Interest Rate ${
+                loan.interestRateType ===
+                'MONTHLY'
+                  ? '(monthly)'
+                  : '(annual)'
+              }`}
+            >
+
+              <p className="text-xs text-gray-400 mb-2">
+
+                Applied on the website at{' '}
+
+                <strong>
+                  {loan.interestRate}%
+                </strong>.
+
+                Loans are flexible — adjust it here if this borrower should get a different rate; leave it as-is to keep the original.
+
+              </p>
+
+
+              <div className="flex gap-2 flex-wrap">
+
+                {[
+                  '6',
+                  '8',
+                  '10',
+                ].map(
+                  r => (
+
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() =>
+                        setStForm(
+                          f => ({
+                            ...f,
+                            interestRate:
+                              r,
+                          })
+                        )
+                      }
+                      className={`
+                        px-4 py-2
+                        rounded-lg
+                        text-sm
+                        font-semibold
+                        border
+                        transition-colors
+                        ${
+                          stForm.interestRate ===
+                          r
+                            ? 'bg-teal-600 text-white border-teal-600'
+                            : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                        }
+                      `}
+                    >
+                      {r}%
+                    </button>
+
+                  )
+                )}
+
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setStForm(
+                      f => ({
+                        ...f,
+                        interestRate:
+                          '',
+                      })
+                    )
+                  }
+                  className={`
+                    px-4 py-2
+                    rounded-lg
+                    text-sm
+                    font-semibold
+                    border
+                    transition-colors
+                    ${
+                      stForm.interestRate ===
+                      ''
+                        ? 'bg-teal-600 text-white border-teal-600'
+                        : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                    }
+                  `}
+                >
+                  Keep {loan.interestRate}%
+                </button>
+
+
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  placeholder="Custom %"
+                  value={
+                    [
+                      '6',
+                      '8',
+                      '10',
+                      '',
+                    ].includes(
+                      stForm.interestRate
+                    )
+                      ? ''
+                      : stForm.interestRate
+                  }
+                  onChange={
+                    e =>
+                      setStForm(
+                        f => ({
+                          ...f,
+                          interestRate:
+                            e.target.value,
+                        })
+                      )
+                  }
+                  className="w-28 px-3 py-2 rounded-lg text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+
+              </div>
+
+            </FormGroup>
+
+          )}
+
+
+          {stForm.status ===
+            'REJECTED' && (
+
+            <FormGroup
+              label="Rejection Reason"
+              required
+            >
+
+              <Textarea
+                required
+                value={
+                  stForm.rejectionReason
+                }
+                onChange={
+                  e =>
+                    setStForm(
+                      f => ({
+                        ...f,
+                        rejectionReason:
+                          e.target.value,
+                      })
+                    )
+                }
+              />
+
+            </FormGroup>
+
+          )}
+
+
+          <FormGroup
+            label="Internal Notes"
+          >
+
+            <Textarea
+              placeholder="For internal records only"
+              value={
+                stForm.internalNotes
+              }
+              onChange={
+                e =>
+                  setStForm(
+                    f => ({
+                      ...f,
+                      internalNotes:
+                        e.target.value,
+                    })
+                  )
+              }
+            />
+
+          </FormGroup>
+
+        </form>
+
+      </Modal>
+
     </div>
   );
 }

@@ -1,356 +1,298 @@
-"use client";
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { borrowerApi, loanApi } from "@/services/api";
-import { Borrower, Loan } from "@/types";
-import { useAuth } from "@/hooks/useAuth";
-import { Button } from "@/components/ui/Button";
-import { Card, CardBody, CardHeader } from "@/components/ui/Card";
-import { PageSpinner } from "@/components/ui/Skeleton";
-import { Pill } from "@/components/ui/Badge";
-import { formatCurrency } from "@/lib/utils";
-const MIN = 500000,
-  MAX = 6;
-const client = (b?: Borrower) =>
-  b ? `${b.firstName} ${b.lastName}`.trim() : "Select a client";
+'use client';
+import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { createLoan, CreateLoanPayload } from '../../../../services/loanService';
+import { getBorrowers } from '../../../../services/borrowerService';
+import { Borrower } from '../../../../types/index';
+import { toast } from '../../../../hooks/useToast';
+
 export default function NewLoanPage() {
-  const router = useRouter();
-  const { currency, locale } = useAuth();
-  const [borrowers, setBorrowers] = useState<Borrower[]>([]);
-  const [borrowerId, setBorrowerId] = useState("");
-  const [search, setSearch] = useState("");
-  const [amount, setAmount] = useState("");
-  const [months, setMonths] = useState("3");
-  const [purpose, setPurpose] = useState("");
-  const [collateralValue, setCollateralValue] = useState("");
-  const [collateralDescription, setCollateralDescription] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState<Loan | null>(null);
-  useEffect(() => {
-    borrowerApi
-      .list(0, 100, "")
-      .then((r: any) =>
-        setBorrowers(
-          Array.isArray(r) ? r : r?.content || r?.items || r?.data || [],
-        ),
-      )
-      .catch((e) => setError(e?.message || "Unable to load clients."))
-      .finally(() => setLoading(false));
-  }, []);
-  const selected = useMemo(
-    () => borrowers.find((b) => String(b.id) === borrowerId),
-    [borrowers, borrowerId],
-  );
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    return q
-      ? borrowers.filter((b) =>
-          `${client(b)} ${b.nationalId || ""} ${b.phone || ""} ${b.email || ""}`
-            .toLowerCase()
-            .includes(q),
-        )
-      : borrowers;
-  }, [borrowers, search]);
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setError("");
-    const principal = Number(amount),
-      duration = Number(months);
-    if (!borrowerId) return setError("Select a client.");
-    if (!Number.isFinite(principal) || principal < MIN)
-      return setError(
-        `Minimum principal is ${formatCurrency(MIN, currency, locale)}.`,
-      );
-    if (!Number.isInteger(duration) || duration < 1 || duration > MAX)
-      return setError("Duration must be between 1 and 6 months.");
-    if (selected?.status === "BLACKLISTED")
-      return setError("This client is blacklisted.");
-    setSaving(true);
-    try {
-      const r = await loanApi.create({
-        borrowerId: Number(borrowerId),
-        amount: principal,
-        interestRate: 5,
-        interestRateType: "MONTHLY",
-        durationMonths: duration,
-        currency,
-        repaymentFrequency: "MONTHLY",
-        startDate: new Date().toISOString().slice(0, 10),
-        purpose: purpose.trim() || undefined,
-        collateralValue: collateralValue ? Number(collateralValue) : undefined,
-        collateralDescription: collateralDescription.trim() || undefined,
-      });
-      setSuccess(r as Loan);
-    } catch (e: any) {
-      setError(e?.message || "The application could not be submitted.");
-    } finally {
-      setSaving(false);
-    }
-  }
-  if (loading) return <PageSpinner />;
-  if (success)
-    return (
-      <main className="premium-page grid min-h-[80vh] place-items-center p-6">
-        <Card>
-          <div className="bg-[#071a2d] px-7 py-8 text-white">
-            <div className="premium-kicker">Origination complete</div>
-            <h1 className="mt-2 text-3xl font-black">Application submitted</h1>
-            <p className="mt-3 text-sm leading-6 text-slate-300">
-              The application is now inside the existing approval workflow. The
-              backend remains authoritative for schedule, accrual and
-              accounting.
-            </p>
-          </div>
-          <CardBody>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Info label="Client" value={client(selected)} />
-              <Info
-                label="Reference"
-                value={success.referenceNumber || `#${success.id}`}
-              />
-              <Info
-                label="Principal"
-                value={formatCurrency(
-                  success.amount || Number(amount),
-                  currency,
-                  locale,
-                )}
-              />
-              <Info label="Status" value={success.status || "PENDING"} />
-            </div>
-            <div className="mt-6 flex gap-2">
-              <Button
-                onClick={() =>
-                  success.id && router.push(`/dashboard/loans/${success.id}`)
-                }
-              >
-                Open facility
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => router.push("/dashboard/loans")}
-              >
-                Portfolio
-              </Button>
-            </div>
-          </CardBody>
-        </Card>
-      </main>
-    );
   return (
-    <main className="premium-page pb-14">
-      <div className="mx-auto max-w-[1280px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <Suspense fallback={<div className="p-6 text-sm text-gray-400">Loading…</div>}>
+      <NewLoanForm />
+    </Suspense>
+  );
+}
+
+function NewLoanForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [borrowers,      setBorrowers]      = useState<Borrower[]>([]);
+  const [loading,        setLoading]        = useState(false);
+  const [borrowerId,     setBorrowerId]     = useState(searchParams.get('borrowerId') ?? '');
+  const [amount,         setAmount]         = useState('');
+  const [interestRate,   setInterestRate]   = useState('');
+  const [interestRateType, setInterestRateType] = useState<'MONTHLY' | 'ANNUAL'>('MONTHLY');
+  const [durationMonths, setDurationMonths] = useState('');
+  const [currency,       setCurrency]       = useState('USD');
+  const [startDate,      setStartDate]      = useState(new Date().toISOString().slice(0, 10));
+  const [notes,          setNotes]          = useState('');
+  const [collateralValue, setCollateralValue] = useState('');
+  const [collateralDesc,  setCollateralDesc]  = useState('');
+
+  useEffect(() => {
+    getBorrowers()
+      .then(data => setBorrowers(data as Borrower[]))
+      .catch(console.error);
+  }, []);
+
+  const getMsg = (err: unknown) =>
+    err instanceof Error ? err.message : 'Something went wrong';
+
+  const monthlyPreview = (() => {
+    const P = Number(amount);
+    // Previously this always divided by 1200 (i.e. treated every rate as annual, /100/12) —
+    // so entering "10" here silently meant 10% per YEAR even when the officer intended 10%
+    // per MONTH. Now it respects whichever type is actually selected below.
+    const r = interestRateType === 'MONTHLY' ? Number(interestRate) / 100 : Number(interestRate) / 1200;
+    const n = Number(durationMonths);
+    if (!P || !n) return null;
+    if (r === 0) return (P / n).toFixed(2);
+    const M = (P * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+    return isFinite(M) ? M.toFixed(2) : null;
+  })();
+
+  const ltv = (() => {
+    const a = Number(amount);
+    const c = Number(collateralValue);
+    if (!a || !c) return null;
+    return ((a / c) * 100).toFixed(1);
+  })();
+
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!borrowerId) { toast('error', 'Please select a borrower'); return; }
+    setLoading(true);
+    const payload: CreateLoanPayload = {
+      borrowerId:            Number(borrowerId),
+      amount:                Number(amount),
+      interestRate:          Number(interestRate),
+      interestRateType,
+      durationMonths:        Number(durationMonths),
+      currency,
+      startDate,
+      notes:                 notes.trim() || undefined,
+      collateralValue:       collateralValue ? Number(collateralValue) : undefined,
+      collateralDescription: collateralDesc.trim() || undefined,
+    };
+    try {
+      await createLoan(payload);
+      toast('success', 'Loan application submitted!');
+      router.push('/dashboard/loans');
+    } catch (err: unknown) {
+      toast('error', getMsg(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [borrowerId, amount, interestRate, durationMonths, currency,
+      startDate, notes, collateralValue, collateralDesc, router]);
+
+  return (
+    <div className="max-w-2xl">
+      <div className="mb-6">
+        <Link href="/dashboard/loans" className="text-sm text-gray-500 hover:text-gray-700">
+          ← Back
+        </Link>
+        <h1 className="text-xl font-bold text-gray-900 mt-2">New Loan Application</h1>
+      </div>
+
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+
+        {/* Borrower */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Borrower *</label>
+          <select
+            value={borrowerId}
+            onChange={e => setBorrowerId(e.target.value)}
+            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Select a borrower...</option>
+            {borrowers.map(b => (
+              <option key={b.id} value={b.id}>{b.firstName} {b.lastName}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Amount + Currency */}
+        <div className="grid grid-cols-2 gap-4">
           <div>
-            <div className="premium-eyebrow">Credit origination</div>
-            <h1 className="premium-section-title">New lending facility</h1>
-            <p className="premium-section-copy">
-              A private-bank style origination workspace. The interface captures
-              the request; the lending engine owns final pricing, daily accrual
-              and repayment schedules.
-            </p>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Amount *</label>
+            <div className="flex">
+              <select
+                value={currency}
+                onChange={e => setCurrency(e.target.value)}
+                className="px-3 py-2.5 border border-r-0 border-gray-300 rounded-l-lg text-sm bg-gray-50 focus:outline-none"
+              >
+                {['USD','RWF','EUR','KES','GBP','NGN'].map(c => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+              <input
+                type="number" min="1" required
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="flex-1 px-4 py-2.5 border border-gray-300 rounded-r-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
           </div>
-          <Button variant="secondary" onClick={() => router.back()}>
-            Back
-          </Button>
-        </section>
-        {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-bold text-red-800">
-            {error}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Interest Rate ({interestRateType === 'MONTHLY' ? '% per month' : '% per year'}) *
+            </label>
+            <div className="flex gap-2 mb-2">
+              <button type="button" onClick={() => setInterestRateType('MONTHLY')}
+                className={`flex-1 text-xs font-semibold py-1.5 rounded-lg border transition ${
+                  interestRateType === 'MONTHLY' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:border-blue-400'
+                }`}>
+                Monthly
+              </button>
+              <button type="button" onClick={() => setInterestRateType('ANNUAL')}
+                className={`flex-1 text-xs font-semibold py-1.5 rounded-lg border transition ${
+                  interestRateType === 'ANNUAL' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:border-blue-400'
+                }`}>
+                Annual
+              </button>
+            </div>
+            <input
+              type="number" step="0.1" min="0" required
+              value={interestRate}
+              onChange={e => setInterestRate(e.target.value)}
+              placeholder={interestRateType === 'MONTHLY' ? 'e.g. 10' : 'e.g. 12'}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {interestRateType === 'MONTHLY' && (
+              <div className="flex gap-1.5 mt-1.5">
+                {[6, 8, 10].map(r => (
+                  <button key={r} type="button" onClick={() => setInterestRate(String(r))}
+                    className={`text-xs px-2.5 py-1 rounded border font-semibold transition-colors ${
+                      interestRate === String(r) ? 'bg-blue-50 text-blue-700 border-blue-300' : 'border-gray-300 text-gray-600 hover:border-blue-400'
+                    }`}>
+                    {r}%/mo
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Duration + Start Date */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Duration (months) *
+            </label>
+            <input
+              type="number" min="1" max="360" required
+              value={durationMonths}
+              onChange={e => setDurationMonths(e.target.value)}
+              placeholder="e.g. 12"
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Start Date *</label>
+            <input
+              type="date" required
+              value={startDate}
+              onChange={e => setStartDate(e.target.value)}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+
+        {/* Collateral */}
+        <div className="border-t border-gray-100 pt-5">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">
+            Collateral <span className="text-gray-400 font-normal">(optional)</span>
+          </h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Collateral Value ({currency})
+              </label>
+              <input
+                type="number" min="0"
+                value={collateralValue}
+                onChange={e => setCollateralValue(e.target.value)}
+                placeholder="e.g. 50000"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
+              <input
+                type="text"
+                value={collateralDesc}
+                onChange={e => setCollateralDesc(e.target.value)}
+                placeholder="e.g. Land title, Vehicle"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          {ltv && (
+            <div className={`mt-3 flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg ${
+              Number(ltv) <= 70 ? 'bg-green-50 text-green-700' :
+              Number(ltv) <= 90 ? 'bg-yellow-50 text-yellow-700' :
+              'bg-red-50 text-red-700'
+            }`}>
+              <span>📊 Loan-to-Value (LTV): {ltv}%</span>
+              <span>&mdash;</span>
+              <span>
+                {Number(ltv) <= 70
+                  ? 'Excellent coverage'
+                  : Number(ltv) <= 90
+                  ? 'Acceptable'
+                  : 'High risk — collateral may be insufficient'}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Notes */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Notes <span className="text-gray-400 font-normal">(optional)</span>
+          </label>
+          <textarea
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            rows={2}
+            placeholder="Purpose of loan, additional terms, etc."
+            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          />
+        </div>
+
+        {/* Monthly preview */}
+        {monthlyPreview && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <p className="text-sm text-blue-700 font-medium">Estimated monthly installment</p>
+            <p className="text-2xl font-bold text-blue-800 mt-0.5">
+              {currency} {monthlyPreview}
+            </p>
+            <p className="text-xs text-blue-500 mt-1">
+              Reducing balance (amortization) method
+            </p>
           </div>
         )}
-        <form onSubmit={submit} className="grid gap-5 xl:grid-cols-[1fr_350px]">
-          <div className="space-y-5">
-            <Card>
-              <CardHeader
-                title="01 · Client relationship"
-                subtitle="Select a verified lending customer."
-              />
-              <CardBody>
-                <input
-                  className="premium-input"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search name, national ID, phone or email"
-                />
-                <select
-                  className="premium-input mt-3"
-                  value={borrowerId}
-                  onChange={(e) => setBorrowerId(e.target.value)}
-                  required
-                >
-                  <option value="">Select client</option>
-                  {filtered.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {client(b)}
-                      {b.nationalId ? ` · ${b.nationalId}` : ""}
-                    </option>
-                  ))}
-                </select>
-                {selected && (
-                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                    <Info label="Client status" value={selected.status} />
-                    <Info label="KYC" value={selected.kycStatus} />
-                    <Info
-                      label="Contact"
-                      value={selected.phone || selected.email || "—"}
-                    />
-                  </div>
-                )}
-              </CardBody>
-            </Card>
-            <Card>
-              <CardHeader
-                title="02 · Facility terms"
-                subtitle="Institutional pricing policy is displayed for transparency; calculated schedules are not recreated in the browser."
-              />
-              <CardBody>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Field label="Principal amount">
-                    <input
-                      className="premium-input"
-                      type="number"
-                      min={MIN}
-                      step="1000"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      required
-                      placeholder="25,000,000"
-                    />
-                  </Field>
-                  <Field label="Duration">
-                    <select
-                      className="premium-input"
-                      value={months}
-                      onChange={(e) => setMonths(e.target.value)}
-                    >
-                      {Array.from({ length: MAX }, (_, i) => i + 1).map((m) => (
-                        <option key={m}>
-                          {m} {m === 1 ? "month" : "months"}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="Purpose" wide>
-                    <textarea
-                      className="premium-input min-h-[100px]"
-                      value={purpose}
-                      onChange={(e) => setPurpose(e.target.value)}
-                      placeholder="Purpose and credit rationale"
-                    />
-                  </Field>
-                </div>
-              </CardBody>
-            </Card>
-            <Card>
-              <CardHeader
-                title="03 · Security & collateral"
-                subtitle="Capture available security without calculating a separate risk model in the browser."
-              />
-              <CardBody>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Field label="Collateral value">
-                    <input
-                      className="premium-input"
-                      type="number"
-                      min="0"
-                      value={collateralValue}
-                      onChange={(e) => setCollateralValue(e.target.value)}
-                      placeholder="Optional"
-                    />
-                  </Field>
-                  <Field label="Collateral description">
-                    <input
-                      className="premium-input"
-                      value={collateralDescription}
-                      onChange={(e) => setCollateralDescription(e.target.value)}
-                      placeholder="Property, vehicle, guarantee…"
-                    />
-                  </Field>
-                </div>
-              </CardBody>
-            </Card>
-          </div>
-          <aside className="space-y-5">
-            <Card>
-              <CardHeader
-                title="Pricing policy"
-                subtitle="Authoritative lending rules"
-              />
-              <CardBody>
-                <Policy label="Interest" value="5% monthly" />
-                <Policy label="Management fee" value="5% monthly" />
-                <Policy
-                  label="Processing fee"
-                  value="2% once at disbursement"
-                />
-                <div className="premium-divider my-4" />
-                <p className="text-[10px] leading-5 text-slate-500">
-                  Interest and management fees are accrued daily on outstanding
-                  principal using the backend financial engine. Future
-                  installments are recalculated after principal repayments.
-                </p>
-              </CardBody>
-            </Card>
-            <Card>
-              <CardHeader title="Submission control" />
-              <CardBody>
-                <div className="rounded-xl bg-slate-50 p-4 text-[10px] leading-5 text-slate-500">
-                  Submitting creates a facility request. Approval, documentation
-                  checks, disbursement and accounting remain controlled by the
-                  existing backend workflow.
-                </div>
-                <Button
-                  className="mt-4 w-full"
-                  size="lg"
-                  loading={saving}
-                  type="submit"
-                >
-                  Submit application
-                </Button>
-              </CardBody>
-            </Card>
-          </aside>
-        </form>
-      </div>
-    </main>
-  );
-}
-function Field({
-  label,
-  children,
-  wide = false,
-}: {
-  label: string;
-  children: any;
-  wide?: boolean;
-}) {
-  return (
-    <label className={wide ? "md:col-span-2" : ""}>
-      <span className="mb-1.5 block text-[9px] font-black uppercase tracking-[.14em] text-slate-500">
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl bg-slate-50 p-3">
-      <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-        {label}
-      </div>
-      <div className="mt-1 text-xs font-black text-slate-900">{value}</div>
-    </div>
-  );
-}
-function Policy({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between border-b border-slate-100 py-3 last:border-0">
-      <span className="text-xs font-semibold text-slate-500">{label}</span>
-      <span className="text-xs font-black text-[#071a2d]">{value}</span>
+
+        <div className="flex gap-3 pt-2">
+          <button
+            type="submit"
+            disabled={loading}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg text-sm font-medium disabled:opacity-60 transition"
+          >
+            {loading ? 'Submitting...' : 'Submit Application'}
+          </button>
+          <Link
+            href="/dashboard/loans"
+            className="px-6 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition"
+          >
+            Cancel
+          </Link>
+        </div>
+      </form>
     </div>
   );
 }

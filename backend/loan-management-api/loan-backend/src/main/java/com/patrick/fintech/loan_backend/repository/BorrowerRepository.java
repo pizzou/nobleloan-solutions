@@ -24,6 +24,11 @@ public interface BorrowerRepository extends JpaRepository<Borrower, Long> {
 
     long countByOrganization(Organization organization);
 
+    /**
+     * Tenant-scoped count without loading borrower entities.
+     */
+    long countByOrganization_Id(Long organizationId);
+
     @EntityGraph(attributePaths = { "organization" })
     Page<Borrower> findByOrganization(Organization organization, Pageable pageable);
 

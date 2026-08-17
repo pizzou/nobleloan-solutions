@@ -17,7 +17,6 @@ import jakarta.persistence.LockModeType;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -249,6 +248,71 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                         Long organizationId,
                         LoanStatus status);
 
+        /**
+         * Single aggregate query for the dashboard loan KPIs.
+         *
+         * Result order:
+         * 0 total loans
+         * 1 pending loans
+         * 2 active loans
+         * 3 completed/paid loans
+         * 4 defaulted loans
+         * 5 total disbursed amount
+         * 6 outstanding balance
+         * 7 at-risk outstanding balance
+         */
+        @Query("""
+                        SELECT
+                            COUNT(l),
+                            SUM(CASE WHEN l.status = 'PENDING' THEN 1 ELSE 0 END),
+                            SUM(CASE WHEN l.status = 'ACTIVE' THEN 1 ELSE 0 END),
+                            SUM(CASE WHEN l.status = 'PAID' THEN 1 ELSE 0 END),
+                            SUM(CASE WHEN l.status = 'DEFAULTED' THEN 1 ELSE 0 END),
+                            COALESCE(SUM(
+                                CASE
+                                    WHEN l.status IN (
+                                        'DISBURSED',
+                                        'ACTIVE',
+                                        'OVERDUE',
+                                        'PAID',
+                                        'CLOSED',
+                                        'DEFAULTED',
+                                        'RESTRUCTURED',
+                                        'WRITTEN_OFF'
+                                    )
+                                    THEN l.amount
+                                    ELSE 0
+                                END
+                            ), 0),
+                            COALESCE(SUM(
+                                CASE
+                                    WHEN l.status IN (
+                                        'DISBURSED',
+                                        'ACTIVE',
+                                        'OVERDUE',
+                                        'RESTRUCTURED'
+                                    )
+                                    THEN l.outstandingBalance
+                                    ELSE 0
+                                END
+                            ), 0),
+                            COALESCE(SUM(
+                                CASE
+                                    WHEN l.status IN (
+                                        'OVERDUE',
+                                        'DEFAULTED',
+                                        'RESTRUCTURED'
+                                    )
+                                    THEN l.outstandingBalance
+                                    ELSE 0
+                                END
+                            ), 0)
+                        FROM Loan l
+                        WHERE l.organization.id = :organizationId
+                        """)
+        Object[] getDashboardLoanAggregate(
+                        @Param("organizationId") Long organizationId);
+
         // ============================================================
         // FILTERING
         // ============================================================
@@ -288,37 +352,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
         BigDecimal sumActivePrincipal(
                         @Param("org") Organization org);
 
-        /**
-         * Gross principal of every loan that has actually been disbursed as of now.
-         *
-         * Future-dated ACTIVE/DISBURSED records are deliberately excluded. This is
-         * important for the dashboard because a loan with a future disbursement
-         * date must not inflate today's portfolio. Historical/imported records with
-         * no disbursedAt timestamp are accepted through startDate.
-         */
-        @Query("""
-                        SELECT COALESCE(SUM(l.amount), 0)
-                        FROM Loan l
-                        WHERE l.organization = :org
-                          AND l.status IN (
-                              'DISBURSED',
-                              'ACTIVE',
-                              'OVERDUE',
-                              'DEFAULTED',
-                              'RESTRUCTURED',
-                              'PAID',
-                              'CLOSED',
-                              'WRITTEN_OFF'
-                          )
-                          AND (
-                                (l.disbursedAt IS NOT NULL AND l.disbursedAt <= CURRENT_TIMESTAMP)
-                                OR
-                                (l.disbursedAt IS NULL AND l.startDate IS NOT NULL AND l.startDate <= CURRENT_DATE)
-                          )
-                        """)
-        BigDecimal sumGrossDisbursedPrincipal(
-                        @Param("org") Organization org);
-
         @Query("""
                         SELECT COALESCE(SUM(l.totalPaid), 0)
                         FROM Loan l
@@ -327,10 +360,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
         BigDecimal sumTotalCollected(
                         @Param("org") Organization org);
 
-        /**
-         * Current principal outstanding for loans that are genuinely in today's
-         * disbursed portfolio. Future-dated records are excluded.
-         */
         @Query("""
                         SELECT COALESCE(SUM(l.outstandingBalance), 0)
                         FROM Loan l
@@ -340,13 +369,24 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                               'DISBURSED',
                               'OVERDUE'
                           )
-                          AND (
-                                (l.disbursedAt IS NOT NULL AND l.disbursedAt <= CURRENT_TIMESTAMP)
-                                OR
-                                (l.disbursedAt IS NULL AND l.startDate IS NOT NULL AND l.startDate <= CURRENT_DATE)
-                          )
                         """)
         BigDecimal sumOutstandingBalance(
+                        @Param("org") Organization org);
+
+        /**
+         * Sum the gross amount actually disbursed for an organization.
+         *
+         * Uses the persisted disbursedAmount rather than the requested
+         * loan amount so reporting reflects the amount that was actually
+         * released to borrowers.
+         */
+        @Query("""
+                        SELECT COALESCE(SUM(l.disbursedAmount), 0)
+                        FROM Loan l
+                        WHERE l.organization = :org
+                          AND l.disbursedAmount IS NOT NULL
+                        """)
+        BigDecimal sumGrossDisbursedPrincipal(
                         @Param("org") Organization org);
 
         // ============================================================
@@ -363,6 +403,18 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                         """)
         List<Object[]> getLoanTypeBreakdown(
                         @Param("org") Organization org);
+
+        @Query("""
+                        SELECT l.loanType,
+                               COUNT(l),
+                               COALESCE(SUM(l.amount), 0)
+                        FROM Loan l
+                        WHERE l.organization.id = :organizationId
+                        GROUP BY l.loanType
+                        ORDER BY COUNT(l) DESC
+                        """)
+        List<Object[]> getLoanTypeBreakdownByOrganizationId(
+                        @Param("organizationId") Long organizationId);
 
         // ============================================================
         // RECENT
@@ -383,6 +435,20 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                         """)
         List<Loan> findRecentByOrg(
                         @Param("org") Organization org,
+                        Pageable pageable);
+
+        @EntityGraph(attributePaths = {
+                        "borrower",
+                        "organization"
+        })
+        @Query("""
+                        SELECT l
+                        FROM Loan l
+                        WHERE l.organization.id = :organizationId
+                        ORDER BY l.createdAt DESC
+                        """)
+        List<Loan> findRecentByOrganizationId(
+                        @Param("organizationId") Long organizationId,
                         Pageable pageable);
 
         // ============================================================
@@ -407,28 +473,32 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                         FROM Loan l
                         WHERE l.organization.id = :orgId
                           AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND (
-                                (l.disbursedAt IS NOT NULL
-                                 AND l.disbursedAt >= :from
-                                 AND l.disbursedAt < :to)
-                                OR
-                                (l.disbursedAt IS NULL
-                                 AND l.startDate IS NOT NULL
-                                 AND l.startDate >= :fromDate
-                                 AND l.startDate <= :toDate
-                                 AND l.status IN (
-                                      'DISBURSED', 'ACTIVE', 'OVERDUE', 'DEFAULTED',
-                                      'RESTRUCTURED', 'PAID', 'CLOSED', 'WRITTEN_OFF'))
-                          )
-                        ORDER BY l.disbursedAt ASC, l.startDate ASC
+                          AND l.disbursedAt IS NOT NULL
+                          AND l.disbursedAt >= :from
+                          AND l.disbursedAt < :to
+                        ORDER BY l.disbursedAt ASC
                         """)
         List<Loan> findLoansDisbursedDuringPeriod(
                         @Param("orgId") Long orgId,
                         @Param("branchId") Long branchId,
                         @Param("from") LocalDateTime from,
-                        @Param("to") LocalDateTime to,
-                        @Param("fromDate") LocalDate fromDate,
-                        @Param("toDate") LocalDate toDate);
+                        @Param("to") LocalDateTime to);
+
+        /**
+         * Compatibility overload for regulatory reporting code that also
+         * passes the original inclusive LocalDate boundaries. The query
+         * is driven by the LocalDateTime boundaries because disbursedAt
+         * is a LocalDateTime field.
+         */
+        default List<Loan> findLoansDisbursedDuringPeriod(
+                        Long orgId,
+                        Long branchId,
+                        LocalDateTime from,
+                        LocalDateTime to,
+                        java.time.LocalDate fromDate,
+                        java.time.LocalDate toDate) {
+                return findLoansDisbursedDuringPeriod(orgId, branchId, from, to);
+        }
 
         /**
          * Find portfolio as of a particular date/time.
@@ -455,24 +525,28 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                         FROM Loan l
                         WHERE l.organization.id = :orgId
                           AND (:branchId IS NULL OR l.branch.id = :branchId)
-                          AND (
-                                (l.disbursedAt IS NOT NULL
-                                 AND l.disbursedAt < :asOf)
-                                OR
-                                (l.disbursedAt IS NULL
-                                 AND l.startDate IS NOT NULL
-                                 AND l.startDate <= :asOfDate
-                                 AND l.status IN (
-                                      'DISBURSED', 'ACTIVE', 'OVERDUE', 'DEFAULTED',
-                                      'RESTRUCTURED', 'PAID', 'CLOSED', 'WRITTEN_OFF'))
-                          )
-                        ORDER BY l.disbursedAt ASC, l.startDate ASC
+                          AND l.disbursedAt IS NOT NULL
+                          AND l.disbursedAt < :asOf
+                        ORDER BY l.disbursedAt ASC
                         """)
         List<Loan> findPortfolioAsOf(
                         @Param("orgId") Long orgId,
                         @Param("branchId") Long branchId,
-                        @Param("asOf") LocalDateTime asOf,
-                        @Param("asOfDate") LocalDate asOfDate);
+                        @Param("asOf") LocalDateTime asOf);
+
+        /**
+         * Compatibility overload for regulatory reporting callers that
+         * also provide the reporting LocalDate. The LocalDateTime value
+         * remains authoritative because disbursedAt contains the exact
+         * timestamp.
+         */
+        default List<Loan> findPortfolioAsOf(
+                        Long orgId,
+                        Long branchId,
+                        LocalDateTime asOf,
+                        java.time.LocalDate asOfDate) {
+                return findPortfolioAsOf(orgId, branchId, asOf);
+        }
 
         /**
          * Find loans for regulatory reporting.

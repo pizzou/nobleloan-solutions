@@ -300,6 +300,55 @@ public interface PaymentRepository
             @Param("org") Organization org
     );
 
+    /**
+     * Single aggregate query for dashboard collections.
+     *
+     * Result order:
+     * 0 total paid amount
+     * 1 paid amount collected this month
+     * 2 late payment count
+     */
+    @Query("""
+        SELECT
+            COALESCE(SUM(
+                CASE WHEN p.paid = true
+                     THEN p.amountPaid
+                     ELSE 0
+                END
+            ), 0),
+            COALESCE(SUM(
+                CASE
+                    WHEN p.paid = true
+                     AND p.paidDate >= :from
+                     AND p.paidDate <= :to
+                    THEN p.amountPaid
+                    ELSE 0
+                END
+            ), 0),
+            SUM(CASE WHEN p.isLate = true THEN 1 ELSE 0 END)
+        FROM Payment p
+        WHERE p.organization.id = :organizationId
+        """)
+    Object[] getDashboardPaymentAggregate(
+            @Param("organizationId") Long organizationId,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
+
+    /**
+     * Counts distinct loans that currently have an unpaid payment
+     * past its due date.
+     */
+    @Query("""
+        SELECT COUNT(DISTINCT p.loan.id)
+        FROM Payment p
+        WHERE p.organization.id = :organizationId
+          AND p.paid = false
+          AND p.dueDate < :today
+        """)
+    long countDistinctOverdueLoans(
+            @Param("organizationId") Long organizationId,
+            @Param("today") LocalDate today);
+
 
     // ============================================================
     // UNPAID PAYMENTS
