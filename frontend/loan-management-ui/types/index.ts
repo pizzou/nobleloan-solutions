@@ -715,6 +715,13 @@ export interface DashboardStats {
     count: number;
     amount: number;
   }[];
+
+  borrowerGenderBreakdown?: {
+    label: string;
+    count: number;
+  }[];
+
+  portfolioAtRiskAmount?: number;
 }
 
 // ============================================================

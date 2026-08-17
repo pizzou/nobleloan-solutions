@@ -45,9 +45,16 @@ interface TenantConfig {
     title: string;
     description: string;
     icon: string;
-    rate: string;
+    loanType?: string;
+    rate: string | number;
     rateType?: string;
-    maxAmount: string;
+    interestRate?: string | number;
+    processingFeeRate?: string | number;
+    managementFeeRate?: string | number;
+    minAmount?: string | number;
+    maxAmount?: string | number | null;
+    minTermMonths?: number;
+    maxTermMonths?: number;
     term: string;
   }[];
 

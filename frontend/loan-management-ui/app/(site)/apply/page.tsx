@@ -56,10 +56,9 @@ export default function ApplyPage() {
     monthlyExpenses: "",
 
     // Loan
-    loanType:
-      searchParams?.get("type")?.replace(/\_/g, " ") || "Personal Loans",
+    loanType: searchParams?.get("type")?.replace(/\_/g, " ") || "Personal Loan",
     amount: "",
-    durationMonths: "12",
+    durationMonths: "1",
     purpose: "",
     collateral: "",
     collateralValue: "",
@@ -71,6 +70,20 @@ export default function ApplyPage() {
   const online = useOnlineStatus();
 
   if (!tenant) return null;
+
+  const selectedService = tenant.services?.find(
+    (s) => s.title === form.loanType || s.loanType === form.loanType,
+  );
+  const minimumLoanAmount = Number(selectedService?.minAmount ?? 500000);
+  const configuredMaximum = selectedService?.maxAmount ?? null;
+  const maximumLoanAmount =
+    configuredMaximum === null ||
+    configuredMaximum === undefined ||
+    configuredMaximum === ""
+      ? null
+      : Number(configuredMaximum);
+  const minimumTermMonths = Number(selectedService?.minTermMonths ?? 1);
+  const maximumTermMonths = Number(selectedService?.maxTermMonths ?? 6);
 
   const primary = tenant.primaryColor;
   const accent = tenant.accentColor;
@@ -274,7 +287,7 @@ export default function ApplyPage() {
         setSubmitted(true);
       } catch (e: any) {
         setError(
-          "Could not save your application on this device. Please try again once you're back online.",
+          "Could not save your application on this device. Please try again once you&apos;re back online.",
         );
       } finally {
         setSaving(false);
@@ -410,11 +423,11 @@ export default function ApplyPage() {
           <p className="text-gray-600 mb-6 text-lg">
             {queuedOffline ? (
               <>
-                Thanks <strong>{form.firstName}</strong> — you're offline right
-                now, so we've saved your application on this device. It will
-                submit itself the moment this device reconnects to the internet.
-                You don't need to do anything else — just don't clear your
-                browser data before then.
+                Thanks <strong>{form.firstName}</strong> — you&apos;re offline
+                right now, so we&apos;ve saved your application on this device.
+                It will submit itself the moment this device reconnects to the
+                internet. You don&apos;t need to do anything else — just
+                don&apos;t clear your browser data before then.
               </>
             ) : docsComplete ? (
               <>
@@ -425,9 +438,9 @@ export default function ApplyPage() {
             ) : (
               <>
                 Thanks <strong>{form.firstName}</strong> — your application
-                details are saved, but it isn't complete yet. Please upload the
-                required documents below so our team can begin reviewing it —
-                applications without documents can't be processed.
+                details are saved, but it isn&apos;t complete yet. Please upload
+                the required documents below so our team can begin reviewing it
+                — applications without documents can&apos;t be processed.
               </>
             )}
           </p>
@@ -990,7 +1003,7 @@ export default function ApplyPage() {
                   <input
                     required
                     type="number"
-                    min="10000"
+                    min={minimumLoanAmount}
                     className={inp}
                     value={form.amount}
                     onChange={set("amount")}
@@ -1001,14 +1014,22 @@ export default function ApplyPage() {
                       (s) => s.title === form.loanType,
                     );
 
-                    if (!svc?.maxAmount) {
+                    if (!svc) {
                       return null;
                     }
 
-                    const min = 10000;
-                    const max = Number(svc.maxAmount);
+                    const min = Number(svc.minAmount ?? 500000);
+                    const max =
+                      svc.maxAmount === null ||
+                      svc.maxAmount === undefined ||
+                      svc.maxAmount === ""
+                        ? null
+                        : Number(svc.maxAmount);
 
-                    const over = form.amount && Number(form.amount) > max;
+                    const over =
+                      form.amount && max !== null && Number(form.amount) > max;
+                    const belowMinimum =
+                      form.amount && Number(form.amount) < min;
 
                     return (
                       <p
@@ -1017,8 +1038,12 @@ export default function ApplyPage() {
                         }`}
                       >
                         {over
-                          ? `This exceeds the ${max.toLocaleString()} ${tenant.currency} limit for ${form.loanType}`
-                          : `${form.loanType} range: up to ${max.toLocaleString()} ${tenant.currency}`}
+                          ? `This exceeds the ${max!.toLocaleString()} ${tenant.currency} limit for ${form.loanType}`
+                          : belowMinimum
+                            ? `${form.loanType} minimum is ${min.toLocaleString()} ${tenant.currency}`
+                            : max !== null
+                              ? `${form.loanType}: ${min.toLocaleString()}–${max.toLocaleString()} ${tenant.currency}`
+                              : `${form.loanType}: minimum ${min.toLocaleString()} ${tenant.currency}; no maximum configured`}
                       </p>
                     );
                   })()}
@@ -1031,7 +1056,15 @@ export default function ApplyPage() {
                     value={form.durationMonths}
                     onChange={set("durationMonths")}
                   >
-                    {[1, 2, 3, 4, 5, 6].map((m) => (
+                    {Array.from(
+                      {
+                        length: Math.max(
+                          1,
+                          maximumTermMonths - minimumTermMonths + 1,
+                        ),
+                      },
+                      (_, index) => minimumTermMonths + index,
+                    ).map((m) => (
                       <option key={m} value={m}>
                         {m} month
                         {m > 1 ? "s" : ""}
@@ -1085,21 +1118,29 @@ export default function ApplyPage() {
 
                       const months = Number(form.durationMonths);
 
-                      /*
-                       * Existing application-page
-                       * estimate preserved exactly.
-                       *
-                       * This is only the frontend
-                       * display estimate and does NOT
-                       * modify backend loan interest logic.
-                       */
-                      const mr: number = 0.1;
-
-                      const monthly =
-                        mr === 0
-                          ? principal / months
-                          : (principal * (mr * Math.pow(1 + mr, months))) /
-                            (Math.pow(1 + mr, months) - 1);
+                      // This is an estimate only. The backend remains authoritative
+                      // for the final schedule and agreement. Keep the public
+                      // calculator formula aligned with the existing Noble product
+                      // configuration: simple monthly interest + management fee.
+                      const interestRate = Number(
+                        selectedService?.interestRate ??
+                          selectedService?.rate ??
+                          5,
+                      );
+                      const managementRate = Number(
+                        selectedService?.managementFeeRate ?? 5,
+                      );
+                      const processingRate = Number(
+                        selectedService?.processingFeeRate ?? 2,
+                      );
+                      const interest =
+                        principal * (interestRate / 100) * months;
+                      const management =
+                        principal * (managementRate / 100) * months;
+                      const processing = principal * (processingRate / 100);
+                      const total =
+                        principal + interest + management + processing;
+                      const monthly = total / months;
 
                       return [
                         [
@@ -1116,7 +1157,7 @@ export default function ApplyPage() {
                             maximumFractionDigits: 0,
                           })}`,
                         ],
-                        ["Rate", "10% / mo"],
+                        ["Rate", `${interestRate}% / mo`],
                       ].map(([l, v]) => (
                         <div key={l}>
                           <div className="text-gray-400 text-[10px]">{l}</div>
@@ -1290,12 +1331,19 @@ export default function ApplyPage() {
                   (step === 3 &&
                     (() => {
                       const svc = tenant.services?.find(
-                        (s) => s.title === form.loanType,
+                        (s) =>
+                          s.title === form.loanType ||
+                          s.loanType === form.loanType,
                       );
 
+                      if (!svc) return true;
+
                       return (
-                        !!svc?.maxAmount &&
-                        Number(form.amount) > Number(svc.maxAmount)
+                        Number(form.amount) < Number(svc.minAmount ?? 500000) ||
+                        (svc.maxAmount !== null &&
+                          svc.maxAmount !== undefined &&
+                          svc.maxAmount !== "" &&
+                          Number(form.amount) > Number(svc.maxAmount))
                       );
                     })())
                 }

@@ -1,167 +1,162 @@
 "use client";
+
 import Link from "next/link";
 import { useTenant } from "../layout";
+
+function displayAmount(
+  currency: string,
+  value: string | number | null | undefined,
+) {
+  if (value === null || value === undefined || value === "") return "Unlimited";
+  const amount = Number(String(value).replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(amount)
+    ? `${currency} ${amount.toLocaleString("en-RW", { maximumFractionDigits: 0 })}`
+    : "Unlimited";
+}
 
 export default function ServicesPage() {
   const tenant = useTenant();
   if (!tenant) return null;
-  const primary = tenant.primaryColor;
-  const accent = tenant.accentColor;
+
+  const primary = tenant.primaryColor || "#0F1B3D";
+  const accent = tenant.accentColor || "#C9A227";
+  const services = tenant.services || [];
 
   return (
-    <div>
-      {/* Hero */}
+    <main className="bg-white text-slate-950">
       <section
-        className="py-20 text-white text-center"
-        style={{
-          background: `linear-gradient(135deg, ${primary} 0%, #0a4a2b 100%)`,
-        }}
+        className="relative overflow-hidden text-white"
+        style={{ background: `linear-gradient(135deg,#07111F,${primary})` }}
       >
-        <div className="max-w-3xl mx-auto px-4">
-          <h1 className="text-4xl md:text-5xl font-extrabold mb-4">
-            Our Financial Services
-          </h1>
-          <p className="text-white/80 text-lg">
-            Flexible, affordable loan products designed for every Rwandan — from
-            salary earners to farmers and entrepreneurs.
-          </p>
-        </div>
-      </section>
-
-      {/* Services grid */}
-      <section className="py-20 max-w-7xl mx-auto px-4">
-        <div className="space-y-12">
-          {tenant.services?.map((service, idx) => (
+        <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 lg:py-28">
+          <div className="max-w-3xl">
             <div
-              key={service.title}
-              className={`grid md:grid-cols-2 gap-10 items-center ${idx % 2 === 1 ? "md:flex-row-reverse" : ""}`}
+              className="text-[11px] font-black uppercase tracking-[.2em]"
+              style={{ color: accent }}
             >
-              <div className={idx % 2 === 1 ? "md:order-2" : ""}>
-                <div
-                  className="w-20 h-20 rounded-3xl flex items-center justify-center text-5xl mb-6"
-                  style={{ backgroundColor: primary + "15" }}
-                >
-                  {service.icon}
-                </div>
-                <h2 className="text-2xl md:text-3xl font-extrabold text-gray-900 mb-3">
-                  {service.title}
-                </h2>
-                <p className="text-gray-600 text-lg leading-relaxed mb-6">
-                  {service.description}
-                </p>
-                <div className="grid grid-cols-3 gap-4 mb-6">
-                  {[
-                    [
-                      "Interest Rate",
-                      service.rate +
-                        (service.rateType === "MONTHLY"
-                          ? " per month"
-                          : " p.m."),
-                    ],
-                    ["Max Amount", tenant.currency + " " + service.maxAmount],
-                    ["Loan Term", service.term],
-                  ].map(([label, value]) => (
-                    <div
-                      key={label}
-                      className="bg-gray-50 rounded-xl p-4 text-center border border-gray-100"
-                    >
-                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
-                        {label}
-                      </div>
-                      <div
-                        className="font-extrabold text-sm"
-                        style={{ color: primary }}
-                      >
-                        {value}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex gap-3">
-                  <Link
-                    href={`/apply?type=${service.title.replace(/ /g, "_").toUpperCase()}`}
-                    className="px-8 py-3 rounded-full text-white font-bold shadow-md hover:opacity-90 transition"
-                    style={{ backgroundColor: primary }}
-                  >
-                    Apply Now →
-                  </Link>
-                  <Link
-                    href={`/contact`}
-                    className="px-8 py-3 rounded-full font-bold border-2 hover:bg-gray-50 transition"
-                    style={{ borderColor: primary, color: primary }}
-                  >
-                    Learn More
-                  </Link>
-                </div>
-              </div>
-
-              {/* Requirements */}
-              <div
-                className={`bg-gray-50 rounded-3xl p-8 border border-gray-100 ${idx % 2 === 1 ? "md:order-1" : ""}`}
-              >
-                <h3 className="font-bold text-gray-900 mb-4">Requirements</h3>
-                <ul className="space-y-3 text-sm text-gray-700">
-                  {[
-                    "✅ Valid national ID or passport",
-                    "✅ Proof of income or business registration",
-                    "✅ Recent bank statement or Mobile Money statement",
-                    "✅ Collateral documentation (where applicable)",
-                    "✅ Completed loan application form",
-                  ].map((req) => (
-                    <li key={req} className="flex items-start gap-2">
-                      {req}
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-6 pt-4 border-t border-gray-200">
-                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
-                    Processing Time
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-2xl">⚡</span>
-                    <span className="font-bold text-gray-800">
-                      Decision within{" "}
-                      <span style={{ color: primary }}>24–48 hours</span>
-                    </span>
-                  </div>
-                </div>
-              </div>
+              Noble Loan Solutions
             </div>
-          ))}
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section
-        className="py-16 text-center"
-        style={{ backgroundColor: primary + "08" }}
-      >
-        <div className="max-w-2xl mx-auto px-4">
-          <h2 className="text-3xl font-extrabold text-gray-900 mb-4">
-            Not sure which loan is right for you?
-          </h2>
-          <p className="text-gray-500 mb-8">
-            Our financial advisors are here to help you choose the best option
-            for your needs.
-          </p>
-          <div className="flex gap-4 justify-center flex-wrap">
-            <Link
-              href={`/contact`}
-              className="px-8 py-3 rounded-full text-white font-bold hover:opacity-90 transition"
-              style={{ backgroundColor: primary }}
-            >
-              Talk to an Advisor
-            </Link>
-            <Link
-              href={`/apply`}
-              className="px-8 py-3 rounded-full font-bold hover:opacity-90 transition text-white"
-              style={{ backgroundColor: accent }}
-            >
-              Apply Online →
-            </Link>
+            <h1 className="mt-4 text-4xl font-black tracking-[-.04em] sm:text-6xl">
+              Loan products built around your financial need.
+            </h1>
+            <p className="mt-6 text-base leading-7 text-white/65 sm:text-lg">
+              Explore Noble&apos;s active lending products, their published
+              pricing and terms, and choose the facility that best fits your
+              purpose.
+            </p>
           </div>
         </div>
       </section>
-    </div>
+
+      <section className="mx-auto max-w-7xl px-5 py-16 sm:px-8 lg:py-24">
+        <div className="grid gap-6 lg:grid-cols-2">
+          {services.map((service, index) => (
+            <article
+              key={service.title}
+              className="rounded-3xl border border-slate-200 bg-white p-7 shadow-[0_15px_50px_rgba(15,23,42,.06)] sm:p-9"
+            >
+              <div className="flex items-start justify-between gap-5">
+                <div
+                  className="flex h-14 w-14 items-center justify-center rounded-2xl text-2xl"
+                  style={{ backgroundColor: `${primary}10` }}
+                >
+                  {service.icon}
+                </div>
+                <span
+                  className="rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[.14em]"
+                  style={{ backgroundColor: `${accent}22`, color: primary }}
+                >
+                  Product {String(index + 1).padStart(2, "0")}
+                </span>
+              </div>
+              <h2 className="mt-7 text-2xl font-black tracking-tight">
+                {service.title}
+              </h2>
+              <p className="mt-3 min-h-[56px] text-sm leading-6 text-slate-500">
+                {service.description}
+              </p>
+
+              <div className="mt-7 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Interest
+                  </div>
+                  <div
+                    className="mt-1 text-lg font-black"
+                    style={{ color: primary }}
+                  >
+                    {service.interestRate ?? service.rate}%{" "}
+                    <span className="text-xs font-bold text-slate-400">
+                      {service.rateType
+                        ? String(service.rateType).toLowerCase()
+                        : "monthly"}
+                    </span>
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Term
+                  </div>
+                  <div
+                    className="mt-1 text-lg font-black"
+                    style={{ color: primary }}
+                  >
+                    {service.term}
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Minimum
+                  </div>
+                  <div className="mt-1 text-sm font-black">
+                    {displayAmount(tenant.currency, service.minAmount)}
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Maximum
+                  </div>
+                  <div className="mt-1 text-sm font-black">
+                    {displayAmount(tenant.currency, service.maxAmount)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-3 text-xs text-slate-500">
+                <div>
+                  Processing fee{" "}
+                  <strong className="text-slate-800">
+                    {service.processingFeeRate ?? 2}%
+                  </strong>
+                </div>
+                <div>
+                  Management fee{" "}
+                  <strong className="text-slate-800">
+                    {service.managementFeeRate ?? 5}%
+                  </strong>
+                </div>
+              </div>
+
+              <div className="mt-7 flex flex-wrap gap-3">
+                <Link
+                  href={`/apply?type=${encodeURIComponent(service.title)}`}
+                  className="rounded-xl px-6 py-3 text-sm font-black text-white"
+                  style={{ backgroundColor: primary }}
+                >
+                  Apply for this product
+                </Link>
+                <Link
+                  href="/contact"
+                  className="rounded-xl border border-slate-200 px-6 py-3 text-sm font-bold"
+                  style={{ color: primary }}
+                >
+                  Talk to Noble
+                </Link>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    </main>
   );
 }
