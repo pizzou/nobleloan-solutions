@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+
+import { useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTenant } from "../layout";
 import { useOnlineStatus } from "../../../hooks/useOnlineStatus";
@@ -13,6 +14,7 @@ export default function ApplyPage() {
   const searchParams = useSearchParams();
   const slug = TENANT_SLUG;
   const tenant = useTenant();
+
   const [step, setStep] = useState<Step>(1);
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -20,6 +22,8 @@ export default function ApplyPage() {
   const [queuedOffline, setQueuedOffline] = useState(false);
   const [error, setError] = useState("");
   const [docsComplete, setDocsComplete] = useState(false);
+
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const [form, setForm] = useState({
     // Personal
@@ -36,10 +40,12 @@ export default function ApplyPage() {
     spouseNationalId: "",
     spousePhone: "",
     spouseConsent: false,
+
     // Address
     address: "",
     city: "",
     province: "",
+
     // Employment
     employmentType: "EMPLOYED",
     employerName: "",
@@ -48,13 +54,16 @@ export default function ApplyPage() {
     employmentTypeOther: "",
     monthlyIncome: "",
     monthlyExpenses: "",
+
     // Loan
-    loanType: searchParams?.get("type")?.replace(/_/g, " ") || "Personal Loans",
+    loanType:
+      searchParams?.get("type")?.replace(/\_/g, " ") || "Personal Loans",
     amount: "",
     durationMonths: "12",
     purpose: "",
     collateral: "",
     collateralValue: "",
+
     // Declaration
     acceptedTerms: false,
   });
@@ -62,59 +71,205 @@ export default function ApplyPage() {
   const online = useOnlineStatus();
 
   if (!tenant) return null;
+
   const primary = tenant.primaryColor;
   const accent = tenant.accentColor;
+
+  // ============================================================
+  // GENERIC FORM SETTER
+  // ============================================================
+
   const set =
     (k: string) =>
     (
       e: React.ChangeEvent<
         HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
       >,
-    ) =>
+    ) => {
+      const target = e.target as HTMLInputElement;
+
       setForm((f) => ({
         ...f,
-        [k]:
-          (e.target as HTMLInputElement).type === "checkbox"
-            ? (e.target as HTMLInputElement).checked
-            : e.target.value,
+        [k]: target.type === "checkbox" ? target.checked : target.value,
       }));
+    };
 
-  // National ID: Rwanda national IDs are exactly 16 digits, numbers only.
+  // ============================================================
+  // NATIONAL ID VALIDATION
+  // Rwanda national IDs are exactly 16 digits.
+  // ============================================================
+
   const NATIONAL_ID_REGEX = /^\d{16}$/;
-  const isNationalIdValid = (v: string) => NATIONAL_ID_REGEX.test(v);
+
+  const isNationalIdValid = (value: string) => {
+    return NATIONAL_ID_REGEX.test(value);
+  };
+
   const setNationalId =
     (k: "nationalId" | "spouseNationalId") =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const digitsOnly = e.target.value.replace(/\D/g, "").slice(0, 16);
-      setForm((f) => ({ ...f, [k]: digitsOnly }));
+
+      setForm((f) => ({
+        ...f,
+        [k]: digitsOnly,
+      }));
     };
 
-  // Phone: numbers only, must include a country code (e.g. +250 7XX XXX XXX -> 12 digits after '+').
+  // ============================================================
+  // PHONE VALIDATION
+  // ============================================================
+
   const PHONE_REGEX = /^\+\d{10,15}$/;
-  const isPhoneValid = (v: string) => PHONE_REGEX.test(v);
+
+  const isPhoneValid = (value: string) => {
+    return PHONE_REGEX.test(value);
+  };
+
   const setPhone =
     (k: "phone" | "spousePhone") =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      let v = e.target.value.replace(/[^\d+]/g, ""); // keep digits and '+'
-      v = (v.startsWith("+") ? "+" : "") + v.replace(/\+/g, "");
-      setForm((f) => ({ ...f, [k]: v }));
+      let value = e.target.value.replace(/[^\d+]/g, "");
+
+      value = (value.startsWith("+") ? "+" : "") + value.replace(/\+/g, "");
+
+      setForm((f) => ({
+        ...f,
+        [k]: value,
+      }));
     };
+
+  // ============================================================
+  // AGE / DATE OF BIRTH VALIDATION
+  // ============================================================
+
+  const getMaximumDateOfBirth = (): string => {
+    const today = new Date();
+
+    const maximumDob = new Date(
+      today.getFullYear() - 18,
+      today.getMonth(),
+      today.getDate(),
+    );
+
+    const year = maximumDob.getFullYear();
+
+    const month = String(maximumDob.getMonth() + 1).padStart(2, "0");
+
+    const day = String(maximumDob.getDate()).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+  };
+
+  /**
+   * Checks whether the applicant is at least 18 years old.
+   *
+   * The birthday itself counts.
+   *
+   * Example:
+   *
+   * Today: 2026-08-11
+   * DOB:   2008-08-11
+   * Age:   18 -> VALID
+   *
+   * DOB:   2008-08-12
+   * Age:   17 -> INVALID
+   */
+  const isAtLeast18 = (dateOfBirth: string): boolean => {
+    if (!dateOfBirth) {
+      return false;
+    }
+
+    const today = new Date();
+
+    const dob = new Date(`${dateOfBirth}T00:00:00`);
+
+    if (Number.isNaN(dob.getTime())) {
+      return false;
+    }
+
+    // Prevent future DOBs.
+    if (dob > today) {
+      return false;
+    }
+
+    let age = today.getFullYear() - dob.getFullYear();
+
+    const monthDifference = today.getMonth() - dob.getMonth();
+
+    if (
+      monthDifference < 0 ||
+      (monthDifference === 0 && today.getDate() < dob.getDate())
+    ) {
+      age--;
+    }
+
+    return age >= 18;
+  };
+
+  const maximumDateOfBirth = getMaximumDateOfBirth();
+
+  // ============================================================
+  // SUBMIT APPLICATION
+  // ============================================================
 
   const handleSubmit = async () => {
     setSaving(true);
     setError("");
 
-    // Offline (or can't reach the server) — save locally and submit automatically later,
-    // rather than losing everything the applicant just filled in.
+    // ----------------------------------------------------------
+    // FINAL CLIENT-SIDE AGE VALIDATION
+    // ----------------------------------------------------------
+
+    if (!form.dateOfBirth) {
+      setError("Date of birth is required.");
+      setSaving(false);
+      return;
+    }
+
+    if (!isAtLeast18(form.dateOfBirth)) {
+      setError(
+        "The applicant must be at least 18 years old to apply for a loan.",
+      );
+      setSaving(false);
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // IDEMPOTENCY KEY
+    // ----------------------------------------------------------
+
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+
+    const idempotencyKey = idempotencyKeyRef.current;
+
+    // ----------------------------------------------------------
+    // OFFLINE SUBMISSION
+    // ----------------------------------------------------------
+
     if (!online) {
       try {
         await queueAction({
           url: "/public/loan-application",
           method: "POST",
-          body: { ...form, tenantSlug: slug },
+          body: {
+            ...form,
+            tenantSlug: slug,
+          },
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
           label: `Loan application — ${form.firstName} ${form.lastName} (${form.amount} ${tenant.currency})`,
         });
+
         setReference("Will be assigned once submitted");
+
         setQueuedOffline(true);
         setSubmitted(true);
       } catch (e: any) {
@@ -124,18 +279,32 @@ export default function ApplyPage() {
       } finally {
         setSaving(false);
       }
+
       return;
     }
+
+    // ----------------------------------------------------------
+    // ONLINE SUBMISSION
+    // ----------------------------------------------------------
 
     try {
       const API_BASE =
         process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+
       const res = await fetch(`${API_BASE}/public/loan-application`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, tenantSlug: slug }),
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify({
+          ...form,
+          tenantSlug: slug,
+        }),
       });
+
       const json = await res.json();
+
       if (!res.ok || json.success === false) {
         throw new Error(
           json.error ||
@@ -143,20 +312,35 @@ export default function ApplyPage() {
             "Could not submit your application. Please try again.",
         );
       }
+
       setReference(json.data?.reference || "");
+
       setSubmitted(true);
+
+      idempotencyKeyRef.current = null;
     } catch (e: any) {
-      // A network failure here (not a validation error from the server) almost always means
-      // connectivity dropped mid-submit — queue it instead of making the applicant redo everything.
+      // --------------------------------------------------------
+      // NETWORK FAILURE
+      // --------------------------------------------------------
+
       if (e instanceof TypeError) {
         try {
           await queueAction({
             url: "/public/loan-application",
             method: "POST",
-            body: { ...form, tenantSlug: slug },
+            body: {
+              ...form,
+              tenantSlug: slug,
+            },
+            headers: {
+              "Content-Type": "application/json",
+              "Idempotency-Key": idempotencyKey,
+            },
             label: `Loan application — ${form.firstName} ${form.lastName} (${form.amount} ${tenant.currency})`,
           });
+
           setReference("Will be assigned once submitted");
+
           setQueuedOffline(true);
           setSubmitted(true);
         } catch {
@@ -175,23 +359,46 @@ export default function ApplyPage() {
     }
   };
 
+  // ============================================================
+  // STEPS
+  // ============================================================
+
   const steps = [
-    { n: 1, label: "Personal Info" },
-    { n: 2, label: "Employment" },
-    { n: 3, label: "Loan Details" },
-    { n: 4, label: "Confirm" },
+    {
+      n: 1,
+      label: "Personal Info",
+    },
+    {
+      n: 2,
+      label: "Employment",
+    },
+    {
+      n: 3,
+      label: "Loan Details",
+    },
+    {
+      n: 4,
+      label: "Confirm",
+    },
   ];
 
-  if (submitted)
+  // ============================================================
+  // SUBMITTED SCREEN
+  // ============================================================
+
+  if (submitted) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 py-20">
         <div className="max-w-xl w-full text-center">
           <div
             className="w-24 h-24 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 shadow-xl"
-            style={{ backgroundColor: primary + "10" }}
+            style={{
+              backgroundColor: primary + "10",
+            }}
           >
             {queuedOffline ? "📡" : docsComplete ? "🎉" : "📎"}
           </div>
+
           <h2 className="text-3xl font-extrabold text-gray-900 mb-4">
             {queuedOffline
               ? "Saved — Will Submit Automatically"
@@ -199,14 +406,15 @@ export default function ApplyPage() {
                 ? "All Set — Application Complete!"
                 : "One More Step — Upload Your Documents"}
           </h2>
+
           <p className="text-gray-600 mb-6 text-lg">
             {queuedOffline ? (
               <>
-                Thanks <strong>{form.firstName}</strong> — you&apos;re offline
-                right now, so we&apos;ve saved your application on this device.
-                It will submit itself the moment this device reconnects to the
-                internet. You don&apos;t need to do anything else — just
-                don&apos;t clear your browser data before then.
+                Thanks <strong>{form.firstName}</strong> — you're offline right
+                now, so we've saved your application on this device. It will
+                submit itself the moment this device reconnects to the internet.
+                You don't need to do anything else — just don't clear your
+                browser data before then.
               </>
             ) : docsComplete ? (
               <>
@@ -217,31 +425,39 @@ export default function ApplyPage() {
             ) : (
               <>
                 Thanks <strong>{form.firstName}</strong> — your application
-                details are saved, but it isn&apos;t complete yet. Please upload
-                the required documents below so our team can begin reviewing it
-                — applications without documents can&apos;t be processed.
+                details are saved, but it isn't complete yet. Please upload the
+                required documents below so our team can begin reviewing it —
+                applications without documents can't be processed.
               </>
             )}
           </p>
+
           <div className="bg-gray-50 rounded-2xl p-6 text-left space-y-3 text-sm mb-8">
             <div className="flex justify-between">
               <span className="text-gray-500">Application Reference</span>
+
               <code className="font-bold text-gray-800">
                 {reference || "—"}
               </code>
             </div>
+
             <div className="flex justify-between">
               <span className="text-gray-500">Loan Type</span>
+
               <span className="font-bold">{form.loanType}</span>
             </div>
+
             <div className="flex justify-between">
               <span className="text-gray-500">Amount Requested</span>
+
               <span className="font-bold">
                 {tenant.currency} {Number(form.amount).toLocaleString()}
               </span>
             </div>
+
             <div className="flex justify-between">
               <span className="text-gray-500">Contact</span>
+
               <span className="font-bold">{form.phone}</span>
             </div>
           </div>
@@ -250,8 +466,8 @@ export default function ApplyPage() {
             <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl px-4 py-3 mb-6 text-left">
               ⚠️ <strong>Your application is not yet complete.</strong> Upload
               the documents below to send it for review. You can safely bookmark
-              this page or use &quot;Track Your Application&quot; later — your
-              progress is saved.
+              this page or use "Track Your Application" later — your progress is
+              saved.
             </div>
           )}
 
@@ -271,11 +487,14 @@ export default function ApplyPage() {
             Questions? Call us at <strong>{tenant.contactPhone}</strong> or
             email <strong>{tenant.contactEmail}</strong>
           </p>
+
           {!queuedOffline && reference && (
             <a
               href="/track"
               className="inline-block px-6 py-2.5 rounded-md text-sm font-bold text-white shadow-sm hover:opacity-90 transition-opacity"
-              style={{ backgroundColor: primary }}
+              style={{
+                backgroundColor: primary,
+              }}
             >
               Track Your Application →
             </a>
@@ -283,37 +502,51 @@ export default function ApplyPage() {
         </div>
       </div>
     );
+  }
+
+  // ============================================================
+  // MAIN APPLICATION
+  // ============================================================
 
   return (
     <div>
-      {/* Header */}
+      {/* HEADER */}
+
       <section
         className="py-12 text-white text-center"
-        style={{ background: `linear-gradient(135deg, ${primary}, #0a4a2b)` }}
+        style={{
+          background: `linear-gradient(135deg, ${primary}, #0a4a2b)`,
+        }}
       >
         <h1 className="text-3xl md:text-4xl font-extrabold mb-2">
           Loan Application
         </h1>
+
         <p className="text-white/70">
           Complete the form below — takes less than 5 minutes
         </p>
       </section>
 
       <div className="max-w-2xl mx-auto px-4 py-12">
-        {/* Progress */}
+        {/* PROGRESS */}
+
         <div className="flex items-center justify-center gap-0 mb-10">
           {steps.map((s, i) => (
             <div key={s.n} className="flex items-center">
               <div className="flex flex-col items-center">
                 <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all
-    ${
-      step > s.n
-        ? "text-white"
-        : step === s.n
-          ? "text-white ring-4 ring-offset-2"
-          : "bg-gray-100 text-gray-400"
-    }`}
+                  className={`
+                    w-10 h-10 rounded-full
+                    flex items-center justify-center
+                    font-bold text-sm transition-all
+                    ${
+                      step > s.n
+                        ? "text-white"
+                        : step === s.n
+                          ? "text-white ring-4 ring-offset-2"
+                          : "bg-gray-100 text-gray-400"
+                    }
+                  `}
                   style={
                     step >= s.n
                       ? {
@@ -325,16 +558,24 @@ export default function ApplyPage() {
                 >
                   {step > s.n ? "✓" : s.n}
                 </div>
+
                 <div
-                  className={`text-xs mt-1 font-semibold hidden md:block ${step === s.n ? "text-gray-900" : "text-gray-400"}`}
+                  className={`
+                    text-xs mt-1 font-semibold
+                    hidden md:block
+                    ${step === s.n ? "text-gray-900" : "text-gray-400"}
+                  `}
                 >
                   {s.label}
                 </div>
               </div>
+
               {i < steps.length - 1 && (
                 <div
                   className="w-12 h-0.5 mb-4 transition-all"
-                  style={{ backgroundColor: step > s.n ? primary : "#E5E7EB" }}
+                  style={{
+                    backgroundColor: step > s.n ? primary : "#E5E7EB",
+                  }}
                 />
               )}
             </div>
@@ -342,12 +583,16 @@ export default function ApplyPage() {
         </div>
 
         <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-          {/* STEP 1: Personal Info */}
+          {/* ================================================== */}
+          {/* STEP 1 — PERSONAL INFORMATION */}
+          {/* ================================================== */}
+
           {step === 1 && (
             <div>
               <h2 className="text-xl font-extrabold text-gray-900 mb-6">
                 Personal Information
               </h2>
+
               <div className="grid grid-cols-2 gap-4">
                 <Field label="First Name" required>
                   <input
@@ -357,6 +602,7 @@ export default function ApplyPage() {
                     onChange={set("firstName")}
                   />
                 </Field>
+
                 <Field label="Last Name" required>
                   <input
                     required
@@ -365,6 +611,7 @@ export default function ApplyPage() {
                     onChange={set("lastName")}
                   />
                 </Field>
+
                 <Field label="Email Address">
                   <input
                     type="email"
@@ -373,6 +620,7 @@ export default function ApplyPage() {
                     onChange={set("email")}
                   />
                 </Field>
+
                 <Field
                   label="Phone Number"
                   required
@@ -390,6 +638,7 @@ export default function ApplyPage() {
                     value={form.phone}
                     onChange={setPhone("phone")}
                   />
+
                   {form.phone && !isPhoneValid(form.phone) && (
                     <p className="text-xs mt-1 text-red-600 font-semibold">
                       Enter a valid number with country code, digits only (e.g.
@@ -397,6 +646,7 @@ export default function ApplyPage() {
                     </p>
                   )}
                 </Field>
+
                 <Field
                   label="National ID"
                   required
@@ -414,20 +664,39 @@ export default function ApplyPage() {
                     value={form.nationalId}
                     onChange={setNationalId("nationalId")}
                   />
+
                   {form.nationalId && !isNationalIdValid(form.nationalId) && (
                     <p className="text-xs mt-1 text-red-600 font-semibold">
                       National ID must be exactly 16 digits
                     </p>
                   )}
                 </Field>
-                <Field label="Date of Birth">
+
+                {/* ================================================= */}
+                {/* DATE OF BIRTH — 18+ AGE RESTRICTION */}
+                {/* ================================================= */}
+
+                <Field
+                  label="Date of Birth"
+                  required
+                  hint="You must be at least 18 years old to apply for a loan."
+                >
                   <input
+                    required
                     type="date"
+                    max={maximumDateOfBirth}
                     className={inp}
                     value={form.dateOfBirth}
                     onChange={set("dateOfBirth")}
                   />
+
+                  {form.dateOfBirth && !isAtLeast18(form.dateOfBirth) && (
+                    <p className="text-xs mt-1 text-red-600 font-semibold">
+                      You must be at least 18 years old to apply for a loan.
+                    </p>
+                  )}
                 </Field>
+
                 <Field label="Gender">
                   <select
                     className={inp}
@@ -435,11 +704,15 @@ export default function ApplyPage() {
                     onChange={set("gender")}
                   >
                     <option value="">Select…</option>
+
                     {["Male", "Female", "Other"].map((g) => (
-                      <option key={g}>{g}</option>
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
                     ))}
                   </select>
                 </Field>
+
                 <Field label="Marital Status">
                   <select
                     className={inp}
@@ -447,8 +720,11 @@ export default function ApplyPage() {
                     onChange={set("maritalStatus")}
                   >
                     <option value="">Select…</option>
+
                     {["Single", "Married", "Divorced", "Widowed"].map((m) => (
-                      <option key={m}>{m}</option>
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
                     ))}
                   </select>
                 </Field>
@@ -468,6 +744,7 @@ export default function ApplyPage() {
                     />
                   </Field>
                 )}
+
                 {form.maritalStatus === "Married" && (
                   <>
                     <Field label="Spouse Full Name" required>
@@ -478,6 +755,7 @@ export default function ApplyPage() {
                         onChange={set("spouseFullName")}
                       />
                     </Field>
+
                     <Field label="Spouse National ID">
                       <input
                         inputMode="numeric"
@@ -486,6 +764,7 @@ export default function ApplyPage() {
                         value={form.spouseNationalId}
                         onChange={setNationalId("spouseNationalId")}
                       />
+
                       {form.spouseNationalId &&
                         !isNationalIdValid(form.spouseNationalId) && (
                           <p className="text-xs mt-1 text-red-600 font-semibold">
@@ -493,6 +772,7 @@ export default function ApplyPage() {
                           </p>
                         )}
                     </Field>
+
                     <Field label="Spouse Phone">
                       <input
                         inputMode="tel"
@@ -501,12 +781,14 @@ export default function ApplyPage() {
                         value={form.spousePhone}
                         onChange={setPhone("spousePhone")}
                       />
+
                       {form.spousePhone && !isPhoneValid(form.spousePhone) && (
                         <p className="text-xs mt-1 text-red-600 font-semibold">
                           Enter a valid number with country code
                         </p>
                       )}
                     </Field>
+
                     <div className="sm:col-span-2">
                       <label className="flex items-start gap-2.5 text-sm text-gray-600 cursor-pointer">
                         <input
@@ -527,6 +809,7 @@ export default function ApplyPage() {
                   </>
                 )}
               </div>
+
               <Field label="Home Address" required>
                 <input
                   required
@@ -536,6 +819,7 @@ export default function ApplyPage() {
                   onChange={set("address")}
                 />
               </Field>
+
               <div className="grid grid-cols-2 gap-4">
                 <Field label="City/District" required>
                   <input
@@ -545,6 +829,7 @@ export default function ApplyPage() {
                     onChange={set("city")}
                   />
                 </Field>
+
                 <Field label="Province">
                   <select
                     className={inp}
@@ -552,6 +837,7 @@ export default function ApplyPage() {
                     onChange={set("province")}
                   >
                     <option value="">Select…</option>
+
                     {[
                       "Kigali",
                       "Northern",
@@ -559,7 +845,9 @@ export default function ApplyPage() {
                       "Eastern",
                       "Western",
                     ].map((p) => (
-                      <option key={p}>{p}</option>
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
                     ))}
                   </select>
                 </Field>
@@ -567,12 +855,16 @@ export default function ApplyPage() {
             </div>
           )}
 
-          {/* STEP 2: Employment */}
+          {/* ================================================== */}
+          {/* STEP 2 — EMPLOYMENT */}
+          {/* ================================================== */}
+
           {step === 2 && (
             <div>
               <h2 className="text-xl font-extrabold text-gray-900 mb-6">
                 Employment & Financial Info
               </h2>
+
               <Field label="Employment Type" required>
                 <select
                   required
@@ -589,7 +881,7 @@ export default function ApplyPage() {
                     "OTHER",
                   ].map((t) => (
                     <option key={t} value={t}>
-                      {t.replace(/_/g, " ")}
+                      {t.replace(/\_/g, " ")}
                     </option>
                   ))}
                 </select>
@@ -629,6 +921,7 @@ export default function ApplyPage() {
                         onChange={set("employerName")}
                       />
                     </Field>
+
                     <Field label="Job Title / Occupation">
                       <input
                         className={inp}
@@ -638,6 +931,7 @@ export default function ApplyPage() {
                     </Field>
                   </>
                 )}
+
                 <Field label={`Monthly Income (${tenant.currency})`} required>
                   <input
                     required
@@ -647,6 +941,7 @@ export default function ApplyPage() {
                     onChange={set("monthlyIncome")}
                   />
                 </Field>
+
                 <Field label={`Monthly Expenses (${tenant.currency})`}>
                   <input
                     type="number"
@@ -656,6 +951,7 @@ export default function ApplyPage() {
                   />
                 </Field>
               </div>
+
               <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-sm text-blue-700 mt-4">
                 ℹ️ Your income and expense information helps us determine the
                 best loan terms for you. All information is kept strictly
@@ -664,12 +960,16 @@ export default function ApplyPage() {
             </div>
           )}
 
-          {/* STEP 3: Loan Details */}
+          {/* ================================================== */}
+          {/* STEP 3 — LOAN DETAILS */}
+          {/* ================================================== */}
+
           {step === 3 && (
             <div>
               <h2 className="text-xl font-extrabold text-gray-900 mb-6">
                 Loan Details
               </h2>
+
               <Field label="Loan Type" required>
                 <select
                   required
@@ -678,10 +978,13 @@ export default function ApplyPage() {
                   onChange={set("loanType")}
                 >
                   {tenant.services?.map((s) => (
-                    <option key={s.title}>{s.title}</option>
+                    <option key={s.title} value={s.title}>
+                      {s.title}
+                    </option>
                   ))}
                 </select>
               </Field>
+
               <div className="grid grid-cols-2 gap-4">
                 <Field label={`Amount Requested (${tenant.currency})`} required>
                   <input
@@ -692,17 +995,26 @@ export default function ApplyPage() {
                     value={form.amount}
                     onChange={set("amount")}
                   />
+
                   {(() => {
                     const svc = tenant.services?.find(
                       (s) => s.title === form.loanType,
                     );
-                    if (!svc?.maxAmount) return null;
-                    const min = 10000,
-                      max = Number(svc.maxAmount);
+
+                    if (!svc?.maxAmount) {
+                      return null;
+                    }
+
+                    const min = 10000;
+                    const max = Number(svc.maxAmount);
+
                     const over = form.amount && Number(form.amount) > max;
+
                     return (
                       <p
-                        className={`text-xs mt-1 ${over ? "text-red-600 font-semibold" : "text-gray-400"}`}
+                        className={`text-xs mt-1 ${
+                          over ? "text-red-600 font-semibold" : "text-gray-400"
+                        }`}
                       >
                         {over
                           ? `This exceeds the ${max.toLocaleString()} ${tenant.currency} limit for ${form.loanType}`
@@ -711,6 +1023,7 @@ export default function ApplyPage() {
                     );
                   })()}
                 </Field>
+
                 <Field label="Repayment Period" required>
                   <select
                     required
@@ -718,14 +1031,16 @@ export default function ApplyPage() {
                     value={form.durationMonths}
                     onChange={set("durationMonths")}
                   >
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                    {[1, 2, 3, 4, 5, 6].map((m) => (
                       <option key={m} value={m}>
-                        {m} month{m > 1 ? "s" : ""}
+                        {m} month
+                        {m > 1 ? "s" : ""}
                       </option>
                     ))}
                   </select>
                 </Field>
               </div>
+
               <Field label="Purpose of Loan" required>
                 <textarea
                   required
@@ -735,6 +1050,7 @@ export default function ApplyPage() {
                   onChange={set("purpose")}
                 />
               </Field>
+
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Collateral (if any)">
                   <input
@@ -744,6 +1060,7 @@ export default function ApplyPage() {
                     onChange={set("collateral")}
                   />
                 </Field>
+
                 <Field label={`Collateral Value (${tenant.currency})`}>
                   <input
                     type="number"
@@ -753,38 +1070,62 @@ export default function ApplyPage() {
                   />
                 </Field>
               </div>
-              {/* Mini loan summary */}
+
+              {/* MINI LOAN SUMMARY */}
+
               {form.amount && (
                 <div className="mt-4 bg-gray-50 rounded-2xl p-4 border border-gray-100">
                   <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
                     Estimated Repayment
                   </div>
+
                   <div className="grid grid-cols-3 gap-3 text-center text-sm">
                     {(() => {
                       const principal = Number(form.amount);
+
                       const months = Number(form.durationMonths);
+
+                      /*
+                       * Existing application-page
+                       * estimate preserved exactly.
+                       *
+                       * This is only the frontend
+                       * display estimate and does NOT
+                       * modify backend loan interest logic.
+                       */
                       const mr: number = 0.1;
+
                       const monthly =
                         mr === 0
                           ? principal / months
                           : (principal * (mr * Math.pow(1 + mr, months))) /
                             (Math.pow(1 + mr, months) - 1);
+
                       return [
                         [
                           "Monthly",
-                          `${tenant.currency} ${monthly.toLocaleString("en", { maximumFractionDigits: 0 })}`,
+                          `${tenant.currency} ${monthly.toLocaleString("en", {
+                            maximumFractionDigits: 0,
+                          })}`,
                         ],
                         [
                           "Total",
-                          `${tenant.currency} ${(monthly * months).toLocaleString("en", { maximumFractionDigits: 0 })}`,
+                          `${tenant.currency} ${(
+                            monthly * months
+                          ).toLocaleString("en", {
+                            maximumFractionDigits: 0,
+                          })}`,
                         ],
                         ["Rate", "10% / mo"],
                       ].map(([l, v]) => (
                         <div key={l}>
                           <div className="text-gray-400 text-[10px]">{l}</div>
+
                           <div
                             className="font-extrabold"
-                            style={{ color: primary }}
+                            style={{
+                              color: primary,
+                            }}
                           >
                             {v}
                           </div>
@@ -797,28 +1138,35 @@ export default function ApplyPage() {
             </div>
           )}
 
-          {/* STEP 4: Declaration */}
+          {/* ================================================== */}
+          {/* STEP 4 — DECLARATION */}
+          {/* ================================================== */}
+
           {step === 4 && (
             <div>
               <h2 className="text-xl font-extrabold text-gray-900 mb-6">
                 Review & Declaration
               </h2>
+
               <div className="space-y-3 bg-gray-50 rounded-2xl p-6 mb-6 text-sm">
                 {[
                   ["Name", `${form.firstName} ${form.lastName}`],
                   ["ID", form.nationalId],
+                  ["Date of Birth", form.dateOfBirth],
                   ["Phone", form.phone],
                   ["Loan Type", form.loanType],
                   [
                     "Amount",
-                    `${tenant.currency} ${Number(form.amount).toLocaleString()}`,
+                    `${tenant.currency} ${Number(
+                      form.amount,
+                    ).toLocaleString()}`,
                   ],
                   ["Term", `${form.durationMonths} months`],
                   [
                     "Employment",
                     form.employmentType === "OTHER" && form.employmentTypeOther
                       ? `Other — ${form.employmentTypeOther}`
-                      : form.employmentType.replace(/_/g, " "),
+                      : form.employmentType.replace(/\_/g, " "),
                   ],
                   ...(form.employmentType === "BUSINESS_OWNER" &&
                   form.natureOfBusiness
@@ -826,7 +1174,9 @@ export default function ApplyPage() {
                     : []),
                   [
                     "Income",
-                    `${tenant.currency} ${Number(form.monthlyIncome).toLocaleString()}/mo`,
+                    `${tenant.currency} ${Number(
+                      form.monthlyIncome,
+                    ).toLocaleString()}/mo`,
                   ],
                 ].map(([l, v]) => (
                   <div
@@ -834,33 +1184,44 @@ export default function ApplyPage() {
                     className="flex justify-between border-b border-gray-200 last:border-0 pb-2 last:pb-0"
                   >
                     <span className="text-gray-500">{l}</span>
+
                     <span className="font-semibold text-gray-800">{v}</span>
                   </div>
                 ))}
               </div>
+
               {error && (
                 <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-4">
                   {error}
                 </div>
               )}
+
               <label className="flex items-start gap-3 cursor-pointer mb-6">
                 <input
                   type="checkbox"
                   checked={form.acceptedTerms}
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, acceptedTerms: e.target.checked }))
+                    setForm((f) => ({
+                      ...f,
+                      acceptedTerms: e.target.checked,
+                    }))
                   }
                   className="mt-1 w-4 h-4 rounded"
-                  style={{ accentColor: primary }}
+                  style={{
+                    accentColor: primary,
+                  }}
                 />
+
                 <span className="text-sm text-gray-700">
                   I confirm that all information provided is true and accurate.
                   I authorize {tenant.name} to verify my information and contact
-                  me regarding this application. I agree to the
+                  me regarding this application. I agree to the{" "}
                   <a
                     href="#"
                     className="font-semibold underline ml-1"
-                    style={{ color: primary }}
+                    style={{
+                      color: primary,
+                    }}
                   >
                     Terms &amp; Conditions
                   </a>
@@ -870,7 +1231,10 @@ export default function ApplyPage() {
             </div>
           )}
 
-          {/* Navigation */}
+          {/* ================================================== */}
+          {/* NAVIGATION */}
+          {/* ================================================== */}
+
           <div className="flex justify-between mt-8 pt-6 border-t border-gray-100">
             {step > 1 ? (
               <button
@@ -882,10 +1246,17 @@ export default function ApplyPage() {
             ) : (
               <div />
             )}
+
             {step < 4 ? (
               <button
                 onClick={() => setStep((s) => (s + 1) as Step)}
                 disabled={
+                  // ------------------------------------------
+                  // STEP 1
+                  // ------------------------------------------
+
+                  (step === 1 && !form.dateOfBirth) ||
+                  (step === 1 && !isAtLeast18(form.dateOfBirth)) ||
                   (step === 1 && !isNationalIdValid(form.nationalId)) ||
                   (step === 1 && !isPhoneValid(form.phone)) ||
                   (step === 1 &&
@@ -902,17 +1273,26 @@ export default function ApplyPage() {
                     form.maritalStatus === "Married" &&
                     !!form.spousePhone &&
                     !isPhoneValid(form.spousePhone)) ||
+                  // ------------------------------------------
+                  // STEP 2
+                  // ------------------------------------------
+
                   (step === 2 &&
                     form.employmentType === "OTHER" &&
                     !form.employmentTypeOther) ||
                   (step === 2 &&
                     form.employmentType === "BUSINESS_OWNER" &&
                     !form.natureOfBusiness) ||
+                  // ------------------------------------------
+                  // STEP 3
+                  // ------------------------------------------
+
                   (step === 3 &&
                     (() => {
                       const svc = tenant.services?.find(
                         (s) => s.title === form.loanType,
                       );
+
                       return (
                         !!svc?.maxAmount &&
                         Number(form.amount) > Number(svc.maxAmount)
@@ -920,20 +1300,30 @@ export default function ApplyPage() {
                     })())
                 }
                 className="px-8 py-2.5 rounded-xl font-bold text-white transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ backgroundColor: primary }}
+                style={{
+                  backgroundColor: primary,
+                }}
               >
                 Continue →
               </button>
             ) : (
               <button
                 onClick={handleSubmit}
-                disabled={!form.acceptedTerms || saving}
+                disabled={
+                  !form.acceptedTerms ||
+                  saving ||
+                  !form.dateOfBirth ||
+                  !isAtLeast18(form.dateOfBirth)
+                }
                 className="px-10 py-3 rounded-xl font-bold text-white transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                style={{ backgroundColor: accent }}
+                style={{
+                  backgroundColor: accent,
+                }}
               >
                 {saving && (
                   <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 )}
+
                 {saving ? "Submitting…" : "Submit Application ✓"}
               </button>
             )}
@@ -944,8 +1334,16 @@ export default function ApplyPage() {
   );
 }
 
+// ============================================================
+// INPUT STYLING
+// ============================================================
+
 const inp =
   "w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 transition-colors mt-1.5";
+
+// ============================================================
+// FIELD COMPONENT
+// ============================================================
 
 function Field({
   label,
@@ -962,9 +1360,12 @@ function Field({
     <div className="mb-4">
       <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
         {label}
+
         {required && <span className="text-red-500 ml-1">*</span>}
       </label>
+
       {children}
+
       {hint && (
         <p className="text-xs text-gray-400 mt-1 normal-case font-normal">
           {hint}

@@ -5,21 +5,42 @@ import SyncProvider from "@/lib/SyncProvider";
 import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 
 export const metadata: Metadata = {
-  title: "Growth Finance Services Ltd — Loans & Financial Services",
+  title: "Noble Loan Solutions — Loans & Financial Services",
   description:
-    "Growth Finance Services Ltd — licensed loan products, online applications, and secure account management for individuals, businesses, and farmers in Rwanda.",
+    "Noble Loan Solutions — licensed loan products, online applications, and secure account management for individuals, businesses, and farmers in Rwanda.",
+
   icons: {
-    icon: "/logo-mark.png",
-    shortcut: "/logo-mark.png",
-    apple: "/logo-mark.png",
+    icon: [
+      {
+        url: "/favIcon.png",
+        type: "image/png",
+      },
+    ],
+    shortcut: [
+      {
+        url: "/favIcon.png",
+        type: "image/png",
+      },
+    ],
+    apple: [
+      {
+        url: "/favIcon.png",
+        type: "image/png",
+      },
+    ],
   },
+
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL ||
+      "https://nobleloan-fev7-one.vercel.app"
+  ),
 };
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <html lang="en">
       <body

@@ -1,30 +1,101 @@
-import axios from "axios";
-import { currentTenantDomain } from "../lib/tenant";
+import axios, {
+  AxiosError,
+  AxiosHeaders,
+  AxiosInstance,
+  AxiosRequestConfig,
+} from "axios";
 
-const API = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api",
+import { TENANT_SLUG } from "../lib/tenant";
 
+/**
+ * ============================================================
+ * API CONFIGURATION
+ * ============================================================
+ */
+
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:8080/api";
+
+const API: AxiosInstance = axios.create({
+  baseURL: API_BASE_URL,
   timeout: 20000,
-
   headers: {
     "Content-Type": "application/json",
+    Accept: "application/json",
   },
 });
+
+/**
+ * ============================================================
+ * REQUEST INTERCEPTOR
+ * ============================================================
+ *
+ * This frontend belongs exclusively to the Noble Loan Solutions
+ * tenant.
+ *
+ * We therefore do NOT dynamically resolve tenants from the
+ * browser hostname/domain.
+ *
+ * The configured tenant is:
+ *
+ *   NEXT_PUBLIC_TENANT_SLUG
+ *
+ * with fallback:
+ *
+ *   nobleloansolutions
+ *
+ * The tenant slug is sent on every request through:
+ *
+ *   X-Tenant-Slug
+ *
+ * The backend can therefore resolve the request directly to
+ * Noble Loan Solutions.
+ * ============================================================
+ */
 
 API.interceptors.request.use(
   (config) => {
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("token");
 
+      const headers =
+        config.headers instanceof AxiosHeaders
+          ? config.headers
+          : new AxiosHeaders(config.headers);
+
       if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+        headers.set(
+          "Authorization",
+          `Bearer ${token}`,
+        );
       }
 
-      const tenantDomain = currentTenantDomain();
+      /**
+       * Fixed tenant for this frontend.
+       */
+      headers.set(
+        "X-Tenant-Slug",
+        TENANT_SLUG,
+      );
 
-      if (tenantDomain) {
-        config.headers["X-Tenant-Domain"] = tenantDomain;
-      }
+      config.headers = headers;
+    } else {
+      /**
+       * Keep the tenant header available for server-side
+       * requests as well.
+       */
+      const headers =
+        config.headers instanceof AxiosHeaders
+          ? config.headers
+          : new AxiosHeaders(config.headers);
+
+      headers.set(
+        "X-Tenant-Slug",
+        TENANT_SLUG,
+      );
+
+      config.headers = headers;
     }
 
     return config;
@@ -35,18 +106,34 @@ API.interceptors.request.use(
   },
 );
 
+/**
+ * ============================================================
+ * RESPONSE INTERCEPTOR
+ * ============================================================
+ */
+
 API.interceptors.response.use(
   (response) => {
     return response;
   },
 
-  (error) => {
+  (error: AxiosError<unknown>) => {
     const status = error.response?.status;
 
-    if (status === 401 && typeof window !== "undefined") {
-      const requestUrl = error.config?.url || "";
+    const responseData = error.response?.data;
 
-      const isLoginRequest = requestUrl.includes("/auth/login");
+    if (
+      status === 401 &&
+      typeof window !== "undefined"
+    ) {
+      const requestUrl =
+        error.config?.url || "";
+
+      /**
+       * Do not redirect the login request itself.
+       */
+      const isLoginRequest =
+        requestUrl.includes("/auth/login");
 
       if (!isLoginRequest) {
         localStorage.removeItem("token");
@@ -57,362 +144,1070 @@ API.interceptors.response.use(
     }
 
     const message =
-      error.response?.data?.error ||
-      error.response?.data?.message ||
+      getAxiosErrorMessage(responseData) ||
       error.message ||
-      "An error occurred";
+      `Request failed with status ${
+        status ?? "unknown"
+      }`;
 
-    const err = new Error(message) as Error & {
-      status?: number;
-      data?: unknown;
-    };
+    error.message = message;
 
-    err.status = status;
+    const enhancedError =
+      error as AxiosError<unknown> & {
+        status?: number;
+        data?: unknown;
+      };
 
-    err.data = error.response?.data;
+    enhancedError.status = status;
 
-    return Promise.reject(err);
+    enhancedError.data = responseData;
+
+    return Promise.reject(enhancedError);
   },
 );
 
-export default API;
+/**
+ * ============================================================
+ * ERROR MESSAGE EXTRACTION
+ * ============================================================
+ */
 
-const unwrap = (body: unknown) => {
+function getAxiosErrorMessage(
+  data: unknown,
+): string | null {
+  if (!data) {
+    return null;
+  }
+
+  if (typeof data === "string") {
+    return data || null;
+  }
+
+  if (typeof data === "object") {
+    const value = data as {
+      message?: unknown;
+      error?: unknown;
+      detail?: unknown;
+    };
+
+    if (
+      typeof value.message === "string" &&
+      value.message
+    ) {
+      return value.message;
+    }
+
+    if (
+      typeof value.error === "string" &&
+      value.error
+    ) {
+      return value.error;
+    }
+
+    if (
+      typeof value.detail === "string" &&
+      value.detail
+    ) {
+      return value.detail;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * ============================================================
+ * RESPONSE UNWRAPPER
+ * ============================================================
+ */
+
+const unwrap = (
+  body: unknown,
+): unknown => {
   if (
     body &&
     typeof body === "object" &&
-    "data" in (body as Record<string, unknown>)
+    "data" in body
   ) {
-    return (body as Record<string, unknown>).data;
+    return (
+      body as Record<string, unknown>
+    ).data;
   }
 
   return body;
 };
 
-export const get = (url: string) =>
-  API.get(url).then((response) => unwrap(response.data));
+/**
+ * ============================================================
+ * GENERIC HTTP HELPERS
+ * ============================================================
+ */
 
-export const post = (url: string, data?: unknown) =>
-  API.post(url, data).then((response) => unwrap(response.data));
+export const get = (
+  url: string,
+  config?: AxiosRequestConfig,
+): Promise<any> =>
+  API.get(url, config).then(
+    (response) =>
+      unwrap(response.data),
+  );
 
-export const put = (url: string, data?: unknown) =>
-  API.put(url, data).then((response) => unwrap(response.data));
+export const post = (
+  url: string,
+  data?: unknown,
+  config?: AxiosRequestConfig,
+): Promise<any> =>
+  API.post(
+    url,
+    data,
+    config,
+  ).then(
+    (response) =>
+      unwrap(response.data),
+  );
 
-export const del = (url: string) =>
-  API.delete(url).then((response) => unwrap(response.data));
+export const put = (
+  url: string,
+  data?: unknown,
+  config?: AxiosRequestConfig,
+): Promise<any> =>
+  API.put(
+    url,
+    data,
+    config,
+  ).then(
+    (response) =>
+      unwrap(response.data),
+  );
+
+export const del = (
+  url: string,
+  config?: AxiosRequestConfig,
+): Promise<any> =>
+  API.delete(
+    url,
+    config,
+  ).then(
+    (response) =>
+      unwrap(response.data),
+  );
 
 /**
- * =========================================================
- * AUTH
- * =========================================================
+ * ============================================================
+ * AUTH API
+ * ============================================================
  */
 
 export const authApi = {
-  login: (email: string, password: string, mfaCode?: string, otp?: string) =>
-    post("/auth/login", {
-      email: email.trim().toLowerCase(),
+  login: (
+    email: string,
+    password: string,
+    mfaCode?: string,
+    otp?: string,
+  ) =>
+    post(
+      "/auth/login",
+      {
+        email:
+          email.trim().toLowerCase(),
 
-      password,
+        password,
 
-      mfaCode: mfaCode?.trim() || undefined,
+        mfaCode:
+          mfaCode?.trim() ||
+          undefined,
 
-      otp: otp?.trim() || undefined,
-    }),
+        otp:
+          otp?.trim() ||
+          undefined,
+      },
+    ),
 
-  register: (data: unknown) => post("/auth/register", data),
+  register: (
+    data: unknown,
+  ) =>
+    post(
+      "/auth/register",
+      data,
+    ),
 
-  me: () => get("/auth/me"),
+  me: () =>
+    get("/auth/me"),
 };
 
 /**
- * =========================================================
- * LOANS
- * =========================================================
+ * ============================================================
+ * LOAN API
+ * ============================================================
  */
 
 export const loanApi = {
-  list: (page = 0, size = 20, status = "", type = "") => {
-    const params = new URLSearchParams();
+  list: (
+    page = 0,
+    size = 20,
+    status = "",
+    type = "",
+  ) => {
+    const params =
+      new URLSearchParams();
 
-    params.set("page", String(page));
+    params.set(
+      "page",
+      String(page),
+    );
 
-    params.set("size", String(size));
+    params.set(
+      "size",
+      String(size),
+    );
 
     if (status) {
-      params.set("status", status);
+      params.set(
+        "status",
+        status,
+      );
     }
 
     if (type) {
-      params.set("type", type);
+      params.set(
+        "type",
+        type,
+      );
     }
 
-    return get(`/loans?${params.toString()}`);
+    return get(
+      `/loans?${params.toString()}`,
+    );
   },
 
-  get: (id: number) => get(`/loans/${id}`),
+  get: (
+    id: number,
+  ) =>
+    get(
+      `/loans/${id}`,
+    ),
 
-  create: (data: unknown) => post("/loans", data),
+  create: (
+    data: unknown,
+  ) =>
+    post(
+      "/loans",
+      data,
+    ),
 
-  approve: (id: number, notes = "", interestRate?: number) =>
-    post(`/loans/${id}/approve`, {
-      notes,
+  approve: (
+    id: number,
+    notes = "",
+    interestRate?: number,
+  ) =>
+    post(
+      `/loans/${id}/approve`,
+      {
+        notes,
 
-      interestRate: interestRate != null ? String(interestRate) : undefined,
-    }),
+        interestRate:
+          interestRate != null
+            ? String(interestRate)
+            : undefined,
+      },
+    ),
 
-  reject: (id: number, reason: string) =>
-    post(`/loans/${id}/reject`, {
-      reason,
-    }),
+  reject: (
+    id: number,
+    reason: string,
+  ) =>
+    post(
+      `/loans/${id}/reject`,
+      {
+        reason,
+      },
+    ),
 
-  disburse: (id: number, method: string) =>
-    post(`/loans/${id}/disburse`, {
-      disbursementMethod: method,
-    }),
+  disburse: (
+    id: number,
+    method: string,
+  ) =>
+    post(
+      `/loans/${id}/disburse`,
+      {
+        disbursementMethod:
+          method,
+      },
+    ),
 
-  updateStatus: (id: number, status: string, notes?: string) =>
-    post(`/loans/${id}/status`, {
-      status,
-      notes,
-    }),
+  updateStatus: (
+    id: number,
+    status: string,
+    notes?: string,
+  ) =>
+    post(
+      `/loans/${id}/status`,
+      {
+        status,
+        notes,
+      },
+    ),
 
-  dashboard: () => get("/loans/dashboard"),
+  dashboard: () =>
+    get(
+      "/loans/dashboard",
+    ),
 
-  schedule: (id: number) => get(`/loans/${id}/schedule`),
+  schedule: (
+    id: number,
+  ) =>
+    get(
+      `/loans/${id}/schedule`,
+    ),
 
-  risk: (id: number) => get(`/loans/${id}/risk`),
+  risk: (
+    id: number,
+  ) =>
+    get(
+      `/loans/${id}/risk`,
+    ),
 
-  documentRequirements: (id: number) =>
-    get(`/loans/${id}/document-requirements`),
+  documentRequirements: (
+    id: number,
+  ) =>
+    get(
+      `/loans/${id}/document-requirements`,
+    ),
 
-  restructure: (id: number, data: unknown) =>
-    post(`/loans/${id}/restructure`, data),
+  restructure: (
+    id: number,
+    data: unknown,
+  ) =>
+    post(
+      `/loans/${id}/restructure`,
+      data,
+    ),
 
-  writeOff: (id: number, reason: string) =>
-    post(`/loans/${id}/write-off`, {
-      reason,
-    }),
+  writeOff: (
+    id: number,
+    reason: string,
+  ) =>
+    post(
+      `/loans/${id}/write-off`,
+      {
+        reason,
+      },
+    ),
 
-  moratorium: (id: number, data: unknown) =>
-    post(`/loans/${id}/moratorium`, data),
+  moratorium: (
+    id: number,
+    data: unknown,
+  ) =>
+    post(
+      `/loans/${id}/moratorium`,
+      data,
+    ),
 
-  getComments: (id: number) => get(`/loans/${id}/comments`),
+  getComments: (
+    id: number,
+  ) =>
+    get(
+      `/loans/${id}/comments`,
+    ),
 
-  addComment: (id: number, message: string, visibleToApplicant = true) =>
-    post(`/loans/${id}/comments`, {
-      message,
-      visibleToApplicant,
-    }),
+  addComment: (
+    id: number,
+    message: string,
+    visibleToApplicant = true,
+  ) =>
+    post(
+      `/loans/${id}/comments`,
+      {
+        message,
+        visibleToApplicant,
+      },
+    ),
 };
 
 /**
- * =========================================================
- * PAYMENTS
- * =========================================================
+ * ============================================================
+ * BRANCH API
+ * ============================================================
+ */
+
+export const branchApi = {
+  list: () =>
+    get("/branches"),
+};
+
+/**
+ * ============================================================
+ * EXPENSE API
+ * ============================================================
+ */
+
+export const expenseApi = {
+  list: (
+    params: {
+      page?: number;
+      size?: number;
+      category?: string;
+      branchId?: number;
+      from?: string;
+      to?: string;
+    } = {},
+  ) => {
+    const query =
+      new URLSearchParams();
+
+    query.set(
+      "page",
+      String(
+        params.page ?? 0,
+      ),
+    );
+
+    query.set(
+      "size",
+      String(
+        params.size ?? 20,
+      ),
+    );
+
+    if (params.category) {
+      query.set(
+        "category",
+        params.category,
+      );
+    }
+
+    if (params.branchId != null) {
+      query.set(
+        "branchId",
+        String(params.branchId),
+      );
+    }
+
+    if (params.from) {
+      query.set(
+        "from",
+        params.from,
+      );
+    }
+
+    if (params.to) {
+      query.set(
+        "to",
+        params.to,
+      );
+    }
+
+    return get(
+      `/expenses?${query.toString()}`,
+    );
+  },
+
+  get: (
+    id: number,
+  ) =>
+    get(
+      `/expenses/${id}`,
+    ),
+
+  summary: (
+    from?: string,
+    to?: string,
+  ) =>
+    get(
+      `/expenses/summary${
+        from && to
+          ? `?from=${encodeURIComponent(
+              from,
+            )}&to=${encodeURIComponent(
+              to,
+            )}`
+          : ""
+      }`,
+    ),
+
+  void: (
+    id: number,
+    reason?: string,
+  ) =>
+    post(
+      `/expenses/${id}/void`,
+      {
+        reason,
+      },
+    ),
+
+  receiptUrl: (
+    id: number,
+  ) =>
+    `${API_BASE_URL}/expenses/${id}/receipt`,
+
+  create: (
+    data: {
+      expenseDate: string;
+      category: string;
+      amount: number;
+      paymentAccountId: number;
+      branchId?: number;
+      description?: string;
+      paymentMethod: string;
+      paymentProvider?: string;
+      paymentPhoneNumber?: string;
+      paymentTransactionReference?: string;
+      paymentCode?: string;
+      cardBrand?: string;
+      cardLastFour?: string;
+      cardAuthorizationCode?: string;
+      chequeNumber?: string;
+      paymentNotes?: string;
+      receipt?: File | null;
+    },
+  ) => {
+    const form =
+      new FormData();
+
+    form.append(
+      "expenseDate",
+      data.expenseDate,
+    );
+
+    form.append(
+      "category",
+      data.category,
+    );
+
+    form.append(
+      "amount",
+      String(data.amount),
+    );
+
+    form.append(
+      "paymentAccountId",
+      String(
+        data.paymentAccountId,
+      ),
+    );
+
+    if (
+      data.branchId != null
+    ) {
+      form.append(
+        "branchId",
+        String(data.branchId),
+      );
+    }
+
+    if (data.description) {
+      form.append(
+        "description",
+        data.description,
+      );
+    }
+
+    form.append(
+      "paymentMethod",
+      data.paymentMethod,
+    );
+
+    if (data.paymentProvider) {
+      form.append(
+        "paymentProvider",
+        data.paymentProvider,
+      );
+    }
+
+    if (
+      data.paymentPhoneNumber
+    ) {
+      form.append(
+        "paymentPhoneNumber",
+        data.paymentPhoneNumber,
+      );
+    }
+
+    if (
+      data.paymentTransactionReference
+    ) {
+      form.append(
+        "paymentTransactionReference",
+        data.paymentTransactionReference,
+      );
+    }
+
+    if (data.paymentCode) {
+      form.append(
+        "paymentCode",
+        data.paymentCode,
+      );
+    }
+
+    if (data.cardBrand) {
+      form.append(
+        "cardBrand",
+        data.cardBrand,
+      );
+    }
+
+    if (data.cardLastFour) {
+      form.append(
+        "cardLastFour",
+        data.cardLastFour,
+      );
+    }
+
+    if (
+      data.cardAuthorizationCode
+    ) {
+      form.append(
+        "cardAuthorizationCode",
+        data.cardAuthorizationCode,
+      );
+    }
+
+    if (data.chequeNumber) {
+      form.append(
+        "chequeNumber",
+        data.chequeNumber,
+      );
+    }
+
+    if (data.paymentNotes) {
+      form.append(
+        "paymentNotes",
+        data.paymentNotes,
+      );
+    }
+
+    if (data.receipt) {
+      form.append(
+        "receipt",
+        data.receipt,
+      );
+    }
+
+    return API.post(
+      "/expenses",
+      form,
+      {
+        headers: {
+          "Content-Type":
+            "multipart/form-data",
+        },
+      },
+    ).then(
+      (response) =>
+        unwrap(response.data),
+    );
+  },
+};
+
+/**
+ * ============================================================
+ * PAYMENT API
+ * ============================================================
  */
 
 export const paymentApi = {
-  record: (loanId: number, data: unknown, idempotencyKey?: string) =>
-    API.post(`/loans/${loanId}/payments`, data, {
-      headers: idempotencyKey
-        ? {
-            "Idempotency-Key": idempotencyKey,
-          }
-        : {},
-    }).then((response) => unwrap(response.data)),
+  record: (
+    loanId: number,
+    data: unknown,
+    idempotencyKey?: string,
+  ) =>
+    API.post(
+      `/loans/${loanId}/payments`,
+      data,
+      {
+        headers:
+          idempotencyKey
+            ? {
+                "Idempotency-Key":
+                  idempotencyKey,
+              }
+            : {},
+      },
+    ).then(
+      (response) =>
+        unwrap(response.data),
+    ),
 
-  schedule: (loanId: number) => get(`/loans/${loanId}/payments`),
+  schedule: (
+    loanId: number,
+  ) =>
+    get(
+      `/loans/${loanId}/payments`,
+    ),
 };
 
 /**
- * =========================================================
- * BORROWERS
- * =========================================================
+ * ============================================================
+ * BORROWER API
+ * ============================================================
  */
 
 export const borrowerApi = {
-  list: (page = 0, size = 20, q = "") => {
-    const params = new URLSearchParams();
+  list: (
+    page = 0,
+    size = 20,
+    q = "",
+  ) => {
+    const params =
+      new URLSearchParams();
 
-    params.set("page", String(page));
+    params.set(
+      "page",
+      String(page),
+    );
 
-    params.set("size", String(size));
+    params.set(
+      "size",
+      String(size),
+    );
 
     if (q) {
-      params.set("q", q);
+      params.set(
+        "q",
+        q,
+      );
     }
 
-    return get(`/borrowers?${params.toString()}`);
+    return get(
+      `/borrowers?${params.toString()}`,
+    );
   },
 
-  get: (id: number) => get(`/borrowers/${id}`),
+  get: (
+    id: number,
+  ) =>
+    get(
+      `/borrowers/${id}`,
+    ),
 
-  create: (data: unknown) => post("/borrowers", data),
+  getDetails: (
+    id: number,
+  ) =>
+    get(
+      `/borrowers/${id}/details`,
+    ),
 
-  update: (id: number, data: unknown) => put(`/borrowers/${id}`, data),
+  create: (
+    data: unknown,
+  ) =>
+    post(
+      "/borrowers",
+      data,
+    ),
+
+  update: (
+    id: number,
+    data: unknown,
+  ) =>
+    put(
+      `/borrowers/${id}`,
+      data,
+    ),
 };
 
 /**
- * =========================================================
- * COMPLIANCE
- * =========================================================
+ * ============================================================
+ * COMPLIANCE API
+ * ============================================================
  */
 
 export const complianceApi = {
-  screen: (borrowerId: number) =>
-    post(`/compliance/borrowers/${borrowerId}/screen`),
+  screen: (
+    borrowerId: number,
+  ) =>
+    post(
+      `/compliance/borrowers/${borrowerId}/screen`,
+    ),
 
-  history: (borrowerId: number) =>
-    get(`/compliance/borrowers/${borrowerId}/history`),
+  history: (
+    borrowerId: number,
+  ) =>
+    get(
+      `/compliance/borrowers/${borrowerId}/history`,
+    ),
 
-  status: (borrowerId: number) =>
-    get(`/compliance/borrowers/${borrowerId}/status`),
+  status: (
+    borrowerId: number,
+  ) =>
+    get(
+      `/compliance/borrowers/${borrowerId}/status`,
+    ),
 
-  pendingReviews: () => get("/compliance/pending-reviews"),
+  pendingReviews: () =>
+    get(
+      "/compliance/pending-reviews",
+    ),
 
-  decide: (checkId: number, data: unknown) =>
-    post(`/compliance/checks/${checkId}/decide`, data),
+  decide: (
+    checkId: number,
+    data: unknown,
+  ) =>
+    post(
+      `/compliance/checks/${checkId}/decide`,
+      data,
+    ),
 };
 
 /**
- * =========================================================
- * MFA
- * =========================================================
+ * ============================================================
+ * MFA API
+ * ============================================================
  */
 
 export const mfaApi = {
-  setup: () => post("/mfa/setup"),
+  setup: () =>
+    post("/mfa/setup"),
 
-  confirm: (code: string) =>
-    post("/mfa/confirm", {
-      code,
-    }),
+  confirm: (
+    code: string,
+  ) =>
+    post(
+      "/mfa/confirm",
+      {
+        code,
+      },
+    ),
 
-  disable: () => post("/mfa/disable"),
+  disable: () =>
+    post("/mfa/disable"),
 };
 
 /**
- * =========================================================
- * BULK
- * =========================================================
+ * ============================================================
+ * BULK API
+ * ============================================================
  */
 
 export const bulkApi = {
-  disburse: (loanIds: number[], method = "BANK_TRANSFER") =>
-    post("/bulk/disburse", {
-      loanIds,
-      disbursementMethod: method,
-    }),
+  disburse: (
+    loanIds: number[],
+    method = "BANK_TRANSFER",
+  ) =>
+    post(
+      "/bulk/disburse",
+      {
+        loanIds,
+        disbursementMethod:
+          method,
+      },
+    ),
 };
 
 /**
- * =========================================================
- * ORGANIZATION
- * =========================================================
+ * ============================================================
+ * ORGANIZATION API
+ * ============================================================
  */
 
 export const orgApi = {
-  me: () => get("/organizations/me"),
+  me: () =>
+    get(
+      "/organizations/me",
+    ),
 
-  update: (data: unknown) => put("/organizations/me", data),
+  update: (
+    data: unknown,
+  ) =>
+    put(
+      "/organizations/me",
+      data,
+    ),
 
-  users: () => get("/organizations/me/users"),
+  users: () =>
+    get(
+      "/organizations/me/users",
+    ),
 };
 
 /**
- * =========================================================
- * WEBHOOKS
- * =========================================================
+ * ============================================================
+ * WEBHOOK API
+ * ============================================================
  */
 
 export const webhookApi = {
-  list: () => get("/webhooks"),
+  list: () =>
+    get("/webhooks"),
 
-  create: (data: unknown) => post("/webhooks", data),
+  create: (
+    data: unknown,
+  ) =>
+    post(
+      "/webhooks",
+      data,
+    ),
 
-  remove: (id: number) => del(`/webhooks/${id}`),
+  remove: (
+    id: number,
+  ) =>
+    del(
+      `/webhooks/${id}`,
+    ),
 };
 
 /**
- * =========================================================
- * CURRENCY
- * =========================================================
+ * ============================================================
+ * CURRENCY API
+ * ============================================================
  */
 
 export const currencyApi = {
-  rates: (base = "USD") => get(`/currencies?base=${encodeURIComponent(base)}`),
-
-  convert: (from: string, to: string, amount: number) =>
+  rates: (
+    base = "USD",
+  ) =>
     get(
-      `/currencies/convert?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&amount=${amount}`,
+      `/currencies?base=${encodeURIComponent(
+        base,
+      )}`,
     ),
 
-  supported: () => get("/currencies/supported"),
+  convert: (
+    from: string,
+    to: string,
+    amount: number,
+  ) =>
+    get(
+      `/currencies/convert?from=${encodeURIComponent(
+        from,
+      )}&to=${encodeURIComponent(
+        to,
+      )}&amount=${encodeURIComponent(
+        String(amount),
+      )}`,
+    ),
 
-  status: () => get("/currencies/status"),
+  supported: () =>
+    get(
+      "/currencies/supported",
+    ),
 
-  refresh: () => post("/currencies/refresh"),
+  status: () =>
+    get(
+      "/currencies/status",
+    ),
+
+  refresh: () =>
+    post(
+      "/currencies/refresh",
+    ),
 };
 
 /**
- * =========================================================
- * PRIVACY
- * =========================================================
+ * ============================================================
+ * PRIVACY API
+ * ============================================================
  */
 
 export const privacyApi = {
-  exportData: (id: number) => get(`/privacy/borrowers/${id}/export`),
+  exportData: (
+    id: number,
+  ) =>
+    get(
+      `/privacy/borrowers/${id}/export`,
+    ),
 
-  eraseData: (id: number) => del(`/privacy/borrowers/${id}/erase`),
+  eraseData: (
+    id: number,
+  ) =>
+    del(
+      `/privacy/borrowers/${id}/erase`,
+    ),
 };
 
 /**
- * =========================================================
- * CREDIT BUREAU
- * =========================================================
+ * ============================================================
+ * CREDIT BUREAU API
+ * ============================================================
  */
 
 export const creditBureauApi = {
-  check: (borrowerId: number) =>
-    post(`/credit-bureau/borrowers/${borrowerId}/check`),
+  check: (
+    borrowerId: number,
+  ) =>
+    post(
+      `/credit-bureau/borrowers/${borrowerId}/check`,
+    ),
 
-  history: (borrowerId: number) =>
-    get(`/credit-bureau/borrowers/${borrowerId}/history`),
+  history: (
+    borrowerId: number,
+  ) =>
+    get(
+      `/credit-bureau/borrowers/${borrowerId}/history`,
+    ),
 
-  latest: (borrowerId: number) =>
-    get(`/credit-bureau/borrowers/${borrowerId}/latest`),
+  latest: (
+    borrowerId: number,
+  ) =>
+    get(
+      `/credit-bureau/borrowers/${borrowerId}/latest`,
+    ),
 
-  reportForLoan: (loanId: number) =>
-    get(`/credit-bureau/loans/${loanId}/report`),
+  reportForLoan: (
+    loanId: number,
+  ) =>
+    get(
+      `/credit-bureau/loans/${loanId}/report`,
+    ),
 
-  retryReport: (loanId: number) =>
-    post(`/credit-bureau/loans/${loanId}/report/retry`),
-};
-
-export const esignatureApi = {
-  initiate: (loanId: number, documentType = "LOAN_AGREEMENT") =>
-    post(`/loans/${loanId}/esignature/initiate`, {
-      documentType,
-    }),
-
-  history: (loanId: number) => get(`/loans/${loanId}/esignature`),
+  retryReport: (
+    loanId: number,
+  ) =>
+    post(
+      `/credit-bureau/loans/${loanId}/report/retry`,
+    ),
 };
 
 /**
- * =========================================================
- * ACCOUNTING
- * =========================================================
+ * ============================================================
+ * E-SIGNATURE API
+ * ============================================================
+ */
+
+export const esignatureApi = {
+  initiate: (
+    loanId: number,
+    documentType = "LOAN_AGREEMENT",
+  ) =>
+    post(
+      `/loans/${loanId}/esignature/initiate`,
+      {
+        documentType,
+      },
+    ),
+
+  history: (
+    loanId: number,
+  ) =>
+    get(
+      `/loans/${loanId}/esignature`,
+    ),
+};
+
+/**
+ * ============================================================
+ * ACCOUNTING API
+ * ============================================================
  */
 
 export const accountingApi = {
-  chartOfAccounts: () => get("/accounting/chart-of-accounts"),
+  chartOfAccounts: () =>
+    get(
+      "/accounting/chart-of-accounts",
+    ),
 
-  createAccount: (data: {
-    code: string;
-    name: string;
-    type: string;
-    normalBalance: string;
-  }) => post("/accounting/chart-of-accounts", data),
+  createAccount: (
+    data: {
+      code: string;
+      name: string;
+      type: string;
+      normalBalance: string;
+    },
+  ) =>
+    post(
+      "/accounting/chart-of-accounts",
+      data,
+    ),
 
   updateAccount: (
     id: number,
@@ -420,69 +1215,123 @@ export const accountingApi = {
       name?: string;
       active?: boolean;
     },
-  ) => put(`/accounting/chart-of-accounts/${id}`, data),
+  ) =>
+    put(
+      `/accounting/chart-of-accounts/${id}`,
+      data,
+    ),
 
-  journal: () => get("/accounting/journal"),
+  journal: () =>
+    get(
+      "/accounting/journal",
+    ),
 
-  reverseEntry: (id: number, reason?: string) =>
-    post(`/accounting/journal/${id}/reverse`, {
-      reason,
-    }),
+  reconcileLegacyLoans: () =>
+    post(
+      "/accounting/legacy-loans/reconcile",
+    ),
 
-  ledger: (accountId: number) => get(`/accounting/ledger/${accountId}`),
+  reverseEntry: (
+    id: number,
+    reason?: string,
+  ) =>
+    post(
+      `/accounting/journal/${id}/reverse`,
+      {
+        reason,
+      },
+    ),
 
-  trialBalance: () => get("/accounting/trial-balance"),
+  ledger: (
+    accountId: number,
+  ) =>
+    get(
+      `/accounting/ledger/${accountId}`,
+    ),
 
-  balanceSheet: () => get("/accounting/balance-sheet"),
+  trialBalance: () =>
+    get(
+      "/accounting/trial-balance",
+    ),
 
-  profitAndLoss: (from?: string, to?: string) => {
-    if (from && to) {
-      return get(
-        `/accounting/profit-and-loss?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      );
-    }
+  balanceSheet: () =>
+    get(
+      "/accounting/balance-sheet",
+    ),
 
-    return get("/accounting/profit-and-loss");
-  },
+  profitAndLoss: (
+    from?: string,
+    to?: string,
+  ) =>
+    get(
+      `/accounting/profit-and-loss${
+        from && to
+          ? `?from=${encodeURIComponent(
+              from,
+            )}&to=${encodeURIComponent(
+              to,
+            )}`
+          : ""
+      }`,
+    ),
 
-  cashFlow: (from?: string, to?: string) => {
-    if (from && to) {
-      return get(
-        `/accounting/cash-flow?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      );
-    }
+  cashFlow: (
+    from?: string,
+    to?: string,
+  ) =>
+    get(
+      `/accounting/cash-flow${
+        from && to
+          ? `?from=${encodeURIComponent(
+              from,
+            )}&to=${encodeURIComponent(
+              to,
+            )}`
+          : ""
+      }`,
+    ),
 
-    return get("/accounting/cash-flow");
-  },
-
-  branchSummary: (from?: string, to?: string) => {
-    if (from && to) {
-      return get(
-        `/accounting/branch-summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      );
-    }
-
-    return get("/accounting/branch-summary");
-  },
+  branchSummary: (
+    from?: string,
+    to?: string,
+  ) =>
+    get(
+      `/accounting/branch-summary${
+        from && to
+          ? `?from=${encodeURIComponent(
+              from,
+            )}&to=${encodeURIComponent(
+              to,
+            )}`
+          : ""
+      }`,
+    ),
 };
 
 /**
- * =========================================================
- * BANK ACCOUNTS
- * =========================================================
+ * ============================================================
+ * BANK ACCOUNT API
+ * ============================================================
  */
 
 export const bankAccountApi = {
-  list: () => get("/bank-accounts"),
+  list: () =>
+    get("/bank-accounts"),
 
-  create: (data: {
-    name: string;
-    accountType: string;
-    bankName?: string;
-    accountNumber?: string;
-    openingBalance?: number;
-    branchId?: number;
-  }) => post("/bank-accounts", data),
+  create: (
+    data: {
+      name: string;
+      accountType: string;
+      bankName?: string;
+      accountNumber?: string;
+      openingBalance?: number;
+      branchId?: number;
+    },
+  ) =>
+    post(
+      "/bank-accounts",
+      data,
+    ),
 
   recordTransaction: (
     id: number,
@@ -492,54 +1341,144 @@ export const bankAccountApi = {
       counterAccountId: number;
       description?: string;
     },
-  ) => post(`/bank-accounts/${id}/transactions`, data),
+  ) =>
+    post(
+      `/bank-accounts/${id}/transactions`,
+      data,
+    ),
 
-  transfer: (data: {
-    fromAccountId: number;
-    toAccountId: number;
-    amount: number;
-    description?: string;
-  }) => post("/bank-accounts/transfer", data),
+  transfer: (
+    data: {
+      fromAccountId: number;
+      toAccountId: number;
+      amount: number;
+      description?: string;
+    },
+  ) =>
+    post(
+      "/bank-accounts/transfer",
+      data,
+    ),
 };
 
 /**
- * =========================================================
- * CONTACT MESSAGES
- * =========================================================
+ * ============================================================
+ * CONTACT MESSAGE API
+ * ============================================================
  */
 
 export const contactMessageApi = {
-  list: () => get("/contact-messages"),
-
-  unreadCount: () => get("/contact-messages/unread-count"),
-
-  markRead: (id: number) => post(`/contact-messages/${id}/read`),
-
-  delete: (id: number) => del(`/contact-messages/${id}`),
-};
-
-export const publicApi = {
-  getOrganization: () => get("/public/organization"),
-
-  getTenant: (slug: string) =>
-    get(`/public/tenant/${encodeURIComponent(slug)}`),
-
-  getProducts: (slug: string) =>
-    get(`/public/tenant/${encodeURIComponent(slug)}/products`),
-
-  apply: (data: unknown) => post("/public/loan-application", data),
-
-  trackApplication: (reference: string, phone: string) =>
+  list: () =>
     get(
-      `/public/applications/${encodeURIComponent(reference.trim())}/status?phone=${encodeURIComponent(phone.trim())}`,
+      "/contact-messages",
     ),
 
-  trackDashboard: (reference: string, phone: string) =>
-    post("/public/dashboard", {
-      reference: reference.trim(),
+  unreadCount: () =>
+    get(
+      "/contact-messages/unread-count",
+    ),
 
-      phone: phone.trim(),
-    }),
+  markRead: (
+    id: number,
+  ) =>
+    post(
+      `/contact-messages/${id}/read`,
+    ),
+
+  delete: (
+    id: number,
+  ) =>
+    del(
+      `/contact-messages/${id}`,
+    ),
+};
+
+/**
+ * ============================================================
+ * PUBLIC API
+ * ============================================================
+ */
+
+export const publicApi = {
+  submitContact: (
+    data: {
+      tenantSlug?: string;
+      name: string;
+      email?: string;
+      phone: string;
+      subject: string;
+      message: string;
+    },
+  ) =>
+    post(
+      "/public/contact",
+      {
+        ...data,
+
+        /**
+         * Always use this frontend's configured tenant.
+         */
+        tenantSlug: TENANT_SLUG,
+      },
+    ),
+
+  getOrganization: () =>
+    get(
+      "/public/organization",
+    ),
+
+  getTenant: (
+    slug: string = TENANT_SLUG,
+  ) =>
+    get(
+      `/public/tenant/${encodeURIComponent(
+        slug,
+      )}`,
+    ),
+
+  getProducts: (
+    slug: string = TENANT_SLUG,
+  ) =>
+    get(
+      `/public/tenant/${encodeURIComponent(
+        slug,
+      )}/products`,
+    ),
+
+  apply: (
+    data: unknown,
+  ) =>
+    post(
+      "/public/loan-application",
+      data,
+    ),
+
+  trackApplication: (
+    reference: string,
+    phone: string,
+  ) =>
+    get(
+      `/public/applications/${encodeURIComponent(
+        reference.trim(),
+      )}/status?phone=${encodeURIComponent(
+        phone.trim(),
+      )}`,
+    ),
+
+  trackDashboard: (
+    reference: string,
+    phone: string,
+  ) =>
+    post(
+      "/public/dashboard",
+      {
+        reference:
+          reference.trim(),
+
+        phone:
+          phone.trim(),
+      },
+    ),
 
   initiatePayment: (
     reference: string,
@@ -547,7 +1486,10 @@ export const publicApi = {
     data: {
       amount?: number;
 
-      paymentMethod: "MOBILE_MONEY" | "CARD" | "BANK_TRANSFER";
+      paymentMethod:
+        | "MOBILE_MONEY"
+        | "CARD"
+        | "BANK_TRANSFER";
 
       phoneNumber?: string;
       network?: string;
@@ -565,35 +1507,73 @@ export const publicApi = {
     },
   ) =>
     post(
-      `/public/applications/${encodeURIComponent(reference.trim())}/payments/initiate?phone=${encodeURIComponent(phone.trim())}`,
+      `/public/applications/${encodeURIComponent(
+        reference.trim(),
+      )}/payments/initiate?phone=${encodeURIComponent(
+        phone.trim(),
+      )}`,
       data,
     ),
 
-  trackComments: (reference: string, phone: string) =>
+  trackComments: (
+    reference: string,
+    phone: string,
+  ) =>
     get(
-      `/public/applications/${encodeURIComponent(reference.trim())}/comments?phone=${encodeURIComponent(phone.trim())}`,
+      `/public/applications/${encodeURIComponent(
+        reference.trim(),
+      )}/comments?phone=${encodeURIComponent(
+        phone.trim(),
+      )}`,
     ),
 
-  listDocuments: (reference: string, phone: string) =>
+  listDocuments: (
+    reference: string,
+    phone: string,
+  ) =>
     get(
-      `/public/applications/${encodeURIComponent(reference.trim())}/documents?phone=${encodeURIComponent(phone.trim())}`,
+      `/public/applications/${encodeURIComponent(
+        reference.trim(),
+      )}/documents?phone=${encodeURIComponent(
+        phone.trim(),
+      )}`,
     ),
 
   downloadDocument: (
     reference: string,
     phone: string,
-    doc: "agreement" | "schedule" | "receipt",
+    doc:
+      | "agreement"
+      | "schedule"
+      | "receipt",
   ) =>
     API.get(
-      `/public/applications/${encodeURIComponent(reference.trim())}/documents/${doc}.pdf?phone=${encodeURIComponent(phone.trim())}`,
+      `/public/applications/${encodeURIComponent(
+        reference.trim(),
+      )}/documents/${doc}.pdf?phone=${encodeURIComponent(
+        phone.trim(),
+      )}`,
       {
         responseType: "blob",
+
+        headers: {
+          Accept:
+            "application/pdf, */*",
+        },
       },
     ),
 
-  deleteDocument: (reference: string, phone: string, fileId: number) =>
+  deleteDocument: (
+    reference: string,
+    phone: string,
+    fileId: number,
+  ) =>
     del(
-      `/public/applications/${encodeURIComponent(reference.trim())}/documents/${fileId}?phone=${encodeURIComponent(phone.trim())}`,
+      `/public/applications/${encodeURIComponent(
+        reference.trim(),
+      )}/documents/${fileId}?phone=${encodeURIComponent(
+        phone.trim(),
+      )}`,
     ),
 
   uploadDocument: (
@@ -603,125 +1583,360 @@ export const publicApi = {
     file: File | Blob,
     fileName?: string,
   ) => {
-    const form = new FormData();
+    const form =
+      new FormData();
 
-    form.append("phone", phone.trim());
+    form.append(
+      "phone",
+      phone.trim(),
+    );
 
-    form.append("documentType", documentType);
+    form.append(
+      "documentType",
+      documentType,
+    );
+
+    const resolvedFileName =
+      fileName ||
+      ("name" in file &&
+      typeof file.name === "string"
+        ? file.name
+        : "upload.jpg");
 
     form.append(
       "file",
       file,
-      fileName || (file instanceof File ? file.name : "upload.jpg"),
+      resolvedFileName,
     );
 
     return API.post(
-      `/public/applications/${encodeURIComponent(reference.trim())}/documents`,
+      `/public/applications/${encodeURIComponent(
+        reference.trim(),
+      )}/documents`,
       form,
       {
         headers: {
-          "Content-Type": "multipart/form-data",
+          "Content-Type":
+            "multipart/form-data",
         },
       },
-    ).then((response) => (response.data as any)?.data ?? response.data);
+    ).then(
+      (response) =>
+        unwrap(response.data),
+    );
   },
 };
 
 /**
- * =========================================================
- * LEGACY LOAN IMPORT
- * =========================================================
+ * ============================================================
+ * IMPORT API
+ * ============================================================
  */
 
 export const importApi = {
   template: () =>
-    API.get("/import/legacy-loans/template", {
-      responseType: "blob",
-    }),
-
-  preview: (file: File) => {
-    const form = new FormData();
-
-    form.append("file", file);
-
-    return API.post("/import/legacy-loans/preview", form, {
-      headers: {
-        "Content-Type": "multipart/form-data",
+    API.get(
+      "/import/legacy-loans/template",
+      {
+        responseType: "blob",
       },
-    }).then((response) => (response.data as any)?.data ?? response.data);
+    ),
+
+  preview: (
+    file: File,
+  ) => {
+    const form =
+      new FormData();
+
+    form.append(
+      "file",
+      file,
+    );
+
+    return API.post(
+      "/import/legacy-loans/preview",
+      form,
+      {
+        headers: {
+          "Content-Type":
+            "multipart/form-data",
+        },
+      },
+    ).then(
+      (response) =>
+        unwrap(response.data),
+    );
   },
 
-  commit: (file: File) => {
-    const form = new FormData();
+  commit: (
+    file: File,
+  ) => {
+    const form =
+      new FormData();
 
-    form.append("file", file);
+    form.append(
+      "file",
+      file,
+    );
 
-    return API.post("/import/legacy-loans/commit", form, {
-      headers: {
-        "Content-Type": "multipart/form-data",
+    return API.post(
+      "/import/legacy-loans/commit",
+      form,
+      {
+        headers: {
+          "Content-Type":
+            "multipart/form-data",
+        },
       },
-    }).then((response) => (response.data as any)?.data ?? response.data);
+    ).then(
+      (response) =>
+        unwrap(response.data),
+    );
   },
 
-  batches: () => get("/import/legacy-loans/batches"),
+  batches: () =>
+    get(
+      "/import/legacy-loans/batches",
+    ),
 };
 
 /**
- * =========================================================
- * ACCOUNTING — EXPENSES & BRANCHES
- * =========================================================
+ * ============================================================
+ * REGULATORY / BNR API
+ * ============================================================
  */
-export const expenseApi = {
-  list: (params?: {
-    category?: string;
-    branchId?: number;
-    from?: string;
-    to?: string;
-    page?: number;
-    size?: number;
-  }) =>
+
+export const regulatoryApi = {
+  bnrSummary: (
+    params?: {
+      branchId?: number;
+      period?: string;
+      from?: string;
+      to?: string;
+    },
+  ) =>
     get(
-      `/expenses?${new URLSearchParams(
-        Object.entries(params ?? {}).reduce<Record<string, string>>(
-          (acc, [key, value]) => {
-            if (value !== undefined && value !== null && value !== "")
-              acc[key] = String(value);
-            return acc;
-          },
-          {},
-        ),
-      ).toString()}`,
+      `/regulatory/bnr/summary${
+        params
+          ? `?${new URLSearchParams(
+              Object.entries(
+                params,
+              )
+                .filter(
+                  ([, value]) =>
+                    value !==
+                      undefined &&
+                    value !==
+                      null &&
+                    value !==
+                      "",
+                )
+                .map(
+                  ([
+                    key,
+                    value,
+                  ]) => [
+                    key,
+                    String(value),
+                  ],
+                ),
+            ).toString()}`
+          : ""
+      }`,
     ),
 
-  create: (data: Record<string, unknown> | FormData) => {
-    if (data instanceof FormData) {
-      return API.post("/expenses", data, {
-        headers: { "Content-Type": "multipart/form-data" },
-      }).then((response) => unwrap(response.data));
-    }
-    const form = new FormData();
-    Object.entries(data).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== "") {
-        form.append(key, value instanceof File ? value : String(value));
-      }
-    });
-    return API.post("/expenses", form, {
-      headers: { "Content-Type": "multipart/form-data" },
-    }).then((response) => unwrap(response.data));
-  },
-
-  void: (id: number, reason?: string) =>
-    API.patch(`/expenses/${id}/void`, reason ? { reason } : undefined).then(
-      (response) => unwrap(response.data),
+  bnrFinancialStatement: (
+    params?: {
+      branchId?: number;
+      period?: string;
+      from?: string;
+      to?: string;
+    },
+  ) =>
+    get(
+      `/regulatory/bnr/financial-statement${
+        params
+          ? `?${new URLSearchParams(
+              Object.entries(
+                params,
+              )
+                .filter(
+                  ([, value]) =>
+                    value !==
+                      undefined &&
+                    value !==
+                      null &&
+                    value !==
+                      "",
+                )
+                .map(
+                  ([
+                    key,
+                    value,
+                  ]) => [
+                    key,
+                    String(value),
+                  ],
+                ),
+            ).toString()}`
+          : ""
+      }`,
     ),
 
-  receiptUrl: (id: number) => `${API.defaults.baseURL}/expenses/${id}/receipt`,
+  bnrByLoanType: (
+    params?: {
+      branchId?: number;
+      period?: string;
+      from?: string;
+      to?: string;
+    },
+  ) =>
+    get(
+      `/regulatory/bnr/by-loan-type${
+        params
+          ? `?${new URLSearchParams(
+              Object.entries(
+                params,
+              )
+                .filter(
+                  ([, value]) =>
+                    value !==
+                      undefined &&
+                    value !==
+                      null &&
+                    value !==
+                      "",
+                )
+                .map(
+                  ([
+                    key,
+                    value,
+                  ]) => [
+                    key,
+                    String(value),
+                  ],
+                ),
+            ).toString()}`
+          : ""
+      }`,
+    ),
+
+  bnrByBranch: (
+    params?: {
+      period?: string;
+      from?: string;
+      to?: string;
+    },
+  ) =>
+    get(
+      `/regulatory/bnr/by-branch${
+        params
+          ? `?${new URLSearchParams(
+              Object.entries(
+                params,
+              )
+                .filter(
+                  ([, value]) =>
+                    value !==
+                      undefined &&
+                    value !==
+                      null &&
+                    value !==
+                      "",
+                )
+                .map(
+                  ([
+                    key,
+                    value,
+                  ]) => [
+                    key,
+                    String(value),
+                  ],
+                ),
+            ).toString()}`
+          : ""
+      }`,
+    ),
+
+  bnrByGender: (
+    params?: {
+      branchId?: number;
+      period?: string;
+      from?: string;
+      to?: string;
+    },
+  ) =>
+    get(
+      `/regulatory/bnr/by-gender${
+        params
+          ? `?${new URLSearchParams(
+              Object.entries(
+                params,
+              )
+                .filter(
+                  ([, value]) =>
+                    value !==
+                      undefined &&
+                    value !==
+                      null &&
+                    value !==
+                      "",
+                )
+                .map(
+                  ([
+                    key,
+                    value,
+                  ]) => [
+                    key,
+                    String(value),
+                  ],
+                ),
+            ).toString()}`
+          : ""
+      }`,
+    ),
 };
 
-export const branchApi = {
-  list: () => get("/branches"),
-  create: (data: Record<string, unknown>) => post("/branches", data),
-  update: (id: number, data: Record<string, unknown>) =>
-    put(`/branches/${id}`, data),
-  delete: (id: number) => del(`/branches/${id}`),
+
+
+function getExportAcceptHeader(
+  format: string,
+): string {
+  switch (
+    format.toLowerCase()
+  ) {
+    case "pdf":
+      return "application/pdf";
+
+    case "csv":
+      return "text/csv";
+
+    case "xlsx":
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+    default:
+      return "*/*";
+  }
+}
+
+export {
+  getExportAcceptHeader,
+};
+
+/**
+ * ============================================================
+ * DEFAULT EXPORT
+ * ============================================================
+ */
+
+export default API;
+
+/**
+ * ============================================================
+ * NAMED API EXPORT
+ * ============================================================
+ */
+
+export {
+  API,
 };

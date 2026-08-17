@@ -1,32 +1,36 @@
-"use client";
+'use client';
 
-import { useEffect, useState, useCallback } from "react";
-import { expenseApi, bankAccountApi, branchApi } from "@/services/api";
-import { PageSpinner } from "@/components/ui/Skeleton";
-import { useAuth } from "@/hooks/useAuth";
+import { useEffect, useState, useCallback } from 'react';
+import {
+  expenseApi,
+  bankAccountApi,
+  branchApi,
+} from '@/services/api';
+import { PageSpinner } from '@/components/ui/Skeleton';
+import { useAuth } from '@/hooks/useAuth';
 
 const CATEGORIES = [
-  { value: "SALARIES_AND_WAGES", label: "Salaries and Wages" },
-  { value: "RENT", label: "Rent" },
-  { value: "UTILITIES", label: "Utilities" },
-  { value: "INTERNET", label: "Internet" },
-  { value: "TRANSPORT", label: "Transport" },
-  { value: "FUEL", label: "Fuel" },
-  { value: "OFFICE_SUPPLIES", label: "Office Supplies" },
-  { value: "BANK_CHARGES", label: "Bank Charges" },
-  { value: "INSURANCE", label: "Insurance" },
-  { value: "MARKETING", label: "Marketing" },
-  { value: "LEGAL_FEES", label: "Legal Fees" },
-  { value: "AUDIT_FEES", label: "Audit Fees" },
-  { value: "DEPRECIATION", label: "Depreciation" },
+  { value: 'SALARIES_AND_WAGES', label: 'Salaries and Wages' },
+  { value: 'RENT', label: 'Rent' },
+  { value: 'UTILITIES', label: 'Utilities' },
+  { value: 'INTERNET', label: 'Internet' },
+  { value: 'TRANSPORT', label: 'Transport' },
+  { value: 'FUEL', label: 'Fuel' },
+  { value: 'OFFICE_SUPPLIES', label: 'Office Supplies' },
+  { value: 'BANK_CHARGES', label: 'Bank Charges' },
+  { value: 'INSURANCE', label: 'Insurance' },
+  { value: 'MARKETING', label: 'Marketing' },
+  { value: 'LEGAL_FEES', label: 'Legal Fees' },
+  { value: 'AUDIT_FEES', label: 'Audit Fees' },
+  { value: 'DEPRECIATION', label: 'Depreciation' },
   {
-    value: "LOAN_RECOVERY_EXPENSES",
-    label: "Loan Recovery Expenses",
+    value: 'LOAN_RECOVERY_EXPENSES',
+    label: 'Loan Recovery Expenses',
   },
-  { value: "IT_EXPENSES", label: "IT Expenses" },
+  { value: 'IT_EXPENSES', label: 'IT Expenses' },
   {
-    value: "OTHER_OPERATING_EXPENSES",
-    label: "Other Operating Expenses",
+    value: 'OTHER_OPERATING_EXPENSES',
+    label: 'Other Operating Expenses',
   },
 ];
 
@@ -36,42 +40,54 @@ const CATEGORIES = [
  */
 const PAYMENT_METHODS = [
   {
-    value: "CASH",
-    label: "Cash",
-    description: "Paid directly from physical cash",
+    value: 'CASH',
+    label: 'Cash',
+    description: 'Paid directly from physical cash',
   },
   {
-    value: "BANK_TRANSFER",
-    label: "Bank Transfer",
-    description: "Paid through a bank transfer",
+    value: 'BANK_TRANSFER',
+    label: 'Bank Transfer',
+    description: 'Paid through a bank transfer',
   },
   {
-    value: "MOBILE_MONEY",
-    label: "Mobile Money",
-    description: "Paid using a mobile money wallet",
+    value: 'MOBILE_MONEY',
+    label: 'Mobile Money',
+    description: 'Paid using a mobile money wallet',
   },
   {
-    value: "MOMO_PAY",
-    label: "MoMo Pay",
-    description: "Paid using a MoMo Pay code",
+    value: 'MOMO_PAY',
+    label: 'MoMo Pay',
+    description: 'Paid using a MoMo Pay code',
   },
   {
-    value: "CARD",
-    label: "Card",
-    description: "Paid using a debit or credit card",
+    value: 'CARD',
+    label: 'Card',
+    description: 'Paid using a debit or credit card',
   },
   {
-    value: "CHEQUE",
-    label: "Cheque",
-    description: "Paid using a cheque",
+    value: 'CHEQUE',
+    label: 'Cheque',
+    description: 'Paid using a cheque',
   },
 ];
 
-const MOBILE_MONEY_PROVIDERS = ["MTN Mobile Money", "Airtel Money", "Other"];
+const MOBILE_MONEY_PROVIDERS = [
+  'MTN Mobile Money',
+  'Airtel Money',
+  'Other',
+];
 
-const MOMO_PAY_PROVIDERS = ["MTN MoMo Pay", "Other"];
+const MOMO_PAY_PROVIDERS = [
+  'MTN MoMo Pay',
+  'Other',
+];
 
-const CARD_BRANDS = ["Visa", "Mastercard", "American Express", "Other"];
+const CARD_BRANDS = [
+  'Visa',
+  'Mastercard',
+  'American Express',
+  'Other',
+];
 
 interface BankAccountRow {
   id: number;
@@ -94,7 +110,7 @@ interface ExpenseRow {
 
   description?: string;
 
-  status: "POSTED" | "VOID";
+  status: 'POSTED' | 'VOID';
 
   paymentAccount?: {
     id: number;
@@ -124,29 +140,34 @@ interface ExpenseRow {
 }
 
 const categoryLabel = (value: string) =>
-  CATEGORIES.find((c) => c.value === value)?.label || value;
+  CATEGORIES.find(c => c.value === value)?.label || value;
 
 const paymentMethodLabel = (value?: string) =>
-  PAYMENT_METHODS.find((m) => m.value === value)?.label || value || "—";
+  PAYMENT_METHODS.find(m => m.value === value)?.label ||
+  value ||
+  '—';
 
 export default function ExpensesPage() {
   const { currency } = useAuth();
 
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
-  const [bankAccounts, setBankAccounts] = useState<BankAccountRow[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<
+    BankAccountRow[]
+  >([]);
   const [branches, setBranches] = useState<BranchRow[]>([]);
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
 
   const [showForm, setShowForm] = useState(false);
 
-  const [filterCategory, setFilterCategory] = useState("");
-  const [filterPaymentMethod, setFilterPaymentMethod] = useState("");
+  const [filterCategory, setFilterCategory] = useState('');
+  const [filterPaymentMethod, setFilterPaymentMethod] =
+    useState('');
 
   const load = useCallback(() => {
     setLoading(true);
-    setError("");
+    setError('');
 
     Promise.all([
       expenseApi
@@ -160,13 +181,17 @@ export default function ExpensesPage() {
       branchApi.list().catch(() => []),
     ])
       .then(([exp, ba, br]) => {
-        setExpenses(((exp as any)?.content ?? exp ?? []) as ExpenseRow[]);
+        setExpenses(
+          (((exp as any)?.content ??
+            exp ??
+            []) as ExpenseRow[])
+        );
 
         setBankAccounts(ba as BankAccountRow[]);
         setBranches(br as BranchRow[]);
       })
       .catch(() => {
-        setError("Could not load expenses.");
+        setError('Could not load expenses.');
       })
       .finally(() => {
         setLoading(false);
@@ -179,19 +204,28 @@ export default function ExpensesPage() {
 
   const handleVoid = async (id: number) => {
     const reason =
-      window.prompt("Reason for voiding this expense (optional):") ?? "";
+      window.prompt(
+        'Reason for voiding this expense (optional):'
+      ) ?? '';
 
     try {
-      await expenseApi.void(id, reason || undefined);
+      await expenseApi.void(
+        id,
+        reason || undefined
+      );
 
       load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Could not void expense");
+      alert(
+        e instanceof Error
+          ? e.message
+          : 'Could not void expense'
+      );
     }
   };
 
   const fmt = (n: number) =>
-    new Intl.NumberFormat("en-US", {
+    new Intl.NumberFormat('en-US', {
       maximumFractionDigits: 0,
     }).format(n || 0);
 
@@ -199,25 +233,34 @@ export default function ExpensesPage() {
     return <PageSpinner />;
   }
 
-  const visibleExpenses = filterPaymentMethod
-    ? expenses.filter((e) => e.paymentMethod === filterPaymentMethod)
-    : expenses;
+  const visibleExpenses =
+    filterPaymentMethod
+      ? expenses.filter(
+          e => e.paymentMethod === filterPaymentMethod
+        )
+      : expenses;
 
   const total = visibleExpenses
-    .filter((e) => e.status === "POSTED")
-    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    .filter(e => e.status === 'POSTED')
+    .reduce(
+      (sum, e) => sum + (Number(e.amount) || 0),
+      0
+    );
 
   return (
     <div className="space-y-6">
+
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
             Operating Expenses
           </h1>
 
           <p className="text-sm text-gray-500 mt-1">
-            Record, track and audit institutional operating expenses.
+            Record, track and audit institutional operating
+            expenses.
           </p>
         </div>
 
@@ -231,8 +274,11 @@ export default function ExpensesPage() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+
         <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-xs font-medium text-gray-500 uppercase">Records</p>
+          <p className="text-xs font-medium text-gray-500 uppercase">
+            Records
+          </p>
 
           <p className="text-2xl font-bold text-gray-900 mt-1">
             {visibleExpenses.length}
@@ -245,7 +291,11 @@ export default function ExpensesPage() {
           </p>
 
           <p className="text-2xl font-bold text-gray-900 mt-1">
-            {visibleExpenses.filter((e) => e.status === "POSTED").length}
+            {
+              visibleExpenses.filter(
+                e => e.status === 'POSTED'
+              ).length
+            }
           </p>
         </div>
 
@@ -258,6 +308,7 @@ export default function ExpensesPage() {
             {currency} {fmt(total)}
           </p>
         </div>
+
       </div>
 
       {error && (
@@ -268,7 +319,9 @@ export default function ExpensesPage() {
 
       {/* Filters */}
       <div className="bg-white border border-gray-200 rounded-xl p-4">
+
         <div className="flex flex-col md:flex-row gap-3">
+
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">
               Expense Category
@@ -276,13 +329,20 @@ export default function ExpensesPage() {
 
             <select
               value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
+              onChange={e =>
+                setFilterCategory(e.target.value)
+              }
               className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
             >
-              <option value="">All categories</option>
+              <option value="">
+                All categories
+              </option>
 
-              {CATEGORIES.map((category) => (
-                <option key={category.value} value={category.value}>
+              {CATEGORIES.map(category => (
+                <option
+                  key={category.value}
+                  value={category.value}
+                >
                   {category.label}
                 </option>
               ))}
@@ -296,25 +356,36 @@ export default function ExpensesPage() {
 
             <select
               value={filterPaymentMethod}
-              onChange={(e) => setFilterPaymentMethod(e.target.value)}
+              onChange={e =>
+                setFilterPaymentMethod(e.target.value)
+              }
               className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
             >
-              <option value="">All payment methods</option>
+              <option value="">
+                All payment methods
+              </option>
 
-              {PAYMENT_METHODS.map((method) => (
-                <option key={method.value} value={method.value}>
+              {PAYMENT_METHODS.map(method => (
+                <option
+                  key={method.value}
+                  value={method.value}
+                >
                   {method.label}
                 </option>
               ))}
             </select>
           </div>
+
         </div>
       </div>
 
       {/* Expense table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+
         <div className="overflow-x-auto">
+
           <table className="w-full text-sm">
+
             <thead className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase">
               <tr>
                 <th className="px-4 py-3">Date</th>
@@ -330,18 +401,27 @@ export default function ExpensesPage() {
             </thead>
 
             <tbody className="divide-y divide-gray-100">
-              {visibleExpenses.map((expense) => (
+
+              {visibleExpenses.map(expense => (
+
                 <tr
                   key={expense.id}
-                  className={expense.status === "VOID" ? "opacity-50" : ""}
+                  className={
+                    expense.status === 'VOID'
+                      ? 'opacity-50'
+                      : ''
+                  }
                 >
+
                   <td className="px-4 py-3 whitespace-nowrap">
                     {expense.expenseDate}
                   </td>
 
                   <td className="px-4 py-3">
                     <div className="font-medium text-gray-900">
-                      {categoryLabel(expense.category)}
+                      {categoryLabel(
+                        expense.category
+                      )}
                     </div>
 
                     {expense.description && (
@@ -352,43 +432,53 @@ export default function ExpensesPage() {
                   </td>
 
                   <td className="px-4 py-3 font-semibold whitespace-nowrap">
-                    {expense.currency} {fmt(expense.amount)}
+                    {expense.currency}{' '}
+                    {fmt(expense.amount)}
                   </td>
 
                   <td className="px-4 py-3">
-                    {expense.paymentAccount?.name ?? "—"}
+                    {expense.paymentAccount?.name ??
+                      '—'}
                   </td>
 
                   <td className="px-4 py-3">
                     <span className="text-xs font-medium px-2 py-1 rounded-md bg-gray-100 text-gray-700">
-                      {paymentMethodLabel(expense.paymentMethod)}
+                      {paymentMethodLabel(
+                        expense.paymentMethod
+                      )}
                     </span>
                   </td>
 
                   <td className="px-4 py-3">
-                    {expense.branch?.name ?? "Head Office"}
+                    {expense.branch?.name ??
+                      'Head Office'}
                   </td>
 
                   <td className="px-4 py-3">
+
                     <span
                       className={`text-xs font-semibold px-2 py-1 rounded-full ${
-                        expense.status === "POSTED"
-                          ? "bg-green-50 text-green-700"
-                          : "bg-gray-100 text-gray-500"
+                        expense.status === 'POSTED'
+                          ? 'bg-green-50 text-green-700'
+                          : 'bg-gray-100 text-gray-500'
                       }`}
                     >
                       {expense.status}
                     </span>
+
                   </td>
 
                   <td className="px-4 py-3 text-gray-500">
-                    {expense.createdByName ?? "—"}
+                    {expense.createdByName ?? '—'}
                   </td>
 
                   <td className="px-4 py-3 text-right whitespace-nowrap">
+
                     {expense.receiptFileName && (
                       <a
-                        href={expenseApi.receiptUrl(expense.id)}
+                        href={expenseApi.receiptUrl(
+                          expense.id
+                        )}
                         target="_blank"
                         rel="noreferrer"
                         className="text-xs text-blue-600 hover:underline mr-3"
@@ -397,15 +487,19 @@ export default function ExpensesPage() {
                       </a>
                     )}
 
-                    {expense.status === "POSTED" && (
+                    {expense.status === 'POSTED' && (
                       <button
-                        onClick={() => handleVoid(expense.id)}
+                        onClick={() =>
+                          handleVoid(expense.id)
+                        }
                         className="text-xs text-red-600 hover:underline"
                       >
                         Void
                       </button>
                     )}
+
                   </td>
+
                 </tr>
               ))}
 
@@ -419,8 +513,10 @@ export default function ExpensesPage() {
                   </td>
                 </tr>
               )}
+
             </tbody>
           </table>
+
         </div>
       </div>
 
@@ -435,6 +531,7 @@ export default function ExpensesPage() {
           }}
         />
       )}
+
     </div>
   );
 }
@@ -454,72 +551,102 @@ function AddExpenseModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [expenseDate, setExpenseDate] = useState(
-    new Date().toISOString().slice(0, 10),
-  );
+  const [expenseDate, setExpenseDate] =
+    useState(
+      new Date().toISOString().slice(0, 10)
+    );
 
-  const [category, setCategory] = useState("OFFICE_SUPPLIES");
+  const [category, setCategory] =
+    useState('OFFICE_SUPPLIES');
 
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] =
+    useState('');
 
-  const [paymentAccountId, setPaymentAccountId] = useState("");
+  const [paymentAccountId, setPaymentAccountId] =
+    useState('');
 
-  const [branchId, setBranchId] = useState("");
+  const [branchId, setBranchId] =
+    useState('');
 
-  const [description, setDescription] = useState("");
+  const [description, setDescription] =
+    useState('');
 
-  const [paymentMethod, setPaymentMethod] = useState("CASH");
+  const [paymentMethod, setPaymentMethod] =
+    useState('CASH');
 
-  const [paymentProvider, setPaymentProvider] = useState("");
+  const [paymentProvider, setPaymentProvider] =
+    useState('');
 
-  const [paymentPhoneNumber, setPaymentPhoneNumber] = useState("");
+  const [paymentPhoneNumber, setPaymentPhoneNumber] =
+    useState('');
 
-  const [paymentTransactionReference, setPaymentTransactionReference] =
-    useState("");
+  const [
+    paymentTransactionReference,
+    setPaymentTransactionReference,
+  ] = useState('');
 
-  const [paymentCode, setPaymentCode] = useState("");
+  const [paymentCode, setPaymentCode] =
+    useState('');
 
-  const [cardBrand, setCardBrand] = useState("");
+  const [cardBrand, setCardBrand] =
+    useState('');
 
-  const [cardLastFour, setCardLastFour] = useState("");
+  const [cardLastFour, setCardLastFour] =
+    useState('');
 
-  const [cardAuthorizationCode, setCardAuthorizationCode] = useState("");
+  const [
+    cardAuthorizationCode,
+    setCardAuthorizationCode,
+  ] = useState('');
 
-  const [chequeNumber, setChequeNumber] = useState("");
+  const [chequeNumber, setChequeNumber] =
+    useState('');
 
-  const [paymentNotes, setPaymentNotes] = useState("");
+  const [paymentNotes, setPaymentNotes] =
+    useState('');
 
-  const [receipt, setReceipt] = useState<File | null>(null);
+  const [receipt, setReceipt] =
+    useState<File | null>(null);
 
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] =
+    useState(false);
 
-  const [error, setError] = useState("");
+  const [error, setError] =
+    useState('');
 
-  const selectedPaymentMethod = PAYMENT_METHODS.find(
-    (method) => method.value === paymentMethod,
-  );
+  const selectedPaymentMethod =
+    PAYMENT_METHODS.find(
+      method => method.value === paymentMethod
+    );
 
-  const requiresMobileDetails = paymentMethod === "MOBILE_MONEY";
+  const requiresMobileDetails =
+    paymentMethod === 'MOBILE_MONEY';
 
-  const requiresMomoDetails = paymentMethod === "MOMO_PAY";
+  const requiresMomoDetails =
+    paymentMethod === 'MOMO_PAY';
 
-  const requiresCardDetails = paymentMethod === "CARD";
+  const requiresCardDetails =
+    paymentMethod === 'CARD';
 
-  const requiresChequeDetails = paymentMethod === "CHEQUE";
+  const requiresChequeDetails =
+    paymentMethod === 'CHEQUE';
 
-  const requiresBankReference = paymentMethod === "BANK_TRANSFER";
+  const requiresBankReference =
+    paymentMethod === 'BANK_TRANSFER';
 
-  const resetPaymentDetails = (method: string) => {
-    setPaymentProvider("");
-    setPaymentPhoneNumber("");
-    setPaymentTransactionReference("");
-    setPaymentCode("");
+  const resetPaymentDetails = (
+    method: string
+  ) => {
+    setPaymentProvider('');
+    setPaymentPhoneNumber('');
+    setPaymentTransactionReference('');
+    setPaymentCode('');
 
-    setCardBrand("");
-    setCardLastFour("");
-    setCardAuthorizationCode("");
+    setCardBrand('');
+    setCardLastFour('');
+    setCardAuthorizationCode('');
 
-    setChequeNumber("");
+    setChequeNumber('');
 
     /*
      * We intentionally keep payment notes.
@@ -527,45 +654,79 @@ function AddExpenseModal({
     setPaymentMethod(method);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (
+    e: React.FormEvent
+  ) => {
     e.preventDefault();
 
-    setError("");
+    setError('');
 
     if (!paymentAccountId) {
-      setError("Select the account from which this expense was paid.");
+      setError(
+        'Select the account from which this expense was paid.'
+      );
       return;
     }
 
     const numericAmount = Number(amount);
 
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-      setError("Enter a valid expense amount.");
+    if (
+      !Number.isFinite(numericAmount) ||
+      numericAmount <= 0
+    ) {
+      setError(
+        'Enter a valid expense amount.'
+      );
       return;
     }
 
-    if (requiresMobileDetails && !paymentTransactionReference.trim()) {
-      setError("Enter the mobile money transaction reference.");
+    if (
+      requiresMobileDetails &&
+      !paymentTransactionReference.trim()
+    ) {
+      setError(
+        'Enter the mobile money transaction reference.'
+      );
       return;
     }
 
-    if (requiresMomoDetails && !paymentCode.trim()) {
-      setError("Enter the MoMo Pay payment code.");
+    if (
+      requiresMomoDetails &&
+      !paymentCode.trim()
+    ) {
+      setError(
+        'Enter the MoMo Pay payment code.'
+      );
       return;
     }
 
-    if (requiresCardDetails && !cardLastFour.trim()) {
-      setError("Enter the last four digits of the card.");
+    if (
+      requiresCardDetails &&
+      !cardLastFour.trim()
+    ) {
+      setError(
+        'Enter the last four digits of the card.'
+      );
       return;
     }
 
-    if (requiresChequeDetails && !chequeNumber.trim()) {
-      setError("Enter the cheque number.");
+    if (
+      requiresChequeDetails &&
+      !chequeNumber.trim()
+    ) {
+      setError(
+        'Enter the cheque number.'
+      );
       return;
     }
 
-    if (requiresBankReference && !paymentTransactionReference.trim()) {
-      setError("Enter the bank transaction reference.");
+    if (
+      requiresBankReference &&
+      !paymentTransactionReference.trim()
+    ) {
+      setError(
+        'Enter the bank transaction reference.'
+      );
       return;
     }
 
@@ -577,40 +738,57 @@ function AddExpenseModal({
         category,
         amount: numericAmount,
 
-        paymentAccountId: Number(paymentAccountId),
+        paymentAccountId:
+          Number(paymentAccountId),
 
-        branchId: branchId ? Number(branchId) : undefined,
+        branchId: branchId
+          ? Number(branchId)
+          : undefined,
 
-        description: description.trim() || undefined,
+        description:
+          description.trim() || undefined,
 
         paymentMethod,
 
-        paymentProvider: paymentProvider.trim() || undefined,
+        paymentProvider:
+          paymentProvider.trim() || undefined,
 
-        paymentPhoneNumber: paymentPhoneNumber.trim() || undefined,
+        paymentPhoneNumber:
+          paymentPhoneNumber.trim() || undefined,
 
         paymentTransactionReference:
-          paymentTransactionReference.trim() || undefined,
+          paymentTransactionReference.trim() ||
+          undefined,
 
-        paymentCode: paymentCode.trim() || undefined,
+        paymentCode:
+          paymentCode.trim() || undefined,
 
-        cardBrand: cardBrand.trim() || undefined,
+        cardBrand:
+          cardBrand.trim() || undefined,
 
-        cardLastFour: cardLastFour.trim() || undefined,
+        cardLastFour:
+          cardLastFour.trim() || undefined,
 
-        cardAuthorizationCode: cardAuthorizationCode.trim() || undefined,
+        cardAuthorizationCode:
+          cardAuthorizationCode.trim() ||
+          undefined,
 
-        chequeNumber: chequeNumber.trim() || undefined,
+        chequeNumber:
+          chequeNumber.trim() || undefined,
 
-        paymentNotes: paymentNotes.trim() || undefined,
+        paymentNotes:
+          paymentNotes.trim() || undefined,
 
         receipt,
       });
 
       onSaved();
+
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Could not record expense.",
+        err instanceof Error
+          ? err.message
+          : 'Could not record expense.'
       );
     } finally {
       setSaving(false);
@@ -618,24 +796,32 @@ function AddExpenseModal({
   };
 
   const inputClass =
-    "w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500";
+    'w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500';
 
-  const labelClass = "block text-sm font-medium text-gray-700 mb-1.5";
+  const labelClass =
+    'block text-sm font-medium text-gray-700 mb-1.5';
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+
       <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[94vh] overflow-y-auto shadow-2xl">
-        <form onSubmit={handleSubmit} className="p-6">
+
+        <form
+          onSubmit={handleSubmit}
+          className="p-6"
+        >
+
           {/* Modal header */}
           <div className="flex items-start justify-between mb-6">
+
             <div>
               <h2 className="text-xl font-bold text-gray-900">
                 Record Operating Expense
               </h2>
 
               <p className="text-sm text-gray-500 mt-1">
-                Record the expense and payment evidence for accounting and audit
-                purposes.
+                Record the expense and payment evidence
+                for accounting and audit purposes.
               </p>
             </div>
 
@@ -646,6 +832,7 @@ function AddExpenseModal({
             >
               ×
             </button>
+
           </div>
 
           {error && (
@@ -659,6 +846,7 @@ function AddExpenseModal({
           ================================================= */}
 
           <div className="mb-6">
+
             <div className="flex items-center gap-2 mb-4">
               <div className="w-7 h-7 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center text-xs font-bold">
                 1
@@ -670,29 +858,41 @@ function AddExpenseModal({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
               <div>
-                <label className={labelClass}>Expense Date *</label>
+                <label className={labelClass}>
+                  Expense Date *
+                </label>
 
                 <input
                   type="date"
                   required
                   value={expenseDate}
-                  onChange={(e) => setExpenseDate(e.target.value)}
+                  onChange={e =>
+                    setExpenseDate(e.target.value)
+                  }
                   className={inputClass}
                 />
               </div>
 
               <div>
-                <label className={labelClass}>Expense Category *</label>
+                <label className={labelClass}>
+                  Expense Category *
+                </label>
 
                 <select
                   required
                   value={category}
-                  onChange={(e) => setCategory(e.target.value)}
+                  onChange={e =>
+                    setCategory(e.target.value)
+                  }
                   className={inputClass}
                 >
-                  {CATEGORIES.map((c) => (
-                    <option key={c.value} value={c.value}>
+                  {CATEGORIES.map(c => (
+                    <option
+                      key={c.value}
+                      value={c.value}
+                    >
                       {c.label}
                     </option>
                   ))}
@@ -700,7 +900,9 @@ function AddExpenseModal({
               </div>
 
               <div>
-                <label className={labelClass}>Amount *</label>
+                <label className={labelClass}>
+                  Amount *
+                </label>
 
                 <input
                   type="number"
@@ -708,30 +910,43 @@ function AddExpenseModal({
                   step="0.01"
                   required
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={e =>
+                    setAmount(e.target.value)
+                  }
                   placeholder="0.00"
                   className={inputClass}
                 />
               </div>
 
               <div>
-                <label className={labelClass}>Branch</label>
+                <label className={labelClass}>
+                  Branch
+                </label>
 
                 <select
                   value={branchId}
-                  onChange={(e) => setBranchId(e.target.value)}
+                  onChange={e =>
+                    setBranchId(e.target.value)
+                  }
                   className={inputClass}
                 >
-                  <option value="">Head Office / Organization-wide</option>
+                  <option value="">
+                    Head Office / Organization-wide
+                  </option>
 
-                  {branches.map((branch) => (
-                    <option key={branch.id} value={branch.id}>
+                  {branches.map(branch => (
+                    <option
+                      key={branch.id}
+                      value={branch.id}
+                    >
                       {branch.name}
                     </option>
                   ))}
                 </select>
               </div>
+
             </div>
+
           </div>
 
           {/* =================================================
@@ -739,22 +954,30 @@ function AddExpenseModal({
           ================================================= */}
 
           <div className="mb-6">
+
             <div className="flex items-center gap-2 mb-4">
               <div className="w-7 h-7 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center text-xs font-bold">
                 2
               </div>
 
-              <h3 className="font-semibold text-gray-900">Payment Source</h3>
+              <h3 className="font-semibold text-gray-900">
+                Payment Source
+              </h3>
             </div>
 
             <div className="space-y-4">
+
               <div>
-                <label className={labelClass}>Paid From Account *</label>
+                <label className={labelClass}>
+                  Paid From Account *
+                </label>
 
                 <select
                   required
                   value={paymentAccountId}
-                  onChange={(e) => setPaymentAccountId(e.target.value)}
+                  onChange={e =>
+                    setPaymentAccountId(e.target.value)
+                  }
                   className={inputClass}
                 >
                   <option value="">
@@ -762,33 +985,47 @@ function AddExpenseModal({
                   </option>
 
                   {bankAccounts
-                    .filter((account) => account.active)
-                    .map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name} — {account.accountType}
+                    .filter(account => account.active)
+                    .map(account => (
+                      <option
+                        key={account.id}
+                        value={account.id}
+                      >
+                        {account.name} —{' '}
+                        {account.accountType}
                       </option>
                     ))}
                 </select>
 
                 {bankAccounts.length === 0 && (
                   <p className="text-xs text-amber-600 mt-2">
-                    No active payment accounts are configured. Create one under
+                    No active payment accounts are
+                    configured. Create one under
                     Accounting → Bank Accounts.
                   </p>
                 )}
               </div>
 
               <div>
-                <label className={labelClass}>Payment Method *</label>
+                <label className={labelClass}>
+                  Payment Method *
+                </label>
 
                 <select
                   required
                   value={paymentMethod}
-                  onChange={(e) => resetPaymentDetails(e.target.value)}
+                  onChange={e =>
+                    resetPaymentDetails(
+                      e.target.value
+                    )
+                  }
                   className={inputClass}
                 >
-                  {PAYMENT_METHODS.map((method) => (
-                    <option key={method.value} value={method.value}>
+                  {PAYMENT_METHODS.map(method => (
+                    <option
+                      key={method.value}
+                      value={method.value}
+                    >
                       {method.label}
                     </option>
                   ))}
@@ -800,7 +1037,9 @@ function AddExpenseModal({
                   </p>
                 )}
               </div>
+
             </div>
+
           </div>
 
           {/* =================================================
@@ -809,61 +1048,90 @@ function AddExpenseModal({
 
           {requiresMobileDetails && (
             <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+
               <h4 className="font-semibold text-blue-900 mb-3">
                 Mobile Money Payment Details
               </h4>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
                 <div>
-                  <label className={labelClass}>Mobile Money Provider</label>
+                  <label className={labelClass}>
+                    Mobile Money Provider
+                  </label>
 
                   <select
                     value={paymentProvider}
-                    onChange={(e) => setPaymentProvider(e.target.value)}
+                    onChange={e =>
+                      setPaymentProvider(
+                        e.target.value
+                      )
+                    }
                     className={inputClass}
                   >
-                    <option value="">Select provider...</option>
+                    <option value="">
+                      Select provider...
+                    </option>
 
-                    {MOBILE_MONEY_PROVIDERS.map((provider) => (
-                      <option key={provider} value={provider}>
-                        {provider}
-                      </option>
-                    ))}
+                    {MOBILE_MONEY_PROVIDERS.map(
+                      provider => (
+                        <option
+                          key={provider}
+                          value={provider}
+                        >
+                          {provider}
+                        </option>
+                      )
+                    )}
                   </select>
                 </div>
 
                 <div>
-                  <label className={labelClass}>Phone Number</label>
+                  <label className={labelClass}>
+                    Phone Number
+                  </label>
 
                   <input
                     type="tel"
                     value={paymentPhoneNumber}
-                    onChange={(e) => setPaymentPhoneNumber(e.target.value)}
+                    onChange={e =>
+                      setPaymentPhoneNumber(
+                        e.target.value
+                      )
+                    }
                     placeholder="07XXXXXXXX"
                     className={inputClass}
                   />
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className={labelClass}>Transaction Reference *</label>
+                  <label className={labelClass}>
+                    Transaction Reference *
+                  </label>
 
                   <input
                     type="text"
                     required
-                    value={paymentTransactionReference}
-                    onChange={(e) =>
-                      setPaymentTransactionReference(e.target.value)
+                    value={
+                      paymentTransactionReference
+                    }
+                    onChange={e =>
+                      setPaymentTransactionReference(
+                        e.target.value
+                      )
                     }
                     placeholder="e.g. transaction ID / reference"
                     className={inputClass}
                   />
 
                   <p className="text-xs text-gray-500 mt-1">
-                    Record the exact transaction ID shown by the mobile money
-                    provider.
+                    Record the exact transaction ID shown
+                    by the mobile money provider.
                   </p>
                 </div>
+
               </div>
+
             </div>
           )}
 
@@ -873,68 +1141,101 @@ function AddExpenseModal({
 
           {requiresMomoDetails && (
             <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
+
               <h4 className="font-semibold text-yellow-900 mb-3">
                 MoMo Pay Details
               </h4>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
                 <div>
-                  <label className={labelClass}>Provider</label>
+                  <label className={labelClass}>
+                    Provider
+                  </label>
 
                   <select
                     value={paymentProvider}
-                    onChange={(e) => setPaymentProvider(e.target.value)}
+                    onChange={e =>
+                      setPaymentProvider(
+                        e.target.value
+                      )
+                    }
                     className={inputClass}
                   >
-                    <option value="">Select provider...</option>
+                    <option value="">
+                      Select provider...
+                    </option>
 
-                    {MOMO_PAY_PROVIDERS.map((provider) => (
-                      <option key={provider} value={provider}>
-                        {provider}
-                      </option>
-                    ))}
+                    {MOMO_PAY_PROVIDERS.map(
+                      provider => (
+                        <option
+                          key={provider}
+                          value={provider}
+                        >
+                          {provider}
+                        </option>
+                      )
+                    )}
                   </select>
                 </div>
 
                 <div>
-                  <label className={labelClass}>Phone Number</label>
+                  <label className={labelClass}>
+                    Phone Number
+                  </label>
 
                   <input
                     type="tel"
                     value={paymentPhoneNumber}
-                    onChange={(e) => setPaymentPhoneNumber(e.target.value)}
+                    onChange={e =>
+                      setPaymentPhoneNumber(
+                        e.target.value
+                      )
+                    }
                     placeholder="07XXXXXXXX"
                     className={inputClass}
                   />
                 </div>
 
                 <div>
-                  <label className={labelClass}>MoMo Pay Code *</label>
+                  <label className={labelClass}>
+                    MoMo Pay Code *
+                  </label>
 
                   <input
                     type="text"
                     required
                     value={paymentCode}
-                    onChange={(e) => setPaymentCode(e.target.value)}
+                    onChange={e =>
+                      setPaymentCode(e.target.value)
+                    }
                     placeholder="Enter MoMo Pay code"
                     className={inputClass}
                   />
                 </div>
 
                 <div>
-                  <label className={labelClass}>Transaction Reference</label>
+                  <label className={labelClass}>
+                    Transaction Reference
+                  </label>
 
                   <input
                     type="text"
-                    value={paymentTransactionReference}
-                    onChange={(e) =>
-                      setPaymentTransactionReference(e.target.value)
+                    value={
+                      paymentTransactionReference
+                    }
+                    onChange={e =>
+                      setPaymentTransactionReference(
+                        e.target.value
+                      )
                     }
                     placeholder="Optional transaction ID"
                     className={inputClass}
                   />
                 </div>
+
               </div>
+
             </div>
           )}
 
@@ -944,6 +1245,7 @@ function AddExpenseModal({
 
           {requiresBankReference && (
             <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-xl">
+
               <h4 className="font-semibold text-gray-900 mb-3">
                 Bank Transfer Details
               </h4>
@@ -956,14 +1258,19 @@ function AddExpenseModal({
                 <input
                   type="text"
                   required
-                  value={paymentTransactionReference}
-                  onChange={(e) =>
-                    setPaymentTransactionReference(e.target.value)
+                  value={
+                    paymentTransactionReference
+                  }
+                  onChange={e =>
+                    setPaymentTransactionReference(
+                      e.target.value
+                    )
                   }
                   placeholder="e.g. bank transfer reference"
                   className={inputClass}
                 />
               </div>
+
             </div>
           )}
 
@@ -973,23 +1280,34 @@ function AddExpenseModal({
 
           {requiresCardDetails && (
             <div className="mb-6 p-4 bg-purple-50 border border-purple-200 rounded-xl">
+
               <h4 className="font-semibold text-purple-900 mb-3">
                 Card Payment Details
               </h4>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
                 <div>
-                  <label className={labelClass}>Card Brand</label>
+                  <label className={labelClass}>
+                    Card Brand
+                  </label>
 
                   <select
                     value={cardBrand}
-                    onChange={(e) => setCardBrand(e.target.value)}
+                    onChange={e =>
+                      setCardBrand(e.target.value)
+                    }
                     className={inputClass}
                   >
-                    <option value="">Select card brand...</option>
+                    <option value="">
+                      Select card brand...
+                    </option>
 
-                    {CARD_BRANDS.map((brand) => (
-                      <option key={brand} value={brand}>
+                    {CARD_BRANDS.map(brand => (
+                      <option
+                        key={brand}
+                        value={brand}
+                      >
                         {brand}
                       </option>
                     ))}
@@ -997,7 +1315,9 @@ function AddExpenseModal({
                 </div>
 
                 <div>
-                  <label className={labelClass}>Last 4 Digits *</label>
+                  <label className={labelClass}>
+                    Last 4 Digits *
+                  </label>
 
                   <input
                     type="text"
@@ -1005,9 +1325,11 @@ function AddExpenseModal({
                     maxLength={4}
                     required
                     value={cardLastFour}
-                    onChange={(e) =>
+                    onChange={e =>
                       setCardLastFour(
-                        e.target.value.replace(/\D/g, "").slice(0, 4),
+                        e.target.value
+                          .replace(/\D/g, '')
+                          .slice(0, 4)
                       )
                     }
                     placeholder="1234"
@@ -1020,31 +1342,47 @@ function AddExpenseModal({
                 </div>
 
                 <div>
-                  <label className={labelClass}>Authorization Code</label>
+                  <label className={labelClass}>
+                    Authorization Code
+                  </label>
 
                   <input
                     type="text"
-                    value={cardAuthorizationCode}
-                    onChange={(e) => setCardAuthorizationCode(e.target.value)}
+                    value={
+                      cardAuthorizationCode
+                    }
+                    onChange={e =>
+                      setCardAuthorizationCode(
+                        e.target.value
+                      )
+                    }
                     placeholder="Card authorization code"
                     className={inputClass}
                   />
                 </div>
 
                 <div>
-                  <label className={labelClass}>Transaction Reference</label>
+                  <label className={labelClass}>
+                    Transaction Reference
+                  </label>
 
                   <input
                     type="text"
-                    value={paymentTransactionReference}
-                    onChange={(e) =>
-                      setPaymentTransactionReference(e.target.value)
+                    value={
+                      paymentTransactionReference
+                    }
+                    onChange={e =>
+                      setPaymentTransactionReference(
+                        e.target.value
+                      )
                     }
                     placeholder="Card transaction reference"
                     className={inputClass}
                   />
                 </div>
+
               </div>
+
             </div>
           )}
 
@@ -1054,22 +1392,30 @@ function AddExpenseModal({
 
           {requiresChequeDetails && (
             <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-xl">
+
               <h4 className="font-semibold text-orange-900 mb-3">
                 Cheque Details
               </h4>
 
               <div>
-                <label className={labelClass}>Cheque Number *</label>
+                <label className={labelClass}>
+                  Cheque Number *
+                </label>
 
                 <input
                   type="text"
                   required
                   value={chequeNumber}
-                  onChange={(e) => setChequeNumber(e.target.value)}
+                  onChange={e =>
+                    setChequeNumber(
+                      e.target.value
+                    )
+                  }
                   placeholder="Enter cheque number"
                   className={inputClass}
                 />
               </div>
+
             </div>
           )}
 
@@ -1078,6 +1424,7 @@ function AddExpenseModal({
           ================================================= */}
 
           <div className="mb-6">
+
             <div className="flex items-center gap-2 mb-4">
               <div className="w-7 h-7 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center text-xs font-bold">
                 3
@@ -1089,12 +1436,19 @@ function AddExpenseModal({
             </div>
 
             <div className="space-y-4">
+
               <div>
-                <label className={labelClass}>Expense Description</label>
+                <label className={labelClass}>
+                  Expense Description
+                </label>
 
                 <textarea
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+                  onChange={e =>
+                    setDescription(
+                      e.target.value
+                    )
+                  }
                   rows={3}
                   placeholder="Describe what this expense was for..."
                   className={inputClass}
@@ -1102,17 +1456,25 @@ function AddExpenseModal({
               </div>
 
               <div>
-                <label className={labelClass}>Payment Notes</label>
+                <label className={labelClass}>
+                  Payment Notes
+                </label>
 
                 <textarea
                   value={paymentNotes}
-                  onChange={(e) => setPaymentNotes(e.target.value)}
+                  onChange={e =>
+                    setPaymentNotes(
+                      e.target.value
+                    )
+                  }
                   rows={2}
                   placeholder="Additional payment or reconciliation notes..."
                   className={inputClass}
                 />
               </div>
+
             </div>
+
           </div>
 
           {/* =================================================
@@ -1120,6 +1482,7 @@ function AddExpenseModal({
           ================================================= */}
 
           <div className="mb-6">
+
             <div className="flex items-center gap-2 mb-4">
               <div className="w-7 h-7 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center text-xs font-bold">
                 4
@@ -1131,6 +1494,7 @@ function AddExpenseModal({
             </div>
 
             <div className="border-2 border-dashed border-gray-300 rounded-xl p-5">
+
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Receipt / Proof of Payment
               </label>
@@ -1138,12 +1502,18 @@ function AddExpenseModal({
               <input
                 type="file"
                 accept="application/pdf,image/jpeg,image/png,image/webp"
-                onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
+                onChange={e =>
+                  setReceipt(
+                    e.target.files?.[0] ??
+                      null
+                  )
+                }
                 className="w-full text-sm text-gray-600"
               />
 
               <p className="text-xs text-gray-500 mt-2">
-                Accepted formats: PDF, JPG, PNG and WEBP. Maximum size: 8MB.
+                Accepted formats: PDF, JPG, PNG and
+                WEBP. Maximum size: 8MB.
               </p>
 
               {receipt && (
@@ -1151,7 +1521,9 @@ function AddExpenseModal({
                   Selected: {receipt.name}
                 </div>
               )}
+
             </div>
+
           </div>
 
           {/* =================================================
@@ -1159,46 +1531,65 @@ function AddExpenseModal({
           ================================================= */}
 
           <div className="mb-6 bg-gray-50 border border-gray-200 rounded-xl p-4">
+
             <h4 className="font-semibold text-gray-900 mb-3">
               Transaction Summary
             </h4>
 
             <div className="grid grid-cols-2 gap-y-2 text-sm">
-              <span className="text-gray-500">Amount</span>
+
+              <span className="text-gray-500">
+                Amount
+              </span>
 
               <span className="font-semibold text-right">
-                {amount ? Number(amount).toLocaleString() : "0"}
+                {amount
+                  ? Number(amount).toLocaleString()
+                  : '0'}
               </span>
 
-              <span className="text-gray-500">Payment Method</span>
+              <span className="text-gray-500">
+                Payment Method
+              </span>
 
               <span className="font-medium text-right">
-                {paymentMethodLabel(paymentMethod)}
+                {paymentMethodLabel(
+                  paymentMethod
+                )}
               </span>
 
-              <span className="text-gray-500">Paid From</span>
+              <span className="text-gray-500">
+                Paid From
+              </span>
 
               <span className="font-medium text-right">
                 {bankAccounts.find(
-                  (account) => String(account.id) === paymentAccountId,
-                )?.name ?? "Not selected"}
+                  account =>
+                    String(account.id) ===
+                    paymentAccountId
+                )?.name ?? 'Not selected'}
               </span>
 
               {paymentTransactionReference && (
                 <>
-                  <span className="text-gray-500">Reference</span>
+                  <span className="text-gray-500">
+                    Reference
+                  </span>
 
                   <span className="font-medium text-right truncate">
                     {paymentTransactionReference}
                   </span>
                 </>
               )}
+
             </div>
+
           </div>
 
           {/* Actions */}
 
           <div className="flex gap-3 pt-2 border-t border-gray-200">
+
             <button
               type="button"
               onClick={onClose}
@@ -1213,10 +1604,15 @@ function AddExpenseModal({
               disabled={saving}
               className="flex-1 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg"
             >
-              {saving ? "Recording..." : "Record Expense"}
+              {saving
+                ? 'Recording...'
+                : 'Record Expense'}
             </button>
+
           </div>
+
         </form>
+
       </div>
     </div>
   );
