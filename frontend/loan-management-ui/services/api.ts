@@ -14,12 +14,11 @@ import axios, {
 const IMPORT_UPLOAD_TIMEOUT_MS = 120000;
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.trim() ||
-  (typeof window !== "undefined" ? "/api" : "http://localhost:8080/api");
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 
 const API: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 12000,
+  timeout: 20000,
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",

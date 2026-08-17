@@ -1,205 +1,945 @@
 "use client";
+
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+
 import { useAuth } from "@/hooks/useAuth";
 import { getUnreadCount } from "@/services/notificationsService";
+import { contactMessageApi } from "@/services/api";
 
-const groups = [
+/* ============================================================
+   NOBLE LOAN SOLUTIONS BRAND
+   ============================================================ */
+
+const NAVY = "#0B1F3A";
+const NAVY_LIGHT = "#16365F";
+const NAVY_DARK = "#07152A";
+
+const YELLOW = "#F4C430";
+const YELLOW_DARK = "#C99A00";
+
+const ACTIVE_BG = "bg-white/10";
+const ACTIVE_TEXT = "text-white";
+const ACTIVE_BORDER = "border-l-2 border-white";
+
+/* ============================================================
+   NAVIGATION TYPES
+   ============================================================ */
+
+type NavItem = {
+  href: string;
+  icon: string;
+  label: string;
+  adminOnly?: boolean;
+  accountingOnly?: boolean;
+};
+
+type NavSection = {
+  section: string;
+  items: NavItem[];
+};
+
+/* ============================================================
+   MAIN NAVIGATION
+   ============================================================ */
+
+const NAV_STAFF: NavSection[] = [
   {
-    label: "Command",
+    section: "Overview",
+
     items: [
-      ["Dashboard", "/dashboard", "⌂"],
-      ["Loan portfolio", "/dashboard/loans", "◈"],
-      ["Borrowers", "/dashboard/borrowers", "♙"],
-      ["Approvals", "/dashboard/approvals", "✓"],
+      {
+        href: "/dashboard",
+        icon: "📊",
+        label: "Dashboard",
+      },
+
+      {
+        href: "/dashboard/loans",
+        icon: "💼",
+        label: "Loan Portfolio",
+      },
+
+      {
+        href: "/dashboard/borrowers",
+        icon: "👥",
+        label: "Borrowers",
+      },
+
+      {
+        href: "/dashboard/payments",
+        icon: "💳",
+        label: "Payments",
+      },
+
+      {
+        href: "/dashboard/collections",
+        icon: "📉",
+        label: "Collections",
+      },
+
+      {
+        href: "/dashboard/notifications",
+        icon: "🔔",
+        label: "Notifications",
+      },
+
+      {
+        href: "/dashboard/messages",
+        icon: "📬",
+        label: "Messages",
+      },
     ],
   },
+
   {
-    label: "Collections",
+    section: "Tools",
+
     items: [
-      ["Payments", "/dashboard/payments", "↗"],
-      ["Collections", "/dashboard/collections", "◒"],
+      {
+        href: "/dashboard/reports",
+        icon: "📈",
+        label: "Reports",
+      },
+
+      {
+        href: "/dashboard/documents",
+        icon: "🗂️",
+        label: "Internal Documents",
+      },
+
+      {
+        href: "/dashboard/currencies",
+        icon: "💱",
+        label: "FX Rates",
+      },
+
+      {
+        href: "/dashboard/webhooks",
+        icon: "🔗",
+        label: "Webhooks",
+      },
     ],
   },
+
   {
-    label: "Finance & control",
+    section: "Admin",
+
     items: [
-      ["Accounting", "/dashboard/accounting", "▤"],
-      ["Expenses", "/dashboard/expenses", "¤"],
-      ["Reports", "/dashboard/reports", "▥"],
-      ["Audit log", "/dashboard/audit", "⌁"],
+      {
+        href: "/dashboard/products",
+        icon: "💰",
+        label: "Loan Products",
+        adminOnly: true,
+      },
+
+      {
+        href: "/dashboard/import",
+        icon: "📥",
+        label: "Import Legacy Loans",
+      },
+
+      {
+        href: "/dashboard/accounting",
+        icon: "📒",
+        label: "Accounting",
+        accountingOnly: true,
+      },
+
+      {
+        href: "/dashboard/expenses",
+        icon: "🧾",
+        label: "Expenses",
+        accountingOnly: true,
+      },
+
+      {
+        href: "/dashboard/users",
+        icon: "🧑‍💼",
+        label: "Users & Roles",
+        adminOnly: true,
+      },
+
+      {
+        href: "/dashboard/audit",
+        icon: "🛡️",
+        label: "Audit Log",
+        adminOnly: true,
+      },
+
+      {
+        href: "/dashboard/settings",
+        icon: "⚙️",
+        label: "Settings",
+      },
     ],
   },
+];
+
+/* ============================================================
+   REGULATORY NAVIGATION
+   ============================================================ */
+
+const REGULATORY_ITEMS: NavItem[] = [
   {
-    label: "Operations",
-    items: [
-      ["Import & reconciliation", "/dashboard/import", "⇧"],
-      ["Documents", "/dashboard/documents", "▧"],
-      ["Notifications", "/dashboard/notifications", "◌"],
-      ["Messages", "/dashboard/messages", "✉"],
-    ],
+    href: "/dashboard/reports/regulatory/bnr",
+    icon: "🏦",
+    label: "BNR Reports",
   },
+
   {
-    label: "Administration",
-    items: [
-      ["Users & roles", "/dashboard/users", "♟"],
-      ["Loan products", "/dashboard/products", "◆"],
-      ["Settings", "/dashboard/settings", "⚙"],
-    ],
+    href: "/dashboard/reports/regulatory/crb",
+    icon: "🧾",
+    label: "Credit Bureau",
   },
-] as const;
-const regulatory = [
-  ["BNR reports", "/dashboard/reports/regulatory/bnr"],
-  ["Credit bureau", "/dashboard/reports/regulatory/crb"],
-  ["API keys", "/dashboard/reports/regulatory/api-keys"],
-] as const;
-function initials(name?: string) {
-  return (name || "User")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((x) => x[0])
-    .join("")
-    .toUpperCase();
-}
+
+  {
+    href: "/dashboard/reports/regulatory/api-keys",
+    icon: "🔑",
+    label: "API Keys",
+  },
+];
+
+/* ============================================================
+   SIDEBAR
+   ============================================================ */
+
 export default function Sidebar() {
   const pathname = usePathname();
-  const { user, logout, isAdmin } = useAuth();
-  const [unread, setUnread] = useState(0);
-  const [regOpen, setRegOpen] = useState(
-    pathname.startsWith("/dashboard/reports/regulatory"),
-  );
-  useEffect(() => {
-    let cancelled = false;
-    const loadUnread = () => {
-      getUnreadCount()
-        .then((v) => {
-          if (!cancelled) setUnread(Number(v) || 0);
-        })
-        .catch(() => {});
-    };
-    loadUnread();
-    const timer = window.setInterval(loadUnread, 60000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
-  const canFinance = ["ADMIN", "MANAGER", "ACCOUNTANT", "FINANCE"].includes(
+
+  const { user, logout, currency } = useAuth();
+
+  /* ==========================================================
+     ORGANIZATION
+     ========================================================== */
+
+  const org = user
+    ? {
+        name: user.organizationName,
+        currency,
+      }
+    : null;
+
+  /* ==========================================================
+     PERMISSIONS
+     ========================================================== */
+
+  const isAdmin = user?.role === "ADMIN";
+
+  const canSeeAccounting = ["ADMIN", "MANAGER", "ACCOUNTANT"].includes(
     user?.role || "",
   );
-  const visible = (label: string) => {
-    if (["Users & roles", "Loan products"].includes(label)) return isAdmin;
-    if (["Accounting"].includes(label)) return canFinance;
-    return true;
+
+  /*
+   * Regulatory reporting is restricted to users who should
+   * have access to financial/regulatory functions.
+   */
+  const canSeeRegulatory = ["ADMIN", "MANAGER", "ACCOUNTANT"].includes(
+    user?.role || "",
+  );
+
+  /* ==========================================================
+     NOTIFICATIONS
+     ========================================================== */
+
+  const [unread, setUnread] = useState(0);
+
+  /* ==========================================================
+     MESSAGES
+     ========================================================== */
+
+  const [unreadMessages, setUnreadMessages] = useState(0);
+
+  /* ==========================================================
+     REGULATORY OPEN STATE
+     ========================================================== */
+
+  const isRegulatoryRoute = pathname.startsWith(
+    "/dashboard/reports/regulatory",
+  );
+
+  const [regulatoryOpen, setRegulatoryOpen] = useState(isRegulatoryRoute);
+
+  /* ==========================================================
+     KEEP REGULATORY OPEN ON REGULATORY ROUTES
+     ========================================================== */
+
+  useEffect(() => {
+    if (isRegulatoryRoute) {
+      setRegulatoryOpen(true);
+    }
+  }, [isRegulatoryRoute]);
+
+  /* ==========================================================
+     LOAD NOTIFICATIONS
+     ========================================================== */
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    let active = true;
+
+    const load = async () => {
+      try {
+        const response = await getUnreadCount();
+
+        if (!active) {
+          return;
+        }
+
+        setUnread(Number(response?.count || 0));
+      } catch {
+        /*
+         * Notification polling failure should
+         * not break the sidebar.
+         */
+      }
+    };
+
+    load();
+
+    const interval = window.setInterval(load, 30000);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [user]);
+
+  /* ==========================================================
+     LOAD MESSAGES
+     ========================================================== */
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    let active = true;
+
+    const load = async () => {
+      try {
+        const response = await contactMessageApi.unreadCount();
+
+        if (!active) {
+          return;
+        }
+
+        setUnreadMessages(Number(response?.count || 0));
+      } catch {
+        /*
+         * Message polling failure should
+         * not break the sidebar.
+         */
+      }
+    };
+
+    load();
+
+    const interval = window.setInterval(load, 30000);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [user]);
+
+  /* ==========================================================
+     ACTIVE ROUTE
+     ========================================================== */
+
+  const isActive = (href: string): boolean => {
+    return (
+      pathname === href || (href !== "/dashboard" && pathname.startsWith(href))
+    );
   };
-  const active = (href: string) =>
-    pathname === href ||
-    (href !== "/dashboard" && pathname.startsWith(href + "/"));
+
+  /* ==========================================================
+     LOGOUT
+     ========================================================== */
+
+  const handleLogout = () => {
+    logout();
+
+    window.location.href = "/login";
+  };
+
+  /* ==========================================================
+     RENDER
+     ========================================================== */
+
   return (
-    <aside className="flex h-full w-[272px] shrink-0 flex-col bg-[#061729] text-white shadow-[20px_0_55px_rgba(6,23,41,.13)]">
-      <div className="border-b border-white/10 px-5 py-5">
-        <Link href="/dashboard" className="flex items-center gap-3">
-          <img
-            src="/logo-mark.png"
-            className="h-10 w-10 rounded-xl object-contain"
-            alt="Noble Loan"
+    <aside
+      className="
+        fixed
+        left-0
+        top-0
+        bottom-0
+        z-40
+        flex
+        min-h-screen
+        w-64
+        flex-col
+        border-r
+        border-white/5
+        bg-[#07152A]
+      "
+    >
+      {/* ======================================================
+          BRAND
+          ====================================================== */}
+
+      <div
+        className="
+          flex
+          items-center
+          gap-3
+          border-b
+          border-white/10
+          px-5
+          py-4
+        "
+      >
+        <div
+          className="
+            relative
+            flex
+            h-10
+            w-10
+            shrink-0
+            items-center
+            justify-center
+            overflow-hidden
+            rounded-xl
+            border
+            border-[#F4C430]/30
+            bg-white
+            shadow-[0_4px_16px_rgba(0,0,0,0.25)]
+            ring-1
+            ring-white/10
+          "
+        >
+          <Image
+            src="/favIcon.png"
+            alt="Noble Loan Solutions"
+            width={40}
+            height={40}
+            priority
+            className="
+              h-full
+              w-full
+              object-contain
+            "
           />
-          <div>
-            <div className="text-[10px] font-black uppercase tracking-[.22em] text-[#d7b95d]">
-              Noble Loan
-            </div>
-            <div className="mt-0.5 text-xs font-semibold text-slate-300">
-              Private lending platform
-            </div>
+        </div>
+
+        {/* BRAND NAME */}
+
+        <div
+          className="
+            min-w-0
+            overflow-hidden
+          "
+        >
+          <div
+            className="
+              truncate
+              text-base
+              font-bold
+              leading-tight
+              text-white
+            "
+          >
+            Noble Loan Solutions
           </div>
-        </Link>
+
+          <div
+            className="
+              text-[10px]
+              font-extrabold
+              uppercase
+              tracking-widest
+              text-[#F4C430]
+            "
+          >
+            Staff Portal
+          </div>
+        </div>
       </div>
-      <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
-        {groups.map((g) => (
-          <div key={g.label} className="mb-6">
-            <div className="mb-2 px-3 text-[9px] font-black uppercase tracking-[.2em] text-slate-500">
-              {g.label}
+
+      {/* ======================================================
+          ORGANIZATION
+          ====================================================== */}
+
+      {org && (
+        <div
+          className="
+            mx-3
+            mt-3
+            rounded-xl
+            border
+            border-white/5
+            bg-white/5
+            px-3
+            py-2.5
+          "
+        >
+          <div
+            className="
+              truncate
+              text-xs
+              font-semibold
+              text-white
+            "
+          >
+            {org.name}
+          </div>
+
+          <div
+            className="
+              mt-0.5
+              text-[10px]
+              text-gray-400
+            "
+          >
+            {org.currency}
+            {" · "}
+            {user?.role}
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================
+          NAVIGATION
+          ====================================================== */}
+
+      <nav
+        className="
+          mt-1
+          flex-1
+          space-y-4
+          overflow-y-auto
+          px-3
+          py-3
+        "
+      >
+        {NAV_STAFF.map((section) => (
+          <div key={section.section}>
+            {/* ==================================================
+                  SECTION TITLE
+                  ================================================== */}
+
+            <div
+              className="
+                  mb-1
+                  px-2
+                  text-[10px]
+                  font-bold
+                  uppercase
+                  tracking-widest
+                  text-gray-500
+                "
+            >
+              {section.section}
             </div>
-            <div className="space-y-1">
-              {g.items
-                .filter(([label]) => visible(label))
-                .map(([label, href, icon]) => {
-                  const on = active(href);
-                  return (
-                    <Link
-                      key={href}
-                      href={href}
-                      className={`group flex items-center gap-3 rounded-xl border px-3 py-2.5 transition ${on ? "border-white/10 bg-white/[.09] text-white" : "border-transparent text-slate-400 hover:bg-white/[.045] hover:text-white"}`}
+
+            {/* ==================================================
+                  SECTION ITEMS
+                  ================================================== */}
+
+            {section.items
+              .filter(
+                (item) =>
+                  (!item.adminOnly || isAdmin) &&
+                  (!item.accountingOnly || canSeeAccounting),
+              )
+              .map((item) => {
+                const active = isActive(item.href);
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    aria-current={active ? "page" : undefined}
+                    className={`
+                          mb-0.5
+                          flex
+                          items-center
+                          gap-2.5
+                          rounded-lg
+                          border-l-2
+                          px-3
+                          py-2
+                          text-sm
+                          font-medium
+                          transition-all
+                          duration-150
+
+                          ${
+                            active
+                              ? `
+                                border-white
+                                bg-white/10
+                                text-white
+                                shadow-sm
+                              `
+                              : `
+                                border-transparent
+                                text-gray-400
+                                hover:bg-white/8
+                                hover:text-white
+                              `
+                          }
+                        `}
+                  >
+                    {/* ICON */}
+
+                    <span
+                      aria-hidden="true"
+                      className="
+                            w-5
+                            text-center
+                            text-base
+                          "
                     >
+                      {item.icon}
+                    </span>
+
+                    {/* LABEL */}
+
+                    <span className="flex-1">{item.label}</span>
+
+                    {/* NOTIFICATION BADGE */}
+
+                    {item.href === "/dashboard/notifications" && unread > 0 && (
                       <span
-                        className={`grid h-8 w-8 place-items-center rounded-lg text-xs font-black ${on ? "bg-[#d2b24f] text-[#061729]" : "bg-white/[.055] text-slate-400"}`}
+                        aria-label={`${unread} unread notifications`}
+                        className="
+                                flex
+                                h-[18px]
+                                min-w-[18px]
+                                items-center
+                                justify-center
+                                rounded-full
+                                bg-red-500
+                                px-1
+                                text-[10px]
+                                font-bold
+                                text-white
+                              "
                       >
-                        {icon}
+                        {unread > 9 ? "9+" : unread}
                       </span>
-                      <span className="flex-1 text-[11px] font800 font-semibold">
-                        {label}
-                      </span>
-                      {label === "Notifications" && unread > 0 ? (
-                        <span className="rounded-full bg-[#d2b24f] px-1.5 py-0.5 text-[9px] font-black text-[#061729]">
-                          {unread > 99 ? "99+" : unread}
+                    )}
+
+                    {/* MESSAGE BADGE */}
+
+                    {item.href === "/dashboard/messages" &&
+                      unreadMessages > 0 && (
+                        <span
+                          aria-label={`${unreadMessages} unread messages`}
+                          className="
+                                flex
+                                h-[18px]
+                                min-w-[18px]
+                                items-center
+                                justify-center
+                                rounded-full
+                                bg-teal-500
+                                px-1
+                                text-[10px]
+                                font-bold
+                                text-white
+                              "
+                        >
+                          {unreadMessages > 9 ? "9+" : unreadMessages}
                         </span>
-                      ) : null}
-                    </Link>
-                  );
-                })}
-            </div>
+                      )}
+                  </Link>
+                );
+              })}
+
+            {/* ==================================================
+                  REGULATORY REPORTS
+                  
+                  IMPORTANT:
+                  This is rendered INSIDE the Admin section,
+                  immediately after Expenses because Expenses
+                  appears before Users & Roles in NAV_STAFF.
+                  ================================================== */}
+
+            {section.section === "Admin" && canSeeRegulatory && (
+              <div className="mt-0.5">
+                {/* REGULATORY PARENT */}
+
+                <button
+                  type="button"
+                  onClick={() => setRegulatoryOpen((previous) => !previous)}
+                  aria-expanded={regulatoryOpen}
+                  aria-controls="regulatory-navigation"
+                  className={`
+                        mb-0.5
+                        flex
+                        w-full
+                        items-center
+                        gap-2.5
+                        rounded-lg
+                        border-l-2
+                        px-3
+                        py-2
+                        text-sm
+                        font-medium
+                        transition-all
+                        duration-150
+
+                        ${
+                          isRegulatoryRoute
+                            ? `
+                              border-white
+                              bg-white/10
+                              text-white
+                            `
+                            : `
+                              border-transparent
+                              text-gray-400
+                              hover:bg-white/8
+                              hover:text-white
+                            `
+                        }
+                      `}
+                >
+                  {/* ICON */}
+
+                  <span
+                    aria-hidden="true"
+                    className="
+                          w-5
+                          text-center
+                          text-base
+                        "
+                  >
+                    📊
+                  </span>
+
+                  {/* LABEL */}
+
+                  <span
+                    className="
+                          flex-1
+                          text-left
+                        "
+                  >
+                    Regulatory Reports
+                  </span>
+
+                  {/* ARROW */}
+
+                  <span
+                    aria-hidden="true"
+                    className={`
+                          text-[10px]
+                          text-gray-400
+                          transition-transform
+                          duration-200
+
+                          ${regulatoryOpen ? "rotate-180" : ""}
+                        `}
+                  >
+                    ▼
+                  </span>
+                </button>
+
+                {/* REGULATORY CHILDREN */}
+
+                {regulatoryOpen && (
+                  <div
+                    id="regulatory-navigation"
+                    className="
+                          ml-4
+                          space-y-0.5
+                          border-l
+                          border-white/10
+                          pl-2
+                        "
+                  >
+                    {REGULATORY_ITEMS.map((item) => {
+                      const active = isActive(item.href);
+
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          aria-current={active ? "page" : undefined}
+                          className={`
+                                  group
+                                  flex
+                                  items-center
+                                  gap-2.5
+                                  rounded-lg
+                                  border-l-2
+                                  px-3
+                                  py-2
+                                  text-sm
+                                  transition-all
+                                  duration-150
+
+                                  ${
+                                    active
+                                      ? `
+                                        border-white
+                                        bg-white/10
+                                        font-semibold
+                                        text-white
+                                      `
+                                      : `
+                                        border-transparent
+                                        text-gray-500
+                                        hover:bg-white/8
+                                        hover:text-gray-200
+                                      `
+                                  }
+                                `}
+                        >
+                          {/* CHILD ICON */}
+
+                          <span
+                            aria-hidden="true"
+                            className="
+                                    w-5
+                                    text-center
+                                    text-sm
+                                  "
+                          >
+                            {item.icon}
+                          </span>
+
+                          {/* CHILD LABEL */}
+
+                          <span className="flex-1">{item.label}</span>
+
+                          {/* ACTIVE INDICATOR */}
+
+                          {active && (
+                            <span
+                              aria-hidden="true"
+                              className="
+                                      h-1.5
+                                      w-1.5
+                                      rounded-full
+                                      bg-white
+                                    "
+                            />
+                          )}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ))}
-        <div className="mb-5">
-          <button
-            type="button"
-            onClick={() => setRegOpen((v) => !v)}
-            className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left ${pathname.startsWith("/dashboard/reports/regulatory") ? "border-white/10 bg-white/[.09] text-white" : "border-transparent text-slate-400 hover:bg-white/[.045] hover:text-white"}`}
-          >
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-white/[.055] text-[10px] font-black">
-              BNR
-            </span>
-            <span className="flex-1 text-[11px] font-semibold">
-              Regulatory reporting
-            </span>
-            <span className={regOpen ? "rotate-180" : ""}>⌄</span>
-          </button>
-          {regOpen && (
-            <div className="ml-5 mt-1 border-l border-white/10 pl-2">
-              {regulatory.map(([label, href]) => (
-                <Link
-                  key={href}
-                  href={href}
-                  className={`block rounded-lg px-3 py-2 text-[10px] font-semibold ${active(href) ? "bg-white/[.08] text-white" : "text-slate-500 hover:text-white"}`}
-                >
-                  {label}
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
       </nav>
-      <div className="border-t border-white/10 p-3">
-        <div className="mb-2 flex items-center gap-3 rounded-xl bg-white/[.045] p-3">
-          <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#0b2a47] text-xs font-black text-[#d2b24f]">
-            {initials(user?.name)}
+
+      {/* ======================================================
+          USER FOOTER
+          ====================================================== */}
+
+      <div
+        className="
+          border-t
+          border-white/10
+          px-3
+          py-3
+        "
+      >
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="
+            flex
+            w-full
+            items-center
+            gap-2.5
+            rounded-lg
+            px-3
+            py-2
+            text-left
+            transition-colors
+            hover:bg-white/5
+            focus:outline-none
+            focus-visible:ring-2
+            focus-visible:ring-[#F4C430]
+            focus-visible:ring-offset-2
+            focus-visible:ring-offset-[#07152A]
+          "
+        >
+          {/* AVATAR */}
+
+          <div
+            className="
+              flex
+              h-8
+              w-8
+              flex-shrink-0
+              items-center
+              justify-center
+              rounded-full
+              bg-[#0B1F3A]
+              text-sm
+              font-bold
+              text-white
+              ring-1
+              ring-white/10
+            "
+          >
+            {user?.name?.[0]?.toUpperCase() ?? "U"}
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-xs font-bold">
+
+          {/* USER */}
+
+          <div
+            className="
+              flex-1
+              overflow-hidden
+            "
+          >
+            <div
+              className="
+                truncate
+                text-xs
+                font-semibold
+                text-white
+              "
+            >
               {user?.name || "User"}
             </div>
-            <div className="truncate text-[9px] uppercase tracking-wider text-slate-500">
-              {user?.role || "Staff"}
+
+            <div
+              className="
+                text-[10px]
+                text-gray-500
+              "
+            >
+              Sign out
             </div>
           </div>
-        </div>
-        <button
-          onClick={logout}
-          className="w-full rounded-xl px-3 py-2 text-left text-[11px] font-bold text-slate-400 hover:bg-red-500/10 hover:text-red-300"
-        >
-          Sign out <span className="float-right">→</span>
+
+          {/* LOGOUT ICON */}
+
+          <span
+            aria-hidden="true"
+            className="
+              text-xs
+              text-gray-500
+            "
+          >
+            →
+          </span>
         </button>
       </div>
     </aside>

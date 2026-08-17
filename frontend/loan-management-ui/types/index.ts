@@ -211,7 +211,7 @@ export interface Loan {
     name: string;
   };
 
-  loanType?: LoanType;
+  loanType: LoanType;
 
   repaymentFrequency: RepaymentFrequency;
 

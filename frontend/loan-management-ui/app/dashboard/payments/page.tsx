@@ -1,189 +1,165 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-
-import { loanApi, paymentApi } from "@/services/api";
-import { Button } from "@/components/ui/Button";
-import { Card, CardBody, CardHeader, StatCard } from "@/components/ui/Card";
-import { formatCurrency, formatDate } from "@/lib/utils";
-
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                    */
-/* -------------------------------------------------------------------------- */
-
-const n = (v: unknown): number => {
-  const value = Number(v ?? 0);
-  return Number.isFinite(value) ? value : 0;
-};
-
-const createIdempotencyKey = (): string => {
-  if (
-    typeof crypto !== "undefined" &&
-    typeof crypto.randomUUID === "function"
-  ) {
-    return `WEB-${Date.now()}-${crypto.randomUUID()}`;
-  }
-
-  return `WEB-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-};
-
-/* -------------------------------------------------------------------------- */
-/* Types                                                                      */
-/* -------------------------------------------------------------------------- */
-
-type PaymentScheduleItem = {
-  id?: number | string;
-  installmentNumber?: number;
-  dueDate?: string;
-  amount?: number;
-  totalDue?: number;
-  principalComponent?: number;
-  interestComponent?: number;
-  managementFeeComponent?: number;
-  managementFee?: number;
-  penaltyComponent?: number;
-  penalty?: number;
-  paid?: boolean;
-  status?: string;
-};
+import { useCallback, useEffect, useState } from "react";
+import { paymentApi, loanApi } from "@/services/api";
+import API from "@/services/api";
 
 type Loan = {
   id: number;
   referenceNumber?: string;
+  status?: string;
   currency?: string;
-  outstandingBalance?: number;
-
   borrower?: {
-    firstName?: string;
-    lastName?: string;
-    name?: string;
+    fullName?: string;
   };
-
-  [key: string]: unknown;
+  borrowerName?: string;
+  outstandingBalance?: number;
+  nextInstallmentAmount?: number;
 };
 
-/* -------------------------------------------------------------------------- */
-/* Loading state                                                              */
-/* -------------------------------------------------------------------------- */
+type Payment = {
+  id?: number;
+  installmentNumber?: number;
+  amount?: number;
+  amountPaid?: number;
 
-function PaymentsLoading() {
-  return (
-    <main className="premium-page pb-14">
-      <div className="mx-auto max-w-[1500px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section>
-          <div className="premium-eyebrow">Treasury & collections</div>
+  principalComponent?: number;
+  interestComponent?: number;
+  penalty?: number;
 
-          <div className="mt-3 h-10 w-80 animate-pulse rounded-lg bg-slate-200" />
+  cycleInterestDue?: number;
+  cycleInterestRemaining?: number;
 
-          <div className="mt-3 h-5 max-w-2xl animate-pulse rounded bg-slate-100" />
-        </section>
+  outstandingAfter?: number;
 
-        <section className="grid gap-4 sm:grid-cols-3">
-          {[1, 2, 3].map((item) => (
-            <div
-              key={item}
-              className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-white"
-            />
-          ))}
-        </section>
+  paid?: boolean;
+  status?: string;
 
-        <div className="h-20 animate-pulse rounded-2xl border border-slate-200 bg-white" />
-      </div>
-    </main>
-  );
-}
+  dueDate?: string;
+  paidDate?: string;
 
-/* -------------------------------------------------------------------------- */
-/* Main payments application                                                  */
-/* -------------------------------------------------------------------------- */
+  paymentMethod?: string;
+  transactionId?: string;
+  paymentReference?: string;
+  channel?: string;
+  notes?: string;
 
-function PaymentsContent() {
-  const params = useSearchParams();
+  daysLate?: number;
+  interestCalculationDate?: string;
+};
 
-  const [loanId, setLoanId] = useState("");
+type PaymentTransaction = {
+  id?: number;
+  transactionReference?: string;
+  amount?: number;
+  principalComponent?: number;
+  interestComponent?: number;
+  penaltyComponent?: number;
+  unappliedAmount?: number;
+  paymentMethod?: string;
+  channel?: string;
+  status?: string;
+  reversed?: boolean;
+  createdAt?: string;
+};
+
+const money = (value: unknown, currency = "RWF") => {
+  const n = Number(value ?? 0);
+
+  return new Intl.NumberFormat("en-RW", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(n) ? n : 0);
+};
+
+const num = (v: unknown) => {
+  const n = Number(v ?? 0);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const date = (value?: string) => {
+  if (!value) return "—";
+
+  const d = new Date(value);
+
+  if (Number.isNaN(d.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-RW", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+  }).format(d);
+};
+
+const idempotencyKey = () => `WEB-${Date.now()}-${crypto.randomUUID()}`;
+
+export default function PaymentsPage() {
+  const [loanIdInput, setLoanIdInput] = useState("");
   const [loan, setLoan] = useState<Loan | null>(null);
-  const [schedule, setSchedule] = useState<PaymentScheduleItem[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+
+  const [loadingLoan, setLoadingLoan] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const [amount, setAmount] = useState("");
-  const [method, setMethod] = useState("BANK_TRANSFER");
+  const [paymentMethod, setPaymentMethod] = useState("BANK_TRANSFER");
   const [transactionId, setTransactionId] = useState("");
   const [channel, setChannel] = useState("MANUAL");
   const [notes, setNotes] = useState("");
 
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  /* ------------------------------------------------------------------------ */
-  /* Read loanId from URL                                                     */
-  /* ------------------------------------------------------------------------ */
+  const loadLoan = useCallback(async (id: number) => {
+    setLoadingLoan(true);
+    setError("");
+    setSuccess("");
 
-  useEffect(() => {
-    const queryLoanId = params.get("loanId");
+    try {
+      const [loanResult, scheduleResult] = await Promise.all([
+        loanApi.get(id),
+        paymentApi.schedule(id),
+      ]);
 
-    if (queryLoanId) {
-      setLoanId(queryLoanId);
+      setLoan(loanResult as Loan);
+
+      setPayments(
+        Array.isArray(scheduleResult) ? (scheduleResult as Payment[]) : [],
+      );
+    } catch (err: any) {
+      setLoan(null);
+      setPayments([]);
+
+      setError(err?.message || "Unable to load the loan.");
+    } finally {
+      setLoadingLoan(false);
     }
-  }, [params]);
+  }, []);
 
-  /* ------------------------------------------------------------------------ */
-  /* Load loan + schedule                                                     */
-  /* ------------------------------------------------------------------------ */
-
-  async function load() {
-    const id = Number(loanId);
+  const loadFromInput = async () => {
+    const id = Number(loanIdInput.trim());
 
     if (!Number.isInteger(id) || id <= 0) {
       setError("Enter a valid loan ID.");
       return;
     }
 
-    setLoading(true);
-    setError("");
-    setSuccess("");
+    await loadLoan(id);
+  };
 
-    try {
-      const [loanResponse, scheduleResponse] = await Promise.all([
-        loanApi.get(id),
-        paymentApi.schedule(id),
-      ]);
-
-      const normalizedLoan = loanResponse as Loan;
-
-      const normalizedSchedule = Array.isArray(scheduleResponse)
-        ? scheduleResponse
-        : scheduleResponse?.content || scheduleResponse?.items || [];
-
-      setLoan(normalizedLoan);
-
-      setSchedule(Array.isArray(normalizedSchedule) ? normalizedSchedule : []);
-    } catch (e: any) {
-      setLoan(null);
-      setSchedule([]);
-
-      setError(e?.message || "Unable to load the facility. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  /* ------------------------------------------------------------------------ */
-  /* Record payment                                                           */
-  /* ------------------------------------------------------------------------ */
-
-  async function save() {
+  const recordPayment = async () => {
     if (!loan) {
-      setError("Load a facility before posting a payment.");
+      setError("Load a loan before recording a payment.");
       return;
     }
 
     const paymentAmount = Number(amount);
 
     if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
-      setError("Enter a payment amount greater than zero.");
+      setError("Payment amount must be greater than zero.");
       return;
     }
 
@@ -196,502 +172,331 @@ function PaymentsContent() {
         loan.id,
         {
           amount: paymentAmount,
-          paymentMethod: method,
+          paymentMethod,
           transactionId: transactionId.trim(),
           channel,
           notes: notes.trim(),
         },
-        createIdempotencyKey(),
+        idempotencyKey(),
       );
 
-      setSuccess(
-        "Payment posted successfully. The authoritative loan schedule has been refreshed.",
-      );
+      setSuccess("Payment recorded successfully.");
 
       setAmount("");
       setTransactionId("");
       setNotes("");
 
-      await load();
-    } catch (e: any) {
-      setError(
-        e?.message || "Payment could not be posted. No changes were confirmed.",
-      );
+      await loadLoan(loan.id);
+    } catch (err: any) {
+      setError(err?.message || "Payment could not be recorded.");
     } finally {
       setSaving(false);
     }
-  }
-
-  /* ------------------------------------------------------------------------ */
-  /* Derived values                                                           */
-  /* ------------------------------------------------------------------------ */
+  };
 
   const currency = loan?.currency || "RWF";
 
-  const borrower = loan
-    ? loan.borrower?.name ||
-      `${loan.borrower?.firstName || ""} ${
-        loan.borrower?.lastName || ""
-      }`.trim() ||
-      "Unknown borrower"
-    : "—";
-
-  const openInstallments = schedule.filter(
-    (item) =>
-      item.paid !== true && String(item.status || "").toUpperCase() !== "PAID",
-  );
-
-  const dueAmount = openInstallments.reduce(
-    (sum, item) => sum + n(item.amount ?? item.totalDue),
-    0,
-  );
-
-  const outstanding = n(loan?.outstandingBalance);
-
-  /* ------------------------------------------------------------------------ */
-  /* UI                                                                       */
-  /* ------------------------------------------------------------------------ */
-
   return (
-    <main className="premium-page min-h-screen pb-14">
-      <div className="mx-auto max-w-[1500px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        {/* ------------------------------------------------------------------ */}
-        {/* Page header                                                        */}
-        {/* ------------------------------------------------------------------ */}
-
-        <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <div className="absolute right-0 top-0 h-48 w-48 rounded-full bg-emerald-50 blur-3xl" />
-
-          <div className="relative">
-            <div className="premium-eyebrow">Treasury & collections</div>
-
-            <div className="mt-2 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
-              <div>
-                <h1 className="premium-section-title">
-                  Payment command centre
-                </h1>
-
-                <p className="premium-section-copy max-w-3xl">
-                  Manage loan collections, review the authoritative repayment
-                  schedule and post payments with idempotency protection.
-                </p>
-              </div>
-
-              {loan && (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-right">
-                  <div className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400">
-                    Facility
-                  </div>
-
-                  <div className="mt-1 text-lg font-black text-[#0b2944]">
-                    {loan.referenceNumber || `Loan #${loan.id}`}
-                  </div>
-
-                  <div className="mt-1 text-xs font-semibold text-slate-500">
-                    {borrower}
-                  </div>
-                </div>
-              )}
-            </div>
+    <main className="min-h-screen bg-[#F6F8FB]">
+      <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8">
+        <div className="mb-7">
+          <div className="text-[11px] font-black uppercase tracking-[0.2em] text-emerald-700">
+            Collections
           </div>
-        </section>
 
-        {/* ------------------------------------------------------------------ */}
-        {/* KPI cards                                                          */}
-        {/* ------------------------------------------------------------------ */}
+          <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950">
+            Payments
+          </h1>
 
-        <section className="grid gap-4 sm:grid-cols-3">
-          <StatCard
-            icon={<span>₣</span>}
-            label="Selected facility"
-            value={loan ? loan.referenceNumber || `#${loan.id}` : "—"}
-            sub={borrower}
-            color="#0b2944"
-          />
-
-          <StatCard
-            icon={<span>◆</span>}
-            label="Outstanding principal"
-            value={loan ? formatCurrency(outstanding, currency, "en-RW") : "—"}
-            sub="Current principal balance"
-            color="#087f74"
-          />
-
-          <StatCard
-            icon={<span>◷</span>}
-            label="Scheduled open"
-            value={formatCurrency(dueAmount, currency, "en-RW")}
-            sub={`${openInstallments.length} open installments`}
-            color="#c9a227"
-          />
-        </section>
-
-        {/* ------------------------------------------------------------------ */}
-        {/* Facility selector                                                  */}
-        {/* ------------------------------------------------------------------ */}
-
-        <Card>
-          <CardBody>
-            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-              <div>
-                <label
-                  htmlFor="loan-id"
-                  className="mb-2 block text-[9px] font-black uppercase tracking-[0.16em] text-slate-500"
-                >
-                  Facility reference
-                </label>
-
-                <input
-                  id="loan-id"
-                  className="premium-input"
-                  value={loanId}
-                  onChange={(event) => setLoanId(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      void load();
-                    }
-                  }}
-                  inputMode="numeric"
-                  placeholder="Enter loan ID"
-                />
-              </div>
-
-              <div className="flex items-end">
-                <Button
-                  className="w-full sm:w-auto"
-                  onClick={() => void load()}
-                  loading={loading}
-                >
-                  Load facility
-                </Button>
-              </div>
-            </div>
-          </CardBody>
-        </Card>
-
-        {/* ------------------------------------------------------------------ */}
-        {/* Alerts                                                              */}
-        {/* ------------------------------------------------------------------ */}
+          <p className="mt-2 text-sm text-slate-500">
+            Record payments with idempotency protection, review allocation and
+            reverse posted transactions when authorized.
+          </p>
+        </div>
 
         {error && (
-          <div
-            role="alert"
-            className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-bold text-red-800"
-          >
+          <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
             {error}
           </div>
         )}
 
         {success && (
-          <div
-            role="status"
-            className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-800"
-          >
+          <div className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
             {success}
           </div>
         )}
 
-        {/* ------------------------------------------------------------------ */}
-        {/* Main workspace                                                      */}
-        {/* ------------------------------------------------------------------ */}
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <input
+              type="number"
+              min="1"
+              value={loanIdInput}
+              onChange={(e) => setLoanIdInput(e.target.value)}
+              placeholder="Loan ID"
+              className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+            />
+
+            <button
+              onClick={loadFromInput}
+              disabled={loadingLoan}
+              className="rounded-xl bg-slate-950 px-6 py-3 text-sm font-black text-white disabled:opacity-50"
+            >
+              {loadingLoan ? "Loading…" : "Load loan"}
+            </button>
+          </div>
+        </section>
 
         {loan && (
-          <div className="grid gap-5 xl:grid-cols-[0.7fr_1.3fr]">
-            {/* -------------------------------------------------------------- */}
-            {/* Payment form                                                    */}
-            {/* -------------------------------------------------------------- */}
-
-            <Card>
-              <CardHeader
-                title="Post collection"
-                subtitle="Review the transaction carefully before submitting it to the lending engine."
+          <>
+            <section className="mb-6 grid gap-4 md:grid-cols-4">
+              <Metric
+                label="Loan"
+                value={loan.referenceNumber || `#${loan.id}`}
               />
 
-              <CardBody>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">
-                    Current principal
+              <Metric
+                label="Outstanding"
+                value={money(loan.outstandingBalance, currency)}
+              />
+
+              <Metric
+                label="Next installment"
+                value={money(loan.nextInstallmentAmount, currency)}
+              />
+
+              <Metric label="Status" value={loan.status || "UNKNOWN"} />
+            </section>
+
+            <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
+              <div className="space-y-6">
+                <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="mb-5">
+                    <div className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">
+                      New transaction
+                    </div>
+
+                    <h2 className="mt-1 text-xl font-black text-slate-950">
+                      Record payment
+                    </h2>
                   </div>
 
-                  <div className="mt-1 text-2xl font-black tracking-tight text-[#0b2944]">
-                    {formatCurrency(outstanding, currency, "en-RW")}
-                  </div>
-
-                  <div className="mt-1 text-xs text-slate-500">{borrower}</div>
-                </div>
-
-                {/* Amount */}
-                <label className="mt-5 block">
-                  <span className="mb-1.5 block text-[9px] font-black uppercase tracking-wider text-slate-500">
-                    Payment amount
-                  </span>
-
-                  <div className="relative">
-                    <input
-                      className="premium-input pr-20 text-lg font-black"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
+                  <div className="space-y-4">
+                    <Field
+                      label="Amount"
                       value={amount}
-                      onChange={(event) => setAmount(event.target.value)}
+                      onChange={setAmount}
+                      type="number"
                       placeholder="0.00"
                     />
 
-                    <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">
-                      {currency}
-                    </span>
-                  </div>
-                </label>
+                    <div>
+                      <label className="mb-2 block text-xs font-black text-slate-600">
+                        Payment method
+                      </label>
 
-                {/* Method + channel */}
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <label>
-                    <span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-500">
-                      Method
-                    </span>
+                      <select
+                        value={paymentMethod}
+                        onChange={(e) => setPaymentMethod(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold"
+                      >
+                        <option value="BANK_TRANSFER">Bank transfer</option>
+                        <option value="CASH">Cash</option>
+                        <option value="MOBILE_MONEY">Mobile money</option>
+                        <option value="CARD">Card</option>
+                        <option value="CHEQUE">Cheque</option>
+                      </select>
+                    </div>
 
-                    <select
-                      className="premium-input"
-                      value={method}
-                      onChange={(event) => setMethod(event.target.value)}
-                    >
-                      <option value="BANK_TRANSFER">Bank transfer</option>
+                    <Field
+                      label="Transaction ID"
+                      value={transactionId}
+                      onChange={setTransactionId}
+                      placeholder="External transaction reference"
+                    />
 
-                      <option value="CASH">Cash</option>
-
-                      <option value="MOBILE_MONEY">Mobile money</option>
-
-                      <option value="CHEQUE">Cheque</option>
-
-                      <option value="CARD">Card</option>
-                    </select>
-                  </label>
-
-                  <label>
-                    <span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-500">
-                      Channel
-                    </span>
-
-                    <select
-                      className="premium-input"
+                    <Field
+                      label="Channel"
                       value={channel}
-                      onChange={(event) => setChannel(event.target.value)}
+                      onChange={setChannel}
+                      placeholder="MANUAL / MTN / BANK / CARD"
+                    />
+
+                    <div>
+                      <label className="mb-2 block text-xs font-black text-slate-600">
+                        Notes
+                      </label>
+
+                      <textarea
+                        rows={3}
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        className="w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-4 text-xs text-slate-500">
+                      Payment allocation is handled by the backend. The
+                      transaction is protected by an idempotency key and posted
+                      to accounting before the operation completes.
+                    </div>
+
+                    <button
+                      onClick={recordPayment}
+                      disabled={saving}
+                      className="w-full rounded-xl bg-[#0D6B3E] px-5 py-3.5 text-sm font-black text-white hover:bg-[#095832] disabled:opacity-50"
                     >
-                      <option value="MANUAL">Manual</option>
-
-                      <option value="BANK">Bank</option>
-
-                      <option value="MOBILE">Mobile</option>
-
-                      <option value="BRANCH">Branch</option>
-                    </select>
-                  </label>
-                </div>
-
-                {/* Transaction reference */}
-                <label className="mt-4 block">
-                  <span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-500">
-                    Transaction reference
-                  </span>
-
-                  <input
-                    className="premium-input"
-                    value={transactionId}
-                    onChange={(event) => setTransactionId(event.target.value)}
-                    placeholder="Bank / mobile money / receipt reference"
-                  />
-                </label>
-
-                {/* Notes */}
-                <label className="mt-4 block">
-                  <span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-500">
-                    Notes
-                  </span>
-
-                  <textarea
-                    className="premium-input min-h-[90px]"
-                    value={notes}
-                    onChange={(event) => setNotes(event.target.value)}
-                    placeholder="Optional collection notes"
-                  />
-                </label>
-
-                {/* Submit */}
-                <Button
-                  className="mt-5 w-full"
-                  size="lg"
-                  loading={saving}
-                  onClick={() => void save()}
-                >
-                  Post payment
-                </Button>
-
-                <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
-                  <p className="text-[10px] leading-5 text-amber-800">
-                    Payment allocation, interest, management fee, penalties and
-                    future installment recalculation are controlled by the
-                    backend lending engine. Nothing is manually calculated in
-                    the browser.
-                  </p>
-                </div>
-              </CardBody>
-            </Card>
-
-            {/* -------------------------------------------------------------- */}
-            {/* Schedule                                                         */}
-            {/* -------------------------------------------------------------- */}
-
-            <Card>
-              <CardHeader
-                title="Installment allocation"
-                subtitle="Authoritative repayment schedule returned by the lending engine."
-              />
-
-              <div className="overflow-x-auto">
-                <table className="premium-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Due</th>
-                      <th>Total</th>
-                      <th>Principal</th>
-                      <th>Interest</th>
-                      <th>Management</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {schedule.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="py-12 text-center">
-                          <div className="text-sm font-black text-slate-500">
-                            No repayment schedule available
-                          </div>
-
-                          <div className="mt-1 text-xs text-slate-400">
-                            The backend returned no installments for this
-                            facility.
-                          </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      schedule.slice(0, 24).map((item, index) => {
-                        const paid =
-                          item.paid === true ||
-                          String(item.status || "").toUpperCase() === "PAID";
-
-                        return (
-                          <tr
-                            key={
-                              item.id ||
-                              `${item.installmentNumber || index}-${item.dueDate || ""}`
-                            }
-                          >
-                            <td>{item.installmentNumber ?? index + 1}</td>
-
-                            <td>
-                              {item.dueDate
-                                ? formatDate(item.dueDate, "en-RW")
-                                : "—"}
-                            </td>
-
-                            <td className="font-black">
-                              {formatCurrency(
-                                n(item.amount ?? item.totalDue),
-                                currency,
-                                "en-RW",
-                              )}
-                            </td>
-
-                            <td>
-                              {formatCurrency(
-                                n(item.principalComponent),
-                                currency,
-                                "en-RW",
-                              )}
-                            </td>
-
-                            <td>
-                              {formatCurrency(
-                                n(item.interestComponent),
-                                currency,
-                                "en-RW",
-                              )}
-                            </td>
-
-                            <td>
-                              {formatCurrency(
-                                n(
-                                  item.managementFeeComponent ??
-                                    item.managementFee,
-                                ),
-                                currency,
-                                "en-RW",
-                              )}
-                            </td>
-
-                            <td>
-                              <span
-                                className={`premium-badge ${
-                                  paid
-                                    ? "bg-emerald-50 text-emerald-700"
-                                    : "bg-slate-100 text-slate-600"
-                                }`}
-                              >
-                                {paid ? "Paid" : "Open"}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+                      {saving ? "Posting payment…" : "Record payment"}
+                    </button>
+                  </div>
+                </section>
               </div>
 
-              {schedule.length > 24 && (
-                <div className="border-t border-slate-100 px-5 py-4 text-center text-[10px] font-bold text-slate-400">
-                  Showing first 24 installments
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-200 p-6">
+                  <div className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">
+                    Loan ledger
+                  </div>
+
+                  <h2 className="mt-1 text-xl font-black text-slate-950">
+                    Payment schedule & allocation
+                  </h2>
                 </div>
-              )}
-            </Card>
-          </div>
-        )}
 
-        {/* ------------------------------------------------------------------ */}
-        {/* Empty state                                                         */}
-        {/* ------------------------------------------------------------------ */}
+                <div className="overflow-x-auto">
+                  <table className="min-w-[1050px] w-full">
+                    <thead className="bg-slate-50">
+                      <tr className="border-b border-slate-200 text-left text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        <th className="px-5 py-4">Installment</th>
+                        <th className="px-5 py-4">Due</th>
+                        <th className="px-5 py-4">Amount</th>
+                        <th className="px-5 py-4">Principal</th>
+                        <th className="px-5 py-4">Interest</th>
+                        <th className="px-5 py-4">Penalty</th>
+                        <th className="px-5 py-4">Balance</th>
+                        <th className="px-5 py-4">Status</th>
+                      </tr>
+                    </thead>
 
-        {!loan && !loading && !error && (
-          <section className="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center shadow-sm">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-50 text-xl text-[#0b2944]">
-              ₣
+                    <tbody>
+                      {payments.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={8}
+                            className="px-5 py-16 text-center text-sm text-slate-400"
+                          >
+                            No payment schedule found.
+                          </td>
+                        </tr>
+                      ) : (
+                        payments.map((payment, index) => (
+                          <tr
+                            key={payment.id ?? index}
+                            className="border-b border-slate-100 last:border-0"
+                          >
+                            <td className="px-5 py-4">
+                              <div className="font-black text-slate-800">
+                                #{payment.installmentNumber ?? index + 1}
+                              </div>
+
+                              {payment.paymentReference && (
+                                <div className="mt-1 text-[10px] text-slate-400">
+                                  {payment.paymentReference}
+                                </div>
+                              )}
+                            </td>
+
+                            <td className="px-5 py-4 text-sm font-semibold text-slate-600">
+                              {date(payment.dueDate)}
+                            </td>
+
+                            <td className="px-5 py-4 text-sm font-black text-slate-900">
+                              {money(payment.amount, currency)}
+                            </td>
+
+                            <td className="px-5 py-4 text-sm font-bold text-slate-700">
+                              {money(payment.principalComponent, currency)}
+                            </td>
+
+                            <td className="px-5 py-4 text-sm font-bold text-slate-700">
+                              {money(payment.interestComponent, currency)}
+                            </td>
+
+                            <td className="px-5 py-4 text-sm font-bold text-slate-700">
+                              {money(payment.penalty, currency)}
+                            </td>
+
+                            <td className="px-5 py-4 text-sm font-black text-slate-900">
+                              {money(payment.outstandingAfter, currency)}
+                            </td>
+
+                            <td className="px-5 py-4">
+                              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase text-slate-600">
+                                {payment.status ||
+                                  (payment.paid ? "PAID" : "PENDING")}
+                              </span>
+
+                              {num(payment.daysLate) > 0 && (
+                                <div className="mt-1 text-[10px] font-bold text-red-600">
+                                  {payment.daysLate} days late
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
             </div>
-
-            <h2 className="mt-5 text-lg font-black text-[#0b2944]">
-              Select a lending facility
-            </h2>
-
-            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-              Enter a valid loan ID above to review the borrower, outstanding
-              principal, repayment schedule and post a collection.
-            </p>
-          </section>
+          </>
         )}
       </div>
     </main>
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Page                                                                       */
-/* -------------------------------------------------------------------------- */
-
-export default function PaymentsPage() {
+function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <Suspense fallback={<PaymentsLoading />}>
-      <PaymentsContent />
-    </Suspense>
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+        {label}
+      </div>
+
+      <div className="mt-3 truncate text-xl font-black text-slate-950">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      <label className="mb-2 block text-xs font-black text-slate-600">
+        {label}
+      </label>
+
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+      />
+    </div>
   );
 }

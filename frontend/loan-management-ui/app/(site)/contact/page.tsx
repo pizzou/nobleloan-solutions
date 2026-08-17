@@ -1,454 +1,348 @@
 "use client";
-
 import { useState } from "react";
-import Link from "next/link";
 import { useTenant } from "../layout";
-import { publicApi } from "../../../services/api";
-
-const INITIAL_FORM = {
-  name: "",
-  email: "",
-  phone: "",
-  subject: "",
-  message: "",
-};
-
-function SectionEyebrow({
-  children,
-  color,
-}: {
-  children: React.ReactNode;
-  color: string;
-}) {
-  return (
-    <div
-      className="text-[10px] font-black uppercase tracking-[0.24em]"
-      style={{ color }}
-    >
-      {children}
-    </div>
-  );
-}
+import { TENANT_SLUG } from "../../../lib/tenant";
 
 export default function ContactPage() {
   const tenant = useTenant();
-
-  const [form, setForm] = useState(INITIAL_FORM);
-  const [sending, setSending] = useState(false);
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    subject: "",
+    message: "",
+  });
   const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
 
   if (!tenant) return null;
-
   const primary = tenant.primaryColor;
   const accent = tenant.accentColor;
-  const socials = tenant.socialMedia || {};
 
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const set =
+    (k: string) =>
+    (
+      e: React.ChangeEvent<
+        HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+      >,
+    ) =>
+      setForm((f) => ({ ...f, [k]: e.target.value }));
 
-    if (sending) return;
-
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setSending(true);
     setError("");
-
     try {
-      await publicApi.submitContact({
-        ...form,
-        tenantSlug: tenant.slug,
+      const API_BASE =
+        process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+      const res = await fetch(`${API_BASE}/public/contact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, tenantSlug: TENANT_SLUG }),
       });
-
+      const json = await res.json();
+      if (!res.ok || json.success === false)
+        throw new Error(
+          json.error || json.message || "Could not send your message.",
+        );
       setSent(true);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to send your message.",
-      );
+    } catch (err: any) {
+      setError(err.message || "Something went wrong. Please try again.");
     } finally {
       setSending(false);
     }
   };
 
+  const inp =
+    "w-full px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 transition-colors mt-1.5";
+  const inpStyle = { focusBorderColor: primary };
+
   return (
-    <div className="bg-white pb-24">
-      {/* HERO */}
+    <div>
+      {/* Hero */}
       <section
-        className="relative overflow-hidden text-white"
+        className="py-20 text-white text-center"
         style={{
-          background: `linear-gradient(135deg, ${primary}, #071426)`,
+          background: `linear-gradient(135deg, ${primary} 0%, #0a4a2b 100%)`,
         }}
       >
-        <div
-          className="absolute -right-32 -top-32 h-[450px] w-[450px] rounded-full blur-3xl"
-          style={{
-            backgroundColor: `${accent}18`,
-          }}
-        />
-
-        <div className="relative mx-auto max-w-7xl px-4 py-20 md:py-28">
-          <SectionEyebrow color={accent}>Contact {tenant.name}</SectionEyebrow>
-
-          <h1 className="mt-5 max-w-4xl text-5xl font-black leading-[0.98] tracking-[-0.05em] md:text-7xl">
-            Let&apos;s have a professional conversation.
+        <div className="max-w-3xl mx-auto px-4">
+          <h1 className="text-4xl md:text-5xl font-extrabold mb-4">
+            Get in Touch
           </h1>
-
-          <p className="mt-7 max-w-2xl text-lg leading-8 text-white/60">
-            Speak with {tenant.name} about financing, an existing application,
-            repayment or any other enquiry.
+          <p className="text-white/80 text-lg">
+            We are here to help. Reach out by phone, email, or visit our office
+            in Kigali.
           </p>
         </div>
       </section>
 
-      <main className="mx-auto grid max-w-7xl gap-6 px-4 pt-10 lg:grid-cols-[0.78fr_1.22fr]">
-        {/* LEFT */}
-        <div className="space-y-5">
-          <section className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm md:p-8">
-            <SectionEyebrow color={accent}>
-              Verified contact details
-            </SectionEyebrow>
-
-            <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-950">
-              Reach {tenant.name}
+      <div className="max-w-7xl mx-auto px-4 py-20">
+        <div className="grid md:grid-cols-2 gap-12">
+          {/* Contact info */}
+          <div>
+            <h2 className="text-2xl font-extrabold text-gray-900 mb-8">
+              Contact Information
             </h2>
 
-            <div className="mt-7 space-y-3">
-              {tenant.address && (
-                <div className="rounded-xl bg-[#f7f8fa] p-5">
-                  <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                    Office
+            <div className="space-y-6 mb-10">
+              {[
+                {
+                  icon: "📍",
+                  label: "Our Office",
+                  value: tenant.address ?? "Kigali, Rwanda",
+                  sub: "Monday – Friday: 8:00 AM – 5:00 PM\nSaturday: 8:00 AM – 1:00 PM",
+                },
+                {
+                  icon: "📞",
+                  label: "Phone",
+                  value: tenant.contactPhone ?? "+250 788 000 000",
+                  sub: "Available Mon–Sat, 8AM–5PM EAT",
+                },
+                {
+                  icon: "✉️",
+                  label: "Email",
+                  value: tenant.contactEmail ?? "info@nobleloansolutions.rw",
+                  sub: "We reply within 24 hours",
+                },
+                {
+                  icon: "💬",
+                  label: "WhatsApp",
+                  value: "Chat with us instantly",
+                  sub: tenant.socialMedia?.whatsapp ?? "",
+                },
+              ].map((item) => (
+                <div key={item.label} className="flex gap-4">
+                  <div
+                    className="w-12 h-12 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
+                    style={{ backgroundColor: primary + "15" }}
+                  >
+                    {item.icon}
                   </div>
-
-                  <div className="mt-2 text-sm font-bold leading-6 text-slate-900">
-                    {tenant.address}
-                  </div>
-                </div>
-              )}
-
-              {tenant.contactPhone && (
-                <a
-                  href={`tel:${tenant.contactPhone}`}
-                  className="block rounded-xl bg-[#f7f8fa] p-5 transition hover:bg-slate-100"
-                >
-                  <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                    Phone
-                  </div>
-
-                  <div className="mt-2 text-sm font-bold text-slate-900">
-                    {tenant.contactPhone}
-                  </div>
-                </a>
-              )}
-
-              {tenant.contactEmail && (
-                <a
-                  href={`mailto:${tenant.contactEmail}`}
-                  className="block rounded-xl bg-[#f7f8fa] p-5 transition hover:bg-slate-100"
-                >
-                  <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                    Email
-                  </div>
-
-                  <div className="mt-2 break-all text-sm font-bold text-slate-900">
-                    {tenant.contactEmail}
-                  </div>
-                </a>
-              )}
-
-              {tenant.registrationNumber && (
-                <div className="rounded-xl bg-[#f7f8fa] p-5">
-                  <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                    Registration
-                  </div>
-
-                  <div className="mt-2 text-sm font-bold text-slate-900">
-                    {tenant.registrationNumber}
+                  <div>
+                    <div className="font-bold text-gray-900">{item.label}</div>
+                    <div className="text-gray-700 text-sm font-semibold">
+                      {item.value}
+                    </div>
+                    {item.sub && (
+                      <div className="text-gray-400 text-xs mt-0.5 whitespace-pre-line">
+                        {item.sub}
+                      </div>
+                    )}
                   </div>
                 </div>
-              )}
+              ))}
             </div>
-          </section>
 
-          {/* SERVICE SHORTCUTS */}
-          <section className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm md:p-8">
-            <SectionEyebrow color={accent}>Client services</SectionEyebrow>
-
-            <div className="mt-6 space-y-2">
-              <Link
-                href="/services"
-                className="flex items-center justify-between rounded-xl border border-slate-200 p-4 transition hover:bg-slate-50"
-              >
-                <span className="text-sm font-black text-slate-900">
-                  Explore financing
-                </span>
-
-                <span style={{ color: primary }}>→</span>
-              </Link>
-
-              <Link
-                href="/calculator"
-                className="flex items-center justify-between rounded-xl border border-slate-200 p-4 transition hover:bg-slate-50"
-              >
-                <span className="text-sm font-black text-slate-900">
-                  Calculate a loan
-                </span>
-
-                <span style={{ color: primary }}>→</span>
-              </Link>
-
-              <Link
-                href="/track"
-                className="flex items-center justify-between rounded-xl border border-slate-200 p-4 transition hover:bg-slate-50"
-              >
-                <span className="text-sm font-black text-slate-900">
-                  Track an application
-                </span>
-
-                <span style={{ color: primary }}>→</span>
-              </Link>
-            </div>
-          </section>
-
-          {/* SOCIAL */}
-          {Object.values(socials).some(Boolean) && (
-            <section className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm md:p-8">
-              <SectionEyebrow color={accent}>Connect with us</SectionEyebrow>
-
-              <div className="mt-5 flex flex-wrap gap-2">
-                {Object.entries(socials)
-                  .filter(([, value]) => Boolean(value))
-                  .map(([label, value]) => (
+            {/* Social media */}
+            <div>
+              <div className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">
+                Follow Us
+              </div>
+              <div className="flex gap-3">
+                {[
+                  {
+                    label: "Facebook",
+                    icon: "f",
+                    href: tenant.socialMedia?.facebook,
+                  },
+                  {
+                    label: "Instagram",
+                    icon: "ig",
+                    href: tenant.socialMedia?.instagram,
+                  },
+                  {
+                    label: "LinkedIn",
+                    icon: "in",
+                    href: tenant.socialMedia?.linkedin,
+                  },
+                  {
+                    label: "Twitter",
+                    icon: "𝕏",
+                    href: tenant.socialMedia?.twitter,
+                  },
+                  {
+                    label: "WhatsApp",
+                    icon: "💬",
+                    href: tenant.socialMedia?.whatsapp,
+                  },
+                ]
+                  .filter((s) => s.href)
+                  .map((s) => (
                     <a
-                      key={label}
-                      href={value as string}
+                      key={s.label}
+                      href={s.href!}
                       target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-full border px-4 py-2.5 text-xs font-black capitalize transition hover:bg-slate-50"
-                      style={{
-                        borderColor: `${primary}40`,
-                        color: primary,
-                      }}
+                      rel="noopener"
+                      className="w-11 h-11 rounded-xl flex items-center justify-center font-bold text-white text-sm hover:opacity-80 transition"
+                      style={{ backgroundColor: primary }}
                     >
-                      {label}
+                      {s.icon}
                     </a>
                   ))}
               </div>
-            </section>
-          )}
+            </div>
 
-          {tenant.mapUrl && (
-            <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-100 px-6 py-4">
-                <div className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
-                  Office location
-                </div>
+            {/* Google Map */}
+            {tenant.mapUrl && (
+              <div className="mt-8 rounded-2xl overflow-hidden border border-gray-200 shadow-sm">
+                <iframe
+                  src={tenant.mapUrl}
+                  width="100%"
+                  height="300"
+                  style={{ border: 0 }}
+                  allowFullScreen
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  title="Office Location"
+                />
               </div>
-
-              <iframe
-                title={`${tenant.name} office location`}
-                src={tenant.mapUrl}
-                className="h-72 w-full border-0"
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
-            </section>
-          )}
-        </div>
-
-        {/* FORM */}
-        <section className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm md:p-10">
-          <div className="flex items-start justify-between gap-5">
-            <div>
-              <SectionEyebrow color={accent}>Customer support</SectionEyebrow>
-
-              <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950 md:text-4xl">
-                Send a message
-              </h2>
-
-              <p className="mt-3 max-w-xl text-sm leading-7 text-slate-500">
-                Your enquiry will be associated with {tenant.name}.
-              </p>
-            </div>
-
-            <div
-              className="hidden h-14 w-14 items-center justify-center rounded-2xl text-xl sm:flex"
-              style={{
-                backgroundColor: `${accent}15`,
-                color: primary,
-              }}
-            >
-              ✦
-            </div>
+            )}
           </div>
 
-          {sent ? (
-            <div className="mt-9 rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-xl font-black text-white">
-                ✓
-              </div>
+          {/* Contact form */}
+          <div>
+            <h2 className="text-2xl font-extrabold text-gray-900 mb-8">
+              Send Us a Message
+            </h2>
 
-              <h3 className="mt-5 text-xl font-black text-emerald-950">
-                Message received
-              </h3>
-
-              <p className="mt-2 text-sm leading-7 text-emerald-800">
-                Thank you, {form.name}. Your message has been submitted to{" "}
-                {tenant.name}.
-              </p>
-
-              <button
-                type="button"
-                className="mt-6 rounded-xl px-6 py-3.5 text-sm font-black text-white"
-                style={{
-                  backgroundColor: primary,
-                }}
-                onClick={() => {
-                  setForm(INITIAL_FORM);
-                  setSent(false);
-                }}
-              >
-                Send Another Message
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={submit} className="mt-9 space-y-5">
-              <div className="grid gap-5 sm:grid-cols-2">
-                <Field
-                  label="Full name"
-                  required
-                  value={form.name}
-                  onChange={(value) =>
-                    setForm((current) => ({
-                      ...current,
-                      name: value,
-                    }))
-                  }
-                />
-
-                <Field
-                  label="Phone"
-                  required
-                  value={form.phone}
-                  onChange={(value) =>
-                    setForm((current) => ({
-                      ...current,
-                      phone: value,
-                    }))
-                  }
-                />
-              </div>
-
-              <Field
-                label="Email"
-                type="email"
-                value={form.email}
-                onChange={(value) =>
-                  setForm((current) => ({
-                    ...current,
-                    email: value,
-                  }))
-                }
-              />
-
-              <div>
-                <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-                  Subject <span className="text-red-500">*</span>
-                </label>
-
-                <select
-                  required
-                  value={form.subject}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      subject: event.target.value,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-4 text-sm font-semibold text-slate-800 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/5"
+            {sent ? (
+              <div className="text-center py-16 bg-green-50 rounded-3xl border border-green-200">
+                <div className="text-5xl mb-4">✅</div>
+                <h3 className="text-xl font-extrabold text-green-800 mb-2">
+                  Message Received!
+                </h3>
+                <p className="text-green-700">
+                  Thank you {form.name}. We&apos;ll get back to you within 24
+                  hours.
+                </p>
+                <button
+                  onClick={() => {
+                    setSent(false);
+                    setForm({
+                      name: "",
+                      email: "",
+                      phone: "",
+                      subject: "",
+                      message: "",
+                    });
+                  }}
+                  className="mt-6 px-8 py-3 rounded-xl text-white font-bold hover:opacity-90 transition"
+                  style={{ backgroundColor: primary }}
                 >
-                  <option value="">Select a topic</option>
-                  <option value="Loan inquiry">Loan inquiry</option>
-                  <option value="Application status">Application status</option>
-                  <option value="Repayment">Repayment</option>
-                  <option value="Complaint or feedback">
-                    Complaint or feedback
-                  </option>
-                  <option value="Partnership">Partnership</option>
-                  <option value="Other">Other</option>
-                </select>
+                  Send Another Message
+                </button>
               </div>
-
-              <div>
-                <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-                  Message <span className="text-red-500">*</span>
-                </label>
-
-                <textarea
-                  required
-                  minLength={10}
-                  value={form.message}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      message: event.target.value,
-                    }))
-                  }
-                  className="mt-2 min-h-48 w-full resize-y rounded-xl border border-slate-300 px-4 py-4 text-sm leading-7 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/5"
-                  placeholder="Tell us how we can help."
-                />
-              </div>
-
-              <button
-                disabled={sending}
-                type="submit"
-                className="w-full rounded-xl px-5 py-4 text-sm font-black text-white shadow-lg transition hover:-translate-y-0.5 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-60"
-                style={{
-                  backgroundColor: primary,
-                }}
-              >
-                {sending ? "Sending..." : "Send Secure Message"}
-              </button>
-
-              {error && (
-                <div
-                  role="alert"
-                  className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700"
-                >
-                  {error}
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      Full Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      required
+                      className={inp}
+                      value={form.name}
+                      onChange={set("name")}
+                      placeholder="Your full name"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      Phone <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      required
+                      className={inp}
+                      value={form.phone}
+                      onChange={set("phone")}
+                      placeholder="+250 7XX XXX XXX"
+                    />
+                  </div>
                 </div>
-              )}
-            </form>
-          )}
-        </section>
-      </main>
-    </div>
-  );
-}
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    className={inp}
+                    value={form.email}
+                    onChange={set("email")}
+                    placeholder="your@email.com"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    Subject <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    required
+                    className={inp}
+                    value={form.subject}
+                    onChange={set("subject")}
+                  >
+                    <option value="">Select a topic…</option>
+                    <option>Loan Inquiry</option>
+                    <option>Application Status</option>
+                    <option>Repayment Query</option>
+                    <option>Complaint or Feedback</option>
+                    <option>Partnership / Business</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    Message <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    required
+                    className={`${inp} min-h-[140px] resize-y`}
+                    value={form.message}
+                    onChange={set("message")}
+                    placeholder="Tell us how we can help you…"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={sending}
+                  className="w-full py-4 rounded-xl text-white font-bold text-lg hover:opacity-90 transition flex items-center justify-center gap-3 disabled:opacity-60"
+                  style={{ backgroundColor: primary }}
+                >
+                  {sending && (
+                    <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  {sending ? "Sending…" : "Send Message ✓"}
+                </button>
+                {error && (
+                  <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">
+                    {error}
+                  </div>
+                )}
+              </form>
+            )}
 
-function Field({
-  label,
-  required,
-  value,
-  onChange,
-  type = "text",
-}: {
-  label: string;
-  required?: boolean;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-}) {
-  return (
-    <div>
-      <label className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-        {label} {required && <span className="text-red-500">*</span>}
-      </label>
-
-      <input
-        required={required}
-        type={type}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-4 text-sm outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/5"
-      />
+            {/* Quick links */}
+            <div className="mt-8 grid grid-cols-2 gap-3">
+              <a
+                href={`tel:${tenant.contactPhone}`}
+                className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-gray-200 hover:border-gray-300 transition text-sm font-semibold text-gray-700"
+              >
+                <span className="text-2xl">📞</span> Call Us Now
+              </a>
+              <a
+                href={tenant.socialMedia?.whatsapp ?? "#"}
+                className="flex items-center gap-3 p-4 rounded-xl border text-sm font-semibold text-white hover:opacity-90 transition"
+                style={{ backgroundColor: "#25D366" }}
+              >
+                <span className="text-2xl">💬</span> WhatsApp Us
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
