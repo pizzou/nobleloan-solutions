@@ -2,268 +2,406 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { accountingApi, expenseApi, get, loanApi } from "@/services/api";
-import { DashboardStats, Loan } from "@/types";
+
+import { accountingApi, expenseApi, loanApi } from "@/services/api";
+import type { DashboardStats, Loan } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
+
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader, StatCard } from "@/components/ui/Card";
 import { PageSpinner } from "@/components/ui/Skeleton";
+
 import { formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 
-const CACHE_KEY = "noble:dashboard:v3";
+const CACHE_KEY = "noble:dashboard:snapshot:v1";
 const CACHE_TTL = 30_000;
+const FINANCE_IDLE_DELAY = 900;
 
-const num = (v: unknown) => {
-  const n = Number(v ?? 0);
-  return Number.isFinite(n) ? n : 0;
+const n = (value: unknown): number => {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const money = (v: unknown, currency: string, locale: string) =>
-  formatCurrency(num(v), currency, locale);
+const money = (value: unknown, currency: string, locale: string): string =>
+  formatCurrency(n(value), currency || "RWF", locale || "en-RW");
 
-const borrowerName = (loan: Loan) =>
-  `${loan.borrower?.firstName || ""} ${loan.borrower?.lastName || ""}`.trim() ||
-  "Unnamed client";
+const borrowerName = (loan: Loan): string => {
+  const name =
+    `${loan.borrower?.firstName ?? ""} ${loan.borrower?.lastName ?? ""}`.trim();
 
-function quality(par: number) {
-  if (par <= 3)
-    return {
-      label: "Controlled",
-      tone: "text-emerald-700 bg-emerald-50 border-emerald-100",
-    };
-  if (par <= 5)
-    return {
-      label: "Watch",
-      tone: "text-amber-700 bg-amber-50 border-amber-100",
-    };
-  if (par <= 10)
-    return {
-      label: "Elevated",
-      tone: "text-orange-700 bg-orange-50 border-orange-100",
-    };
-  return { label: "Critical", tone: "text-red-700 bg-red-50 border-red-100" };
-}
+  return name || "Unnamed borrower";
+};
 
-function Metric({
-  label,
-  value,
-  sub,
-  href,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  href?: string;
-}) {
-  const content = (
-    <div className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_30px_rgba(7,26,45,.035)] transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_18px_45px_rgba(7,26,45,.07)]">
-      <div className="text-[9px] font-black uppercase tracking-[.18em] text-slate-400">
-        {label}
-      </div>
-      <div className="mt-2 text-2xl font-black tracking-[-.04em] text-[#071a2d] tabular-nums">
-        {value}
-      </div>
-      <div className="mt-1 text-[10px] leading-5 text-slate-500">{sub}</div>
-      {href ? (
-        <div className="mt-3 text-[9px] font-black uppercase tracking-wider text-[#087f74] opacity-0 transition group-hover:opacity-100">
-          Open →
-        </div>
-      ) : null}
-    </div>
-  );
-  return href ? <Link href={href}>{content}</Link> : content;
-}
+function readCache(): DashboardStats | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
 
-function cacheRead(): DashboardStats | null {
-  if (typeof window === "undefined") return null;
   try {
     const raw = sessionStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { at: number; data: DashboardStats };
-    if (!parsed?.data || Date.now() - Number(parsed.at) > CACHE_TTL)
+
+    if (!raw) {
       return null;
+    }
+
+    const parsed = JSON.parse(raw) as {
+      timestamp?: number;
+      data?: DashboardStats;
+    };
+
+    if (!parsed.data) {
+      return null;
+    }
+
+    if (Date.now() - n(parsed.timestamp) > CACHE_TTL) {
+      return null;
+    }
+
     return parsed.data;
   } catch {
     return null;
   }
 }
 
-function cacheWrite(data: DashboardStats) {
-  if (typeof window === "undefined") return;
-  try {
-    sessionStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), data }));
-  } catch {
-    // Storage is an optimization only; never fail the dashboard because of it.
+function writeCache(data: DashboardStats): void {
+  if (typeof window === "undefined") {
+    return;
   }
+
+  try {
+    sessionStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({
+        timestamp: Date.now(),
+        data,
+      }),
+    );
+  } catch {
+    // Cache is only an optimization.
+  }
+}
+
+function riskTone(quality?: string): string {
+  switch (quality) {
+    case "CURRENT":
+      return "premium-status premium-status-good";
+
+    case "WATCH":
+      return "premium-status premium-status-watch";
+
+    case "SUBSTANDARD":
+    case "DOUBTFUL":
+    case "WRITTEN_OFF":
+      return "premium-status premium-status-danger";
+
+    default:
+      return "premium-status premium-status-neutral";
+  }
+}
+
+function parTone(par: number): {
+  label: string;
+  className: string;
+} {
+  if (par <= 3) {
+    return {
+      label: "Controlled",
+      className: "premium-risk-good",
+    };
+  }
+
+  if (par <= 5) {
+    return {
+      label: "Watch",
+      className: "premium-risk-watch",
+    };
+  }
+
+  if (par <= 10) {
+    return {
+      label: "Elevated",
+      className: "premium-risk-elevated",
+    };
+  }
+
+  return {
+    label: "Critical",
+    className: "premium-risk-critical",
+  };
+}
+
+function MetricTile({
+  label,
+  value,
+  detail,
+  href,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  href?: string;
+}) {
+  const content = (
+    <div className="premium-metric-tile">
+      <div className="premium-label">{label}</div>
+
+      <div className="premium-metric-value">{value}</div>
+
+      <div className="premium-metric-detail">{detail}</div>
+
+      {href ? <div className="premium-open-link">Open workspace →</div> : null}
+    </div>
+  );
+
+  return href ? <Link href={href}>{content}</Link> : content;
 }
 
 export default function DashboardPage() {
   const { currency, locale, user } = useAuth();
-  const [stats, setStats] = useState<DashboardStats | null>(() => cacheRead());
-  const [loading, setLoading] = useState(() => !cacheRead());
+
+  const cached = useMemo(() => readCache(), []);
+
+  const [stats, setStats] = useState<DashboardStats | null>(cached);
+
+  const [loading, setLoading] = useState<boolean>(!cached);
+
   const [refreshing, setRefreshing] = useState(false);
+
   const [error, setError] = useState("");
+
   const [finance, setFinance] = useState<{
     income: number;
     expenses: number;
     profit: number;
-    cash: number;
+    cashMovement: number;
     expenseCount: number;
   } | null>(null);
 
   const canFinance = ["ADMIN", "MANAGER", "ACCOUNTANT", "FINANCE"].includes(
-    user?.role || "",
+    user?.role ?? "",
   );
 
-  const load = useCallback(async (background = false) => {
-    if (background) setRefreshing(true);
-    else setLoading(true);
+  const loadDashboard = useCallback(async (background = false) => {
+    if (background) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
     setError("");
+
     try {
-      const data = (await loanApi.dashboard()) as DashboardStats;
-      setStats(data);
-      cacheWrite(data);
-    } catch (e: any) {
-      setError(e?.message || "Unable to load the portfolio snapshot.");
+      const result = (await loanApi.dashboard()) as DashboardStats;
+
+      setStats(result);
+      writeCache(result);
+    } catch (errorValue: unknown) {
+      const message =
+        errorValue instanceof Error
+          ? errorValue.message
+          : "Unable to load the portfolio snapshot.";
+
+      setError(message);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
+  /*
+   * Important:
+   *
+   * Do NOT put `stats` in this dependency list.
+   *
+   * If stats were included here, every successful API response
+   * would update stats, trigger the effect again, and create an
+   * unnecessary request loop.
+   */
   useEffect(() => {
-    if (!stats) {
-      void load();
+    if (stats) {
+      void loadDashboard(true);
       return;
     }
-    // Revalidate silently; the cached snapshot makes route navigation instant.
-    void load(true);
-  }, []); // intentionally run once per mounted dashboard
 
+    void loadDashboard(false);
+  }, [loadDashboard]);
+
+  /*
+   * Finance is intentionally loaded after the main portfolio
+   * snapshot. Dashboard navigation should never wait for accounting.
+   */
   useEffect(() => {
-    if (!canFinance || !user?.organizationId) return;
+    if (!canFinance) {
+      return;
+    }
+
     let cancelled = false;
-    const run = () => {
+
+    const timer = window.setTimeout(async () => {
       const today = new Date();
+
       const from = new Date(today.getFullYear(), today.getMonth(), 1)
         .toISOString()
         .slice(0, 10);
+
       const to = today.toISOString().slice(0, 10);
-      Promise.allSettled([
-        get(
-          `/reports/accounting/${user.organizationId}/profit-and-loss?from=${from}&to=${to}`,
-        ),
+
+      const [pnlResult, cashResult, expenseResult] = await Promise.allSettled([
+        accountingApi.profitAndLoss(from, to),
+
         accountingApi.cashFlow(from, to),
+
         expenseApi.summary(from, to),
-      ]).then(([pnl, cash, expenses]) => {
-        if (cancelled) return;
-        const p =
-          pnl.status === "fulfilled" ? (pnl.value?.data ?? pnl.value) : {};
-        const c = cash.status === "fulfilled" ? (cash.value ?? {}) : {};
-        const e = expenses.status === "fulfilled" ? (expenses.value ?? {}) : {};
-        setFinance({
-          income: num(p?.totalIncome),
-          expenses: num(
-            p?.totalExpense ?? p?.totalExpenses ?? e?.totalExpenses,
-          ),
-          profit: num(p?.netIncome),
-          cash: num(c?.netChangeInCash),
-          expenseCount: num(e?.count ?? e?.totalCount),
-        });
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      const pnl =
+        pnlResult.status === "fulfilled" ? (pnlResult.value ?? {}) : {};
+
+      const cash =
+        cashResult.status === "fulfilled" ? (cashResult.value ?? {}) : {};
+
+      const expenses =
+        expenseResult.status === "fulfilled" ? (expenseResult.value ?? {}) : {};
+
+      setFinance({
+        income: n(pnl.totalIncome),
+
+        expenses: n(
+          pnl.totalExpense ?? pnl.totalExpenses ?? expenses.totalExpenses,
+        ),
+
+        profit: n(pnl.netIncome),
+
+        cashMovement: n(cash.netChangeInCash ?? cash.netCashFlow),
+
+        expenseCount: n(expenses.count ?? expenses.totalCount),
       });
-    };
-    const idle = window.setTimeout(run, 500);
+    }, FINANCE_IDLE_DELAY);
+
     return () => {
       cancelled = true;
-      window.clearTimeout(idle);
+      window.clearTimeout(timer);
     };
-  }, [canFinance, user?.organizationId]);
+  }, [canFinance]);
 
-  const par = num(stats?.portfolioAtRiskPct);
-  const qualityState = useMemo(() => quality(par), [par]);
-  const disbursed = num(stats?.totalDisbursed);
-  const collected = num(stats?.totalCollected);
+  const par = n(stats?.portfolioAtRiskPct);
+
+  const risk = parTone(par);
+
+  const disbursed = n(stats?.totalDisbursed);
+
+  const collected = n(stats?.totalCollected);
+
   const collectionRate =
     disbursed > 0 ? Math.min(100, (collected / disbursed) * 100) : 0;
-  const attention =
-    num(stats?.pendingLoans) +
-    num(stats?.overdueLoans) +
-    num(stats?.defaultedLoans);
-  const recentLoans = (stats?.recentLoans || []).slice(0, 7);
 
-  if (loading && !stats) return <PageSpinner />;
+  const openAttention =
+    n(stats?.pendingLoans) + n(stats?.overdueLoans) + n(stats?.defaultedLoans);
+
+  const recentLoans = stats?.recentLoans?.slice(0, 8) ?? [];
+
+  if (loading && !stats) {
+    return <PageSpinner />;
+  }
 
   if (!stats) {
     return (
-      <main className="premium-page grid min-h-[80vh] place-items-center p-6">
+      <main className="premium-page premium-empty-state">
         <Card>
           <CardBody>
-            <div className="max-w-md text-center">
-              <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-red-50 text-xl font-black text-red-700">
-                !
-              </div>
-              <h1 className="mt-4 text-xl font-black text-[#071a2d]">
-                Portfolio snapshot unavailable
-              </h1>
-              <p className="mt-2 text-xs leading-6 text-slate-500">
-                {error ||
-                  "The lending engine did not return dashboard statistics."}
-              </p>
-              <Button className="mt-5" onClick={() => void load()}>
-                Retry
-              </Button>
-            </div>
+            <div className="premium-empty-icon">!</div>
+
+            <h1 className="premium-empty-title">
+              Portfolio snapshot unavailable
+            </h1>
+
+            <p className="premium-empty-copy">
+              {error ||
+                "The lending engine did not return the dashboard snapshot."}
+            </p>
+
+            <Button onClick={() => void loadDashboard(false)}>Retry</Button>
           </CardBody>
         </Card>
       </main>
     );
   }
 
+  const today = new Intl.DateTimeFormat(locale || "en-RW", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(new Date());
+
   return (
     <main className="premium-page pb-16">
-      <div className="mx-auto max-w-[1680px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="premium-hero relative overflow-hidden px-6 py-8 text-white sm:px-9 lg:px-11">
-          <div className="absolute -right-20 -top-28 h-72 w-72 rounded-full border border-white/10" />
-          <div className="absolute -right-8 -bottom-40 h-80 w-80 rounded-full border border-[#c9a227]/15" />
-          <div className="relative z-10 flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
+      <div className="premium-container">
+        {/* =====================================================
+            EXECUTIVE HEADER
+            ===================================================== */}
+
+        <section className="premium-command-hero">
+          <div className="premium-command-grid" />
+
+          <div className="premium-command-glow premium-command-glow-gold" />
+
+          <div className="premium-command-glow premium-command-glow-teal" />
+
+          <div className="relative z-10 grid gap-8 xl:grid-cols-[1fr_auto] xl:items-end">
             <div>
-              <div className="premium-kicker">
+              <div className="premium-hero-kicker">
+                <span className="premium-live-dot" />
                 Noble Loan · Executive portfolio
               </div>
-              <h1 className="mt-3 max-w-4xl text-3xl font-black tracking-[-.05em] sm:text-5xl">
+
+              <h1 className="premium-command-title">
                 Good to see you
                 {user?.name ? `, ${user.name.split(" ")[0]}` : ""}.
               </h1>
-              <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-300">
-                A controlled view of lending exposure, collections, credit
-                quality and finance performance — with the lending engine
-                remaining the financial authority.
+
+              <p className="premium-command-copy">
+                A decision-ready view of lending exposure, collections, credit
+                quality and finance performance. Financial values remain
+                authoritative from the lending and accounting engines.
               </p>
-              <div className="mt-5 flex flex-wrap items-center gap-3 text-[10px] font-bold uppercase tracking-[.13em] text-slate-400">
-                <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                {refreshing ? "Refreshing" : "Live portfolio snapshot"}
-                <span>•</span>
-                {new Intl.DateTimeFormat(locale || "en-RW", {
-                  dateStyle: "long",
-                }).format(new Date())}
+
+              <div className="premium-command-meta">
+                <span>{today}</span>
+
+                <span className="premium-dot-separator">•</span>
+
+                <span>
+                  {refreshing
+                    ? "Refreshing portfolio"
+                    : "Live portfolio snapshot"}
+                </span>
               </div>
             </div>
-            <div className="flex flex-wrap gap-2">
+
+            <div className="premium-command-actions">
               <Link
                 href="/dashboard/loans/new"
-                className="premium-btn premium-btn-primary px-4 py-2.5 text-[11px]"
+                className="premium-action premium-action-gold"
               >
-                Originate loan
+                <span>+</span>
+                New loan
               </Link>
+
               <Link
                 href="/dashboard/payments"
-                className="premium-btn premium-btn-secondary px-4 py-2.5 text-[11px]"
+                className="premium-action premium-action-light"
               >
                 Record payment
               </Link>
+
               <Link
                 href="/dashboard/reports"
-                className="premium-btn premium-btn-secondary px-4 py-2.5 text-[11px]"
+                className="premium-action premium-action-light"
               >
                 Management reports
               </Link>
@@ -271,68 +409,107 @@ export default function DashboardPage() {
           </div>
         </section>
 
+        {/* =====================================================
+            STALE DATA / REFRESH ERROR
+            ===================================================== */}
+
+        {error ? (
+          <div className="premium-alert premium-alert-warning">
+            <div>
+              <strong>Live refresh failed.</strong>
+
+              <span>
+                The last available portfolio snapshot remains visible.
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void loadDashboard(true)}
+              className="premium-alert-action"
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
+
+        {/* =====================================================
+            EXECUTIVE KPIs
+            ===================================================== */}
+
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
-            icon={<span>◈</span>}
+            icon="◈"
             label="Portfolio facilities"
-            value={formatNumber(num(stats.totalLoans))}
-            sub={`${formatNumber(num(stats.activeLoans))} active facilities`}
-            color="#0b2944"
+            value={formatNumber(n(stats.totalLoans))}
+            sub={`${formatNumber(n(stats.activeLoans))} active facilities`}
+            color="#0B2944"
           />
+
           <StatCard
-            icon={<span>◆</span>}
+            icon="◆"
             label="Outstanding principal"
             value={money(stats.outstandingBalance, currency, locale)}
-            sub="Current disbursed exposure"
-            color="#087f74"
+            sub="Current principal exposure"
+            color="#087F74"
           />
+
           <StatCard
-            icon={<span>↗</span>}
-            label="Gross disbursed"
-            value={money(stats.totalDisbursed, currency, locale)}
-            sub="Disbursed principal base"
-            color="#315b7f"
+            icon="↗"
+            label="Collected this month"
+            value={money(stats.collectedThisMonth, currency, locale)}
+            sub={`${collectionRate.toFixed(1)}% lifetime collection coverage`}
+            color="#315B7F"
           />
+
           <StatCard
-            icon={<span>!</span>}
+            icon="!"
             label="Portfolio at risk"
             value={`${par.toFixed(2)}%`}
-            sub={`${qualityState.label} monitoring position`}
-            color={par > 5 ? "#b42318" : "#c9a227"}
+            sub={`${risk.label} credit-quality position`}
+            color={par > 5 ? "#B42318" : "#C9A227"}
           />
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-[1.25fr_.75fr]">
+        {/* =====================================================
+            PORTFOLIO COMMAND + QUALITY
+            ===================================================== */}
+
+        <section className="grid gap-5 xl:grid-cols-[1.3fr_.7fr]">
           <Card>
             <CardHeader
               title="Portfolio command"
-              subtitle="The operating numbers management should see first."
+              subtitle="The operating indicators management should see first."
             />
+
             <CardBody>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <Metric
-                  label="Pending decisions"
-                  value={formatNumber(num(stats.pendingLoans))}
-                  sub="Awaiting credit action"
-                  href="/dashboard/approvals"
+                <MetricTile
+                  label="Total borrowers"
+                  value={formatNumber(n(stats.totalBorrowers))}
+                  detail="Borrower relationships"
+                  href="/dashboard/borrowers"
                 />
-                <Metric
+
+                <MetricTile
                   label="Overdue facilities"
-                  value={formatNumber(num(stats.overdueLoans))}
-                  sub={`${formatNumber(num(stats.latePaymentsCount))} late payments`}
+                  value={formatNumber(n(stats.overdueLoans))}
+                  detail="Requires collection attention"
                   href="/dashboard/collections"
                 />
-                <Metric
-                  label="Collections this month"
-                  value={money(stats.collectedThisMonth, currency, locale)}
-                  sub={`Lifetime ${money(stats.totalCollected, currency, locale)}`}
-                  href="/dashboard/payments"
+
+                <MetricTile
+                  label="Pending applications"
+                  value={formatNumber(n(stats.pendingLoans))}
+                  detail="Awaiting credit action"
+                  href="/dashboard/approvals"
                 />
-                <Metric
-                  label="Client relationships"
-                  value={formatNumber(num(stats.totalBorrowers))}
-                  sub={`${formatNumber(num(stats.completedLoans))} completed facilities`}
-                  href="/dashboard/borrowers"
+
+                <MetricTile
+                  label="Defaulted facilities"
+                  value={formatNumber(n(stats.defaultedLoans))}
+                  detail="Escalation / recovery"
+                  href="/dashboard/loans?status=DEFAULTED"
                 />
               </div>
             </CardBody>
@@ -340,207 +517,131 @@ export default function DashboardPage() {
 
           <Card>
             <CardHeader
-              title="Credit quality"
-              subtitle="Risk classification stays with each borrower and facility."
+              title="Portfolio quality"
+              subtitle="Credit quality stays linked to facilities and borrowers."
             />
+
             <CardBody>
-              <div className="flex items-end justify-between gap-4">
+              <div className="premium-risk-panel">
                 <div>
-                  <div className="text-4xl font-black tracking-[-.05em] text-[#071a2d]">
-                    {par.toFixed(2)}%
-                  </div>
-                  <div className="mt-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
-                    Portfolio at risk
-                  </div>
+                  <div className="premium-label">Portfolio at risk</div>
+
+                  <div className="premium-risk-number">{par.toFixed(2)}%</div>
                 </div>
-                <span
-                  className={`rounded-full border px-3 py-1.5 text-[9px] font-black uppercase tracking-wider ${qualityState.tone}`}
-                >
-                  {qualityState.label}
+
+                <span className={`premium-risk-pill ${risk.className}`}>
+                  {risk.label}
                 </span>
               </div>
-              <div className="mt-7 h-2 overflow-hidden rounded-full bg-slate-100">
+
+              <div className="premium-progress-track mt-5">
                 <div
-                  className="h-full rounded-full bg-[#087f74]"
-                  style={{ width: `${Math.min(100, Math.max(2, 100 - par))}%` }}
+                  className="premium-progress-fill"
+                  style={{
+                    width: `${Math.min(100, Math.max(0, par))}%`,
+                  }}
                 />
               </div>
-              <div className="mt-3 flex justify-between text-[10px] text-slate-500">
-                <span>Healthy portfolio share</span>
-                <span>{Math.max(0, 100 - par).toFixed(1)}%</span>
-              </div>
+
               <div className="mt-5 grid grid-cols-3 gap-2">
                 <Link
                   href="/dashboard/loans?status=ACTIVE"
-                  className="rounded-xl bg-emerald-50 p-3 text-center"
+                  className="premium-quality-cell"
                 >
-                  <b className="text-lg text-emerald-800">
-                    {num(stats.activeLoans)}
-                  </b>
-                  <span className="block text-[9px] font-black uppercase text-emerald-700">
-                    Active
-                  </span>
+                  <strong>{n(stats.activeLoans)}</strong>
+
+                  <span>Active</span>
                 </Link>
+
                 <Link
-                  href="/dashboard/loans?status=OVERDUE"
-                  className="rounded-xl bg-red-50 p-3 text-center"
+                  href="/dashboard/collections"
+                  className="premium-quality-cell premium-quality-cell-danger"
                 >
-                  <b className="text-lg text-red-800">
-                    {num(stats.overdueLoans)}
-                  </b>
-                  <span className="block text-[9px] font-black uppercase text-red-700">
-                    Overdue
-                  </span>
+                  <strong>{n(stats.overdueLoans)}</strong>
+
+                  <span>Overdue</span>
                 </Link>
+
                 <Link
                   href="/dashboard/loans?status=DEFAULTED"
-                  className="rounded-xl bg-slate-100 p-3 text-center"
+                  className="premium-quality-cell"
                 >
-                  <b className="text-lg text-slate-800">
-                    {num(stats.defaultedLoans)}
-                  </b>
-                  <span className="block text-[9px] font-black uppercase text-slate-600">
-                    Defaulted
-                  </span>
+                  <strong>{n(stats.defaultedLoans)}</strong>
+
+                  <span>Defaulted</span>
                 </Link>
               </div>
-              <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-3 text-[10px] leading-5 text-slate-500">
-                Individual credit quality is shown on the borrower profile and
-                linked loan record. The dashboard intentionally does not create
-                a separate credit-quality module.
+
+              <div className="premium-note mt-4">
+                Individual credit quality is displayed on the borrower and
+                linked loan record. No separate credit-quality page is
+                introduced.
               </div>
             </CardBody>
           </Card>
         </section>
 
-        {attention > 0 && (
-          <section className="premium-card">
-            <CardBody>
-              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <div className="premium-eyebrow">Management attention</div>
-                  <h2 className="mt-2 text-xl font-black text-[#071a2d]">
-                    {attention} portfolio items require action
-                  </h2>
-                  <p className="mt-2 text-xs leading-6 text-slate-500">
-                    Resolve exceptions from the existing operational workspaces;
-                    no parallel workflow is introduced.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Link
-                    href="/dashboard/approvals"
-                    className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3"
-                  >
-                    <b className="text-lg text-amber-800">
-                      {num(stats.pendingLoans)}
-                    </b>
-                    <span className="ml-2 text-[9px] font-black uppercase text-amber-700">
-                      Pending
-                    </span>
-                  </Link>
-                  <Link
-                    href="/dashboard/collections"
-                    className="rounded-xl border border-red-100 bg-red-50 px-4 py-3"
-                  >
-                    <b className="text-lg text-red-800">
-                      {num(stats.overdueLoans)}
-                    </b>
-                    <span className="ml-2 text-[9px] font-black uppercase text-red-700">
-                      Overdue
-                    </span>
-                  </Link>
-                  <Link
-                    href="/dashboard/loans?status=DEFAULTED"
-                    className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"
-                  >
-                    <b className="text-lg text-slate-800">
-                      {num(stats.defaultedLoans)}
-                    </b>
-                    <span className="ml-2 text-[9px] font-black uppercase text-slate-600">
-                      Defaulted
-                    </span>
-                  </Link>
-                </div>
-              </div>
-            </CardBody>
-          </section>
-        )}
+        {/* =====================================================
+            COLLECTIONS + FINANCE
+            ===================================================== */}
 
-        <section className="grid gap-5 xl:grid-cols-[1.05fr_.95fr]">
+        <section className="grid gap-5 xl:grid-cols-[1.1fr_.9fr]">
           <Card>
             <CardHeader
-              title="Collections performance"
-              subtitle="Collection coverage and current delinquency pressure."
+              title="Collections control"
+              subtitle="Overdue facilities are connected directly to the loan portfolio."
               action={
                 <Link
                   href="/dashboard/collections"
-                  className="text-[10px] font-black text-[#087f74]"
+                  className="premium-header-link"
                 >
                   Open collections →
                 </Link>
               }
             />
+
             <CardBody>
               <div className="grid gap-6 md:grid-cols-[180px_1fr] md:items-center">
                 <div
-                  className="grid h-44 w-44 place-items-center rounded-full"
+                  className="premium-donut"
                   style={{
-                    background: `conic-gradient(#087f74 ${collectionRate}%, #e9eef2 ${collectionRate}% 100%)`,
+                    background: `conic-gradient(#087F74 ${collectionRate}%, #E9EEF2 ${collectionRate}% 100%)`,
                   }}
                 >
-                  <div className="grid h-32 w-32 place-items-center rounded-full bg-white text-center shadow-inner">
-                    <div>
-                      <div className="text-3xl font-black text-[#071a2d]">
-                        {collectionRate.toFixed(1)}%
-                      </div>
-                      <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">
-                        coverage
-                      </div>
-                    </div>
+                  <div className="premium-donut-inner">
+                    <strong>{collectionRate.toFixed(1)}%</strong>
+
+                    <span>coverage</span>
                   </div>
                 </div>
-                <div className="min-w-0">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Metric
-                      label="Disbursed"
-                      value={money(disbursed, currency, locale)}
-                      sub="Lifetime disbursement base"
-                    />
-                    <Metric
-                      label="Collected"
-                      value={money(collected, currency, locale)}
-                      sub="Lifetime posted collections"
-                      href="/dashboard/payments"
-                    />
-                  </div>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-xl border border-red-100 bg-red-50 p-4">
-                      <div className="text-[9px] font-black uppercase tracking-widest text-red-500">
-                        Overdue facilities
-                      </div>
-                      <div className="mt-2 text-2xl font-black text-red-800">
-                        {num(stats.overdueLoans)}
-                      </div>
-                      <Link
-                        href="/dashboard/collections"
-                        className="mt-1 block text-[10px] font-bold text-red-700"
-                      >
-                        Review collection queue →
-                      </Link>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">
-                        Late payments
-                      </div>
-                      <div className="mt-2 text-2xl font-black text-[#071a2d]">
-                        {num(stats.latePaymentsCount)}
-                      </div>
-                      <div className="mt-1 text-[10px] text-slate-500">
-                        Backend-detected past-due installments
-                      </div>
-                    </div>
-                  </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <MetricTile
+                    label="Gross disbursed"
+                    value={money(disbursed, currency, locale)}
+                    detail="Lifetime principal base"
+                  />
+
+                  <MetricTile
+                    label="Total collected"
+                    value={money(collected, currency, locale)}
+                    detail="Posted collections"
+                    href="/dashboard/payments"
+                  />
+
+                  <MetricTile
+                    label="Overdue facilities"
+                    value={formatNumber(n(stats.overdueLoans))}
+                    detail="Facilities in arrears"
+                    href="/dashboard/collections"
+                  />
+
+                  <MetricTile
+                    label="Late payments"
+                    value={formatNumber(n(stats.latePaymentsCount))}
+                    detail="Backend-detected late payments"
+                    href="/dashboard/payments"
+                  />
                 </div>
               </div>
             </CardBody>
@@ -549,95 +650,140 @@ export default function DashboardPage() {
           <Card>
             <CardHeader
               title="Finance control"
-              subtitle="Accounting and expenses are visible here without duplicating the finance engine."
+              subtitle="Accounting and expenses remain in their existing workspaces."
               action={
                 canFinance ? (
                   <Link
                     href="/dashboard/accounting"
-                    className="text-[10px] font-black text-[#087f74]"
+                    className="premium-header-link"
                   >
                     Open accounting →
                   </Link>
                 ) : undefined
               }
             />
+
             <CardBody>
               {canFinance ? (
                 <div className="grid grid-cols-2 gap-3">
-                  <Metric
+                  <MetricTile
                     label="Income"
                     value={
                       finance
                         ? money(finance.income, currency, locale)
                         : "Loading…"
                     }
-                    sub="Current period"
+                    detail="Current accounting period"
                     href="/dashboard/accounting"
                   />
-                  <Metric
+
+                  <MetricTile
                     label="Expenses"
                     value={
                       finance
                         ? money(finance.expenses, currency, locale)
                         : "Loading…"
                     }
-                    sub={
+                    detail={
                       finance
-                        ? `${finance.expenseCount || 0} expense records`
-                        : "Current period"
+                        ? `${formatNumber(
+                            finance.expenseCount,
+                          )} expense records`
+                        : "Current accounting period"
                     }
                     href="/dashboard/expenses"
                   />
-                  <Metric
+
+                  <MetricTile
                     label="Net income"
                     value={
                       finance
                         ? money(finance.profit, currency, locale)
                         : "Loading…"
                     }
-                    sub="Current period"
+                    detail="Income less expenses"
                     href="/dashboard/reports"
                   />
-                  <Metric
+
+                  <MetricTile
                     label="Net cash movement"
                     value={
                       finance
-                        ? money(finance.cash, currency, locale)
+                        ? money(finance.cashMovement, currency, locale)
                         : "Loading…"
                     }
-                    sub="Current period"
+                    detail="Current accounting period"
                     href="/dashboard/accounting"
                   />
                 </div>
               ) : (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
-                  <div className="text-sm font-black text-[#071a2d]">
-                    Finance control is permission protected.
-                  </div>
-                  <p className="mt-2 text-xs leading-6 text-slate-500">
-                    Authorised users can access accounting and expenses from
-                    Finance & Control.
-                  </p>
+                <div className="premium-permission-box">
+                  <strong>Finance control is permission protected.</strong>
+
+                  <span>
+                    Authorised finance users can access accounting and expenses.
+                  </span>
                 </div>
               )}
             </CardBody>
           </Card>
         </section>
 
+        {/* =====================================================
+            ATTENTION QUEUE
+            ===================================================== */}
+
+        {openAttention > 0 ? (
+          <section className="premium-attention">
+            <div>
+              <div className="premium-eyebrow">Management attention</div>
+
+              <h2>{openAttention} portfolio items require action</h2>
+
+              <p>
+                Use the existing approval, loan and collections workflows to
+                resolve them.
+              </p>
+            </div>
+
+            <div className="premium-attention-actions">
+              <Link href="/dashboard/approvals">
+                <strong>{n(stats.pendingLoans)}</strong>
+
+                <span>Pending approvals</span>
+              </Link>
+
+              <Link href="/dashboard/collections">
+                <strong>{n(stats.overdueLoans)}</strong>
+
+                <span>Overdue facilities</span>
+              </Link>
+
+              <Link href="/dashboard/loans?status=DEFAULTED">
+                <strong>{n(stats.defaultedLoans)}</strong>
+
+                <span>Defaulted facilities</span>
+              </Link>
+            </div>
+          </section>
+        ) : null}
+
+        {/* =====================================================
+            RECENT LOANS + EXECUTIVE ACCESS
+            ===================================================== */}
+
         <section className="grid gap-5 xl:grid-cols-[1.35fr_.65fr]">
           <Card>
             <CardHeader
-              title="Recent lending & credit quality"
-              subtitle="Borrower-linked facility quality, not a separate credit module."
+              title="Recent lending activity"
+              subtitle="Recent facilities with borrower-linked credit quality."
               action={
-                <Link
-                  href="/dashboard/loans"
-                  className="text-[10px] font-black text-[#087f74]"
-                >
+                <Link href="/dashboard/loans" className="premium-header-link">
                   View portfolio →
                 </Link>
               }
             />
+
             <div className="overflow-x-auto">
               <table className="premium-table">
                 <thead>
@@ -650,18 +796,20 @@ export default function DashboardPage() {
                     <th>Due</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {recentLoans.length ? (
-                    recentLoans.map((loan, i) => (
-                      <tr key={loan.id ?? i}>
+                    recentLoans.map((loan) => (
+                      <tr key={loan.id}>
                         <td>
                           <Link
                             href={`/dashboard/loans/${loan.id}`}
-                            className="font-black text-[#071a2d] hover:text-[#087f74]"
+                            className="premium-table-primary"
                           >
                             {loan.referenceNumber || `#${loan.id}`}
                           </Link>
                         </td>
+
                         <td>
                           <Link
                             href={
@@ -669,11 +817,12 @@ export default function DashboardPage() {
                                 ? `/dashboard/borrowers/${loan.borrower.id}`
                                 : "/dashboard/borrowers"
                             }
-                            className="font-bold text-slate-700 hover:text-[#087f74]"
+                            className="premium-table-secondary"
                           >
                             {borrowerName(loan)}
                           </Link>
                         </td>
+
                         <td className="font-black tabular-nums">
                           {money(
                             loan.outstandingBalance ?? loan.amount,
@@ -681,35 +830,31 @@ export default function DashboardPage() {
                             locale,
                           )}
                         </td>
+
                         <td>
-                          <span className="premium-badge bg-slate-100 text-slate-600">
+                          <span className="premium-status premium-status-neutral">
                             {String(loan.status || "—")}
                           </span>
                         </td>
+
                         <td>
-                          <span
-                            className={`premium-badge ${loan.creditQuality === "CURRENT" ? "bg-emerald-50 text-emerald-700" : loan.creditQuality === "WATCH" ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700"}`}
-                          >
-                            {String(
-                              loan.creditQuality ||
-                                loan.riskCategory ||
-                                "CURRENT",
-                            )}
+                          <span className={riskTone(loan.creditQuality)}>
+                            {loan.creditQuality ||
+                              loan.riskCategory ||
+                              "CURRENT"}
                           </span>
                         </td>
+
                         <td>
                           {loan.nextDueDate
-                            ? formatDate(loan.nextDueDate, locale)
+                            ? formatDate(loan.nextDueDate, locale || "en-RW")
                             : "—"}
                         </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td
-                        colSpan={6}
-                        className="py-10 text-center text-xs text-slate-400"
-                      >
+                      <td colSpan={6} className="premium-table-empty">
                         No recent lending activity returned.
                       </td>
                     </tr>
@@ -718,18 +863,20 @@ export default function DashboardPage() {
               </table>
             </div>
           </Card>
+
           <Card>
             <CardHeader
               title="Executive access"
-              subtitle="Existing operating areas, kept intentionally focused."
+              subtitle="Focused access to existing operational workspaces."
             />
+
             <CardBody>
               <div className="grid gap-2">
                 {[
                   [
                     "Loan portfolio",
                     "/dashboard/loans",
-                    "Exposure, facilities and borrower positions",
+                    "Facilities, exposure and borrower positions",
                   ],
                   [
                     "Collections",
@@ -751,23 +898,15 @@ export default function DashboardPage() {
                     "/dashboard/reports",
                     "Management summaries and Excel exports",
                   ],
-                ].map(([title, href, desc]) => (
-                  <Link
-                    key={href}
-                    href={href}
-                    className="group rounded-xl border border-slate-200 p-4 transition hover:border-slate-300 hover:bg-slate-50"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs font-black text-[#071a2d]">
-                        {title}
-                      </div>
-                      <span className="text-[#087f74] transition group-hover:translate-x-1">
-                        →
-                      </span>
-                    </div>
-                    <div className="mt-1 text-[10px] leading-5 text-slate-500">
-                      {desc}
-                    </div>
+                ].map(([title, href, description]) => (
+                  <Link key={href} href={href} className="premium-access-row">
+                    <span>
+                      <strong>{title}</strong>
+
+                      <small>{description}</small>
+                    </span>
+
+                    <b>→</b>
                   </Link>
                 ))}
               </div>
