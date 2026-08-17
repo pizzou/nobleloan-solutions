@@ -1,27 +1,13 @@
-import axios, {
-  AxiosError,
-  AxiosHeaders,
-  AxiosInstance,
-  AxiosRequestConfig,
-} from "axios";
+import axios from "axios";
+import { currentTenantDomain } from "../lib/tenant";
 
-/**
- * ============================================================
- * API CONFIGURATION
- * ============================================================
- */
+const API = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api",
 
-const IMPORT_UPLOAD_TIMEOUT_MS = 120000;
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
-
-const API: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL,
   timeout: 20000,
+
   headers: {
     "Content-Type": "application/json",
-    Accept: "application/json",
   },
 });
 
@@ -31,19 +17,19 @@ API.interceptors.request.use(
       const token = localStorage.getItem("token");
 
       if (token) {
-        const headers =
-          config.headers instanceof AxiosHeaders
-            ? config.headers
-            : new AxiosHeaders(config.headers);
+        config.headers.Authorization = `Bearer ${token}`;
+      }
 
-        headers.set("Authorization", `Bearer ${token}`);
+      const tenantDomain = currentTenantDomain();
 
-        config.headers = headers;
+      if (tenantDomain) {
+        config.headers["X-Tenant-Domain"] = tenantDomain;
       }
     }
 
     return config;
   },
+
   (error) => {
     return Promise.reject(error);
   },
@@ -54,118 +40,83 @@ API.interceptors.response.use(
     return response;
   },
 
-  (error: AxiosError<unknown>) => {
+  (error) => {
     const status = error.response?.status;
 
-    const responseData = error.response?.data;
-
     if (status === 401 && typeof window !== "undefined") {
-      localStorage.removeItem("token");
+      const requestUrl = error.config?.url || "";
 
-      localStorage.removeItem("user");
+      const isLoginRequest = requestUrl.includes("/auth/login");
 
-      window.location.href = "/login";
+      if (!isLoginRequest) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+
+        window.location.href = "/login";
+      }
     }
 
     const message =
-      getAxiosErrorMessage(responseData) ||
+      error.response?.data?.error ||
+      error.response?.data?.message ||
       error.message ||
-      `Request failed with status ${status ?? "unknown"}`;
+      "An error occurred";
 
-    error.message = message;
-
-    const enhancedError = error as AxiosError<unknown> & {
+    const err = new Error(message) as Error & {
       status?: number;
       data?: unknown;
     };
 
-    enhancedError.status = status;
+    err.status = status;
 
-    enhancedError.data = responseData;
+    err.data = error.response?.data;
 
-    return Promise.reject(enhancedError);
+    return Promise.reject(err);
   },
 );
 
-function getAxiosErrorMessage(data: unknown): string | null {
-  if (!data) {
-    return null;
-  }
+export default API;
 
-  if (typeof data === "string") {
-    return data || null;
-  }
-
-  if (typeof data === "object") {
-    const value = data as {
-      message?: unknown;
-      error?: unknown;
-      detail?: unknown;
-    };
-
-    if (typeof value.message === "string" && value.message) {
-      return value.message;
-    }
-
-    if (typeof value.error === "string" && value.error) {
-      return value.error;
-    }
-
-    if (typeof value.detail === "string" && value.detail) {
-      return value.detail;
-    }
-  }
-
-  return null;
-}
-
-/**
- * ============================================================
- * RESPONSE UNWRAPPER
- * ============================================================
- */
-
-const unwrap = (body: unknown): unknown => {
-  if (body && typeof body === "object" && "data" in body) {
+const unwrap = (body: unknown) => {
+  if (
+    body &&
+    typeof body === "object" &&
+    "data" in (body as Record<string, unknown>)
+  ) {
     return (body as Record<string, unknown>).data;
   }
 
   return body;
 };
 
+export const get = (url: string) =>
+  API.get(url).then((response) => unwrap(response.data));
+
+export const post = (url: string, data?: unknown) =>
+  API.post(url, data).then((response) => unwrap(response.data));
+
+export const put = (url: string, data?: unknown) =>
+  API.put(url, data).then((response) => unwrap(response.data));
+
+export const del = (url: string) =>
+  API.delete(url).then((response) => unwrap(response.data));
+
 /**
- * ============================================================
- * GENERIC HTTP HELPERS
- * ============================================================
+ * =========================================================
+ * AUTH
+ * =========================================================
  */
-
-export const get = (url: string, config?: AxiosRequestConfig): Promise<any> =>
-  API.get(url, config).then((response) => unwrap(response.data));
-
-export const post = (
-  url: string,
-  data?: unknown,
-  config?: AxiosRequestConfig,
-): Promise<any> =>
-  API.post(url, data, config).then((response) => unwrap(response.data));
-
-export const put = (
-  url: string,
-  data?: unknown,
-  config?: AxiosRequestConfig,
-): Promise<any> =>
-  API.put(url, data, config).then((response) => unwrap(response.data));
-
-export const del = (url: string, config?: AxiosRequestConfig): Promise<any> =>
-  API.delete(url, config).then((response) => unwrap(response.data));
 
 export const authApi = {
   login: (email: string, password: string, mfaCode?: string, otp?: string) =>
     post("/auth/login", {
-      email,
+      email: email.trim().toLowerCase(),
+
       password,
-      mfaCode,
-      otp,
+
+      mfaCode: mfaCode?.trim() || undefined,
+
+      otp: otp?.trim() || undefined,
     }),
 
   register: (data: unknown) => post("/auth/register", data),
@@ -174,18 +125,29 @@ export const authApi = {
 };
 
 /**
- * ============================================================
- * LOAN API
- * ============================================================
+ * =========================================================
+ * LOANS
+ * =========================================================
  */
 
 export const loanApi = {
-  list: (page = 0, size = 20, status = "", type = "") =>
-    get(
-      `/loans?page=${page}&size=${size}` +
-        `${status ? `&status=${encodeURIComponent(status)}` : ""}` +
-        `${type ? `&type=${encodeURIComponent(type)}` : ""}`,
-    ),
+  list: (page = 0, size = 20, status = "", type = "") => {
+    const params = new URLSearchParams();
+
+    params.set("page", String(page));
+
+    params.set("size", String(size));
+
+    if (status) {
+      params.set("status", status);
+    }
+
+    if (type) {
+      params.set("type", type);
+    }
+
+    return get(`/loans?${params.toString()}`);
+  },
 
   get: (id: number) => get(`/loans/${id}`),
 
@@ -194,6 +156,7 @@ export const loanApi = {
   approve: (id: number, notes = "", interestRate?: number) =>
     post(`/loans/${id}/approve`, {
       notes,
+
       interestRate: interestRate != null ? String(interestRate) : undefined,
     }),
 
@@ -213,13 +176,7 @@ export const loanApi = {
       notes,
     }),
 
-  /**
-   * Dashboard metrics use the dedicated aggregate endpoint.
-   *
-   * This endpoint avoids loading the full loan/payment portfolio and
-   * is therefore substantially faster for production-sized tenants.
-   */
-  dashboard: () => get("/dashboard/stats"),
+  dashboard: () => get("/loans/dashboard"),
 
   schedule: (id: number) => get(`/loans/${id}/schedule`),
 
@@ -249,169 +206,9 @@ export const loanApi = {
 };
 
 /**
- * ============================================================
- * BRANCH API
- * ============================================================
- */
-
-export const branchApi = {
-  list: () => get("/branches"),
-};
-
-/**
- * ============================================================
- * EXPENSE API
- * ============================================================
- */
-
-export const expenseApi = {
-  list: (
-    params: {
-      page?: number;
-      size?: number;
-      category?: string;
-      branchId?: number;
-      from?: string;
-      to?: string;
-    } = {},
-  ) => {
-    const query = new URLSearchParams();
-
-    query.set("page", String(params.page ?? 0));
-
-    query.set("size", String(params.size ?? 20));
-
-    if (params.category) {
-      query.set("category", params.category);
-    }
-
-    if (params.branchId != null) {
-      query.set("branchId", String(params.branchId));
-    }
-
-    if (params.from) {
-      query.set("from", params.from);
-    }
-
-    if (params.to) {
-      query.set("to", params.to);
-    }
-
-    return get(`/expenses?${query.toString()}`);
-  },
-
-  get: (id: number) => get(`/expenses/${id}`),
-
-  summary: (from?: string, to?: string) =>
-    get(
-      `/expenses/summary${
-        from && to
-          ? `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-          : ""
-      }`,
-    ),
-
-  void: (id: number, reason?: string) =>
-    post(`/expenses/${id}/void`, {
-      reason,
-    }),
-
-  receiptUrl: (id: number) => `${API_BASE_URL}/expenses/${id}/receipt`,
-
-  create: (data: {
-    expenseDate: string;
-    category: string;
-    amount: number;
-    paymentAccountId: number;
-    branchId?: number;
-    description?: string;
-    paymentMethod: string;
-    paymentProvider?: string;
-    paymentPhoneNumber?: string;
-    paymentTransactionReference?: string;
-    paymentCode?: string;
-    cardBrand?: string;
-    cardLastFour?: string;
-    cardAuthorizationCode?: string;
-    chequeNumber?: string;
-    paymentNotes?: string;
-    receipt?: File | null;
-  }) => {
-    const form = new FormData();
-
-    form.append("expenseDate", data.expenseDate);
-
-    form.append("category", data.category);
-
-    form.append("amount", String(data.amount));
-
-    form.append("paymentAccountId", String(data.paymentAccountId));
-
-    if (data.branchId != null) {
-      form.append("branchId", String(data.branchId));
-    }
-
-    if (data.description) {
-      form.append("description", data.description);
-    }
-
-    form.append("paymentMethod", data.paymentMethod);
-
-    if (data.paymentProvider) {
-      form.append("paymentProvider", data.paymentProvider);
-    }
-
-    if (data.paymentPhoneNumber) {
-      form.append("paymentPhoneNumber", data.paymentPhoneNumber);
-    }
-
-    if (data.paymentTransactionReference) {
-      form.append(
-        "paymentTransactionReference",
-        data.paymentTransactionReference,
-      );
-    }
-
-    if (data.paymentCode) {
-      form.append("paymentCode", data.paymentCode);
-    }
-
-    if (data.cardBrand) {
-      form.append("cardBrand", data.cardBrand);
-    }
-
-    if (data.cardLastFour) {
-      form.append("cardLastFour", data.cardLastFour);
-    }
-
-    if (data.cardAuthorizationCode) {
-      form.append("cardAuthorizationCode", data.cardAuthorizationCode);
-    }
-
-    if (data.chequeNumber) {
-      form.append("chequeNumber", data.chequeNumber);
-    }
-
-    if (data.paymentNotes) {
-      form.append("paymentNotes", data.paymentNotes);
-    }
-
-    if (data.receipt) {
-      form.append("receipt", data.receipt);
-    }
-
-    return API.post("/expenses", form, {
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
-    }).then((response) => unwrap(response.data));
-  },
-};
-
-/**
- * ============================================================
- * PAYMENT API
- * ============================================================
+ * =========================================================
+ * PAYMENTS
+ * =========================================================
  */
 
 export const paymentApi = {
@@ -428,21 +225,27 @@ export const paymentApi = {
 };
 
 /**
- * ============================================================
- * BORROWER API
- * ============================================================
+ * =========================================================
+ * BORROWERS
+ * =========================================================
  */
 
 export const borrowerApi = {
-  list: (page = 0, size = 20, q = "") =>
-    get(
-      `/borrowers?page=${page}&size=${size}` +
-        `${q ? `&q=${encodeURIComponent(q)}` : ""}`,
-    ),
+  list: (page = 0, size = 20, q = "") => {
+    const params = new URLSearchParams();
+
+    params.set("page", String(page));
+
+    params.set("size", String(size));
+
+    if (q) {
+      params.set("q", q);
+    }
+
+    return get(`/borrowers?${params.toString()}`);
+  },
 
   get: (id: number) => get(`/borrowers/${id}`),
-
-  getDetails: (id: number) => get(`/borrowers/${id}/details`),
 
   create: (data: unknown) => post("/borrowers", data),
 
@@ -450,9 +253,9 @@ export const borrowerApi = {
 };
 
 /**
- * ============================================================
- * COMPLIANCE API
- * ============================================================
+ * =========================================================
+ * COMPLIANCE
+ * =========================================================
  */
 
 export const complianceApi = {
@@ -472,9 +275,9 @@ export const complianceApi = {
 };
 
 /**
- * ============================================================
- * MFA API
- * ============================================================
+ * =========================================================
+ * MFA
+ * =========================================================
  */
 
 export const mfaApi = {
@@ -489,9 +292,9 @@ export const mfaApi = {
 };
 
 /**
- * ============================================================
- * BULK API
- * ============================================================
+ * =========================================================
+ * BULK
+ * =========================================================
  */
 
 export const bulkApi = {
@@ -503,9 +306,9 @@ export const bulkApi = {
 };
 
 /**
- * ============================================================
- * ORGANIZATION API
- * ============================================================
+ * =========================================================
+ * ORGANIZATION
+ * =========================================================
  */
 
 export const orgApi = {
@@ -517,9 +320,9 @@ export const orgApi = {
 };
 
 /**
- * ============================================================
- * WEBHOOK API
- * ============================================================
+ * =========================================================
+ * WEBHOOKS
+ * =========================================================
  */
 
 export const webhookApi = {
@@ -531,9 +334,9 @@ export const webhookApi = {
 };
 
 /**
- * ============================================================
- * CURRENCY API
- * ============================================================
+ * =========================================================
+ * CURRENCY
+ * =========================================================
  */
 
 export const currencyApi = {
@@ -541,22 +344,20 @@ export const currencyApi = {
 
   convert: (from: string, to: string, amount: number) =>
     get(
-      `/currencies/convert?from=${encodeURIComponent(from)}` +
-        `&to=${encodeURIComponent(to)}` +
-        `&amount=${encodeURIComponent(String(amount))}`,
+      `/currencies/convert?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&amount=${amount}`,
     ),
 
   supported: () => get("/currencies/supported"),
 
-  refresh: () => post("/currencies/refresh"),
-
   status: () => get("/currencies/status"),
+
+  refresh: () => post("/currencies/refresh"),
 };
 
 /**
- * ============================================================
- * PRIVACY API
- * ============================================================
+ * =========================================================
+ * PRIVACY
+ * =========================================================
  */
 
 export const privacyApi = {
@@ -566,9 +367,9 @@ export const privacyApi = {
 };
 
 /**
- * ============================================================
- * CREDIT BUREAU API
- * ============================================================
+ * =========================================================
+ * CREDIT BUREAU
+ * =========================================================
  */
 
 export const creditBureauApi = {
@@ -588,12 +389,6 @@ export const creditBureauApi = {
     post(`/credit-bureau/loans/${loanId}/report/retry`),
 };
 
-/**
- * ============================================================
- * E-SIGNATURE API
- * ============================================================
- */
-
 export const esignatureApi = {
   initiate: (loanId: number, documentType = "LOAN_AGREEMENT") =>
     post(`/loans/${loanId}/esignature/initiate`, {
@@ -604,9 +399,9 @@ export const esignatureApi = {
 };
 
 /**
- * ============================================================
- * ACCOUNTING API
- * ============================================================
+ * =========================================================
+ * ACCOUNTING
+ * =========================================================
  */
 
 export const accountingApi = {
@@ -629,8 +424,6 @@ export const accountingApi = {
 
   journal: () => get("/accounting/journal"),
 
-  reconcileLegacyLoans: () => post("/accounting/legacy-loans/reconcile"),
-
   reverseEntry: (id: number, reason?: string) =>
     post(`/accounting/journal/${id}/reverse`, {
       reason,
@@ -642,38 +435,41 @@ export const accountingApi = {
 
   balanceSheet: () => get("/accounting/balance-sheet"),
 
-  profitAndLoss: (from?: string, to?: string) =>
-    get(
-      `/accounting/profit-and-loss${
-        from && to
-          ? `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-          : ""
-      }`,
-    ),
+  profitAndLoss: (from?: string, to?: string) => {
+    if (from && to) {
+      return get(
+        `/accounting/profit-and-loss?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      );
+    }
 
-  cashFlow: (from?: string, to?: string) =>
-    get(
-      `/accounting/cash-flow${
-        from && to
-          ? `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-          : ""
-      }`,
-    ),
+    return get("/accounting/profit-and-loss");
+  },
 
-  branchSummary: (from?: string, to?: string) =>
-    get(
-      `/accounting/branch-summary${
-        from && to
-          ? `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-          : ""
-      }`,
-    ),
+  cashFlow: (from?: string, to?: string) => {
+    if (from && to) {
+      return get(
+        `/accounting/cash-flow?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      );
+    }
+
+    return get("/accounting/cash-flow");
+  },
+
+  branchSummary: (from?: string, to?: string) => {
+    if (from && to) {
+      return get(
+        `/accounting/branch-summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      );
+    }
+
+    return get("/accounting/branch-summary");
+  },
 };
 
 /**
- * ============================================================
- * BANK ACCOUNT API
- * ============================================================
+ * =========================================================
+ * BANK ACCOUNTS
+ * =========================================================
  */
 
 export const bankAccountApi = {
@@ -707,9 +503,9 @@ export const bankAccountApi = {
 };
 
 /**
- * ============================================================
- * CONTACT MESSAGE API
- * ============================================================
+ * =========================================================
+ * CONTACT MESSAGES
+ * =========================================================
  */
 
 export const contactMessageApi = {
@@ -722,21 +518,9 @@ export const contactMessageApi = {
   delete: (id: number) => del(`/contact-messages/${id}`),
 };
 
-/**
- * ============================================================
- * PUBLIC API
- * ============================================================
- */
-
 export const publicApi = {
-  submitContact: (data: {
-    tenantSlug?: string;
-    name: string;
-    email?: string;
-    phone: string;
-    subject: string;
-    message: string;
-  }) => post("/public/contact", data),
+  getOrganization: () => get("/public/organization"),
+
   getTenant: (slug: string) =>
     get(`/public/tenant/${encodeURIComponent(slug)}`),
 
@@ -753,6 +537,7 @@ export const publicApi = {
   trackDashboard: (reference: string, phone: string) =>
     post("/public/dashboard", {
       reference: reference.trim(),
+
       phone: phone.trim(),
     }),
 
@@ -769,6 +554,7 @@ export const publicApi = {
 
       cardNumber?: string;
       cardCvv?: string;
+
       cardExpiryMonth?: string;
       cardExpiryYear?: string;
 
@@ -802,9 +588,6 @@ export const publicApi = {
       `/public/applications/${encodeURIComponent(reference.trim())}/documents/${doc}.pdf?phone=${encodeURIComponent(phone.trim())}`,
       {
         responseType: "blob",
-        headers: {
-          Accept: "application/pdf, */*",
-        },
       },
     ),
 
@@ -826,13 +609,11 @@ export const publicApi = {
 
     form.append("documentType", documentType);
 
-    const resolvedFileName =
-      fileName ||
-      ("name" in file && typeof file.name === "string"
-        ? file.name
-        : "upload.jpg");
-
-    form.append("file", file, resolvedFileName);
+    form.append(
+      "file",
+      file,
+      fileName || (file instanceof File ? file.name : "upload.jpg"),
+    );
 
     return API.post(
       `/public/applications/${encodeURIComponent(reference.trim())}/documents`,
@@ -842,14 +623,14 @@ export const publicApi = {
           "Content-Type": "multipart/form-data",
         },
       },
-    ).then((response) => unwrap(response.data));
+    ).then((response) => (response.data as any)?.data ?? response.data);
   },
 };
 
 /**
- * ============================================================
- * IMPORT API
- * ============================================================
+ * =========================================================
+ * LEGACY LOAN IMPORT
+ * =========================================================
  */
 
 export const importApi = {
@@ -864,9 +645,10 @@ export const importApi = {
     form.append("file", file);
 
     return API.post("/import/legacy-loans/preview", form, {
-      timeout: IMPORT_UPLOAD_TIMEOUT_MS,
-      headers: { "Content-Type": "multipart/form-data" },
-    }).then((response) => unwrap(response.data));
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    }).then((response) => (response.data as any)?.data ?? response.data);
   },
 
   commit: (file: File) => {
@@ -875,160 +657,71 @@ export const importApi = {
     form.append("file", file);
 
     return API.post("/import/legacy-loans/commit", form, {
-      timeout: IMPORT_UPLOAD_TIMEOUT_MS,
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    }).then((response) => (response.data as any)?.data ?? response.data);
+  },
+
+  batches: () => get("/import/legacy-loans/batches"),
+};
+
+/**
+ * =========================================================
+ * ACCOUNTING — EXPENSES & BRANCHES
+ * =========================================================
+ */
+export const expenseApi = {
+  list: (params?: {
+    category?: string;
+    branchId?: number;
+    from?: string;
+    to?: string;
+    page?: number;
+    size?: number;
+  }) =>
+    get(
+      `/expenses?${new URLSearchParams(
+        Object.entries(params ?? {}).reduce<Record<string, string>>(
+          (acc, [key, value]) => {
+            if (value !== undefined && value !== null && value !== "")
+              acc[key] = String(value);
+            return acc;
+          },
+          {},
+        ),
+      ).toString()}`,
+    ),
+
+  create: (data: Record<string, unknown> | FormData) => {
+    if (data instanceof FormData) {
+      return API.post("/expenses", data, {
+        headers: { "Content-Type": "multipart/form-data" },
+      }).then((response) => unwrap(response.data));
+    }
+    const form = new FormData();
+    Object.entries(data).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        form.append(key, value instanceof File ? value : String(value));
+      }
+    });
+    return API.post("/expenses", form, {
       headers: { "Content-Type": "multipart/form-data" },
     }).then((response) => unwrap(response.data));
   },
 
-  batches: () => get("/import/legacy-loans/batches"),
+  void: (id: number, reason?: string) =>
+    API.patch(`/expenses/${id}/void`, reason ? { reason } : undefined).then(
+      (response) => unwrap(response.data),
+    ),
 
-  batch: (id: number) => get(`/import/legacy-loans/batches/${id}`),
-
-  errorReportUrl: (id: number) =>
-    `${API_BASE_URL}/import/legacy-loans/batches/${id}/errors`,
+  receiptUrl: (id: number) => `${API.defaults.baseURL}/expenses/${id}/receipt`,
 };
 
-/**
- * ============================================================
- * REGULATORY / BNR API
- * ============================================================
- */
-
-export const regulatoryApi = {
-  bnrSummary: (params?: {
-    branchId?: number;
-    period?: string;
-    from?: string;
-    to?: string;
-  }) =>
-    get(
-      `/regulatory/bnr/summary${
-        params
-          ? `?${new URLSearchParams(
-              Object.entries(params)
-                .filter(
-                  ([, value]) =>
-                    value !== undefined && value !== null && value !== "",
-                )
-                .map(([key, value]) => [key, String(value)]),
-            ).toString()}`
-          : ""
-      }`,
-    ),
-
-  bnrFinancialStatement: (params?: {
-    branchId?: number;
-    period?: string;
-    from?: string;
-    to?: string;
-  }) =>
-    get(
-      `/regulatory/bnr/financial-statement${
-        params
-          ? `?${new URLSearchParams(
-              Object.entries(params)
-                .filter(
-                  ([, value]) =>
-                    value !== undefined && value !== null && value !== "",
-                )
-                .map(([key, value]) => [key, String(value)]),
-            ).toString()}`
-          : ""
-      }`,
-    ),
-
-  bnrByLoanType: (params?: {
-    branchId?: number;
-    period?: string;
-    from?: string;
-    to?: string;
-  }) =>
-    get(
-      `/regulatory/bnr/by-loan-type${
-        params
-          ? `?${new URLSearchParams(
-              Object.entries(params)
-                .filter(
-                  ([, value]) =>
-                    value !== undefined && value !== null && value !== "",
-                )
-                .map(([key, value]) => [key, String(value)]),
-            ).toString()}`
-          : ""
-      }`,
-    ),
-
-  bnrByBranch: (params?: { period?: string; from?: string; to?: string }) =>
-    get(
-      `/regulatory/bnr/by-branch${
-        params
-          ? `?${new URLSearchParams(
-              Object.entries(params)
-                .filter(
-                  ([, value]) =>
-                    value !== undefined && value !== null && value !== "",
-                )
-                .map(([key, value]) => [key, String(value)]),
-            ).toString()}`
-          : ""
-      }`,
-    ),
-
-  bnrByGender: (params?: {
-    branchId?: number;
-    period?: string;
-    from?: string;
-    to?: string;
-  }) =>
-    get(
-      `/regulatory/bnr/by-gender${
-        params
-          ? `?${new URLSearchParams(
-              Object.entries(params)
-                .filter(
-                  ([, value]) =>
-                    value !== undefined && value !== null && value !== "",
-                )
-                .map(([key, value]) => [key, String(value)]),
-            ).toString()}`
-          : ""
-      }`,
-    ),
+export const branchApi = {
+  list: () => get("/branches"),
+  create: (data: Record<string, unknown>) => post("/branches", data),
+  update: (id: number, data: Record<string, unknown>) =>
+    put(`/branches/${id}`, data),
+  delete: (id: number) => del(`/branches/${id}`),
 };
-/**
- * ============================================================
- * EXPORT MIME TYPE
- * ============================================================
- */
-
-function getExportAcceptHeader(format: string): string {
-  switch (format.toLowerCase()) {
-    case "pdf":
-      return "application/pdf";
-
-    case "csv":
-      return "text/csv";
-
-    case "xlsx":
-      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
-    default:
-      return "*/*";
-  }
-}
-
-/**
- * ============================================================
- * DEFAULT EXPORT
- * ============================================================
- */
-
-export default API;
-
-/**
- * ============================================================
- * NAMED API EXPORT
- * ============================================================
- */
-
-export { API };

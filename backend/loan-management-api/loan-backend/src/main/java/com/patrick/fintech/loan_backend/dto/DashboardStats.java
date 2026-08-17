@@ -37,6 +37,16 @@ public class DashboardStats {
 
     @JsonProperty("portfolioAtRiskPct")
     private BigDecimal portfolioAtRiskPct;
+
+    @JsonProperty("portfolioAtRiskAmount")
+    private BigDecimal portfolioAtRiskAmount;
+
+    /**
+     * Organization-level borrower demographic breakdown.
+     * Each row contains: label, count.
+     */
+    private List<Map<String, Object>> borrowerGenderBreakdown;
+
     private List<Loan> recentLoans;
     private List<Map<String, Object>> loanTypeBreakdown;
 

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { publicApi } from "@/services/api";
 import CameraCapture from "./CameraCapture";
 
@@ -150,16 +150,11 @@ export default function DocumentUploadPanel({
       e.target.value = "";
     };
 
-  const onStatusChangeRef = useRef(onStatusChange);
-  useEffect(() => {
-    onStatusChangeRef.current = onStatusChange;
-  }, [onStatusChange]);
-
   const allComplete = required.every((d) => countFor(d.type) >= d.count);
 
   useEffect(() => {
-    if (!loading) onStatusChangeRef.current?.(allComplete);
-  }, [allComplete, loading]);
+    if (!loading) onStatusChange?.(allComplete);
+  }, [allComplete, loading, onStatusChange]);
 
   if (loading) {
     return (

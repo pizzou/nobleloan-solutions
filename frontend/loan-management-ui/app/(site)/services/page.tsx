@@ -56,7 +56,7 @@ export default function ServicesPage() {
                       service.rate +
                         (service.rateType === "MONTHLY"
                           ? " per month"
-                          : " p.m."),
+                          : " p.a."),
                     ],
                     ["Max Amount", tenant.currency + " " + service.maxAmount],
                     ["Loan Term", service.term],

@@ -1,7 +1,5 @@
 "use client";
-
-import { useEffect, useMemo, useState } from "react";
-
+import { useCallback, useEffect, useState } from "react";
 import { get, post, put, del } from "../../../services/api";
 import { toast } from "../../../hooks/useToast";
 import { PageSpinner } from "../../../components/ui/Skeleton";
@@ -9,50 +7,19 @@ import { Pill } from "../../../components/ui/Badge";
 import { LOAN_TYPE_META } from "../../../lib/utils";
 
 interface Product {
-  id?: number;
+  id: number;
   name: string;
   icon?: string;
   description?: string;
   loanType: string;
   interestRate: number;
-  interestRateType: "MONTHLY";
-  managementFeePercent: number;
-  processingFeePercent: number;
-  penaltyPercent?: number;
+  interestRateType: "ANNUAL" | "MONTHLY";
+  minInterestRate?: number | null;
   minAmount: number;
   maxAmount: number | null;
   minTermMonths: number;
   maxTermMonths: number;
-  active: boolean;
-  displayOrder?: number;
-}
-
-/**
- * Form model.
- *
- * `id` is optional because:
- *
- * - new product => no id yet
- * - existing product => id is present
- *
- * Keeping one editing type removes the TypeScript union problem
- * and makes create/update logic type-safe.
- */
-interface ProductForm {
-  id?: number;
-  name: string;
-  icon: string;
-  description: string;
-  loanType: string;
-  interestRate: number;
-  interestRateType: "MONTHLY";
-  managementFeePercent: number;
   processingFeePercent: number;
-  penaltyPercent: number;
-  minAmount: number;
-  maxAmount: number | null;
-  minTermMonths: number;
-  maxTermMonths: number;
   active: boolean;
   displayOrder?: number;
 }
@@ -70,940 +37,469 @@ const LOAN_TYPES = [
   "AGRICULTURAL",
   "TRADE_FINANCE",
   "GROUP",
-] as const;
+];
 
-/**
- * These are defaults for creating a new product.
- *
- * They are NOT platform-enforced pricing rules.
- * The organization admin may change these before saving.
- *
- * Noble's current default:
- * 5% monthly interest
- * 5% monthly management fee
- * 2% processing fee
- */
-const DEFAULT_INTEREST_RATE = 5;
-const DEFAULT_MANAGEMENT_FEE = 5;
-const DEFAULT_PROCESSING_FEE = 2;
-const DEFAULT_PENALTY_RATE = 15;
-const DEFAULT_MIN_AMOUNT = 500000;
-const DEFAULT_MIN_TERM = 1;
-const DEFAULT_MAX_TERM = 6;
-
-const emptyForm = (): ProductForm => ({
-  id: undefined,
+const emptyForm = (): Partial<Product> => ({
   name: "",
   icon: "💰",
   description: "",
   loanType: "PERSONAL",
-  interestRate: DEFAULT_INTEREST_RATE,
-  interestRateType: "MONTHLY",
-  managementFeePercent: DEFAULT_MANAGEMENT_FEE,
-  processingFeePercent: DEFAULT_PROCESSING_FEE,
-  penaltyPercent: DEFAULT_PENALTY_RATE,
-  minAmount: DEFAULT_MIN_AMOUNT,
-  maxAmount: null,
-  minTermMonths: DEFAULT_MIN_TERM,
-  maxTermMonths: DEFAULT_MAX_TERM,
+  interestRate: 10,
+  interestRateType: "ANNUAL",
+  minAmount: 500000,
+  maxAmount: 100000000,
+  minTermMonths: 1,
+  maxTermMonths: 12,
+  processingFeePercent: 2,
   active: true,
-  displayOrder: 0,
 });
-
-const getMsg = (error: unknown): string => {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return "Something went wrong. Please try again.";
-};
-
-const numberValue = (value: unknown, fallback = 0): number => {
-  const parsed = Number(value);
-
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
-
-const money = (value: number | null | undefined): string => {
-  if (value == null) {
-    return "Unlimited";
-  }
-
-  return new Intl.NumberFormat("en-RW", {
-    maximumFractionDigits: 0,
-  }).format(value);
-};
 
 export default function LoanProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
-
   const [loading, setLoading] = useState(true);
-
-  /**
-   * Single consistent editing model.
-   *
-   * This fixes:
-   *
-   * Property 'id' does not exist on type 'ProductForm | ...'
-   */
-  const [editing, setEditing] = useState<ProductForm | null>(null);
-
+  const [editing, setEditing] = useState<Partial<Product> | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const [loadingAction, setLoadingAction] = useState<number | null>(null);
+  const getMsg = (err: unknown) =>
+    err instanceof Error ? err.message : "Something went wrong";
 
-  // ============================================================
-  // LOAD PRODUCTS
-  // ============================================================
-
-  const load = async (): Promise<void> => {
+  const load = useCallback(() => {
     setLoading(true);
-
-    try {
-      const response = await get("/loan-products");
-
-      const list = Array.isArray(response) ? response : [];
-
-      setProducts(
-        list.filter(
-          (item): item is Product =>
-            item != null &&
-            typeof item === "object" &&
-            typeof item.name === "string" &&
-            typeof item.loanType === "string",
-        ),
-      );
-    } catch (error) {
-      toast("error", getMsg(error));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void load();
+    get("/loan-products")
+      .then((d) => setProducts(d as Product[]))
+      .catch((e) => toast("error", getMsg(e)))
+      .finally(() => setLoading(false));
   }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  // ============================================================
-  // CREATE
-  // ============================================================
-
-  const openNew = (): void => {
-    setEditing(emptyForm());
-  };
-
-  // ============================================================
-  // EDIT
-  // ============================================================
-
-  const openEdit = (product: Product): void => {
-    setEditing({
-      id: product.id,
-
-      name: product.name ?? "",
-
-      icon: product.icon ?? "💰",
-
-      description: product.description ?? "",
-
-      loanType: product.loanType ?? "PERSONAL",
-
-      interestRate: numberValue(product.interestRate, DEFAULT_INTEREST_RATE),
-
-      interestRateType: "MONTHLY",
-
-      managementFeePercent: numberValue(
-        product.managementFeePercent,
-        DEFAULT_MANAGEMENT_FEE,
-      ),
-
-      processingFeePercent: numberValue(
-        product.processingFeePercent,
-        DEFAULT_PROCESSING_FEE,
-      ),
-
-      penaltyPercent: numberValue(product.penaltyPercent, DEFAULT_PENALTY_RATE),
-
-      minAmount: numberValue(product.minAmount, DEFAULT_MIN_AMOUNT),
-
-      maxAmount:
-        product.maxAmount == null ? null : numberValue(product.maxAmount),
-
-      minTermMonths: numberValue(product.minTermMonths, DEFAULT_MIN_TERM),
-
-      maxTermMonths: numberValue(product.maxTermMonths, DEFAULT_MAX_TERM),
-
-      active: product.active !== false,
-
-      displayOrder: product.displayOrder ?? 0,
-    });
-  };
-
-  // ============================================================
-  // UPDATE FORM
-  // ============================================================
-
-  const updateField = <K extends keyof ProductForm>(
-    key: K,
-    value: ProductForm[K],
-  ): void => {
-    setEditing((current) => {
-      if (!current) {
-        return current;
-      }
-
-      return {
-        ...current,
-        [key]: value,
-      };
-    });
-  };
-
-  // ============================================================
-  // VALIDATION
-  // ============================================================
-
-  const validateForm = (): string | null => {
-    if (!editing) {
-      return "Product form is not open.";
-    }
-
-    if (!editing.name.trim()) {
-      return "Product name is required.";
-    }
-
-    if (!Number.isFinite(editing.interestRate) || editing.interestRate < 0) {
-      return "Interest rate cannot be negative.";
-    }
-
-    if (
-      !Number.isFinite(editing.managementFeePercent) ||
-      editing.managementFeePercent < 0
-    ) {
-      return "Management fee cannot be negative.";
-    }
-
-    if (
-      !Number.isFinite(editing.processingFeePercent) ||
-      editing.processingFeePercent < 0
-    ) {
-      return "Processing fee cannot be negative.";
-    }
-
-    if (
-      !Number.isFinite(editing.penaltyPercent) ||
-      editing.penaltyPercent < 0
-    ) {
-      return "Penalty rate cannot be negative.";
-    }
-
-    if (
-      !Number.isFinite(editing.minAmount) ||
-      editing.minAmount < DEFAULT_MIN_AMOUNT
-    ) {
-      return `Minimum loan amount cannot be below ${money(
-        DEFAULT_MIN_AMOUNT,
-      )} RWF.`;
-    }
-
-    if (
-      editing.maxAmount != null &&
-      (!Number.isFinite(editing.maxAmount) ||
-        editing.maxAmount < editing.minAmount)
-    ) {
-      return "Maximum loan amount cannot be below the minimum amount.";
-    }
-
-    if (
-      !Number.isFinite(editing.minTermMonths) ||
-      editing.minTermMonths < DEFAULT_MIN_TERM
-    ) {
-      return "Minimum term must be at least 1 month.";
-    }
-
-    if (
-      !Number.isFinite(editing.maxTermMonths) ||
-      editing.maxTermMonths > DEFAULT_MAX_TERM
-    ) {
-      return "Maximum term cannot exceed 6 months.";
-    }
-
-    if (editing.maxTermMonths < editing.minTermMonths) {
-      return "Maximum term cannot be below the minimum term.";
-    }
-
-    return null;
-  };
-
-  // ============================================================
-  // SAVE
-  // ============================================================
-
-  const handleSave = async (): Promise<void> => {
-    if (!editing) {
-      return;
-    }
-
-    const validationError = validateForm();
-
-    if (validationError) {
-      toast("error", validationError);
-
-      return;
-    }
-
+  const handleSave = async () => {
+    if (!editing) return;
     setSaving(true);
-
-    /*
-     * Only send the fields supported by the
-     * backend product API.
-     *
-     * Do not send the optional frontend-only id
-     * back inside the JSON payload.
-     */
-    const payload = {
-      name: editing.name.trim(),
-
-      icon: editing.icon.trim() || "💰",
-
-      description: editing.description.trim(),
-
-      loanType: editing.loanType,
-
-      interestRate: numberValue(editing.interestRate),
-
-      interestRateType: "MONTHLY" as const,
-
-      managementFeePercent: numberValue(editing.managementFeePercent),
-
-      processingFeePercent: numberValue(editing.processingFeePercent),
-
-      penaltyPercent: numberValue(editing.penaltyPercent),
-
-      minAmount: numberValue(editing.minAmount),
-
-      maxAmount:
-        editing.maxAmount == null ? null : numberValue(editing.maxAmount),
-
-      minTermMonths: Math.round(numberValue(editing.minTermMonths)),
-
-      maxTermMonths: Math.round(numberValue(editing.maxTermMonths)),
-
-      active: editing.active !== false,
-
-      displayOrder: numberValue(editing.displayOrder, 0),
-    };
-
     try {
-      if (editing.id != null) {
-        await put(`/loan-products/${editing.id}`, payload);
-
-        toast("success", "Loan product updated successfully.");
-      } else {
-        await post("/loan-products", payload);
-
-        toast("success", "Loan product created successfully.");
-      }
-
+      if (editing.id) await put(`/loan-products/${editing.id}`, editing);
+      else await post("/loan-products", editing);
+      toast("success", editing.id ? "Product updated" : "Product created");
       setEditing(null);
-
-      await load();
-    } catch (error) {
-      toast("error", getMsg(error));
+      load();
+    } catch (err) {
+      toast("error", getMsg(err));
     } finally {
       setSaving(false);
     }
   };
 
-  // ============================================================
-  // TOGGLE
-  // ============================================================
-
-  const handleToggle = async (product: Product): Promise<void> => {
-    if (product.id == null) {
-      toast("error", "This product has no valid ID.");
-
-      return;
-    }
-
-    setLoadingAction(product.id);
-
+  const handleToggle = async (p: Product) => {
     try {
-      await post(`/loan-products/${product.id}/toggle`);
-
-      toast(
-        "success",
-        product.active
-          ? "Product disabled for new loans."
-          : "Product activated for new loans.",
-      );
-
-      await load();
-    } catch (error) {
-      toast("error", getMsg(error));
-    } finally {
-      setLoadingAction(null);
+      await post(`/loan-products/${p.id}/toggle`);
+      load();
+    } catch (err) {
+      toast("error", getMsg(err));
     }
   };
 
-  // ============================================================
-  // DELETE
-  // ============================================================
-
-  const handleDelete = async (product: Product): Promise<void> => {
-    if (product.id == null) {
-      toast("error", "This product has no valid ID.");
-
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Delete "${product.name}"? This should only be used for products that are not referenced by production loans.`,
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setLoadingAction(product.id);
-
+  const handleDelete = async (p: Product) => {
+    if (!confirm(`Delete "${p.name}"? This cannot be undone.`)) return;
     try {
-      await del(`/loan-products/${product.id}`);
-
-      toast("success", "Loan product deleted.");
-
-      await load();
-    } catch (error) {
-      toast("error", getMsg(error));
-    } finally {
-      setLoadingAction(null);
+      await del(`/loan-products/${p.id}`);
+      toast("success", "Product deleted");
+      load();
+    } catch (err) {
+      toast("error", getMsg(err));
     }
   };
 
-  // ============================================================
-  // COUNTERS
-  // ============================================================
-
-  const activeCount = useMemo(
-    () => products.filter((product) => product.active).length,
-    [products],
-  );
-
-  // ============================================================
-  // LOADING
-  // ============================================================
-
-  if (loading) {
-    return <PageSpinner />;
-  }
-
-  // ============================================================
-  // PAGE
-  // ============================================================
+  if (loading) return <PageSpinner />;
 
   return (
-    <div className="space-y-6 pb-10">
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-teal-600">
-              Organization pricing
-            </p>
-
-            <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950">
-              Loan Products
-            </h1>
-
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-              Configure the pricing your organization offers. Interest and
-              management fees are stored on each product and become the
-              contractual rates for new loans. Existing loans keep their saved
-              pricing.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={openNew}
-            className="rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700"
-          >
-            + New Product
-          </button>
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Loan Products</h1>
+          <p className="text-sm text-gray-500">
+            The real rates and limits your organization offers — drives both
+            your public website and actual loan approvals.
+          </p>
         </div>
-
-        <div className="mt-5 flex flex-wrap gap-2 text-xs font-semibold">
-          <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-600">
-            {products.length} product
-            {products.length === 1 ? "" : "s"}
-          </span>
-
-          <span className="rounded-full bg-teal-50 px-3 py-1.5 text-teal-700">
-            {activeCount} active
-          </span>
-
-          <span className="rounded-full bg-amber-50 px-3 py-1.5 text-amber-700">
-            Monthly pricing only
-          </span>
-        </div>
-      </section>
+        <button
+          onClick={() => setEditing(emptyForm())}
+          className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-semibold"
+        >
+          + New Product
+        </button>
+      </div>
 
       {products.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-16 text-center shadow-sm">
-          <div className="text-4xl">💰</div>
-
-          <p className="mt-3 font-semibold text-slate-800">
-            No loan products configured
+        <div className="bg-white rounded-xl border border-gray-200 p-16 text-center">
+          <p className="text-3xl mb-3">💰</p>
+          <p className="text-gray-500 font-medium mb-1">
+            No products configured yet.
           </p>
-
-          <p className="mx-auto mt-1 max-w-lg text-sm text-slate-500">
-            Create the products your organization actually offers. The same
-            product configuration powers new-loan validation and public website
-            pricing.
+          <p className="text-sm text-gray-400">
+            Until you add one, your website shows generic example rates that
+            don&apos;t reflect real approvals.
           </p>
-
-          <button
-            type="button"
-            onClick={openNew}
-            className="mt-5 rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-700"
-          >
-            Create your first product
-          </button>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="min-w-[1100px] w-full text-sm">
-              <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="px-4 py-3 text-left">Product</th>
-
-                  <th className="px-4 py-3 text-left">Type</th>
-
-                  <th className="px-4 py-3 text-right">Interest</th>
-
-                  <th className="px-4 py-3 text-right">Management</th>
-
-                  <th className="px-4 py-3 text-right">Processing</th>
-
-                  <th className="px-4 py-3 text-right">Amount</th>
-
-                  <th className="px-4 py-3 text-right">Term</th>
-
-                  <th className="px-4 py-3 text-left">Status</th>
-
-                  <th className="px-4 py-3 text-right">Actions</th>
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
+              <tr>
+                <th className="text-left px-4 py-3">Product</th>
+                <th className="text-left px-4 py-3">Type</th>
+                <th className="text-right px-4 py-3">Rate</th>
+                <th className="text-right px-4 py-3">Amount Range</th>
+                <th className="text-right px-4 py-3">Term</th>
+                <th className="text-left px-4 py-3">Status</th>
+                <th className="text-right px-4 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {products.map((p) => (
+                <tr
+                  key={p.id}
+                  className={`hover:bg-gray-50 ${!p.active ? "opacity-50" : ""}`}
+                >
+                  <td className="px-4 py-3 font-medium text-gray-800">
+                    {p.icon} {p.name}
+                  </td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">
+                    {p.loanType.replace("_", " ")}
+                  </td>
+                  <td className="px-4 py-3 text-right font-semibold">
+                    {p.interestRate}%
+                    <span className="text-gray-400 font-normal text-xs">
+                      {" "}
+                      {p.interestRateType === "MONTHLY" ? "/mo" : "p.a."}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-600 text-xs">
+                    {p.minAmount.toLocaleString()} –{" "}
+                    {p.maxAmount !== null ? (
+                      p.maxAmount.toLocaleString()
+                    ) : (
+                      <span className="text-teal-600 font-semibold">
+                        Unlimited
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-600 text-xs">
+                    {p.minTermMonths}–{p.maxTermMonths} mo
+                  </td>
+                  <td className="px-4 py-3">
+                    <button onClick={() => handleToggle(p)}>
+                      <Pill
+                        label={p.active ? "Active" : "Inactive"}
+                        color={p.active ? "green" : "gray"}
+                      />
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 text-right space-x-3">
+                    <button
+                      onClick={() => setEditing(p)}
+                      className="text-teal-600 hover:underline text-xs font-semibold"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(p)}
+                      className="text-red-500 hover:underline text-xs font-semibold"
+                    >
+                      Delete
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-
-              <tbody className="divide-y divide-slate-100">
-                {products.map((product) => (
-                  <tr
-                    key={product.id ?? `${product.loanType}-${product.name}`}
-                    className={`transition hover:bg-slate-50 ${
-                      !product.active ? "opacity-60" : ""
-                    }`}
-                  >
-                    <td className="px-4 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-lg">
-                          {product.icon || "💰"}
-                        </div>
-
-                        <div>
-                          <div className="font-semibold text-slate-800">
-                            {product.name}
-                          </div>
-
-                          <div className="mt-0.5 text-xs text-slate-400">
-                            {product.description || "No description"}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-
-                    <td className="px-4 py-4 text-xs text-slate-500">
-                      {LOAN_TYPE_META[product.loanType]?.label ??
-                        product.loanType.replace(/_/g, " ")}
-                    </td>
-
-                    <td className="px-4 py-4 text-right">
-                      <span className="font-bold text-blue-700">
-                        {product.interestRate}%
-                      </span>
-
-                      <span className="ml-1 text-xs text-slate-400">/mo</span>
-                    </td>
-
-                    <td className="px-4 py-4 text-right">
-                      <span className="font-bold text-purple-700">
-                        {product.managementFeePercent}%
-                      </span>
-
-                      <span className="ml-1 text-xs text-slate-400">/mo</span>
-                    </td>
-
-                    <td className="px-4 py-4 text-right text-slate-600">
-                      {product.processingFeePercent}%
-                    </td>
-
-                    <td className="px-4 py-4 text-right text-xs text-slate-600">
-                      {money(product.minAmount)} – {money(product.maxAmount)}
-                    </td>
-
-                    <td className="px-4 py-4 text-right text-xs text-slate-600">
-                      {product.minTermMonths}–{product.maxTermMonths} mo
-                    </td>
-
-                    <td className="px-4 py-4">
-                      <button
-                        type="button"
-                        disabled={loadingAction === product.id}
-                        onClick={() => void handleToggle(product)}
-                      >
-                        <Pill
-                          label={product.active ? "Active" : "Inactive"}
-                          color={product.active ? "green" : "gray"}
-                        />
-                      </button>
-                    </td>
-
-                    <td className="px-4 py-4 text-right">
-                      <div className="flex justify-end gap-3">
-                        <button
-                          type="button"
-                          onClick={() => openEdit(product)}
-                          className="text-xs font-semibold text-teal-700 hover:underline"
-                        >
-                          Edit pricing
-                        </button>
-
-                        <button
-                          type="button"
-                          disabled={loadingAction === product.id}
-                          onClick={() => void handleDelete(product)}
-                          className="text-xs font-semibold text-red-600 hover:underline disabled:opacity-50"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
       {editing && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
-          onMouseDown={() => setEditing(null)}
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={() => setEditing(null)}
         >
           <div
-            className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl"
-            onMouseDown={(event) => event.stopPropagation()}
+            className="bg-white rounded-xl p-6 w-full max-w-lg space-y-4 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-teal-600">
-                  Contract pricing
-                </p>
+            <h3 className="font-bold text-gray-900">
+              {editing.id ? "Edit Product" : "New Loan Product"}
+            </h3>
 
-                <h2 className="mt-1 text-xl font-black text-slate-950">
-                  {editing.id != null
-                    ? "Edit loan product"
-                    : "Create loan product"}
-                </h2>
-
-                <p className="mt-1 text-xs leading-5 text-slate-500">
-                  These settings apply to new loans created from this product.
-                  Changing them does not reprice existing loans.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setEditing(null)}
-                className="rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="mt-6 space-y-5">
-              <div className="grid grid-cols-4 gap-3">
-                <input
-                  className="col-span-1 rounded-xl border border-slate-200 p-3 text-center text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                  placeholder="Icon"
-                  value={editing.icon ?? ""}
-                  onChange={(event) => updateField("icon", event.target.value)}
-                />
-
-                <input
-                  className="col-span-3 rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                  placeholder="Product name"
-                  value={editing.name ?? ""}
-                  onChange={(event) => updateField("name", event.target.value)}
-                />
-              </div>
-
-              <textarea
-                className="w-full resize-none rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                rows={3}
-                placeholder="Description shown on the public website"
-                value={editing.description ?? ""}
-                onChange={(event) =>
-                  updateField("description", event.target.value)
+            <div className="grid grid-cols-4 gap-3">
+              <input
+                className="col-span-1 border border-gray-300 rounded-lg p-2 text-sm text-center"
+                placeholder="Icon"
+                value={editing.icon ?? ""}
+                onChange={(e) =>
+                  setEditing({ ...editing, icon: e.target.value })
                 }
               />
+              <input
+                className="col-span-3 border border-gray-300 rounded-lg p-2 text-sm"
+                placeholder="Product name"
+                value={editing.name ?? ""}
+                onChange={(e) =>
+                  setEditing({ ...editing, name: e.target.value })
+                }
+              />
+            </div>
 
-              <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Loan Type
+            <textarea
+              className="w-full border border-gray-300 rounded-lg p-2 text-sm resize-none"
+              rows={2}
+              placeholder="Description shown on your website"
+              value={editing.description ?? ""}
+              onChange={(e) =>
+                setEditing({ ...editing, description: e.target.value })
+              }
+            />
+
+            <div>
+              <label className="text-xs font-semibold text-gray-500">
+                Loan Type (drives which product applies when this type of loan
+                is created)
+              </label>
+              <select
+                className="w-full border border-gray-300 rounded-lg p-2 text-sm mt-1"
+                value={editing.loanType ?? "PERSONAL"}
+                onChange={(e) =>
+                  setEditing({ ...editing, loanType: e.target.value })
+                }
+              >
+                {LOAN_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {LOAN_TYPE_META[t]?.label ?? t.replace("_", " ")}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-gray-500">
+                  Interest Rate (
+                  {editing.interestRateType === "MONTHLY"
+                    ? "% per month"
+                    : "% p.a."}
+                  )
                 </label>
-
-                <select
-                  className="mt-1 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                  value={editing.loanType ?? "PERSONAL"}
-                  onChange={(event) =>
-                    updateField("loanType", event.target.value)
-                  }
-                >
-                  {LOAN_TYPES.map((type) => (
-                    <option key={type} value={type}>
-                      {LOAN_TYPE_META[type]?.label ?? type.replace(/_/g, " ")}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-blue-600">
-                    Monthly Interest Rate
-                  </label>
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    className="mt-2 w-full rounded-xl border border-blue-200 bg-white p-3 text-lg font-bold outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    value={editing.interestRate ?? 0}
-                    onChange={(event) =>
-                      updateField(
-                        "interestRate",
-                        numberValue(event.target.value),
-                      )
+                <div className="flex rounded-md border border-gray-300 overflow-hidden text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditing({ ...editing, interestRateType: "ANNUAL" })
                     }
-                  />
-
-                  <p className="mt-2 text-xs text-blue-700">
-                    Example: 5 means 5% per month. This is
-                    organization-specific.
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-purple-100 bg-purple-50/60 p-4">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-purple-600">
-                    Monthly Management Fee
-                  </label>
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    className="mt-2 w-full rounded-xl border border-purple-200 bg-white p-3 text-lg font-bold outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
-                    value={editing.managementFeePercent ?? 0}
-                    onChange={(event) =>
-                      updateField(
-                        "managementFeePercent",
-                        numberValue(event.target.value),
-                      )
+                    className={`px-2 py-0.5 transition-colors ${
+                      (editing.interestRateType ?? "ANNUAL") === "ANNUAL"
+                        ? "bg-teal-600 text-white"
+                        : "bg-white text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    p.a.
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditing({ ...editing, interestRateType: "MONTHLY" })
                     }
-                  />
-
-                  <p className="mt-2 text-xs text-purple-700">
-                    Example: 5 means 5% per month. It is charged separately from
-                    interest.
-                  </p>
+                    className={`px-2 py-0.5 border-l border-gray-300 transition-colors ${
+                      editing.interestRateType === "MONTHLY"
+                        ? "bg-teal-600 text-white"
+                        : "bg-white text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    per month
+                  </button>
                 </div>
               </div>
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-500">
-                    Processing Fee (%)
-                  </label>
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    className="mt-1 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                    value={editing.processingFeePercent ?? 0}
-                    onChange={(event) =>
-                      updateField(
-                        "processingFeePercent",
-                        numberValue(event.target.value),
-                      )
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-500">
-                    Penalty (%)
-                  </label>
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    className="mt-1 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                    value={editing.penaltyPercent ?? DEFAULT_PENALTY_RATE}
-                    onChange={(event) =>
-                      updateField(
-                        "penaltyPercent",
-                        numberValue(event.target.value),
-                      )
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-500">
-                    Minimum Amount
-                  </label>
-
-                  <input
-                    type="number"
-                    min={DEFAULT_MIN_AMOUNT}
-                    className="mt-1 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                    value={editing.minAmount ?? DEFAULT_MIN_AMOUNT}
-                    onChange={(event) =>
-                      updateField("minAmount", numberValue(event.target.value))
-                    }
-                  />
-                </div>
+              <input
+                type="number"
+                step="0.1"
+                className="w-full border border-gray-300 rounded-lg p-2 text-sm mt-1"
+                value={editing.interestRate ?? 0}
+                onChange={(e) =>
+                  setEditing({
+                    ...editing,
+                    interestRate: Number(e.target.value),
+                  })
+                }
+              />
+              <div className="flex gap-1.5 mt-1.5">
+                {(editing.interestRateType === "MONTHLY"
+                  ? [6, 8, 10]
+                  : [10, 12, 15]
+                ).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setEditing({ ...editing, interestRate: r })}
+                    className={`text-xs px-2.5 py-1 rounded border font-semibold transition-colors
+                      ${editing.interestRate === r ? "bg-teal-600 text-white border-teal-600" : "border-gray-300 text-gray-600 hover:border-teal-400"}`}
+                  >
+                    {r}%
+                  </button>
+                ))}
               </div>
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="text-xs font-bold text-slate-500">
-                    Maximum Amount
-                  </label>
-
-                  <input
-                    type="number"
-                    min={DEFAULT_MIN_AMOUNT}
-                    disabled={editing.maxAmount === null}
-                    className="mt-1 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none disabled:bg-slate-100 disabled:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                    value={editing.maxAmount == null ? "" : editing.maxAmount}
-                    placeholder={editing.maxAmount == null ? "Unlimited" : ""}
-                    onChange={(event) =>
-                      updateField(
-                        "maxAmount",
-                        event.target.value === ""
-                          ? null
-                          : numberValue(event.target.value),
-                      )
-                    }
-                  />
-
-                  <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-slate-500">
-                    <input
-                      type="checkbox"
-                      checked={editing.maxAmount === null}
-                      onChange={(event) =>
-                        updateField(
-                          "maxAmount",
-                          event.target.checked ? null : DEFAULT_MIN_AMOUNT,
-                        )
-                      }
-                    />
-                    Unlimited maximum amount
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-bold text-slate-500">
-                      Minimum Term
-                    </label>
-
-                    <input
-                      type="number"
-                      min={DEFAULT_MIN_TERM}
-                      max={DEFAULT_MAX_TERM}
-                      className="mt-1 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                      value={editing.minTermMonths ?? DEFAULT_MIN_TERM}
-                      onChange={(event) =>
-                        updateField(
-                          "minTermMonths",
-                          Math.round(numberValue(event.target.value)),
-                        )
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-slate-500">
-                      Maximum Term
-                    </label>
-
-                    <input
-                      type="number"
-                      min={DEFAULT_MIN_TERM}
-                      max={DEFAULT_MAX_TERM}
-                      className="mt-1 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                      value={editing.maxTermMonths ?? DEFAULT_MAX_TERM}
-                      onChange={(event) =>
-                        updateField(
-                          "maxTermMonths",
-                          Math.round(numberValue(event.target.value)),
-                        )
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+              <div className="mt-2">
+                <label className="text-xs font-semibold text-gray-500">
+                  Negotiable down to (optional)
+                </label>
                 <input
-                  type="checkbox"
-                  checked={editing.active !== false}
-                  onChange={(event) =>
-                    updateField("active", event.target.checked)
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  placeholder="Not negotiable — approve at listed rate only"
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm mt-1"
+                  value={editing.minInterestRate ?? ""}
+                  onChange={(e) =>
+                    setEditing({
+                      ...editing,
+                      minInterestRate:
+                        e.target.value === "" ? null : Number(e.target.value),
+                    })
                   }
                 />
-                Active — visible on the public website and available for new
-                loans
-              </label>
-
-              <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row">
-                <button
-                  type="button"
-                  onClick={() => setEditing(null)}
-                  className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => void handleSave()}
-                  disabled={saving}
-                  className="flex-1 rounded-xl bg-teal-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {saving
-                    ? "Saving…"
-                    : editing.id != null
-                      ? "Save Product Changes"
-                      : "Create Product"}
-                </button>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Lets a loan officer approve this product below the listed
+                  rate, down to this floor — e.g. 10% advertised, 6% floor for
+                  negotiated deals. Leave blank if the rate isn&apos;t
+                  negotiable.
+                </p>
               </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-500">
+                  Processing Fee (%)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm mt-1"
+                  value={editing.processingFeePercent ?? 2}
+                  onChange={(e) =>
+                    setEditing({
+                      ...editing,
+                      processingFeePercent: Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500">
+                  Min Amount
+                </label>
+                <input
+                  type="number"
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm mt-1"
+                  value={editing.minAmount ?? 0}
+                  onChange={(e) =>
+                    setEditing({
+                      ...editing,
+                      minAmount: Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500">
+                  Max Amount
+                </label>
+                <input
+                  type="number"
+                  disabled={editing.maxAmount === null}
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm mt-1 disabled:bg-gray-100 disabled:text-gray-400"
+                  value={editing.maxAmount ?? ""}
+                  placeholder={editing.maxAmount === null ? "Unlimited" : ""}
+                  onChange={(e) =>
+                    setEditing({
+                      ...editing,
+                      maxAmount: Number(e.target.value),
+                    })
+                  }
+                />
+                <label className="flex items-center gap-1.5 text-xs text-gray-500 mt-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editing.maxAmount === null}
+                    onChange={(e) =>
+                      setEditing({
+                        ...editing,
+                        maxAmount: e.target.checked ? null : 5000000,
+                      })
+                    }
+                  />
+                  No maximum (unlimited)
+                </label>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500">
+                  Min Term (months)
+                </label>
+                <input
+                  type="number"
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm mt-1"
+                  value={editing.minTermMonths ?? 0}
+                  onChange={(e) =>
+                    setEditing({
+                      ...editing,
+                      minTermMonths: Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500">
+                  Max Term (months)
+                </label>
+                <input
+                  type="number"
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm mt-1"
+                  value={editing.maxTermMonths ?? 0}
+                  onChange={(e) =>
+                    setEditing({
+                      ...editing,
+                      maxTermMonths: Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={editing.active ?? true}
+                onChange={(e) =>
+                  setEditing({ ...editing, active: e.target.checked })
+                }
+              />
+              Active (visible on website and available for new loans)
+            </label>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={handleSave}
+                disabled={saving || !editing.name}
+                className="flex-1 bg-teal-600 text-white rounded-lg py-2.5 text-sm font-semibold disabled:opacity-50"
+              >
+                {saving
+                  ? "Saving…"
+                  : editing.id
+                    ? "Save Changes"
+                    : "Create Product"}
+              </button>
+              <button
+                onClick={() => setEditing(null)}
+                className="px-5 border border-gray-300 rounded-lg py-2.5 text-sm font-medium"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>

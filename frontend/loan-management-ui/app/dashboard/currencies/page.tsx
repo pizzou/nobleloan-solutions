@@ -30,7 +30,7 @@ export default function CurrenciesPage() {
   }, [base]);
 
   useEffect(() => {
-    void load();
+    load();
   }, [load]);
 
   const handleRefresh = async () => {

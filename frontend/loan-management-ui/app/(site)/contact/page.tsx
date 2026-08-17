@@ -62,13 +62,13 @@ export default function ContactPage() {
     <div>
       {/* Hero */}
       <section
-        className="relative overflow-hidden py-24 text-center text-white"
+        className="py-20 text-white text-center"
         style={{
-          background: `radial-gradient(circle at 88% 12%, ${accent}22, transparent 30%), linear-gradient(135deg, ${primary} 0%, #07152A 100%)`,
+          background: `linear-gradient(135deg, ${primary} 0%, #0a4a2b 100%)`,
         }}
       >
         <div className="max-w-3xl mx-auto px-4">
-          <h1 className="text-4xl font-black tracking-tight md:text-5xl">
+          <h1 className="text-4xl md:text-5xl font-extrabold mb-4">
             Get in Touch
           </h1>
           <p className="text-white/80 text-lg">
@@ -103,7 +103,7 @@ export default function ContactPage() {
                 {
                   icon: "✉️",
                   label: "Email",
-                  value: tenant.contactEmail ?? "info@nobleloansolutions.rw",
+                  value: tenant.contactEmail ?? "info@growthfinance.rw",
                   sub: "We reply within 24 hours",
                 },
                 {

@@ -29,6 +29,37 @@ public interface BorrowerRepository extends JpaRepository<Borrower, Long> {
      */
     long countByOrganization_Id(Long organizationId);
 
+    /**
+     * Dashboard demographic aggregate. The normalization deliberately treats
+     * MALE/M and FEMALE/F as the same regulatory category and keeps every
+     * other/blank value in OTHER. No borrower entities are loaded.
+     */
+    @Query("""
+            SELECT
+                CASE
+                    WHEN UPPER(TRIM(b.gender)) IN ('MALE', 'M') THEN 'MALE'
+                    WHEN UPPER(TRIM(b.gender)) IN ('FEMALE', 'F') THEN 'FEMALE'
+                    ELSE 'OTHER'
+                END,
+                COUNT(b)
+            FROM Borrower b
+            WHERE b.organization.id = :organizationId
+            GROUP BY
+                CASE
+                    WHEN UPPER(TRIM(b.gender)) IN ('MALE', 'M') THEN 'MALE'
+                    WHEN UPPER(TRIM(b.gender)) IN ('FEMALE', 'F') THEN 'FEMALE'
+                    ELSE 'OTHER'
+                END
+            ORDER BY
+                CASE
+                    WHEN UPPER(TRIM(b.gender)) IN ('MALE', 'M') THEN 1
+                    WHEN UPPER(TRIM(b.gender)) IN ('FEMALE', 'F') THEN 2
+                    ELSE 3
+                END
+            """)
+    List<Object[]> getDashboardGenderBreakdown(
+            @Param("organizationId") Long organizationId);
+
     @EntityGraph(attributePaths = { "organization" })
     Page<Borrower> findByOrganization(Organization organization, Pageable pageable);
 

@@ -1,6 +1,5 @@
 "use client";
-
-import { Suspense, useRef, useState } from "react";
+import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTenant } from "../layout";
 import { useOnlineStatus } from "../../../hooks/useOnlineStatus";
@@ -10,45 +9,10 @@ import DocumentUploadPanel from "../../../components/DocumentUploadPanel";
 
 type Step = 1 | 2 | 3 | 4;
 
-/**
- * ============================================================
- * PAGE WRAPPER
- * ============================================================
- *
- * Next.js requires useSearchParams() to be rendered inside
- * a Suspense boundary when the page is statically generated.
- */
 export default function ApplyPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen flex items-center justify-center px-4 py-20">
-          <div className="text-center">
-            <div className="w-10 h-10 border-4 border-gray-200 border-t-teal-600 rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-gray-500 text-sm">Loading loan application…</p>
-          </div>
-        </div>
-      }
-    >
-      <ApplyPageContent />
-    </Suspense>
-  );
-}
-
-/**
- * ============================================================
- * APPLICATION CONTENT
- * ============================================================
- *
- * useSearchParams() is intentionally kept here because this
- * component is rendered inside Suspense above.
- */
-function ApplyPageContent() {
   const searchParams = useSearchParams();
-
   const slug = TENANT_SLUG;
   const tenant = useTenant();
-
   const [step, setStep] = useState<Step>(1);
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -56,8 +20,6 @@ function ApplyPageContent() {
   const [queuedOffline, setQueuedOffline] = useState(false);
   const [error, setError] = useState("");
   const [docsComplete, setDocsComplete] = useState(false);
-
-  const idempotencyKeyRef = useRef<string | null>(null);
 
   const [form, setForm] = useState({
     // Personal
@@ -74,12 +36,10 @@ function ApplyPageContent() {
     spouseNationalId: "",
     spousePhone: "",
     spouseConsent: false,
-
     // Address
     address: "",
     city: "",
     province: "",
-
     // Employment
     employmentType: "EMPLOYED",
     employerName: "",
@@ -88,253 +48,94 @@ function ApplyPageContent() {
     employmentTypeOther: "",
     monthlyIncome: "",
     monthlyExpenses: "",
-
     // Loan
-    loanType: searchParams.get("type")?.replace(/_/g, " ") || "Personal Loans",
+    loanType: searchParams?.get("type")?.replace(/_/g, " ") || "Personal Loans",
     amount: "",
     durationMonths: "12",
     purpose: "",
     collateral: "",
     collateralValue: "",
-
     // Declaration
     acceptedTerms: false,
   });
 
   const online = useOnlineStatus();
 
-  if (!tenant) {
-    return null;
-  }
-
+  if (!tenant) return null;
   const primary = tenant.primaryColor;
   const accent = tenant.accentColor;
-
-  // ============================================================
-  // GENERIC FORM SETTER
-  // ============================================================
-
   const set =
     (k: string) =>
     (
       e: React.ChangeEvent<
         HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
       >,
-    ) => {
-      const target = e.target as HTMLInputElement;
-
+    ) =>
       setForm((f) => ({
         ...f,
-        [k]: target.type === "checkbox" ? target.checked : target.value,
+        [k]:
+          (e.target as HTMLInputElement).type === "checkbox"
+            ? (e.target as HTMLInputElement).checked
+            : e.target.value,
       }));
-    };
 
-  // ============================================================
-  // NATIONAL ID VALIDATION
-  // Rwanda national IDs are exactly 16 digits.
-  // ============================================================
-
+  // National ID: Rwanda national IDs are exactly 16 digits, numbers only.
   const NATIONAL_ID_REGEX = /^\d{16}$/;
-
-  const isNationalIdValid = (value: string) => {
-    return NATIONAL_ID_REGEX.test(value);
-  };
-
+  const isNationalIdValid = (v: string) => NATIONAL_ID_REGEX.test(v);
   const setNationalId =
     (k: "nationalId" | "spouseNationalId") =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const digitsOnly = e.target.value.replace(/\D/g, "").slice(0, 16);
-
-      setForm((f) => ({
-        ...f,
-        [k]: digitsOnly,
-      }));
+      setForm((f) => ({ ...f, [k]: digitsOnly }));
     };
 
-  // ============================================================
-  // PHONE VALIDATION
-  // ============================================================
-
+  // Phone: numbers only, must include a country code (e.g. +250 7XX XXX XXX -> 12 digits after '+').
   const PHONE_REGEX = /^\+\d{10,15}$/;
-
-  const isPhoneValid = (value: string) => {
-    return PHONE_REGEX.test(value);
-  };
-
+  const isPhoneValid = (v: string) => PHONE_REGEX.test(v);
   const setPhone =
     (k: "phone" | "spousePhone") =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      let value = e.target.value.replace(/[^\d+]/g, "");
-
-      value = (value.startsWith("+") ? "+" : "") + value.replace(/\+/g, "");
-
-      setForm((f) => ({
-        ...f,
-        [k]: value,
-      }));
+      let v = e.target.value.replace(/[^\d+]/g, ""); // keep digits and '+'
+      v = (v.startsWith("+") ? "+" : "") + v.replace(/\+/g, "");
+      setForm((f) => ({ ...f, [k]: v }));
     };
-
-  // ============================================================
-  // AGE / DATE OF BIRTH VALIDATION
-  // ============================================================
-
-  const getMaximumDateOfBirth = (): string => {
-    const today = new Date();
-
-    const maximumDob = new Date(
-      today.getFullYear() - 18,
-      today.getMonth(),
-      today.getDate(),
-    );
-
-    const year = maximumDob.getFullYear();
-    const month = String(maximumDob.getMonth() + 1).padStart(2, "0");
-    const day = String(maximumDob.getDate()).padStart(2, "0");
-
-    return `${year}-${month}-${day}`;
-  };
-
-  /**
-   * Checks whether the applicant is at least 18 years old.
-   *
-   * The birthday itself counts.
-   *
-   * Example:
-   *
-   * Today: 2026-08-11
-   * DOB:   2008-08-11
-   * Age:   18 -> VALID
-   *
-   * DOB:   2008-08-12
-   * Age:   17 -> INVALID
-   */
-  const isAtLeast18 = (dateOfBirth: string): boolean => {
-    if (!dateOfBirth) {
-      return false;
-    }
-
-    const today = new Date();
-
-    const dob = new Date(`${dateOfBirth}T00:00:00`);
-
-    if (Number.isNaN(dob.getTime())) {
-      return false;
-    }
-
-    // Prevent future DOBs.
-    if (dob > today) {
-      return false;
-    }
-
-    let age = today.getFullYear() - dob.getFullYear();
-
-    const monthDifference = today.getMonth() - dob.getMonth();
-
-    if (
-      monthDifference < 0 ||
-      (monthDifference === 0 && today.getDate() < dob.getDate())
-    ) {
-      age--;
-    }
-
-    return age >= 18;
-  };
-
-  const maximumDateOfBirth = getMaximumDateOfBirth();
-
-  // ============================================================
-  // SUBMIT APPLICATION
-  // ============================================================
 
   const handleSubmit = async () => {
     setSaving(true);
     setError("");
 
-    // ----------------------------------------------------------
-    // FINAL CLIENT-SIDE AGE VALIDATION
-    // ----------------------------------------------------------
-
-    if (!form.dateOfBirth) {
-      setError("Date of birth is required.");
-      setSaving(false);
-      return;
-    }
-
-    if (!isAtLeast18(form.dateOfBirth)) {
-      setError(
-        "The applicant must be at least 18 years old to apply for a loan.",
-      );
-      setSaving(false);
-      return;
-    }
-
-    // ----------------------------------------------------------
-    // IDEMPOTENCY KEY
-    // ----------------------------------------------------------
-
-    if (!idempotencyKeyRef.current) {
-      idempotencyKeyRef.current =
-        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-          ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    }
-
-    const idempotencyKey = idempotencyKeyRef.current;
-
-    // ----------------------------------------------------------
-    // OFFLINE SUBMISSION
-    // ----------------------------------------------------------
-
+    // Offline (or can't reach the server) — save locally and submit automatically later,
+    // rather than losing everything the applicant just filled in.
     if (!online) {
       try {
         await queueAction({
           url: "/public/loan-application",
           method: "POST",
-          body: {
-            ...form,
-            tenantSlug: slug,
-          },
-
+          body: { ...form, tenantSlug: slug },
           label: `Loan application — ${form.firstName} ${form.lastName} (${form.amount} ${tenant.currency})`,
         });
-
         setReference("Will be assigned once submitted");
-
         setQueuedOffline(true);
         setSubmitted(true);
-      } catch {
+      } catch (e: any) {
         setError(
           "Could not save your application on this device. Please try again once you're back online.",
         );
       } finally {
         setSaving(false);
       }
-
       return;
     }
-
-    // ----------------------------------------------------------
-    // ONLINE SUBMISSION
-    // ----------------------------------------------------------
 
     try {
       const API_BASE =
         process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
-
       const res = await fetch(`${API_BASE}/public/loan-application`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": idempotencyKey,
-        },
-        body: JSON.stringify({
-          ...form,
-          tenantSlug: slug,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, tenantSlug: slug }),
       });
-
       const json = await res.json();
-
       if (!res.ok || json.success === false) {
         throw new Error(
           json.error ||
@@ -342,32 +143,20 @@ function ApplyPageContent() {
             "Could not submit your application. Please try again.",
         );
       }
-
       setReference(json.data?.reference || "");
-
       setSubmitted(true);
-
-      idempotencyKeyRef.current = null;
-    } catch (e: unknown) {
-      // --------------------------------------------------------
-      // NETWORK FAILURE
-      // --------------------------------------------------------
-
+    } catch (e: any) {
+      // A network failure here (not a validation error from the server) almost always means
+      // connectivity dropped mid-submit — queue it instead of making the applicant redo everything.
       if (e instanceof TypeError) {
         try {
           await queueAction({
             url: "/public/loan-application",
             method: "POST",
-            body: {
-              ...form,
-              tenantSlug: slug,
-            },
-
+            body: { ...form, tenantSlug: slug },
             label: `Loan application — ${form.firstName} ${form.lastName} (${form.amount} ${tenant.currency})`,
           });
-
           setReference("Will be assigned once submitted");
-
           setQueuedOffline(true);
           setSubmitted(true);
         } catch {
@@ -376,58 +165,33 @@ function ApplyPageContent() {
           );
         }
       } else {
-        const message =
-          e instanceof Error
-            ? e.message
-            : "Something went wrong. Please check your connection and try again.";
-
-        setError(message);
+        setError(
+          e.message ||
+            "Something went wrong. Please check your connection and try again.",
+        );
       }
     } finally {
       setSaving(false);
     }
   };
 
-  // ============================================================
-  // STEPS
-  // ============================================================
-
   const steps = [
-    {
-      n: 1,
-      label: "Personal Info",
-    },
-    {
-      n: 2,
-      label: "Employment",
-    },
-    {
-      n: 3,
-      label: "Loan Details",
-    },
-    {
-      n: 4,
-      label: "Confirm",
-    },
+    { n: 1, label: "Personal Info" },
+    { n: 2, label: "Employment" },
+    { n: 3, label: "Loan Details" },
+    { n: 4, label: "Confirm" },
   ];
 
-  // ============================================================
-  // SUBMITTED SCREEN
-  // ============================================================
-
-  if (submitted) {
+  if (submitted)
     return (
       <div className="min-h-screen flex items-center justify-center px-4 py-20">
         <div className="max-w-xl w-full text-center">
           <div
             className="w-24 h-24 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 shadow-xl"
-            style={{
-              backgroundColor: primary + "10",
-            }}
+            style={{ backgroundColor: primary + "10" }}
           >
             {queuedOffline ? "📡" : docsComplete ? "🎉" : "📎"}
           </div>
-
           <h2 className="text-3xl font-extrabold text-gray-900 mb-4">
             {queuedOffline
               ? "Saved — Will Submit Automatically"
@@ -435,7 +199,6 @@ function ApplyPageContent() {
                 ? "All Set — Application Complete!"
                 : "One More Step — Upload Your Documents"}
           </h2>
-
           <p className="text-gray-600 mb-6 text-lg">
             {queuedOffline ? (
               <>
@@ -460,33 +223,25 @@ function ApplyPageContent() {
               </>
             )}
           </p>
-
           <div className="bg-gray-50 rounded-2xl p-6 text-left space-y-3 text-sm mb-8">
             <div className="flex justify-between">
               <span className="text-gray-500">Application Reference</span>
-
               <code className="font-bold text-gray-800">
                 {reference || "—"}
               </code>
             </div>
-
             <div className="flex justify-between">
               <span className="text-gray-500">Loan Type</span>
-
               <span className="font-bold">{form.loanType}</span>
             </div>
-
             <div className="flex justify-between">
               <span className="text-gray-500">Amount Requested</span>
-
               <span className="font-bold">
                 {tenant.currency} {Number(form.amount).toLocaleString()}
               </span>
             </div>
-
             <div className="flex justify-between">
               <span className="text-gray-500">Contact</span>
-
               <span className="font-bold">{form.phone}</span>
             </div>
           </div>
@@ -516,14 +271,11 @@ function ApplyPageContent() {
             Questions? Call us at <strong>{tenant.contactPhone}</strong> or
             email <strong>{tenant.contactEmail}</strong>
           </p>
-
           {!queuedOffline && reference && (
             <a
               href="/track"
               className="inline-block px-6 py-2.5 rounded-md text-sm font-bold text-white shadow-sm hover:opacity-90 transition-opacity"
-              style={{
-                backgroundColor: primary,
-              }}
+              style={{ backgroundColor: primary }}
             >
               Track Your Application →
             </a>
@@ -531,51 +283,37 @@ function ApplyPageContent() {
         </div>
       </div>
     );
-  }
-
-  // ============================================================
-  // MAIN APPLICATION
-  // ============================================================
 
   return (
     <div>
-      {/* HEADER */}
-
+      {/* Header */}
       <section
         className="py-12 text-white text-center"
-        style={{
-          background: `linear-gradient(135deg, ${primary}, #0a4a2b)`,
-        }}
+        style={{ background: `linear-gradient(135deg, ${primary}, #0a4a2b)` }}
       >
         <h1 className="text-3xl md:text-4xl font-extrabold mb-2">
           Loan Application
         </h1>
-
         <p className="text-white/70">
           Complete the form below — takes less than 5 minutes
         </p>
       </section>
 
       <div className="max-w-2xl mx-auto px-4 py-12">
-        {/* PROGRESS */}
-
+        {/* Progress */}
         <div className="flex items-center justify-center gap-0 mb-10">
           {steps.map((s, i) => (
             <div key={s.n} className="flex items-center">
               <div className="flex flex-col items-center">
                 <div
-                  className={`
-                    w-10 h-10 rounded-full
-                    flex items-center justify-center
-                    font-bold text-sm transition-all
-                    ${
-                      step > s.n
-                        ? "text-white"
-                        : step === s.n
-                          ? "text-white ring-4 ring-offset-2"
-                          : "bg-gray-100 text-gray-400"
-                    }
-                  `}
+                  className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all
+    ${
+      step > s.n
+        ? "text-white"
+        : step === s.n
+          ? "text-white ring-4 ring-offset-2"
+          : "bg-gray-100 text-gray-400"
+    }`}
                   style={
                     step >= s.n
                       ? {
@@ -587,24 +325,16 @@ function ApplyPageContent() {
                 >
                   {step > s.n ? "✓" : s.n}
                 </div>
-
                 <div
-                  className={`
-                    text-xs mt-1 font-semibold
-                    hidden md:block
-                    ${step === s.n ? "text-gray-900" : "text-gray-400"}
-                  `}
+                  className={`text-xs mt-1 font-semibold hidden md:block ${step === s.n ? "text-gray-900" : "text-gray-400"}`}
                 >
                   {s.label}
                 </div>
               </div>
-
               {i < steps.length - 1 && (
                 <div
                   className="w-12 h-0.5 mb-4 transition-all"
-                  style={{
-                    backgroundColor: step > s.n ? primary : "#E5E7EB",
-                  }}
+                  style={{ backgroundColor: step > s.n ? primary : "#E5E7EB" }}
                 />
               )}
             </div>
@@ -612,16 +342,12 @@ function ApplyPageContent() {
         </div>
 
         <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-          {/* ==================================================
-              STEP 1 — PERSONAL INFORMATION
-              ================================================== */}
-
+          {/* STEP 1: Personal Info */}
           {step === 1 && (
             <div>
               <h2 className="text-xl font-extrabold text-gray-900 mb-6">
                 Personal Information
               </h2>
-
               <div className="grid grid-cols-2 gap-4">
                 <Field label="First Name" required>
                   <input
@@ -631,7 +357,6 @@ function ApplyPageContent() {
                     onChange={set("firstName")}
                   />
                 </Field>
-
                 <Field label="Last Name" required>
                   <input
                     required
@@ -640,7 +365,6 @@ function ApplyPageContent() {
                     onChange={set("lastName")}
                   />
                 </Field>
-
                 <Field label="Email Address">
                   <input
                     type="email"
@@ -649,7 +373,6 @@ function ApplyPageContent() {
                     onChange={set("email")}
                   />
                 </Field>
-
                 <Field
                   label="Phone Number"
                   required
@@ -667,7 +390,6 @@ function ApplyPageContent() {
                     value={form.phone}
                     onChange={setPhone("phone")}
                   />
-
                   {form.phone && !isPhoneValid(form.phone) && (
                     <p className="text-xs mt-1 text-red-600 font-semibold">
                       Enter a valid number with country code, digits only (e.g.
@@ -675,7 +397,6 @@ function ApplyPageContent() {
                     </p>
                   )}
                 </Field>
-
                 <Field
                   label="National ID"
                   required
@@ -693,37 +414,20 @@ function ApplyPageContent() {
                     value={form.nationalId}
                     onChange={setNationalId("nationalId")}
                   />
-
                   {form.nationalId && !isNationalIdValid(form.nationalId) && (
                     <p className="text-xs mt-1 text-red-600 font-semibold">
                       National ID must be exactly 16 digits
                     </p>
                   )}
                 </Field>
-
-                {/* DATE OF BIRTH */}
-
-                <Field
-                  label="Date of Birth"
-                  required
-                  hint="You must be at least 18 years old to apply for a loan."
-                >
+                <Field label="Date of Birth">
                   <input
-                    required
                     type="date"
-                    max={maximumDateOfBirth}
                     className={inp}
                     value={form.dateOfBirth}
                     onChange={set("dateOfBirth")}
                   />
-
-                  {form.dateOfBirth && !isAtLeast18(form.dateOfBirth) && (
-                    <p className="text-xs mt-1 text-red-600 font-semibold">
-                      You must be at least 18 years old to apply for a loan.
-                    </p>
-                  )}
                 </Field>
-
                 <Field label="Gender">
                   <select
                     className={inp}
@@ -731,15 +435,11 @@ function ApplyPageContent() {
                     onChange={set("gender")}
                   >
                     <option value="">Select…</option>
-
                     {["Male", "Female", "Other"].map((g) => (
-                      <option key={g} value={g}>
-                        {g}
-                      </option>
+                      <option key={g}>{g}</option>
                     ))}
                   </select>
                 </Field>
-
                 <Field label="Marital Status">
                   <select
                     className={inp}
@@ -747,11 +447,8 @@ function ApplyPageContent() {
                     onChange={set("maritalStatus")}
                   >
                     <option value="">Select…</option>
-
                     {["Single", "Married", "Divorced", "Widowed"].map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
+                      <option key={m}>{m}</option>
                     ))}
                   </select>
                 </Field>
@@ -771,7 +468,6 @@ function ApplyPageContent() {
                     />
                   </Field>
                 )}
-
                 {form.maritalStatus === "Married" && (
                   <>
                     <Field label="Spouse Full Name" required>
@@ -782,7 +478,6 @@ function ApplyPageContent() {
                         onChange={set("spouseFullName")}
                       />
                     </Field>
-
                     <Field label="Spouse National ID">
                       <input
                         inputMode="numeric"
@@ -791,7 +486,6 @@ function ApplyPageContent() {
                         value={form.spouseNationalId}
                         onChange={setNationalId("spouseNationalId")}
                       />
-
                       {form.spouseNationalId &&
                         !isNationalIdValid(form.spouseNationalId) && (
                           <p className="text-xs mt-1 text-red-600 font-semibold">
@@ -799,7 +493,6 @@ function ApplyPageContent() {
                           </p>
                         )}
                     </Field>
-
                     <Field label="Spouse Phone">
                       <input
                         inputMode="tel"
@@ -808,14 +501,12 @@ function ApplyPageContent() {
                         value={form.spousePhone}
                         onChange={setPhone("spousePhone")}
                       />
-
                       {form.spousePhone && !isPhoneValid(form.spousePhone) && (
                         <p className="text-xs mt-1 text-red-600 font-semibold">
                           Enter a valid number with country code
                         </p>
                       )}
                     </Field>
-
                     <div className="sm:col-span-2">
                       <label className="flex items-start gap-2.5 text-sm text-gray-600 cursor-pointer">
                         <input
@@ -836,7 +527,6 @@ function ApplyPageContent() {
                   </>
                 )}
               </div>
-
               <Field label="Home Address" required>
                 <input
                   required
@@ -846,7 +536,6 @@ function ApplyPageContent() {
                   onChange={set("address")}
                 />
               </Field>
-
               <div className="grid grid-cols-2 gap-4">
                 <Field label="City/District" required>
                   <input
@@ -856,7 +545,6 @@ function ApplyPageContent() {
                     onChange={set("city")}
                   />
                 </Field>
-
                 <Field label="Province">
                   <select
                     className={inp}
@@ -864,7 +552,6 @@ function ApplyPageContent() {
                     onChange={set("province")}
                   >
                     <option value="">Select…</option>
-
                     {[
                       "Kigali",
                       "Northern",
@@ -872,9 +559,7 @@ function ApplyPageContent() {
                       "Eastern",
                       "Western",
                     ].map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
+                      <option key={p}>{p}</option>
                     ))}
                   </select>
                 </Field>
@@ -882,16 +567,12 @@ function ApplyPageContent() {
             </div>
           )}
 
-          {/* ==================================================
-              STEP 2 — EMPLOYMENT
-              ================================================== */}
-
+          {/* STEP 2: Employment */}
           {step === 2 && (
             <div>
               <h2 className="text-xl font-extrabold text-gray-900 mb-6">
                 Employment & Financial Info
               </h2>
-
               <Field label="Employment Type" required>
                 <select
                   required
@@ -948,7 +629,6 @@ function ApplyPageContent() {
                         onChange={set("employerName")}
                       />
                     </Field>
-
                     <Field label="Job Title / Occupation">
                       <input
                         className={inp}
@@ -958,7 +638,6 @@ function ApplyPageContent() {
                     </Field>
                   </>
                 )}
-
                 <Field label={`Monthly Income (${tenant.currency})`} required>
                   <input
                     required
@@ -968,7 +647,6 @@ function ApplyPageContent() {
                     onChange={set("monthlyIncome")}
                   />
                 </Field>
-
                 <Field label={`Monthly Expenses (${tenant.currency})`}>
                   <input
                     type="number"
@@ -978,7 +656,6 @@ function ApplyPageContent() {
                   />
                 </Field>
               </div>
-
               <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-sm text-blue-700 mt-4">
                 ℹ️ Your income and expense information helps us determine the
                 best loan terms for you. All information is kept strictly
@@ -987,16 +664,12 @@ function ApplyPageContent() {
             </div>
           )}
 
-          {/* ==================================================
-              STEP 3 — LOAN DETAILS
-              ================================================== */}
-
+          {/* STEP 3: Loan Details */}
           {step === 3 && (
             <div>
               <h2 className="text-xl font-extrabold text-gray-900 mb-6">
                 Loan Details
               </h2>
-
               <Field label="Loan Type" required>
                 <select
                   required
@@ -1005,13 +678,10 @@ function ApplyPageContent() {
                   onChange={set("loanType")}
                 >
                   {tenant.services?.map((s) => (
-                    <option key={s.title} value={s.title}>
-                      {s.title}
-                    </option>
+                    <option key={s.title}>{s.title}</option>
                   ))}
                 </select>
               </Field>
-
               <div className="grid grid-cols-2 gap-4">
                 <Field label={`Amount Requested (${tenant.currency})`} required>
                   <input
@@ -1022,25 +692,17 @@ function ApplyPageContent() {
                     value={form.amount}
                     onChange={set("amount")}
                   />
-
                   {(() => {
                     const svc = tenant.services?.find(
                       (s) => s.title === form.loanType,
                     );
-
-                    if (!svc?.maxAmount) {
-                      return null;
-                    }
-
-                    const max = Number(svc.maxAmount);
-
-                    const over = !!form.amount && Number(form.amount) > max;
-
+                    if (!svc?.maxAmount) return null;
+                    const min = 10000,
+                      max = Number(svc.maxAmount);
+                    const over = form.amount && Number(form.amount) > max;
                     return (
                       <p
-                        className={`text-xs mt-1 ${
-                          over ? "text-red-600 font-semibold" : "text-gray-400"
-                        }`}
+                        className={`text-xs mt-1 ${over ? "text-red-600 font-semibold" : "text-gray-400"}`}
                       >
                         {over
                           ? `This exceeds the ${max.toLocaleString()} ${tenant.currency} limit for ${form.loanType}`
@@ -1049,7 +711,6 @@ function ApplyPageContent() {
                     );
                   })()}
                 </Field>
-
                 <Field label="Repayment Period" required>
                   <select
                     required
@@ -1057,7 +718,7 @@ function ApplyPageContent() {
                     value={form.durationMonths}
                     onChange={set("durationMonths")}
                   >
-                    {[1, 2, 3, 4, 5, 6].map((m) => (
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
                       <option key={m} value={m}>
                         {m} month{m > 1 ? "s" : ""}
                       </option>
@@ -1065,7 +726,6 @@ function ApplyPageContent() {
                   </select>
                 </Field>
               </div>
-
               <Field label="Purpose of Loan" required>
                 <textarea
                   required
@@ -1075,7 +735,6 @@ function ApplyPageContent() {
                   onChange={set("purpose")}
                 />
               </Field>
-
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Collateral (if any)">
                   <input
@@ -1085,7 +744,6 @@ function ApplyPageContent() {
                     onChange={set("collateral")}
                   />
                 </Field>
-
                 <Field label={`Collateral Value (${tenant.currency})`}>
                   <input
                     type="number"
@@ -1095,59 +753,38 @@ function ApplyPageContent() {
                   />
                 </Field>
               </div>
-
-              {/* MINI LOAN SUMMARY */}
-
+              {/* Mini loan summary */}
               {form.amount && (
                 <div className="mt-4 bg-gray-50 rounded-2xl p-4 border border-gray-100">
                   <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
                     Estimated Repayment
                   </div>
-
                   <div className="grid grid-cols-3 gap-3 text-center text-sm">
                     {(() => {
                       const principal = Number(form.amount);
                       const months = Number(form.durationMonths);
-
-                      /*
-                       * Existing application-page estimate preserved.
-                       *
-                       * This is only the frontend display estimate
-                       * and does NOT modify backend loan interest logic.
-                       */
                       const mr: number = 0.1;
-
                       const monthly =
                         mr === 0
                           ? principal / months
                           : (principal * (mr * Math.pow(1 + mr, months))) /
                             (Math.pow(1 + mr, months) - 1);
-
                       return [
                         [
                           "Monthly",
-                          `${tenant.currency} ${monthly.toLocaleString("en", {
-                            maximumFractionDigits: 0,
-                          })}`,
+                          `${tenant.currency} ${monthly.toLocaleString("en", { maximumFractionDigits: 0 })}`,
                         ],
                         [
                           "Total",
-                          `${tenant.currency} ${(
-                            monthly * months
-                          ).toLocaleString("en", {
-                            maximumFractionDigits: 0,
-                          })}`,
+                          `${tenant.currency} ${(monthly * months).toLocaleString("en", { maximumFractionDigits: 0 })}`,
                         ],
                         ["Rate", "10% / mo"],
                       ].map(([l, v]) => (
                         <div key={l}>
                           <div className="text-gray-400 text-[10px]">{l}</div>
-
                           <div
                             className="font-extrabold"
-                            style={{
-                              color: primary,
-                            }}
+                            style={{ color: primary }}
                           >
                             {v}
                           </div>
@@ -1160,28 +797,21 @@ function ApplyPageContent() {
             </div>
           )}
 
-          {/* ==================================================
-              STEP 4 — DECLARATION
-              ================================================== */}
-
+          {/* STEP 4: Declaration */}
           {step === 4 && (
             <div>
               <h2 className="text-xl font-extrabold text-gray-900 mb-6">
                 Review & Declaration
               </h2>
-
               <div className="space-y-3 bg-gray-50 rounded-2xl p-6 mb-6 text-sm">
                 {[
                   ["Name", `${form.firstName} ${form.lastName}`],
                   ["ID", form.nationalId],
-                  ["Date of Birth", form.dateOfBirth],
                   ["Phone", form.phone],
                   ["Loan Type", form.loanType],
                   [
                     "Amount",
-                    `${tenant.currency} ${Number(
-                      form.amount,
-                    ).toLocaleString()}`,
+                    `${tenant.currency} ${Number(form.amount).toLocaleString()}`,
                   ],
                   ["Term", `${form.durationMonths} months`],
                   [
@@ -1196,9 +826,7 @@ function ApplyPageContent() {
                     : []),
                   [
                     "Income",
-                    `${tenant.currency} ${Number(
-                      form.monthlyIncome,
-                    ).toLocaleString()}/mo`,
+                    `${tenant.currency} ${Number(form.monthlyIncome).toLocaleString()}/mo`,
                   ],
                 ].map(([l, v]) => (
                   <div
@@ -1206,44 +834,33 @@ function ApplyPageContent() {
                     className="flex justify-between border-b border-gray-200 last:border-0 pb-2 last:pb-0"
                   >
                     <span className="text-gray-500">{l}</span>
-
                     <span className="font-semibold text-gray-800">{v}</span>
                   </div>
                 ))}
               </div>
-
               {error && (
                 <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-4">
                   {error}
                 </div>
               )}
-
               <label className="flex items-start gap-3 cursor-pointer mb-6">
                 <input
                   type="checkbox"
                   checked={form.acceptedTerms}
                   onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      acceptedTerms: e.target.checked,
-                    }))
+                    setForm((f) => ({ ...f, acceptedTerms: e.target.checked }))
                   }
                   className="mt-1 w-4 h-4 rounded"
-                  style={{
-                    accentColor: primary,
-                  }}
+                  style={{ accentColor: primary }}
                 />
-
                 <span className="text-sm text-gray-700">
                   I confirm that all information provided is true and accurate.
                   I authorize {tenant.name} to verify my information and contact
-                  me regarding this application. I agree to the{" "}
+                  me regarding this application. I agree to the
                   <a
                     href="#"
                     className="font-semibold underline ml-1"
-                    style={{
-                      color: primary,
-                    }}
+                    style={{ color: primary }}
                   >
                     Terms &amp; Conditions
                   </a>
@@ -1253,14 +870,10 @@ function ApplyPageContent() {
             </div>
           )}
 
-          {/* ==================================================
-              NAVIGATION
-              ================================================== */}
-
+          {/* Navigation */}
           <div className="flex justify-between mt-8 pt-6 border-t border-gray-100">
             {step > 1 ? (
               <button
-                type="button"
                 onClick={() => setStep((s) => (s - 1) as Step)}
                 className="px-6 py-2.5 rounded-xl font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition"
               >
@@ -1269,19 +882,10 @@ function ApplyPageContent() {
             ) : (
               <div />
             )}
-
             {step < 4 ? (
               <button
-                type="button"
                 onClick={() => setStep((s) => (s + 1) as Step)}
                 disabled={
-                  // STEP 1
-                  (step === 1 && !form.firstName) ||
-                  (step === 1 && !form.lastName) ||
-                  (step === 1 && !form.address) ||
-                  (step === 1 && !form.city) ||
-                  (step === 1 && !form.dateOfBirth) ||
-                  (step === 1 && !isAtLeast18(form.dateOfBirth)) ||
                   (step === 1 && !isNationalIdValid(form.nationalId)) ||
                   (step === 1 && !isPhoneValid(form.phone)) ||
                   (step === 1 &&
@@ -1298,25 +902,17 @@ function ApplyPageContent() {
                     form.maritalStatus === "Married" &&
                     !!form.spousePhone &&
                     !isPhoneValid(form.spousePhone)) ||
-                  // STEP 2
-                  (step === 2 && !form.monthlyIncome) ||
-                  (step === 2 && Number(form.monthlyIncome) <= 0) ||
                   (step === 2 &&
                     form.employmentType === "OTHER" &&
                     !form.employmentTypeOther) ||
                   (step === 2 &&
                     form.employmentType === "BUSINESS_OWNER" &&
                     !form.natureOfBusiness) ||
-                  // STEP 3
-                  (step === 3 && !form.amount) ||
-                  (step === 3 && Number(form.amount) <= 0) ||
-                  (step === 3 && !form.purpose) ||
                   (step === 3 &&
                     (() => {
                       const svc = tenant.services?.find(
                         (s) => s.title === form.loanType,
                       );
-
                       return (
                         !!svc?.maxAmount &&
                         Number(form.amount) > Number(svc.maxAmount)
@@ -1324,31 +920,20 @@ function ApplyPageContent() {
                     })())
                 }
                 className="px-8 py-2.5 rounded-xl font-bold text-white transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{
-                  backgroundColor: primary,
-                }}
+                style={{ backgroundColor: primary }}
               >
                 Continue →
               </button>
             ) : (
               <button
-                type="button"
                 onClick={handleSubmit}
-                disabled={
-                  !form.acceptedTerms ||
-                  saving ||
-                  !form.dateOfBirth ||
-                  !isAtLeast18(form.dateOfBirth)
-                }
+                disabled={!form.acceptedTerms || saving}
                 className="px-10 py-3 rounded-xl font-bold text-white transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                style={{
-                  backgroundColor: accent,
-                }}
+                style={{ backgroundColor: accent }}
               >
                 {saving && (
                   <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 )}
-
                 {saving ? "Submitting…" : "Submit Application ✓"}
               </button>
             )}
@@ -1359,16 +944,8 @@ function ApplyPageContent() {
   );
 }
 
-// ============================================================
-// INPUT STYLING
-// ============================================================
-
 const inp =
   "w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 transition-colors mt-1.5";
-
-// ============================================================
-// FIELD COMPONENT
-// ============================================================
 
 function Field({
   label,
@@ -1385,12 +962,9 @@ function Field({
     <div className="mb-4">
       <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">
         {label}
-
         {required && <span className="text-red-500 ml-1">*</span>}
       </label>
-
       {children}
-
       {hint && (
         <p className="text-xs text-gray-400 mt-1 normal-case font-normal">
           {hint}

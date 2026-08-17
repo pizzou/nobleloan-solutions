@@ -310,23 +310,12 @@ public class RegulatoryReportingService {
                                         "'to' cannot be before 'from'.");
                 }
 
-                /*
-                 * PaymentRepository currently receives LocalDate values.
-                 *
-                 * We intentionally leave this call unchanged because the
-                 * current error is caused by LoanRepository's LocalDateTime
-                 * fields.
-                 */
                 return paymentRepository.findPaymentsDuringPeriod(
                                 organizationId,
                                 branchId,
                                 from,
                                 to);
         }
-
-        // ============================================================
-        // BNR SUMMARY
-        // ============================================================
 
         public BnrSummaryReport buildBnrSummary(
                         Long organizationId,
