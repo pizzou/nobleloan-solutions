@@ -36,9 +36,22 @@ import java.util.List;
 public class SecurityConfig {
 
         private final JwtAuthFilter jwtFilter;
+
         private final RegulatoryApiKeyAuthFilter regulatoryApiKeyAuthFilter;
+
         private final RateLimitFilter rateLimitFilter;
 
+        /**
+         * Comma-separated production frontend origins.
+         *
+         * Example:
+         *
+         * https://nobleloan-solutions.vercel.app
+         *
+         * You may also configure multiple trusted origins:
+         *
+         * https://nobleloan-solutions.vercel.app,https://www.nobleloansolutions.rw
+         */
         @Value("${app.cors.allowed-origins:https://nobleloan-solutions.vercel.app}")
         private String allowedOrigins;
 
@@ -48,32 +61,37 @@ public class SecurityConfig {
 
                 http
 
-                                // ----------------------------------------------------
+                                // ========================================================
                                 // CORS
-                                // ----------------------------------------------------
+                                // ========================================================
 
                                 .cors(cors -> cors.configurationSource(corsSource()))
 
-                                // ----------------------------------------------------
+                                // ========================================================
                                 // CSRF
-                                // ----------------------------------------------------
+                                //
+                                // API uses JWT/stateless authentication.
+                                // ========================================================
 
                                 .csrf(csrf -> csrf.disable())
 
-                                // ----------------------------------------------------
+                                // ========================================================
                                 // SESSION
-                                // ----------------------------------------------------
+                                // ========================================================
 
                                 .sessionManagement(session -> session.sessionCreationPolicy(
                                                 SessionCreationPolicy.STATELESS))
 
-                                // ----------------------------------------------------
+                                // ========================================================
                                 // EXCEPTION HANDLING
-                                // ----------------------------------------------------
+                                // ========================================================
 
                                 .exceptionHandling(exception -> exception
 
+                                                // ------------------------------------------------
                                                 // Authentication failure = 401
+                                                // ------------------------------------------------
+
                                                 .authenticationEntryPoint(
                                                                 (request, response, authException) -> {
 
@@ -82,6 +100,9 @@ public class SecurityConfig {
 
                                                                         response.setContentType(
                                                                                         "application/json");
+
+                                                                        response.setCharacterEncoding(
+                                                                                        "UTF-8");
 
                                                                         response.getWriter().write(
                                                                                         """
@@ -92,7 +113,10 @@ public class SecurityConfig {
                                                                                                         """);
                                                                 })
 
+                                                // ------------------------------------------------
                                                 // Authorization failure = 403
+                                                // ------------------------------------------------
+
                                                 .accessDeniedHandler(
                                                                 (request, response, accessDeniedException) -> {
 
@@ -101,6 +125,9 @@ public class SecurityConfig {
 
                                                                         response.setContentType(
                                                                                         "application/json");
+
+                                                                        response.setCharacterEncoding(
+                                                                                        "UTF-8");
 
                                                                         response.getWriter().write(
                                                                                         """
@@ -111,9 +138,9 @@ public class SecurityConfig {
                                                                                                         """);
                                                                 }))
 
-                                // ----------------------------------------------------
+                                // ========================================================
                                 // AUTHORIZATION
-                                // ----------------------------------------------------
+                                // ========================================================
 
                                 .authorizeHttpRequests(authorize -> authorize
 
@@ -123,22 +150,22 @@ public class SecurityConfig {
 
                                                 .requestMatchers(
                                                                 "/api/auth/**",
+
                                                                 "/h2-console/**",
+
                                                                 "/swagger-ui/**",
                                                                 "/swagger-ui.html",
                                                                 "/api-docs/**",
+
                                                                 "/actuator/health",
                                                                 "/actuator/health/**",
+
                                                                 "/api/public/**",
                                                                 "/public/**")
                                                 .permitAll()
 
                                                 // ------------------------------------------------
                                                 // WEBSOCKET HANDSHAKE
-                                                //
-                                                // The browser must be able to establish the
-                                                // WebSocket connection before STOMP can subscribe
-                                                // to /topic/... destinations.
                                                 // ------------------------------------------------
 
                                                 .requestMatchers(
@@ -153,32 +180,32 @@ public class SecurityConfig {
                                                 .anyRequest()
                                                 .authenticated())
 
-                                // ----------------------------------------------------
+                                // ========================================================
                                 // H2
-                                // ----------------------------------------------------
+                                // ========================================================
 
                                 .headers(headers -> headers.frameOptions(
                                                 frame -> frame.sameOrigin()))
 
-                                // ----------------------------------------------------
+                                // ========================================================
                                 // RATE LIMIT
-                                // ----------------------------------------------------
+                                // ========================================================
 
                                 .addFilterBefore(
                                                 rateLimitFilter,
                                                 UsernamePasswordAuthenticationFilter.class)
 
-                                // ----------------------------------------------------
+                                // ========================================================
                                 // JWT
-                                // ----------------------------------------------------
+                                // ========================================================
 
                                 .addFilterBefore(
                                                 jwtFilter,
                                                 UsernamePasswordAuthenticationFilter.class)
 
-                                // ----------------------------------------------------
+                                // ========================================================
                                 // REGULATORY API KEY
-                                // ----------------------------------------------------
+                                // ========================================================
 
                                 .addFilterBefore(
                                                 regulatoryApiKeyAuthFilter,
@@ -196,14 +223,21 @@ public class SecurityConfig {
 
                 CorsConfiguration configuration = new CorsConfiguration();
 
+                // ------------------------------------------------------------
+                // TRUSTED ORIGINS
+                // ------------------------------------------------------------
+
                 List<String> origins = Arrays.stream(
                                 allowedOrigins.split(","))
                                 .map(String::trim)
                                 .filter(origin -> !origin.isBlank())
                                 .toList();
 
-                configuration.setAllowedOrigins(
-                                origins);
+                configuration.setAllowedOrigins(origins);
+
+                // ------------------------------------------------------------
+                // HTTP METHODS
+                // ------------------------------------------------------------
 
                 configuration.setAllowedMethods(
                                 List.of(
@@ -214,13 +248,55 @@ public class SecurityConfig {
                                                 "DELETE",
                                                 "OPTIONS"));
 
-                configuration.setAllowedHeaders(
-                                List.of("Authorization", "Content-Type", "Accept", "Idempotency-Key",
-                                                "X-Requested-With"));
-                configuration.setExposedHeaders(List.of("Location", "Retry-After", "X-Request-Id"));
+                // ------------------------------------------------------------
+                // REQUEST HEADERS
+                //
+                // IMPORTANT:
+                //
+                // X-Tenant-Slug is required by the Noble frontend and is part
+                // of the multi-tenant request contract.
+                //
+                // Without this header the browser's OPTIONS preflight fails
+                // before the request reaches /api/auth/login.
+                // ------------------------------------------------------------
 
-                configuration.setAllowCredentials(
-                                true);
+                configuration.setAllowedHeaders(
+                                List.of(
+                                                "Authorization",
+                                                "Content-Type",
+                                                "Accept",
+                                                "Idempotency-Key",
+                                                "X-Requested-With",
+                                                "X-Tenant-Slug"));
+
+                // ------------------------------------------------------------
+                // RESPONSE HEADERS EXPOSED TO THE BROWSER
+                // ------------------------------------------------------------
+
+                configuration.setExposedHeaders(
+                                List.of(
+                                                "Location",
+                                                "Retry-After",
+                                                "X-Request-Id"));
+
+                // ------------------------------------------------------------
+                // CREDENTIALS
+                // ------------------------------------------------------------
+
+                configuration.setAllowCredentials(true);
+
+                // ------------------------------------------------------------
+                // CACHE PREFLIGHT RESPONSE
+                //
+                // 30 minutes reduces repeated OPTIONS requests while keeping
+                // configuration changes reasonably responsive.
+                // ------------------------------------------------------------
+
+                configuration.setMaxAge(1800L);
+
+                // ------------------------------------------------------------
+                // REGISTER CORS CONFIGURATION
+                // ------------------------------------------------------------
 
                 UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
 
@@ -237,7 +313,8 @@ public class SecurityConfig {
 
         @Bean
         public AuthenticationManager authenticationManager(
-                        AuthenticationConfiguration configuration) throws Exception {
+                        AuthenticationConfiguration configuration)
+                        throws Exception {
 
                 return configuration.getAuthenticationManager();
         }
