@@ -1,36 +1,80 @@
-'use client';
-import React from 'react';
+"use client";
 
-type Variant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'outline';
-type Size    = 'xs' | 'sm' | 'md' | 'lg';
+import React from "react";
 
-interface Props extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: Variant; size?: Size; loading?: boolean; icon?: string;
+type Variant =
+  | "primary"
+  | "secondary"
+  | "danger"
+  | "ghost"
+  | "outline";
+
+type Size = "xs" | "sm" | "md" | "lg";
+
+interface Props
+  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: Variant;
+  size?: Size;
+  loading?: boolean;
+  icon?: string;
 }
 
 const variants: Record<Variant, string> = {
-  primary:   'bg-teal-600 hover:bg-teal-700 text-white shadow-sm',
-  secondary: 'bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-200',
-  danger:    'bg-red-600 hover:bg-red-700 text-white shadow-sm',
-  ghost:     'hover:bg-gray-100 text-gray-600',
-  outline:   'border-2 border-teal-600 text-teal-600 hover:bg-teal-50',
+  primary:
+    "bg-[#0B1F3A] text-white shadow-[0_8px_20px_rgba(11,31,58,0.18)] hover:bg-[#16365F] hover:shadow-[0_12px_28px_rgba(11,31,58,0.22)]",
+  secondary:
+    "border border-slate-200 bg-white text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50",
+  danger:
+    "bg-red-600 text-white shadow-sm hover:bg-red-700 hover:shadow-md",
+  ghost:
+    "text-slate-600 hover:bg-slate-100 hover:text-slate-950",
+  outline:
+    "border border-[#0B1F3A] bg-white text-[#0B1F3A] hover:bg-[#F4F7FB]",
 };
 
 const sizes: Record<Size, string> = {
-  xs: 'px-2.5 py-1 text-xs',
-  sm: 'px-3 py-1.5 text-sm',
-  md: 'px-4 py-2 text-sm',
-  lg: 'px-6 py-3 text-base',
+  xs: "min-h-8 px-2.5 py-1 text-xs",
+  sm: "min-h-9 px-3 py-1.5 text-sm",
+  md: "min-h-10 px-4 py-2 text-sm",
+  lg: "min-h-12 px-6 py-3 text-base",
 };
 
-export function Button({ variant = 'primary', size = 'md', loading, icon, children, disabled, className = '', ...rest }: Props) {
+export function Button({
+  variant = "primary",
+  size = "md",
+  loading = false,
+  icon,
+  children,
+  disabled,
+  className = "",
+  type = "button",
+  ...rest
+}: Props) {
   return (
     <button
+      type={type}
       disabled={disabled || loading}
-      className={`inline-flex items-center gap-2 rounded-lg font-semibold transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${sizes[size]} ${className}`}
+      aria-busy={loading || undefined}
+      className={[
+        "inline-flex items-center justify-center gap-2 rounded-xl",
+        "font-semibold transition-all duration-150",
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-2",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+        variants[variant],
+        sizes[size],
+        className,
+      ].join(" ")}
       {...rest}
     >
-      {loading ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : icon && <span>{icon}</span>}
+      {loading ? (
+        <span
+          className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+          aria-hidden="true"
+        />
+      ) : (
+        icon && <span aria-hidden="true">{icon}</span>
+      )}
+
       {children}
     </button>
   );
