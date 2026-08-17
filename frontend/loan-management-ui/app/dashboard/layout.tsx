@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 
 import Sidebar from "@/components/Sidebar";
 import { AuthContext, useAuthState } from "@/hooks/useAuth";
 import { ToastContainer } from "@/components/ui/ToastContainer";
+import { OfflineProvider } from "@/components/OfflineProvider";
 import ForcedPasswordChange from "@/components/ForcedPasswordChange";
 
 /* ============================================================
@@ -22,6 +22,26 @@ const YELLOW_LIGHT = "#FFF9DB";
 const YELLOW_DARK = "#C99A00";
 
 /* ============================================================
+   AUTH HEADER
+   ============================================================ */
+
+const authHeader = (): Record<string, string> => {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  const token = localStorage.getItem("token");
+
+  if (!token) {
+    return {};
+  }
+
+  return {
+    Authorization: `Bearer ${token}`,
+  };
+};
+
+/* ============================================================
    DASHBOARD LAYOUT
    ============================================================ */
 
@@ -32,7 +52,6 @@ export default function DashboardLayout({
 }) {
   const auth = useAuthState();
   const router = useRouter();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   /* ==========================================================
      AUTHENTICATION CHECK
@@ -148,31 +167,23 @@ export default function DashboardLayout({
 
   return (
     <AuthContext.Provider value={auth}>
+      <OfflineProvider authHeader={authHeader} />
+
       <div className="min-h-screen bg-[#F4F7FB] text-gray-900">
         <div className="flex min-h-screen">
           {/* ==================================================
               SIDEBAR
               ================================================== */}
 
-          <Sidebar
-            mobileOpen={sidebarOpen}
-            onClose={() => setSidebarOpen(false)}
-          />
-
-          {sidebarOpen && (
-            <button
-              type="button"
-              aria-label="Close navigation"
-              onClick={() => setSidebarOpen(false)}
-              className="fixed inset-0 z-30 bg-slate-950/45 backdrop-blur-[2px] lg:hidden"
-            />
-          )}
+          <aside className="fixed left-0 top-0 bottom-0 z-40 w-64">
+            <Sidebar />
+          </aside>
 
           {/* ==================================================
               RIGHT APPLICATION AREA
               ================================================== */}
 
-          <div className="flex min-h-screen min-w-0 flex-1 flex-col pl-0 lg:pl-64">
+          <div className="flex min-h-screen flex-1 flex-col pl-64">
             {/* =================================================
                 TOP NAVIGATION
                 ================================================= */}
@@ -189,22 +200,12 @@ export default function DashboardLayout({
                 backdrop-blur-xl
               "
             >
-              <div className="flex h-full items-center justify-between gap-3 px-4 sm:px-6 lg:px-7">
+              <div className="flex h-full items-center justify-between px-7">
                 {/* =================================================
                     LEFT SIDE
                     ================================================= */}
 
-                <div className="flex min-w-0 items-center gap-3">
-                  <button
-                    type="button"
-                    aria-label="Open navigation"
-                    aria-expanded={sidebarOpen}
-                    onClick={() => setSidebarOpen(true)}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#DCE4EF] bg-white text-[#0B1F3A] shadow-sm transition hover:bg-[#F4F7FB] lg:hidden"
-                  >
-                    <span className="text-lg leading-none">☰</span>
-                  </button>
-
+                <div className="flex items-center gap-4">
                   {/* Noble Loan Solutions Logo */}
 
                   <div
@@ -212,24 +213,16 @@ export default function DashboardLayout({
                       flex
                       h-10
                       w-10
-                      shrink-0
                       items-center
                       justify-center
-                      overflow-hidden
                       rounded-xl
-                      border
-                      border-[#F4C430]/30
-                      bg-white
+                      bg-[#0B1F3A]
                       shadow-sm
                     "
                   >
-                    <Image
-                      src="/favIcon.png"
-                      alt="Noble Loan Solutions"
-                      width={40}
-                      height={40}
-                      className="h-full w-full object-contain"
-                    />
+                    <span className="text-base font-extrabold text-[#F4C430]">
+                      N
+                    </span>
                   </div>
 
                   <div>

@@ -72,45 +72,7 @@ export default function DashboardPage() {
   useEffect(() => {
     let mounted = true;
 
-    const cacheKey = user?.userId
-      ? `noble-dashboard:${user.organizationId}:${user.userId}:v2`
-      : "";
-
-    let hasCachedDashboard = false;
-
-    /*
-     * Use a very short-lived, user-scoped session cache for perceived
-     * performance. The API is still called immediately afterwards so
-     * financial figures remain fresh.
-     */
-    if (cacheKey) {
-      try {
-        const raw = window.sessionStorage.getItem(cacheKey);
-
-        if (raw) {
-          const cached = JSON.parse(raw);
-
-          if (
-            cached &&
-            typeof cached === "object" &&
-            typeof cached.cachedAt === "number" &&
-            Date.now() - cached.cachedAt < 120_000 &&
-            cached.data
-          ) {
-            setStats(cached.data as DashboardStats);
-            setLoading(false);
-            hasCachedDashboard = true;
-          }
-        }
-      } catch {
-        // Session cache is best-effort only.
-      }
-    }
-
-    if (!hasCachedDashboard) {
-      setLoading(true);
-    }
-
+    setLoading(true);
     setError("");
 
     loanApi
@@ -119,31 +81,11 @@ export default function DashboardPage() {
         if (!mounted) return;
 
         setStats(data);
-
-        if (cacheKey) {
-          try {
-            window.sessionStorage.setItem(
-              cacheKey,
-              JSON.stringify({
-                cachedAt: Date.now(),
-                data,
-              }),
-            );
-          } catch {
-            // Cache storage is best-effort only.
-          }
-        }
       })
       .catch((e: any) => {
         if (!mounted) return;
 
-        /*
-         * If a cached dashboard is already visible, keep it on screen
-         * instead of replacing useful information with an error state.
-         */
-        if (!hasCachedDashboard) {
-          setError(e?.message || "Unable to load dashboard information.");
-        }
+        setError(e?.message || "Unable to load dashboard information.");
       })
       .finally(() => {
         if (!mounted) return;
@@ -154,7 +96,7 @@ export default function DashboardPage() {
     return () => {
       mounted = false;
     };
-  }, [user?.organizationId, user?.userId]);
+  }, []);
 
   /* ==========================================================
      HELPERS
@@ -176,31 +118,23 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="space-y-6 pb-12" aria-busy="true">
-        <div className="overflow-hidden rounded-[26px] bg-gradient-to-br from-[#07152A] via-[#0B1F3A] to-[#16365F] p-7 shadow-[0_24px_60px_rgba(7,21,42,0.16)]">
-          <div className="h-3 w-40 animate-pulse rounded-full bg-white/15" />
-          <div className="mt-5 h-8 w-2/3 max-w-md animate-pulse rounded-lg bg-white/15" />
-          <div className="mt-3 h-3 w-full max-w-xl animate-pulse rounded-full bg-white/10" />
-          <div className="mt-7 h-10 w-32 animate-pulse rounded-xl bg-white/10" />
-        </div>
+      <div className="min-h-[70vh] flex items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative">
+            <div className="w-12 h-12 rounded-full border-4 border-[#E8EEF6]" />
 
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div
-              key={`metric-skeleton-${index}`}
-              className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm"
-            >
-              <div className="h-11 w-11 animate-pulse rounded-xl bg-slate-100" />
-              <div className="mt-5 h-2.5 w-24 animate-pulse rounded-full bg-slate-100" />
-              <div className="mt-3 h-7 w-32 animate-pulse rounded-lg bg-slate-100" />
-              <div className="mt-2 h-2.5 w-20 animate-pulse rounded-full bg-slate-100" />
-            </div>
-          ))}
-        </div>
+            <div className="absolute inset-0 w-12 h-12 rounded-full border-4 border-[#0B1F3A] border-t-transparent animate-spin" />
+          </div>
 
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-          <div className="h-[330px] animate-pulse rounded-2xl border border-slate-200/80 bg-white xl:col-span-2" />
-          <div className="h-[330px] animate-pulse rounded-2xl border border-slate-200/80 bg-white" />
+          <div className="text-center">
+            <p className="text-sm font-semibold text-[#0B1F3A]">
+              Loading your dashboard
+            </p>
+
+            <p className="text-xs text-gray-400 mt-1">
+              Preparing your portfolio overview...
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -300,32 +234,17 @@ export default function DashboardPage() {
 
   const recentLoans = stats.recentLoans || [];
 
-  const collectionRate =
-    totalDisbursed > 0
-      ? Math.min(
-          100,
-          (Number(stats.totalCollected || 0) / totalDisbursed) * 100,
-        )
-      : 0;
-
-  const outstandingRatio =
-    totalDisbursed > 0
-      ? Math.min(100, (outstandingBalance / totalDisbursed) * 100)
-      : 0;
-
-  const healthyPortfolioPct = Math.max(0, Math.min(100, 100 - portfolioAtRisk));
-
   /* ==========================================================
      RENDER
      ========================================================== */
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-6 pb-10">
       {/* ======================================================
           HEADER
           ====================================================== */}
 
-      <div className="relative overflow-hidden rounded-[26px] bg-gradient-to-br from-[#07152A] via-[#0B1F3A] to-[#16365F] text-white shadow-[0_24px_60px_rgba(7,21,42,0.18)]">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#07152A] via-[#0B1F3A] to-[#16365F] text-white shadow-lg">
         {/* Decorative circles */}
 
         <div className="absolute -right-16 -top-16 w-56 h-56 rounded-full bg-[#F4C430]/20" />
@@ -374,16 +293,8 @@ export default function DashboardPage() {
                 Borrowers
               </Button>
 
-              <Button
-                variant="secondary"
-                icon="＋"
-                onClick={() => router.push("/dashboard/loans/new")}
-              >
-                New Loan
-              </Button>
-
               <Button icon="💼" onClick={() => router.push("/dashboard/loans")}>
-                View Portfolio
+                View Loans
               </Button>
             </div>
           </div>
@@ -533,117 +444,6 @@ export default function DashboardPage() {
           </CardBody>
         </Card>
       )}
-
-      {/* ======================================================
-          EXECUTIVE HEALTH SNAPSHOT
-          ====================================================== */}
-
-      <Card className="border-[#DCE5F0]">
-        <CardHeader
-          title="Executive portfolio health"
-          subtitle="Key ratios for management and credit oversight"
-          action={
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => router.push("/dashboard/reports")}
-            >
-              Open reports →
-            </Button>
-          }
-        />
-
-        <CardBody>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-5">
-              <div className="mb-3 flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">
-                  Collection efficiency
-                </span>
-                <span className="text-lg">✓</span>
-              </div>
-              <div className="text-3xl font-black tracking-tight text-emerald-950">
-                {collectionRate.toFixed(1)}%
-              </div>
-              <p className="mt-1 text-xs leading-5 text-emerald-800/70">
-                Total collected relative to the disbursed book.
-              </p>
-              <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-emerald-100">
-                <div
-                  className="h-full rounded-full bg-emerald-600 transition-all"
-                  style={{ width: `${collectionRate}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-5">
-              <div className="mb-3 flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700">
-                  Outstanding ratio
-                </span>
-                <span className="text-lg">◈</span>
-              </div>
-              <div className="text-3xl font-black tracking-tight text-blue-950">
-                {outstandingRatio.toFixed(1)}%
-              </div>
-              <p className="mt-1 text-xs leading-5 text-blue-800/70">
-                Outstanding balance as a share of the disbursed portfolio.
-              </p>
-              <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-blue-100">
-                <div
-                  className="h-full rounded-full bg-blue-700 transition-all"
-                  style={{ width: `${outstandingRatio}%` }}
-                />
-              </div>
-            </div>
-
-            <div
-              className={`rounded-2xl border p-5 ${
-                portfolioAtRisk > 5
-                  ? "border-red-100 bg-red-50/60"
-                  : "border-slate-200 bg-slate-50"
-              }`}
-            >
-              <div className="mb-3 flex items-center justify-between">
-                <span
-                  className={`text-[10px] font-bold uppercase tracking-[0.16em] ${
-                    portfolioAtRisk > 5 ? "text-red-700" : "text-slate-600"
-                  }`}
-                >
-                  Healthy portfolio
-                </span>
-                <span className="text-lg">◉</span>
-              </div>
-              <div
-                className={`text-3xl font-black tracking-tight ${
-                  portfolioAtRisk > 5 ? "text-red-950" : "text-slate-950"
-                }`}
-              >
-                {healthyPortfolioPct.toFixed(1)}%
-              </div>
-              <p
-                className={`mt-1 text-xs leading-5 ${
-                  portfolioAtRisk > 5 ? "text-red-800/70" : "text-slate-600"
-                }`}
-              >
-                Portfolio outside the current at-risk share.
-              </p>
-              <div
-                className={`mt-4 h-1.5 overflow-hidden rounded-full ${
-                  portfolioAtRisk > 5 ? "bg-red-100" : "bg-slate-200"
-                }`}
-              >
-                <div
-                  className={`h-full rounded-full ${
-                    portfolioAtRisk > 5 ? "bg-red-600" : "bg-[#0B1F3A]"
-                  }`}
-                  style={{ width: `${healthyPortfolioPct}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </CardBody>
-      </Card>
 
       {/* ======================================================
           ANALYTICS

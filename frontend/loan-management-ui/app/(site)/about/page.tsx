@@ -12,9 +12,9 @@ export default function AboutPage() {
     <div>
       {/* Hero */}
       <section
-        className="relative overflow-hidden py-24 text-white"
+        className="py-20 text-white relative overflow-hidden"
         style={{
-          background: `radial-gradient(circle at 88% 12%, ${accent}22, transparent 30%), linear-gradient(135deg, ${primary} 0%, #07152A 100%)`,
+          background: `linear-gradient(135deg, ${primary} 0%, #0a4a2b 100%)`,
         }}
       >
         <div className="max-w-7xl mx-auto px-4 grid md:grid-cols-2 gap-12 items-center">

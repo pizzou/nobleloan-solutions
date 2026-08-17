@@ -12,13 +12,13 @@ export default function ServicesPage() {
     <div>
       {/* Hero */}
       <section
-        className="relative overflow-hidden py-24 text-center text-white"
+        className="py-20 text-white text-center"
         style={{
-          background: `radial-gradient(circle at 88% 12%, ${accent}22, transparent 30%), linear-gradient(135deg, ${primary} 0%, #07152A 100%)`,
+          background: `linear-gradient(135deg, ${primary} 0%, #0a4a2b 100%)`,
         }}
       >
         <div className="max-w-3xl mx-auto px-4">
-          <h1 className="text-4xl font-black tracking-tight md:text-5xl">
+          <h1 className="text-4xl md:text-5xl font-extrabold mb-4">
             Our Financial Services
           </h1>
           <p className="text-white/80 text-lg">
@@ -53,18 +53,17 @@ export default function ServicesPage() {
                   {[
                     [
                       "Interest Rate",
-                      service.rateType === "MONTHLY"
-                        ? service.rate + " per month"
-                        : service.rateType
-                          ? service.rate + " " + service.rateType.toLowerCase()
-                          : service.rate + " p.a.",
+                      service.rate +
+                        (service.rateType === "MONTHLY"
+                          ? " per month"
+                          : " p.m."),
                     ],
                     ["Max Amount", tenant.currency + " " + service.maxAmount],
                     ["Loan Term", service.term],
                   ].map(([label, value]) => (
                     <div
                       key={label}
-                      className="bg-gray-50 rounded-2xl border border-slate-200/80 bg-white p-4 text-center shadow-sm"
+                      className="bg-gray-50 rounded-xl p-4 text-center border border-gray-100"
                     >
                       <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
                         {label}
