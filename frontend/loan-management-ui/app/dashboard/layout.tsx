@@ -16,7 +16,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           ? "Client relationships"
           : pathname.includes("/payments")
             ? "Collections"
-            : pathname.includes("/accounting")
+            : pathname.includes("/accounting") || pathname.includes("/expenses")
               ? "Finance control"
               : pathname.includes("/reports")
                 ? "Reports & intelligence"
