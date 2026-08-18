@@ -76,6 +76,8 @@ public class DashboardService {
 
                 BigDecimal atRiskPrincipal = money(valueAt(loanAggregate, 7));
 
+                long overdueLoans = asLong(valueAt(loanAggregate, 8));
+
                 /*
                  * ------------------------------------------------------------
                  * PAYMENT AGGREGATES
@@ -93,15 +95,6 @@ public class DashboardService {
                 BigDecimal collectedThisMonth = money(valueAt(paymentAggregate, 1));
 
                 long latePaymentsCount = asLong(valueAt(paymentAggregate, 2));
-
-                /*
-                 * Distinct overdue loans are calculated in SQL. This avoids
-                 * loading all overdue Payment entities and de-duplicating them
-                 * in application memory.
-                 */
-                long overdueLoans = paymentRepository.countDistinctOverdueLoans(
-                                orgId,
-                                today);
 
                 /*
                  * ------------------------------------------------------------
@@ -174,7 +167,10 @@ public class DashboardService {
                  * BORROWER GENDER BREAKDOWN
                  * ------------------------------------------------------------
                  */
-                List<Map<String, Object>> borrowerGenderBreakdown = new ArrayList<>();
+                Map<String, Long> genderCounts = new LinkedHashMap<>();
+                genderCounts.put("MALE", 0L);
+                genderCounts.put("FEMALE", 0L);
+                genderCounts.put("OTHER", 0L);
 
                 List<Object[]> genderRows = borrowerRepository.getDashboardGenderBreakdown(orgId);
 
@@ -184,13 +180,23 @@ public class DashboardService {
                                         continue;
                                 }
 
-                                Map<String, Object> item = new LinkedHashMap<>();
+                                String label = normalizeGenderLabel(
+                                                row[0] == null ? null : row[0].toString());
 
-                                item.put("label", row[0] == null ? "OTHER" : row[0].toString());
-                                item.put("count", asLong(row[1]));
-
-                                borrowerGenderBreakdown.add(item);
+                                genderCounts.merge(
+                                                label,
+                                                asLong(row[1]),
+                                                Long::sum);
                         }
+                }
+
+                List<Map<String, Object>> borrowerGenderBreakdown = new ArrayList<>();
+
+                for (Map.Entry<String, Long> entry : genderCounts.entrySet()) {
+                        Map<String, Object> item = new LinkedHashMap<>();
+                        item.put("label", entry.getKey());
+                        item.put("count", entry.getValue());
+                        borrowerGenderBreakdown.add(item);
                 }
 
                 /*
@@ -247,6 +253,20 @@ public class DashboardService {
                                 .loanTypeBreakdown(typeBreakdown)
                                 .recentLoans(recentLoans)
                                 .build();
+        }
+
+        private String normalizeGenderLabel(String value) {
+                if (value == null) {
+                        return "OTHER";
+                }
+
+                String normalized = value.trim().toUpperCase();
+
+                return switch (normalized) {
+                        case "MALE", "M" -> "MALE";
+                        case "FEMALE", "F" -> "FEMALE";
+                        default -> "OTHER";
+                };
         }
 
         private Object valueAt(Object[] values, int index) {

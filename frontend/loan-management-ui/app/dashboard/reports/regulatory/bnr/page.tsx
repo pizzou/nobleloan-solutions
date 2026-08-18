@@ -73,6 +73,17 @@ function formatPercent(value: number): string {
   return `${value.toFixed(2)}%`;
 }
 
+/**
+ * BNR ratio fields from RegulatoryReportingService are stored as
+ * mathematical ratios (for example 0.011 for 1.10%).
+ *
+ * percentageOf() above already returns a human percentage (0..100),
+ * so these two representations must not be formatted by the same helper.
+ */
+function formatRatioPercent(value: number): string {
+  return `${(value * 100).toFixed(2)}%`;
+}
+
 function unwrapRows(rows: unknown): BreakdownRow[] {
   if (!Array.isArray(rows)) {
     return [];
@@ -821,28 +832,28 @@ export default function BnrReportPage() {
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Metric
                   label="PAR"
-                  value={formatPercent(safeNumber(summary.parRatio))}
+                  value={formatRatioPercent(safeNumber(summary.parRatio))}
                   secondary={formatMoney(summary.parAmount, currency)}
                 />
 
                 <Metric
                   label="PAR > 30 Days"
-                  value={formatPercent(safeNumber(summary.par30Ratio))}
+                  value={formatRatioPercent(safeNumber(summary.par30Ratio))}
                 />
 
                 <Metric
                   label="PAR > 60 Days"
-                  value={formatPercent(safeNumber(summary.par60Ratio))}
+                  value={formatRatioPercent(safeNumber(summary.par60Ratio))}
                 />
 
                 <Metric
                   label="PAR > 90 Days"
-                  value={formatPercent(safeNumber(summary.par90Ratio))}
+                  value={formatRatioPercent(safeNumber(summary.par90Ratio))}
                 />
 
                 <Metric
                   label="NPL Ratio"
-                  value={formatPercent(safeNumber(summary.nplRatio))}
+                  value={formatRatioPercent(safeNumber(summary.nplRatio))}
                   secondary={formatMoney(summary.nplAmount, currency)}
                 />
 

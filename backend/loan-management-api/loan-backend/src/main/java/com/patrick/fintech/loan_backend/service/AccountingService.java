@@ -1395,7 +1395,7 @@ public class AccountingService {
                                                 ? loan.getReferenceNumber().trim()
                                                 : "LOAN-" + loan.getId();
 
-                return post(
+                JournalEntry entry = post(
                                 org,
                                 loan.getBranch(),
                                 "PENALTY_ACCRUAL",
@@ -1417,6 +1417,12 @@ public class AccountingService {
                                                                 .credit(penalty)
                                                                 .description("Penalty income accrued — " + reference)
                                                                 .build()));
+
+                loan.setPenaltiesAssessed(
+                                money(loan.getPenaltiesAssessedDecimal())
+                                                .add(penalty));
+
+                return entry;
         }
 
         // ============================================================

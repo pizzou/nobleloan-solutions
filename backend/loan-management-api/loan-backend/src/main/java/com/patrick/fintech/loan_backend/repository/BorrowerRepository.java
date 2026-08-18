@@ -42,21 +42,11 @@ public interface BorrowerRepository extends JpaRepository<Borrower, Long> {
             Long organizationId);
 
     @Query("""
-            SELECT
-                CASE
-                    WHEN UPPER(TRIM(b.gender)) IN ('MALE', 'M') THEN 'MALE'
-                    WHEN UPPER(TRIM(b.gender)) IN ('FEMALE', 'F') THEN 'FEMALE'
-                    ELSE 'OTHER'
-                END,
-                COUNT(b)
+            SELECT b.gender, COUNT(b)
             FROM Borrower b
             WHERE b.organization.id = :organizationId
-            GROUP BY
-                CASE
-                    WHEN UPPER(TRIM(b.gender)) IN ('MALE', 'M') THEN 'MALE'
-                    WHEN UPPER(TRIM(b.gender)) IN ('FEMALE', 'F') THEN 'FEMALE'
-                    ELSE 'OTHER'
-                END
+            GROUP BY b.gender
+            ORDER BY b.gender
             """)
     List<Object[]> getDashboardGenderBreakdown(
             @Param("organizationId") Long organizationId);

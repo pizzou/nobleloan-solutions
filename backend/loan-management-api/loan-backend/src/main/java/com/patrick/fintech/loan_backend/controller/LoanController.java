@@ -15,6 +15,7 @@ import com.patrick.fintech.loan_backend.model.Payment;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.LoanCommentRepository;
 import com.patrick.fintech.loan_backend.service.AuditService;
+import com.patrick.fintech.loan_backend.service.DashboardService;
 import com.patrick.fintech.loan_backend.service.LoanApprovalService;
 import com.patrick.fintech.loan_backend.service.LoanService;
 import com.patrick.fintech.loan_backend.service.LoanRestructuringService;
@@ -47,6 +48,8 @@ import java.util.Map;
 public class LoanController {
 
         private final LoanService loanService;
+
+        private final DashboardService dashboardService;
 
         private final PaymentService paymentService;
 
@@ -510,11 +513,11 @@ public class LoanController {
 
         @GetMapping("/dashboard")
         public ResponseEntity<ApiResponse<DashboardStats>> getDashboard() {
-                Organization organization = currentUserUtil.getCurrentUser().getOrganization();
+                Long organizationId = currentUserUtil.getCurrentOrganizationId();
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
-                                                loanService.getDashboard(organization)));
+                                                dashboardService.getStats(organizationId)));
         }
 
         // ================================================================
