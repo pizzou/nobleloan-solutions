@@ -4,13 +4,8 @@ import { get, post } from "./api";
  * ============================================================
  * API NOTIFICATION
  * ============================================================
- *
- * This represents the notification as returned by the backend.
- *
- * The backend may return normal application notifications,
- * payment notifications, loan notifications, borrower
- * notifications, etc.
  */
+
 export interface AppNotification {
   id: number;
 
@@ -73,17 +68,8 @@ export interface AppNotification {
  * ============================================================
  * DISPLAY NOTIFICATION
  * ============================================================
- *
- * This is the ONLY notification model that the dashboard
- * should use.
- *
- * Important:
- *
- * id = string
- *
- * This avoids conflicts between database notification IDs
- * and realtime notification IDs.
  */
+
 export interface DisplayNotification {
   id: string;
 
@@ -164,28 +150,34 @@ export interface DisplayNotification {
 
 /**
  * ============================================================
+ * INTERNAL CONSTANTS
+ * ============================================================
+ *
+ * Notification unread count is non-critical.
+ *
+ * The dashboard must NEVER wait 20 seconds for this request.
+ *
+ * Your normal API client currently has a much longer timeout,
+ * so this service applies a local upper limit.
+ */
+const UNREAD_COUNT_TIMEOUT_MS = 3500;
+
+/**
+ * ============================================================
  * SAFE NUMBER
  * ============================================================
  */
+
 function optionalNumber(
-  value: number | string | null | undefined
+  value: number | string | null | undefined,
 ): number | undefined {
-  if (
-    value === undefined ||
-    value === null ||
-    value === ""
-  ) {
+  if (value === undefined || value === null || value === "") {
     return undefined;
   }
 
-  const parsed =
-    typeof value === "number"
-      ? value
-      : Number(value);
+  const parsed = typeof value === "number" ? value : Number(value);
 
-  return Number.isFinite(parsed)
-    ? parsed
-    : undefined;
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 /**
@@ -193,21 +185,15 @@ function optionalNumber(
  * SAFE STRING
  * ============================================================
  */
-function optionalString(
-  value: unknown
-): string | undefined {
-  if (
-    value === undefined ||
-    value === null
-  ) {
+
+function optionalString(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
     return undefined;
   }
 
   const text = String(value).trim();
 
-  return text.length > 0
-    ? text
-    : undefined;
+  return text.length > 0 ? text : undefined;
 }
 
 /**
@@ -215,12 +201,9 @@ function optionalString(
  * TYPE NORMALIZATION
  * ============================================================
  */
-function normalizeType(
-  type?: string
-): string {
-  const normalized =
-    optionalString(type)
-      ?.toUpperCase();
+
+function normalizeType(type?: string): string {
+  const normalized = optionalString(type)?.toUpperCase();
 
   if (!normalized) {
     return "GENERAL";
@@ -234,22 +217,15 @@ function normalizeType(
  * SEVERITY NORMALIZATION
  * ============================================================
  */
-function normalizeSeverity(
-  notification: AppNotification
-): string {
-  const explicit =
-    optionalString(
-      notification.severity
-    )?.toUpperCase();
+
+function normalizeSeverity(notification: AppNotification): string {
+  const explicit = optionalString(notification.severity)?.toUpperCase();
 
   if (explicit) {
     return explicit;
   }
 
-  const type =
-    normalizeType(
-      notification.type
-    );
+  const type = normalizeType(notification.type);
 
   switch (type) {
     case "PAYMENT":
@@ -284,22 +260,15 @@ function normalizeSeverity(
  * PRIORITY NORMALIZATION
  * ============================================================
  */
-function normalizePriority(
-  notification: AppNotification
-): string {
-  const explicit =
-    optionalString(
-      notification.priority
-    )?.toUpperCase();
+
+function normalizePriority(notification: AppNotification): string {
+  const explicit = optionalString(notification.priority)?.toUpperCase();
 
   if (explicit) {
     return explicit;
   }
 
-  const type =
-    normalizeType(
-      notification.type
-    );
+  const type = normalizeType(notification.type);
 
   switch (type) {
     case "PAYMENT_FAILED":
@@ -323,12 +292,9 @@ function normalizePriority(
  * REALTIME NORMALIZATION
  * ============================================================
  */
-function normalizeRealtime(
-  notification: AppNotification
-): boolean {
-  return Boolean(
-    notification.realtime
-  );
+
+function normalizeRealtime(notification: AppNotification): boolean {
+  return Boolean(notification.realtime);
 }
 
 /**
@@ -336,16 +302,11 @@ function normalizeRealtime(
  * CREATED DATE
  * ============================================================
  */
-function resolveCreatedAt(
-  notification: AppNotification
-): string {
+
+function resolveCreatedAt(notification: AppNotification): string {
   return (
-    optionalString(
-      notification.createdAt
-    ) ??
-    optionalString(
-      notification.paymentTimestamp
-    ) ??
+    optionalString(notification.createdAt) ??
+    optionalString(notification.paymentTimestamp) ??
     new Date().toISOString()
   );
 }
@@ -355,19 +316,12 @@ function resolveCreatedAt(
  * RECEIVED DATE
  * ============================================================
  */
-function resolveReceivedAt(
-  notification: AppNotification
-): string {
+
+function resolveReceivedAt(notification: AppNotification): string {
   return (
-    optionalString(
-      notification.receivedAt
-    ) ??
-    optionalString(
-      notification.paymentTimestamp
-    ) ??
-    optionalString(
-      notification.createdAt
-    ) ??
+    optionalString(notification.receivedAt) ??
+    optionalString(notification.paymentTimestamp) ??
+    optionalString(notification.createdAt) ??
     new Date().toISOString()
   );
 }
@@ -376,38 +330,18 @@ function resolveReceivedAt(
  * ============================================================
  * NOTIFICATION ID
  * ============================================================
- *
- * Database notifications have numeric IDs.
- *
- * Realtime notifications may use paymentId,
- * transactionId or timestamp.
- *
- * The dashboard always receives a string ID.
  */
-function resolveNotificationId(
-  notification: AppNotification
-): string {
-  if (
-    notification.id !==
-      undefined &&
-    notification.id !== null
-  ) {
-    return String(
-      notification.id
-    );
+
+function resolveNotificationId(notification: AppNotification): string {
+  if (notification.id !== undefined && notification.id !== null) {
+    return String(notification.id);
   }
 
-  if (
-    notification.paymentId !==
-      undefined &&
-    notification.paymentId !== null
-  ) {
+  if (notification.paymentId !== undefined && notification.paymentId !== null) {
     return `payment-${notification.paymentId}`;
   }
 
-  if (
-    notification.transactionId
-  ) {
+  if (notification.transactionId) {
     return `transaction-${notification.transactionId}`;
   }
 
@@ -419,21 +353,13 @@ function resolveNotificationId(
  * PAYMENT TITLE
  * ============================================================
  */
-function resolveTitle(
-  notification: AppNotification
-): string {
-  if (
-    optionalString(
-      notification.title
-    )
-  ) {
+
+function resolveTitle(notification: AppNotification): string {
+  if (optionalString(notification.title)) {
     return notification.title!.trim();
   }
 
-  const type =
-    normalizeType(
-      notification.type
-    );
+  const type = normalizeType(notification.type);
 
   switch (type) {
     case "PAYMENT":
@@ -467,46 +393,32 @@ function resolveTitle(
  * PAYMENT MESSAGE
  * ============================================================
  */
-function resolveMessage(
-  notification: AppNotification
-): string {
-  if (
-    optionalString(
-      notification.message
-    )
-  ) {
+
+function resolveMessage(notification: AppNotification): string {
+  if (optionalString(notification.message)) {
     return notification.message!.trim();
   }
 
-  const type =
-    normalizeType(
-      notification.type
-    );
+  const type = normalizeType(notification.type);
 
   if (
     type === "PAYMENT" ||
     type === "PAYMENT_RECEIVED" ||
     type === "PAYMENT_SUCCESS"
   ) {
-    const currency =
-      notification.currency ||
-      "RWF";
+    const currency = notification.currency || "RWF";
 
-    const amount =
-      notification.amount ??
-      0;
+    const amount = notification.amount ?? 0;
 
-    const borrower =
-      notification.borrowerName
-        ? notification.borrowerName
-        : notification.borrowerId
+    const borrower = notification.borrowerName
+      ? notification.borrowerName
+      : notification.borrowerId
         ? `Borrower #${notification.borrowerId}`
         : "Borrower";
 
-    const loan =
-      notification.loanReference
-        ? notification.loanReference
-        : notification.loanId
+    const loan = notification.loanReference
+      ? notification.loanReference
+      : notification.loanId
         ? `Loan #${notification.loanId}`
         : "loan";
 
@@ -520,187 +432,91 @@ function resolveMessage(
  * ============================================================
  * NORMALIZE NOTIFICATION
  * ============================================================
- *
- * IMPORTANT:
- *
- * This function converts AppNotification into
- * DisplayNotification.
- *
- * Your dashboard should use the result of this function.
  */
-export function normalizeNotification(
-  notification: AppNotification
-): DisplayNotification {
-  const createdAt =
-    resolveCreatedAt(
-      notification
-    );
 
-  const receivedAt =
-    resolveReceivedAt(
-      notification
-    );
+export function normalizeNotification(
+  notification: AppNotification,
+): DisplayNotification {
+  const createdAt = resolveCreatedAt(notification);
+
+  const receivedAt = resolveReceivedAt(notification);
 
   return {
-    id:
-      resolveNotificationId(
-        notification
-      ),
+    id: resolveNotificationId(notification),
 
-    type:
-      normalizeType(
-        notification.type
-      ),
+    type: normalizeType(notification.type),
 
-    title:
-      resolveTitle(
-        notification
-      ),
+    title: resolveTitle(notification),
 
-    message:
-      resolveMessage(
-        notification
-      ),
+    message: resolveMessage(notification),
 
-    link:
-      optionalString(
-        notification.link
-      ),
+    link: optionalString(notification.link),
 
-    organizationId:
-      optionalNumber(
-        notification.organizationId
-      ),
+    organizationId: optionalNumber(notification.organizationId),
 
-    loanId:
-      optionalNumber(
-        notification.loanId
-      ),
+    loanId: optionalNumber(notification.loanId),
 
-    paymentId:
-      optionalNumber(
-        notification.paymentId
-      ),
+    paymentId: optionalNumber(notification.paymentId),
 
-    loanReference:
-      optionalString(
-        notification.loanReference
-      ),
+    loanReference: optionalString(notification.loanReference),
 
-    borrowerId:
-      optionalNumber(
-        notification.borrowerId
-      ),
+    borrowerId: optionalNumber(notification.borrowerId),
 
-    borrowerName:
-      optionalString(
-        notification.borrowerName
-      ),
+    borrowerName: optionalString(notification.borrowerName),
 
-    amount:
-      notification.amount,
+    amount: notification.amount,
 
-    principalPaid:
-      notification.principalPaid,
+    principalPaid: notification.principalPaid,
 
-    interestPaid:
-      notification.interestPaid,
+    interestPaid: notification.interestPaid,
 
-    penaltyPaid:
-      notification.penaltyPaid,
+    penaltyPaid: notification.penaltyPaid,
 
-    outstandingBalance:
-      notification.outstandingBalance,
+    outstandingBalance: notification.outstandingBalance,
 
-    totalInterestPaid:
-      notification.totalInterestPaid,
+    totalInterestPaid: notification.totalInterestPaid,
 
-    totalInterestDue:
-      notification.totalInterestDue,
+    totalInterestDue: notification.totalInterestDue,
 
-    remainingInterest:
-      notification.remainingInterest,
+    remainingInterest: notification.remainingInterest,
 
-    totalPrincipalPaid:
-      notification.totalPrincipalPaid,
+    totalPrincipalPaid: notification.totalPrincipalPaid,
 
-    totalPenalty:
-      notification.totalPenalty,
+    totalPenalty: notification.totalPenalty,
 
-    totalPenaltyPaid:
-      notification.totalPenaltyPaid,
+    totalPenaltyPaid: notification.totalPenaltyPaid,
 
-    remainingPenalty:
-      notification.remainingPenalty,
+    remainingPenalty: notification.remainingPenalty,
 
-    currency:
-      optionalString(
-        notification.currency
-      ) ?? "RWF",
+    currency: optionalString(notification.currency) ?? "RWF",
 
-    paymentMethod:
-      optionalString(
-        notification.paymentMethod
-      ),
+    paymentMethod: optionalString(notification.paymentMethod),
 
-    channel:
-      optionalString(
-        notification.channel
-      ),
+    channel: optionalString(notification.channel),
 
-    transactionId:
-      optionalString(
-        notification.transactionId
-      ),
+    transactionId: optionalString(notification.transactionId),
 
-    paymentReference:
-      optionalString(
-        notification.paymentReference
-      ),
+    paymentReference: optionalString(notification.paymentReference),
 
-    paymentStatus:
-      optionalString(
-        notification.paymentStatus
-      ),
+    paymentStatus: optionalString(notification.paymentStatus),
 
-    loanStatus:
-      optionalString(
-        notification.loanStatus
-      ),
+    loanStatus: optionalString(notification.loanStatus),
 
-    paymentDate:
-      optionalString(
-        notification.paymentDate
-      ),
+    paymentDate: optionalString(notification.paymentDate),
 
-    paymentTimestamp:
-      optionalString(
-        notification.paymentTimestamp
-      ),
+    paymentTimestamp: optionalString(notification.paymentTimestamp),
 
     createdAt,
 
     receivedAt,
 
-    read:
-      Boolean(
-        notification.read
-      ),
+    read: Boolean(notification.read),
 
-    severity:
-      normalizeSeverity(
-        notification
-      ),
+    severity: normalizeSeverity(notification),
 
-    priority:
-      normalizePriority(
-        notification
-      ),
+    priority: normalizePriority(notification),
 
-    realtime:
-      normalizeRealtime(
-        notification
-      ),
+    realtime: normalizeRealtime(notification),
   };
 }
 
@@ -709,56 +525,33 @@ export function normalizeNotification(
  * API RESPONSE NORMALIZER
  * ============================================================
  */
-function extractNotificationArray(
-  response: unknown
-): AppNotification[] {
-  if (
-    Array.isArray(response)
-  ) {
+
+function extractNotificationArray(response: unknown): AppNotification[] {
+  if (Array.isArray(response)) {
     return response as AppNotification[];
   }
 
-  if (
-    response &&
-    typeof response === "object"
-  ) {
-    const object =
-      response as {
-        data?: unknown;
-        content?: unknown;
-        notifications?: unknown;
-        items?: unknown;
-      };
+  if (response && typeof response === "object") {
+    const object = response as {
+      data?: unknown;
+      content?: unknown;
+      notifications?: unknown;
+      items?: unknown;
+    };
 
-    if (
-      Array.isArray(
-        object.data
-      )
-    ) {
+    if (Array.isArray(object.data)) {
       return object.data as AppNotification[];
     }
 
-    if (
-      Array.isArray(
-        object.content
-      )
-    ) {
+    if (Array.isArray(object.content)) {
       return object.content as AppNotification[];
     }
 
-    if (
-      Array.isArray(
-        object.notifications
-      )
-    ) {
+    if (Array.isArray(object.notifications)) {
       return object.notifications as AppNotification[];
     }
 
-    if (
-      Array.isArray(
-        object.items
-      )
-    ) {
+    if (Array.isArray(object.items)) {
       return object.items as AppNotification[];
     }
   }
@@ -770,189 +563,154 @@ function extractNotificationArray(
  * ============================================================
  * GET MY NOTIFICATIONS
  * ============================================================
- *
- * organizationId is optional so the page can safely call:
- *
- * getMyNotifications()
- *
- * or:
- *
- * getMyNotifications(organizationId)
  */
-export const getMyNotifications =
-  async (
-    organizationId?: number
-  ): Promise<DisplayNotification[]> => {
-    let endpoint =
-      "/notifications";
 
-    if (
-      organizationId !==
-        undefined &&
-      organizationId !== null
-    ) {
-      endpoint +=
-        `?organizationId=${encodeURIComponent(
-          organizationId
-        )}`;
-    }
+export const getMyNotifications = async (
+  organizationId?: number,
+): Promise<DisplayNotification[]> => {
+  let endpoint = "/notifications";
 
-    const response =
-      await get(endpoint);
+  if (organizationId !== undefined && organizationId !== null) {
+    endpoint += `?organizationId=${encodeURIComponent(organizationId)}`;
+  }
 
-    const notifications =
-      extractNotificationArray(
-        response
-      );
+  const response = await get(endpoint);
 
-    return notifications
-      .map(
-        normalizeNotification
-      );
-  };
+  const notifications = extractNotificationArray(response);
+
+  return notifications.map(normalizeNotification);
+};
 
 /**
  * ============================================================
  * GET UNREAD COUNT
  * ============================================================
+ *
+ * IMPORTANT:
+ *
+ * This endpoint is NOT critical to dashboard operation.
+ *
+ * If the backend is slow, sleeping, temporarily unavailable,
+ * or the request exceeds the local timeout, the dashboard
+ * receives { count: 0 } instead of waiting for the normal
+ * 20-second API timeout.
+ *
+ * This prevents notification availability from making the
+ * entire dashboard feel slow.
  */
-export const getUnreadCount =
-  async (): Promise<{
-    count: number;
-  }> => {
-    try {
-      const response =
-        await get(
-          "/notifications/unread-count"
-        );
+export const getUnreadCount = async (): Promise<{
+  count: number;
+}> => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
-      if (
-        response &&
-        typeof response ===
-          "object"
-      ) {
-        const result =
-          response as {
-            count?: unknown;
-          };
+  try {
+    const request = get("/notifications/unread-count");
 
-        const count =
-          Number(
-            result.count ?? 0
-          );
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error("Unread notification count request timed out."));
+      }, UNREAD_COUNT_TIMEOUT_MS);
+    });
 
-        return {
-          count:
-            Number.isFinite(count)
-              ? Math.max(
-                  0,
-                  count
-                )
-              : 0,
-          };
-      }
+    const response = await Promise.race([request, timeout]);
 
-      return {
-        count: 0,
+    if (response && typeof response === "object") {
+      const result = response as {
+        count?: unknown;
       };
-    } catch (error) {
-      console.error(
-        "[NOTIFICATIONS] Failed to get unread count:",
-        error
-      );
+
+      const count = Number(result.count ?? 0);
 
       return {
-        count: 0,
+        count: Number.isFinite(count) ? Math.max(0, count) : 0,
       };
     }
-  };
+
+    return {
+      count: 0,
+    };
+  } catch (error) {
+    /**
+     * Notification count is deliberately
+     * fail-safe.
+     *
+     * A notification failure must never
+     * break the dashboard.
+     */
+    console.warn(
+      "[NOTIFICATIONS] Unread count unavailable:",
+      error instanceof Error ? error.message : error,
+    );
+
+    return {
+      count: 0,
+    };
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+};
 
 /**
  * ============================================================
  * MARK ONE NOTIFICATION AS READ
  * ============================================================
- *
- * Accepts either number or string because the dashboard uses
- * DisplayNotification.id as string.
  */
-export const markNotificationRead =
-  async (
-    id: number | string
-  ): Promise<unknown> => {
-    const numericId =
-      Number(id);
 
-    if (
-      !Number.isFinite(
-        numericId
-      )
-    ) {
-      throw new Error(
-        `Invalid notification ID: ${id}`
-      );
-    }
+export const markNotificationRead = async (
+  id: number | string,
+): Promise<unknown> => {
+  const numericId = Number(id);
 
-    return post(
-      `/notifications/${numericId}/read`
-    );
-  };
+  if (!Number.isFinite(numericId)) {
+    throw new Error(`Invalid notification ID: ${id}`);
+  }
+
+  return post(`/notifications/${numericId}/read`);
+};
 
 /**
  * ============================================================
  * ALIAS EXPECTED BY YOUR PAGE
  * ============================================================
  */
-export const markNotificationAsRead =
-  markNotificationRead;
+
+export const markNotificationAsRead = markNotificationRead;
 
 /**
  * ============================================================
  * MARK ALL NOTIFICATIONS AS READ
  * ============================================================
  */
-export const markAllNotificationsRead =
-  async (): Promise<unknown> => {
-    return post(
-      "/notifications/read-all"
-    );
-  };
+
+export const markAllNotificationsRead = async (): Promise<unknown> => {
+  return post("/notifications/read-all");
+};
 
 /**
  * ============================================================
  * ALIAS EXPECTED BY YOUR PAGE
  * ============================================================
- *
- * Your page imports:
- *
- * markAllNotificationsAsRead
- *
- * therefore this export must exist.
  */
-export const markAllNotificationsAsRead =
-  markAllNotificationsRead;
+
+export const markAllNotificationsAsRead = markAllNotificationsRead;
 
 /**
  * ============================================================
  * NORMALIZE REALTIME PAYMENT NOTIFICATION
  * ============================================================
- *
- * Your WebSocket service can pass a realtime payment object
- * here and the dashboard will receive the exact same
- * DisplayNotification structure as API notifications.
  */
+
 export function normalizeRealtimePaymentNotification(
-  notification: AppNotification
+  notification: AppNotification,
 ): DisplayNotification {
   return normalizeNotification({
     ...notification,
 
-    type:
-      notification.type ||
-      "PAYMENT_RECEIVED",
+    type: notification.type || "PAYMENT_RECEIVED",
 
-    title:
-      notification.title ||
-      "Payment Received",
+    title: notification.title || "Payment Received",
 
     realtime: true,
 
@@ -972,9 +730,8 @@ export function normalizeRealtimePaymentNotification(
       notification.message ||
       resolveMessage({
         ...notification,
-        type:
-          notification.type ||
-          "PAYMENT_RECEIVED",
+
+        type: notification.type || "PAYMENT_RECEIVED",
       }),
   });
 }
@@ -983,91 +740,50 @@ export function normalizeRealtimePaymentNotification(
  * ============================================================
  * MERGE NOTIFICATIONS
  * ============================================================
- *
- * Prevents duplicates when the same notification arrives
- * from the database and WebSocket.
  */
+
 export function mergeNotifications(
   current: DisplayNotification[],
-  incoming: DisplayNotification[]
+  incoming: DisplayNotification[],
 ): DisplayNotification[] {
-  const map =
-    new Map<
-      string,
-      DisplayNotification
-    >();
+  const map = new Map<string, DisplayNotification>();
 
-  for (
-    const notification of current
-  ) {
-    map.set(
-      notification.id,
-      notification
-    );
+  for (const notification of current) {
+    map.set(notification.id, notification);
   }
 
-  for (
-    const notification of incoming
-  ) {
-    const existing =
-      map.get(
-        notification.id
-      );
+  for (const notification of incoming) {
+    const existing = map.get(notification.id);
 
     if (existing) {
-      map.set(
-        notification.id,
-        {
-          ...existing,
-          ...notification,
+      map.set(notification.id, {
+        ...existing,
+        ...notification,
 
-          read:
-            existing.read ||
-            notification.read,
-        }
-      );
+        read: existing.read || notification.read,
+      });
     } else {
-      map.set(
-        notification.id,
-        notification
-      );
+      map.set(notification.id, notification);
     }
   }
 
-  return Array.from(
-    map.values()
-  ).sort(
-    (
-      first,
-      second
-    ) => {
-      const firstDate =
-        new Date(
-          first.receivedAt ||
-            first.createdAt
-        ).getTime();
+  return Array.from(map.values()).sort((first, second) => {
+    const firstDate = new Date(first.receivedAt || first.createdAt).getTime();
 
-      const secondDate =
-        new Date(
-          second.receivedAt ||
-            second.createdAt
-        ).getTime();
+    const secondDate = new Date(
+      second.receivedAt || second.createdAt,
+    ).getTime();
 
-      return (
-        secondDate -
-        firstDate
-      );
-    }
-  );
+    return secondDate - firstDate;
+  });
 }
 
 /**
  * ============================================================
  * DEFAULT EXPORT
  * ============================================================
- *
- * Optional convenience export.
  */
+
 const notificationsService = {
   getMyNotifications,
 
