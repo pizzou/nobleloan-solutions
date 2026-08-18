@@ -28,6 +28,7 @@ public class LoanRestructuringService {
         private final LoanRepository loanRepo;
         private final PaymentRepository paymentRepo;
         private final PaymentScheduleService paymentScheduleService;
+        private final HolidayService holidayService;
         private final AuditService auditService;
         private final WebhookService webhookService;
         private final MailService mailService;
@@ -170,21 +171,17 @@ public class LoanRestructuringService {
                 LocalDate previousNextDue = loan.getNextDueDate();
 
                 /*
-                 * Remove unpaid future rows before rebuilding the schedule.
+                 * Rebuild only the remaining repayment schedule.
+                 *
+                 * IMPORTANT: never delete paid/partially-paid installment
+                 * rows. Those rows are part of the financial history.
+                 * Unpaid rows are replaced with a new schedule based on the
+                 * CURRENT outstanding principal and the new total term.
                  */
-                List<Payment> futurePayments = paymentRepo
-                                .findByLoanId(loan.getId())
-                                .stream()
-                                .filter(
-                                                payment -> payment != null
-                                                                && !Boolean.TRUE.equals(
-                                                                                payment.getPaid()))
-                                .toList();
-
-                if (!futurePayments.isEmpty()) {
-                        paymentRepo.deleteAll(futurePayments);
-                        paymentRepo.flush();
-                }
+                rebuildRemainingPaymentScheduleForExtension(
+                                loan,
+                                newDuration,
+                                outstandingAtExtension);
 
                 /*
                  * Keep the existing principal.
@@ -303,11 +300,11 @@ public class LoanRestructuringService {
                 Loan saved = loanRepo.save(loan);
 
                 /*
-                 * Generate the new schedule using the existing authoritative
-                 * PaymentScheduleService.
+                 * The remaining Payment rows were rebuilt above.
+                 * PaymentScheduleService is intentionally NOT called here:
+                 * that service rebuilds the full original principal schedule
+                 * and would overwrite the already-paid principal balance.
                  */
-                paymentScheduleService.generateSchedule(saved);
-
                 refreshNextPayment(saved);
 
                 Loan finalSaved = loanRepo.save(saved);
@@ -379,6 +376,252 @@ public class LoanRestructuringService {
                                 finalSaved.getMaturityDate());
 
                 return finalSaved;
+        }
+
+        // ================================================================
+        // EXTENSION SCHEDULE REBUILD
+        // ================================================================
+
+        /**
+         * Rebuilds only the unpaid portion of an extended loan.
+         *
+         * Financial invariants:
+         *
+         * 1. Paid and partially-paid installment rows are preserved.
+         * 2. Unpaid rows are replaced.
+         * 3. The new schedule starts from the latest retained installment.
+         * 4. Principal used for the new schedule is the current outstanding
+         * principal, never the original loan amount.
+         * 5. The processing fee is never recalculated.
+         * 6. Interest and management fee are calculated again for the new
+         * remaining term using the platform calendar-day policy.
+         */
+        private void rebuildRemainingPaymentScheduleForExtension(
+                        Loan loan,
+                        int newDuration,
+                        BigDecimal outstandingPrincipal) {
+
+                List<Payment> existingPayments = paymentRepo
+                                .findByLoanIdOrderByDueDateAsc(loan.getId());
+
+                List<Payment> retainedPayments = existingPayments
+                                .stream()
+                                .filter(this::hasFinancialPaymentActivity)
+                                .toList();
+
+                List<Payment> replaceablePayments = existingPayments
+                                .stream()
+                                .filter(payment -> !hasFinancialPaymentActivity(payment))
+                                .toList();
+
+                if (!replaceablePayments.isEmpty()) {
+                        paymentRepo.deleteAll(replaceablePayments);
+                        paymentRepo.flush();
+                }
+
+                int retainedInstallments = retainedPayments.size();
+                int remainingInstallments = newDuration - retainedInstallments;
+
+                if (remainingInstallments <= 0
+                                || outstandingPrincipal.compareTo(ZERO) <= 0) {
+                        loan.setNextDueDate(null);
+                        loan.setNextPaymentDate(null);
+                        loan.setNextInstallmentAmount(ZERO);
+                        return;
+                }
+
+                LocalDate baseDate = retainedPayments
+                                .stream()
+                                .map(Payment::getDueDate)
+                                .filter(date -> date != null)
+                                .max(LocalDate::compareTo)
+                                .orElseGet(() -> loan.getDisbursedAt() != null
+                                                ? loan.getDisbursedAt().toLocalDate()
+                                                : (loan.getStartDate() != null
+                                                                ? loan.getStartDate()
+                                                                : LocalDate.now()));
+
+                /*
+                 * If the extension is being approved after the original
+                 * maturity/overdue date, do not create another installment
+                 * in the past. Start the new repayment cycle from today.
+                 */
+                if (baseDate.isBefore(LocalDate.now())) {
+                        baseDate = LocalDate.now();
+                }
+
+                BigDecimal balance = money(outstandingPrincipal);
+                BigDecimal accumulatedInterest = ZERO;
+                BigDecimal accumulatedManagementFee = ZERO;
+                BigDecimal interestRate = loan.getInterestRateDecimal();
+                BigDecimal managementRate = loan.getManagementFeeRateDecimal();
+
+                if (interestRate == null || interestRate.compareTo(ZERO) <= 0) {
+                        interestRate = MONTHLY_INTEREST_RATE;
+                }
+
+                if (managementRate == null || managementRate.compareTo(ZERO) < 0) {
+                        managementRate = MONTHLY_MANAGEMENT_FEE_RATE;
+                }
+
+                LocalDate accrualStart = baseDate;
+                LocalDate firstDueDate = null;
+                BigDecimal firstInstallmentAmount = ZERO;
+                int startInstallmentNumber = retainedPayments
+                                .stream()
+                                .map(Payment::getInstallmentNumber)
+                                .filter(number -> number != null)
+                                .max(Integer::compareTo)
+                                .orElse(0) + 1;
+
+                for (int offset = 0; offset < remainingInstallments; offset++) {
+
+                        int installmentNumber = startInstallmentNumber + offset;
+
+                        LocalDate rawDueDate = baseDate.plusMonths(offset + 1L);
+
+                        LocalDate dueDate = holidayService.adjustToBusinessDay(
+                                        loan.getOrganization().getId(),
+                                        rawDueDate);
+
+                        if (firstDueDate == null) {
+                                firstDueDate = dueDate;
+                        }
+
+                        int installmentsLeft = remainingInstallments - offset;
+
+                        BigDecimal principalComponent = installmentNumber == startInstallmentNumber
+                                        && installmentsLeft == 1
+                                                        ? balance
+                                                        : (offset == remainingInstallments - 1
+                                                                        ? balance
+                                                                        : balance.divide(
+                                                                                        BigDecimal.valueOf(
+                                                                                                        installmentsLeft),
+                                                                                        16,
+                                                                                        RoundingMode.HALF_UP));
+
+                        principalComponent = money(principalComponent.min(balance).max(ZERO));
+
+                        BigDecimal interest = money(
+                                        FinancialPolicy.accrueDaily(
+                                                        balance,
+                                                        accrualStart,
+                                                        dueDate,
+                                                        interestRate));
+
+                        BigDecimal managementFee = money(
+                                        FinancialPolicy.accrueDaily(
+                                                        balance,
+                                                        accrualStart,
+                                                        dueDate,
+                                                        managementRate));
+
+                        BigDecimal installmentAmount = money(
+                                        principalComponent
+                                                        .add(interest)
+                                                        .add(managementFee));
+
+                        if (offset == 0) {
+                                firstInstallmentAmount = installmentAmount;
+                        }
+
+                        accumulatedInterest = money(accumulatedInterest.add(interest));
+                        accumulatedManagementFee = money(accumulatedManagementFee.add(managementFee));
+
+                        balance = money(balance.subtract(principalComponent).max(ZERO));
+
+                        Payment payment = Payment.builder()
+                                        .paymentReference(generateExtensionPaymentReference(
+                                                        loan,
+                                                        installmentNumber))
+                                        .loan(loan)
+                                        .organization(loan.getOrganization())
+                                        .installmentNumber(installmentNumber)
+                                        .amount(installmentAmount)
+                                        .principalComponent(principalComponent)
+                                        .interestComponent(interest)
+                                        .managementFeeComponent(managementFee)
+                                        .scheduledInterest(interest)
+                                        .scheduledManagementFee(managementFee)
+                                        .cycleInterestDue(interest)
+                                        .cycleInterestRemaining(interest)
+                                        .cycleManagementFeeDue(managementFee)
+                                        .cycleManagementFeeRemaining(managementFee)
+                                        .interestCalculationDate(null)
+                                        .dueDate(dueDate)
+                                        .paid(false)
+                                        .amountPaid(ZERO)
+                                        .penalty(ZERO)
+                                        .penaltyPaid(ZERO)
+                                        .extensionFeeComponent(ZERO)
+                                        .outstandingAfter(balance)
+                                        .status(Payment.PaymentStatus.PENDING)
+                                        .build();
+
+                        paymentRepo.save(payment);
+
+                        accrualStart = dueDate;
+                }
+
+                /*
+                 * Preserve historical paid amounts and add the newly scheduled
+                 * future charges. Extension fee remains separate from these
+                 * totals and is tracked independently on Loan.
+                 */
+                BigDecimal historicalInterestPaid = safe(loan.getInterestPaidDecimal());
+                BigDecimal historicalManagementPaid = safe(loan.getManagementFeePaidDecimal());
+
+                BigDecimal newTotalInterest = money(
+                                historicalInterestPaid.add(accumulatedInterest));
+
+                BigDecimal newTotalManagementFee = money(
+                                historicalManagementPaid.add(accumulatedManagementFee));
+
+                loan.setInterestRate(interestRate);
+                loan.setManagementFeeRate(managementRate);
+                loan.setInterestRateType("MONTHLY");
+                loan.setTotalInterest(newTotalInterest);
+                loan.setManagementFee(newTotalManagementFee);
+                loan.setTotalRepayable(
+                                money(
+                                                loan.getAmountDecimal()
+                                                                .add(newTotalInterest)
+                                                                .add(newTotalManagementFee)));
+                loan.setOutstandingBalance(outstandingPrincipal);
+                loan.setNextDueDate(firstDueDate);
+                loan.setNextPaymentDate(firstDueDate);
+                loan.setNextInstallmentAmount(firstInstallmentAmount);
+        }
+
+        private boolean hasFinancialPaymentActivity(Payment payment) {
+                if (payment == null) {
+                        return false;
+                }
+
+                if (Boolean.TRUE.equals(payment.getPaid())) {
+                        return true;
+                }
+
+                BigDecimal amountPaid = payment.getAmountPaidDecimal();
+                return amountPaid != null && amountPaid.compareTo(ZERO) > 0;
+        }
+
+        private String generateExtensionPaymentReference(
+                        Loan loan,
+                        int installmentNumber) {
+
+                String reference = loan.getReferenceNumber() == null
+                                || loan.getReferenceNumber().isBlank()
+                                                ? "LOAN-" + loan.getId()
+                                                : loan.getReferenceNumber().trim();
+
+                return "PAY-"
+                                + reference
+                                + "-EXT-"
+                                + installmentNumber
+                                + "-"
+                                + System.nanoTime();
         }
 
         // ================================================================

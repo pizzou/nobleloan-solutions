@@ -1073,6 +1073,18 @@ export default function LoanDetailPage() {
   const [stSaving, setStSaving] = useState(false);
 
   // ==========================================================
+  // LOAN EXTENSION
+  // ==========================================================
+
+  const [extensionOpen, setExtensionOpen] = useState(false);
+
+  const [extensionMonths, setExtensionMonths] = useState("1");
+
+  const [extensionReason, setExtensionReason] = useState("");
+
+  const [extensionSaving, setExtensionSaving] = useState(false);
+
+  // ==========================================================
   // E-SIGNATURE
   // ==========================================================
 
@@ -1553,6 +1565,78 @@ export default function LoanDetailPage() {
     }
   };
 
+  const handleRequestExtension = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!hasValidLoanId || !loan) {
+      setMsg({
+        type: "error",
+        text: "This loan link is invalid. Loan extension cannot be requested.",
+      });
+      return;
+    }
+
+    const months = Number(extensionMonths);
+    const maxAdditionalMonths = Math.max(0, 6 - (loan.durationMonths ?? 0));
+
+    if (!Number.isInteger(months) || months < 1) {
+      setMsg({
+        type: "error",
+        text: "Extension duration must be at least 1 month.",
+      });
+      return;
+    }
+
+    if (months > maxAdditionalMonths) {
+      setMsg({
+        type: "error",
+        text: `This loan can only be extended by ${maxAdditionalMonths} additional month(s).`,
+      });
+      return;
+    }
+
+    if (!extensionReason.trim()) {
+      setMsg({
+        type: "error",
+        text: "An extension reason is required.",
+      });
+      return;
+    }
+
+    if ((loan.outstandingBalance ?? 0) <= 0) {
+      setMsg({
+        type: "error",
+        text: "A fully paid loan cannot be extended.",
+      });
+      return;
+    }
+
+    setExtensionSaving(true);
+    setMsg(null);
+
+    try {
+      await loanApi.extend(loanId, months, extensionReason.trim());
+
+      setMsg({
+        type: "success",
+        text: `Loan extended by ${months} month(s). A 10% extension fee has been assessed on the outstanding principal.`,
+      });
+
+      setExtensionOpen(false);
+      setExtensionMonths("1");
+      setExtensionReason("");
+
+      await load();
+    } catch (err: any) {
+      setMsg({
+        type: "error",
+        text: err?.message ?? "Loan extension failed.",
+      });
+    } finally {
+      setExtensionSaving(false);
+    }
+  };
+
   const handleSendForSignature = async () => {
     if (!hasValidLoanId) {
       setMsg({
@@ -1831,6 +1915,30 @@ export default function LoanDetailPage() {
                   Update Status
                 </Button>
               )}
+
+              {isOfficer &&
+                ["ACTIVE", "OVERDUE", "DEFAULTED", "RESTRUCTURED"].includes(
+                  loan.status,
+                ) &&
+                (loan.durationMonths ?? 0) < 6 &&
+                (loan.outstandingBalance ?? 0) > 0 && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      const remainingTerm = Math.max(
+                        1,
+                        6 - (loan.durationMonths ?? 0),
+                      );
+                      setExtensionMonths(String(Math.min(1, remainingTerm)));
+                      setExtensionReason("");
+                      setExtensionOpen(true);
+                    }}
+                    aria-label={`Request extension for loan ${loan.referenceNumber}`}
+                  >
+                    <IconCalendar className="w-4 h-4" />
+                    Request Extension
+                  </Button>
+                )}
 
               {loan.status === "ACTIVE" && (
                 <Button
@@ -2366,6 +2474,23 @@ export default function LoanDetailPage() {
                 <Field
                   label="Outstanding Balance"
                   value={fc(loan.outstandingBalance)}
+                />
+
+                <Field
+                  label="Extension Fee Assessed"
+                  value={fc(loan.extensionFeeAssessed)}
+                />
+
+                <Field
+                  label="Extension Fee Outstanding"
+                  value={fc(loan.extensionFeeOutstanding)}
+                />
+
+                <Field label="Extensions" value={loan.extensionCount ?? 0} />
+
+                <Field
+                  label="Last Extension"
+                  value={formatDate(loan.lastExtensionDate, locale)}
                 />
 
                 <Field
@@ -2960,6 +3085,125 @@ export default function LoanDetailPage() {
             </CardBody>
           </Card>
         )}
+
+        {/* ======================================================
+          LOAN EXTENSION MODAL
+      ====================================================== */}
+
+        <Modal
+          open={extensionOpen}
+          onClose={() => {
+            if (!extensionSaving) {
+              setExtensionOpen(false);
+            }
+          }}
+          title="Request Loan Extension"
+          footer={
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => setExtensionOpen(false)}
+                disabled={extensionSaving}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                loading={extensionSaving}
+                onClick={handleRequestExtension as any}
+                aria-label="Confirm loan extension"
+              >
+                Confirm Extension
+              </Button>
+            </>
+          }
+        >
+          <form onSubmit={handleRequestExtension}>
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 mb-5">
+              <div className="text-xs font-bold uppercase tracking-wider text-amber-700">
+                Extension pricing
+              </div>
+
+              <div className="mt-2 grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <div className="text-xs text-amber-700/70">
+                    Outstanding principal
+                  </div>
+                  <div className="font-black text-gray-900">
+                    {fc(loan.outstandingBalance)}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-amber-700/70">
+                    Extension fee rate
+                  </div>
+                  <div className="font-black text-gray-900">10%</div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-amber-700/70">Estimated fee</div>
+                  <div className="font-black text-gray-900">
+                    {fc(((loan.outstandingBalance ?? 0) * 10) / 100)}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-amber-700/70">
+                    Current maturity
+                  </div>
+                  <div className="font-black text-gray-900">
+                    {formatDate(loan.maturityDate, locale)}
+                  </div>
+                </div>
+              </div>
+
+              <p className="mt-3 text-xs leading-5 text-amber-800">
+                The 10% fee is calculated by the backend from the outstanding
+                principal at the moment the extension is approved. It is a
+                separate receivable and does not increase loan principal.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormGroup label="Additional months" required>
+                <Select
+                  value={extensionMonths}
+                  onChange={(e) => setExtensionMonths(e.target.value)}
+                  required
+                >
+                  {Array.from(
+                    {
+                      length: Math.max(0, 6 - (loan.durationMonths ?? 0)),
+                    },
+                    (_, index) => index + 1,
+                  ).map((months) => (
+                    <option key={months} value={months}>
+                      {months} month{months === 1 ? "" : "s"}
+                    </option>
+                  ))}
+                </Select>
+              </FormGroup>
+
+              <FormGroup label="New total term">
+                <Input
+                  value={`${(loan.durationMonths ?? 0) + Number(extensionMonths || 0)} months`}
+                  readOnly
+                />
+              </FormGroup>
+            </div>
+
+            <FormGroup label="Reason for extension" required>
+              <Textarea
+                required
+                minLength={3}
+                placeholder="Explain why the borrower requires additional repayment time…"
+                value={extensionReason}
+                onChange={(e) => setExtensionReason(e.target.value)}
+              />
+            </FormGroup>
+          </form>
+        </Modal>
 
         {/* ======================================================
           PAYMENT MODAL

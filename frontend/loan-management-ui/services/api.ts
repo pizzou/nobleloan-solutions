@@ -295,6 +295,19 @@ export const loanApi = {
       disbursementMethod: method,
     }),
 
+  /**
+   * Extend an existing active/overdue/defaulted/restructured loan.
+   *
+   * The backend calculates the authoritative 10% extension fee from
+   * the outstanding principal. The frontend only sends the requested
+   * duration and business reason.
+   */
+  extend: (id: number, extensionMonths: number, reason: string) =>
+    post(`/loans/${id}/extend`, {
+      extensionMonths,
+      reason,
+    }),
+
   updateStatus: (id: number, status: string, notes?: string) =>
     post(`/loans/${id}/status`, {
       status,

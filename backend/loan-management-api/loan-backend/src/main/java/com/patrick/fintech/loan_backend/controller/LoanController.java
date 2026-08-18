@@ -367,6 +367,10 @@ public class LoanController {
         // LOAN EXTENSION / RESTRUCTURING
         // ================================================================
 
+        // ================================================================
+        // LOAN EXTENSION / RESTRUCTURING
+        // ================================================================
+
         @PostMapping("/{id}/extend")
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
         public ResponseEntity<ApiResponse<LoanResponse>> extendLoan(
@@ -392,7 +396,17 @@ public class LoanController {
 
                 String reason = body.get("reason") == null
                                 ? null
-                                : String.valueOf(body.get("reason"));
+                                : String.valueOf(body.get("reason")).trim();
+
+                if (extensionMonths < 1 || extensionMonths > 6) {
+                        throw new IllegalArgumentException(
+                                        "Extension period must be between 1 and 6 months.");
+                }
+
+                if (reason != null && reason.length() > 1000) {
+                        throw new IllegalArgumentException(
+                                        "Extension reason must not exceed 1000 characters.");
+                }
 
                 Loan loan = loanRestructuringService.extendLoan(
                                 id,
@@ -403,7 +417,7 @@ public class LoanController {
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
-                                                "Loan extension approved",
+                                                "Loan extension applied successfully",
                                                 ResponseDtoMapper.loan(loan)));
         }
 
