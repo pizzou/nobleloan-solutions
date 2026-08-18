@@ -1088,13 +1088,17 @@ export default function LoanDetailPage() {
         }>(`/loans/${id}`);
 
         if (cached) {
-          setLoan(cached.loan);
+          const cachedData = cached.data;
 
-          setSchedule(cached.schedule);
+          setLoan(cachedData.loan);
+
+          setSchedule(
+            Array.isArray(cachedData.schedule) ? cachedData.schedule : [],
+          );
 
           setMsg({
             type: "error",
-            text: "You're offline — showing the last saved version of this loan.",
+            text: "Showing cached loan data because the server is temporarily unavailable.",
           });
         } else {
           setMsg({

@@ -1120,8 +1120,10 @@ export default function LoanDetailPage() {
         }>(`/loans/${loanId}`);
 
         if (cached) {
-          setLoan(cached.loan);
-          setSchedule(Array.isArray(cached.schedule) ? cached.schedule : []);
+          setLoan(cached.data.loan);
+          setSchedule(
+            Array.isArray(cached.data.schedule) ? cached.data.schedule : [],
+          );
           setMsg({
             type: "error",
             text: "You're offline — showing the last saved version of this loan.",

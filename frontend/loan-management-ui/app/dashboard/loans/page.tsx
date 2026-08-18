@@ -388,11 +388,27 @@ export default function LoanListPage() {
         }>(cacheKey);
 
         if (cached) {
-          setLoans(Array.isArray(cached.loans) ? cached.loans : []);
-          setTotalPages(cached.meta.totalPages);
-          setTotalElements(cached.meta.totalElements || cached.loans.length);
-          if (cached.dashboard) setDashboard(cached.dashboard);
-          setError("You're offline — showing the last saved loan portfolio.");
+          const cachedData = cached.data;
+
+          setLoans(Array.isArray(cachedData.loans) ? cachedData.loans : []);
+
+          setTotalPages(
+            Number.isFinite(cachedData.meta?.totalPages)
+              ? cachedData.meta.totalPages
+              : 0,
+          );
+
+          setTotalElements(
+            Number.isFinite(cachedData.meta?.totalElements)
+              ? cachedData.meta.totalElements
+              : Array.isArray(cachedData.loans)
+                ? cachedData.loans.length
+                : 0,
+          );
+
+          if (cachedData.dashboard) {
+            setDashboard(cachedData.dashboard);
+          }
         } else {
           setLoans([]);
           setError(

@@ -9,19 +9,18 @@ const STORE_CACHE = "cache";
  * PENDING ACTION
  * ============================================================
  *
- * This is the canonical offline mutation structure used by
- * financial operations that must survive temporary connectivity
- * loss.
+ * Canonical offline mutation structure.
  *
- * IMPORTANT:
- * headers are persisted because financial POST operations may
- * contain:
+ * Financial POST/PUT/PATCH/DELETE operations can be persisted
+ * here while the browser is offline and replayed later.
+ *
+ * Headers are intentionally persisted because operations may
+ * require:
  *
  * - Idempotency-Key
  * - Content-Type
+ * - tenant headers
  * - other request-specific headers
- *
- * Never remove headers from this structure.
  */
 export interface PendingAction {
   id: string;
@@ -33,7 +32,7 @@ export interface PendingAction {
   body?: unknown;
 
   /**
-   * HTTP headers that must survive offline replay.
+   * HTTP headers required when replaying the request.
    */
   headers?: Record<string, string>;
 
@@ -44,8 +43,14 @@ export interface PendingAction {
 
   createdAt: string;
 
+  /**
+   * Number of replay attempts.
+   */
   attempts: number;
 
+  /**
+   * Last replay error, if any.
+   */
   lastError?: string;
 }
 
@@ -53,11 +58,25 @@ export interface PendingAction {
  * ============================================================
  * CACHED RESPONSE
  * ============================================================
+ *
+ * GET responses are stored under:
+ *
+ * {
+ *   url,
+ *   data,
+ *   cachedAt
+ * }
+ *
+ * IMPORTANT:
+ * Consumers must access the actual response through:
+ *
+ * cached.data
  */
-
 export interface CachedResponse<T = unknown> {
   url: string;
+
   data: T;
+
   cachedAt: string;
 }
 
@@ -112,7 +131,17 @@ function openDb(): Promise<IDBDatabase> {
     };
 
     request.onsuccess = () => {
-      resolve(request.result);
+      const db = request.result;
+
+      /**
+       * If another tab upgrades the database, close this
+       * connection so the upgrade is not permanently blocked.
+       */
+      db.onversionchange = () => {
+        db.close();
+      };
+
+      resolve(db);
     };
 
     request.onerror = () => {
@@ -141,8 +170,10 @@ function withStore<T>(
   operation: (store: IDBObjectStore) => IDBRequest | void,
 ): Promise<T> {
   return new Promise(async (resolve, reject) => {
+    let db: IDBDatabase | null = null;
+
     try {
-      const db = await openDb();
+      db = await openDb();
 
       const transaction = db.transaction(storeName, mode);
 
@@ -166,12 +197,17 @@ function withStore<T>(
         };
 
         request.onerror = () => {
-          reject(request.error || new Error("IndexedDB operation failed."));
+          /**
+           * Let the transaction error handler also handle
+           * transaction-level failures. Rejecting here makes
+           * request failures immediately visible.
+           */
+          reject(request?.error || new Error("IndexedDB operation failed."));
         };
       }
 
       transaction.oncomplete = () => {
-        db.close();
+        db?.close();
         resolve(result as T);
       };
 
@@ -179,7 +215,7 @@ function withStore<T>(
         const error =
           transaction.error || new Error("IndexedDB transaction failed.");
 
-        db.close();
+        db?.close();
         reject(error);
       };
 
@@ -187,10 +223,11 @@ function withStore<T>(
         const error =
           transaction.error || new Error("IndexedDB transaction was aborted.");
 
-        db.close();
+        db?.close();
         reject(error);
       };
     } catch (error) {
+      db?.close();
       reject(error);
     }
   });
@@ -201,13 +238,17 @@ function withStore<T>(
  * QUEUE ACTION
  * ============================================================
  *
- * Add an offline mutation.
+ * Adds an offline mutation.
  *
- * The function intentionally accepts headers because financial
- * operations such as loan applications require their
- * Idempotency-Key to survive offline replay.
+ * The caller may provide headers such as:
+ *
+ * {
+ *   "Content-Type": "application/json",
+ *   "Idempotency-Key": "..."
+ * }
+ *
+ * Those headers are persisted and replayed later.
  */
-
 export async function queueAction(
   action: Omit<PendingAction, "id" | "createdAt" | "attempts">,
 ): Promise<PendingAction> {
@@ -251,6 +292,28 @@ export async function getPendingActions(): Promise<PendingAction[]> {
 
 /**
  * ============================================================
+ * PENDING COUNT
+ * ============================================================
+ *
+ * Used by:
+ *
+ * - SyncProvider
+ * - OfflineProvider
+ * - dashboard offline indicators
+ *
+ * Returns the number of financial mutations currently
+ * waiting in IndexedDB.
+ */
+export async function pendingCount(): Promise<number> {
+  const count = await withStore<number>(STORE_QUEUE, "readonly", (store) =>
+    store.count(),
+  );
+
+  return count || 0;
+}
+
+/**
+ * ============================================================
  * REMOVE PENDING ACTION
  * ============================================================
  */
@@ -273,6 +336,52 @@ export async function updatePendingAction(
 
 /**
  * ============================================================
+ * BUMP ATTEMPT
+ * ============================================================
+ *
+ * Increments the replay-attempt counter for a queued action.
+ *
+ * This is intentionally implemented against the existing
+ * PendingAction structure so offlineSync.ts does not need to
+ * change architecture.
+ *
+ * Returns the updated action.
+ *
+ * Returns null if the action no longer exists.
+ */
+export async function bumpAttempt(
+  id: string,
+  lastError?: string,
+): Promise<PendingAction | null> {
+  const action = await withStore<PendingAction | undefined>(
+    STORE_QUEUE,
+    "readonly",
+    (store) => store.get(id),
+  );
+
+  if (!action) {
+    return null;
+  }
+
+  const updated: PendingAction = {
+    ...action,
+
+    attempts: Number.isFinite(action.attempts) ? action.attempts + 1 : 1,
+
+    ...(lastError
+      ? {
+          lastError,
+        }
+      : {}),
+  };
+
+  await withStore(STORE_QUEUE, "readwrite", (store) => store.put(updated));
+
+  return updated;
+}
+
+/**
+ * ============================================================
  * CACHE RESPONSE
  * ============================================================
  */
@@ -280,7 +389,9 @@ export async function updatePendingAction(
 export async function cacheSet<T>(url: string, data: T): Promise<void> {
   const cached: CachedResponse<T> = {
     url,
+
     data,
+
     cachedAt: new Date().toISOString(),
   };
 
