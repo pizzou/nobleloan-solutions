@@ -13,12 +13,21 @@ import java.util.Map;
 @AllArgsConstructor
 @Builder
 public class DashboardStats {
+
+    // ============================================================
+    // LOAN COUNTS
+    // ============================================================
+
     private long totalLoans;
     private long pendingLoans;
     private long activeLoans;
     private long overdueLoans;
     private long completedLoans;
     private long defaultedLoans;
+
+    // ============================================================
+    // PORTFOLIO FINANCIAL VALUES
+    // ============================================================
 
     @JsonProperty("totalDisbursed")
     private BigDecimal totalDisbursed;
@@ -31,8 +40,18 @@ public class DashboardStats {
 
     @JsonProperty("collectedThisMonth")
     private BigDecimal collectedThisMonth;
+
+    // ============================================================
+    // BORROWERS / COLLECTIONS
+    // ============================================================
+
     private long totalBorrowers;
+
     private long latePaymentsCount;
+
+    // ============================================================
+    // PORTFOLIO RISK
+    // ============================================================
 
     @JsonProperty("portfolioAtRiskPct")
     private BigDecimal portfolioAtRiskPct;
@@ -40,19 +59,58 @@ public class DashboardStats {
     @JsonProperty("portfolioAtRiskAmount")
     private BigDecimal portfolioAtRiskAmount;
 
+    // ============================================================
+    // BORROWER DEMOGRAPHICS
+    // ============================================================
+
     /**
      * Organization-level borrower demographic breakdown.
-     * Each row contains: label, count.
+     *
+     * Each item contains:
+     * label
+     * count
      */
     private List<Map<String, Object>> borrowerGenderBreakdown;
 
+    // ============================================================
+    // RECENT LOANS
+    // ============================================================
+    //
+    // IMPORTANT:
+    //
+    // DashboardService converts Loan entities into LoanResponse DTOs
+    // before returning them.
+    //
+    // Therefore this MUST be:
+    //
+    // List<LoanResponse>
+    //
+    // and NOT:
+    //
+    // List<Loan>
+    //
+    // This also prevents JPA Loan entities from leaking through the
+    // dashboard API.
+    // ============================================================
+
     private List<LoanResponse> recentLoans;
+
+    // ============================================================
+    // LOAN TYPE BREAKDOWN
+    // ============================================================
+
     private List<Map<String, Object>> loanTypeBreakdown;
+
+    // ============================================================
+    // BACKWARD-COMPATIBLE DOUBLE ACCESSORS
+    // ============================================================
 
     @Deprecated
     @JsonIgnore
     public Double getTotalDisbursed() {
-        return totalDisbursed == null ? null : totalDisbursed.doubleValue();
+        return totalDisbursed == null
+                ? null
+                : totalDisbursed.doubleValue();
     }
 
     @JsonIgnore
@@ -62,17 +120,23 @@ public class DashboardStats {
 
     @Deprecated
     public void setTotalDisbursed(Double value) {
-        this.totalDisbursed = value == null ? null : BigDecimal.valueOf(value);
+        this.totalDisbursed = value == null
+                ? null
+                : BigDecimal.valueOf(value);
     }
 
     public void setTotalDisbursed(BigDecimal value) {
         this.totalDisbursed = value;
     }
 
+    // ============================================================
+
     @Deprecated
     @JsonIgnore
     public Double getTotalCollected() {
-        return totalCollected == null ? null : totalCollected.doubleValue();
+        return totalCollected == null
+                ? null
+                : totalCollected.doubleValue();
     }
 
     @JsonIgnore
@@ -82,17 +146,23 @@ public class DashboardStats {
 
     @Deprecated
     public void setTotalCollected(Double value) {
-        this.totalCollected = value == null ? null : BigDecimal.valueOf(value);
+        this.totalCollected = value == null
+                ? null
+                : BigDecimal.valueOf(value);
     }
 
     public void setTotalCollected(BigDecimal value) {
         this.totalCollected = value;
     }
 
+    // ============================================================
+
     @Deprecated
     @JsonIgnore
     public Double getOutstandingBalance() {
-        return outstandingBalance == null ? null : outstandingBalance.doubleValue();
+        return outstandingBalance == null
+                ? null
+                : outstandingBalance.doubleValue();
     }
 
     @JsonIgnore
@@ -102,17 +172,23 @@ public class DashboardStats {
 
     @Deprecated
     public void setOutstandingBalance(Double value) {
-        this.outstandingBalance = value == null ? null : BigDecimal.valueOf(value);
+        this.outstandingBalance = value == null
+                ? null
+                : BigDecimal.valueOf(value);
     }
 
     public void setOutstandingBalance(BigDecimal value) {
         this.outstandingBalance = value;
     }
 
+    // ============================================================
+
     @Deprecated
     @JsonIgnore
     public Double getCollectedThisMonth() {
-        return collectedThisMonth == null ? null : collectedThisMonth.doubleValue();
+        return collectedThisMonth == null
+                ? null
+                : collectedThisMonth.doubleValue();
     }
 
     @JsonIgnore
@@ -122,17 +198,23 @@ public class DashboardStats {
 
     @Deprecated
     public void setCollectedThisMonth(Double value) {
-        this.collectedThisMonth = value == null ? null : BigDecimal.valueOf(value);
+        this.collectedThisMonth = value == null
+                ? null
+                : BigDecimal.valueOf(value);
     }
 
     public void setCollectedThisMonth(BigDecimal value) {
         this.collectedThisMonth = value;
     }
 
+    // ============================================================
+
     @Deprecated
     @JsonIgnore
     public Double getPortfolioAtRiskPct() {
-        return portfolioAtRiskPct == null ? null : portfolioAtRiskPct.doubleValue();
+        return portfolioAtRiskPct == null
+                ? null
+                : portfolioAtRiskPct.doubleValue();
     }
 
     @JsonIgnore
@@ -142,68 +224,113 @@ public class DashboardStats {
 
     @Deprecated
     public void setPortfolioAtRiskPct(Double value) {
-        this.portfolioAtRiskPct = value == null ? null : BigDecimal.valueOf(value);
+        this.portfolioAtRiskPct = value == null
+                ? null
+                : BigDecimal.valueOf(value);
     }
 
     public void setPortfolioAtRiskPct(BigDecimal value) {
         this.portfolioAtRiskPct = value;
     }
 
-    /** Backward-compatible Double builder overloads; state remains BigDecimal. */
+    // ============================================================
+    // CUSTOM BUILDER
+    // ============================================================
+    //
+    // Lombok generates the other builder methods.
+    //
+    // Because recentLoans is List<LoanResponse>, Lombok will generate:
+    //
+    // recentLoans(List<LoanResponse>)
+    //
+    // which exactly matches DashboardService.
+    // ============================================================
+
     public static class DashboardStatsBuilder {
+
         private BigDecimal collectedThisMonth;
         private BigDecimal outstandingBalance;
         private BigDecimal portfolioAtRiskPct;
         private BigDecimal totalCollected;
         private BigDecimal totalDisbursed;
 
-        public DashboardStatsBuilder totalDisbursed(Double value) {
-            this.totalDisbursed = value == null ? null : BigDecimal.valueOf(value);
+        public DashboardStatsBuilder totalDisbursed(
+                Double value) {
+            this.totalDisbursed = value == null
+                    ? null
+                    : BigDecimal.valueOf(value);
+
             return this;
         }
 
-        public DashboardStatsBuilder totalDisbursed(BigDecimal value) {
+        public DashboardStatsBuilder totalDisbursed(
+                BigDecimal value) {
             this.totalDisbursed = value;
+
             return this;
         }
 
-        public DashboardStatsBuilder totalCollected(Double value) {
-            this.totalCollected = value == null ? null : BigDecimal.valueOf(value);
+        public DashboardStatsBuilder totalCollected(
+                Double value) {
+            this.totalCollected = value == null
+                    ? null
+                    : BigDecimal.valueOf(value);
+
             return this;
         }
 
-        public DashboardStatsBuilder totalCollected(BigDecimal value) {
+        public DashboardStatsBuilder totalCollected(
+                BigDecimal value) {
             this.totalCollected = value;
+
             return this;
         }
 
-        public DashboardStatsBuilder outstandingBalance(Double value) {
-            this.outstandingBalance = value == null ? null : BigDecimal.valueOf(value);
+        public DashboardStatsBuilder outstandingBalance(
+                Double value) {
+            this.outstandingBalance = value == null
+                    ? null
+                    : BigDecimal.valueOf(value);
+
             return this;
         }
 
-        public DashboardStatsBuilder outstandingBalance(BigDecimal value) {
+        public DashboardStatsBuilder outstandingBalance(
+                BigDecimal value) {
             this.outstandingBalance = value;
+
             return this;
         }
 
-        public DashboardStatsBuilder collectedThisMonth(Double value) {
-            this.collectedThisMonth = value == null ? null : BigDecimal.valueOf(value);
+        public DashboardStatsBuilder collectedThisMonth(
+                Double value) {
+            this.collectedThisMonth = value == null
+                    ? null
+                    : BigDecimal.valueOf(value);
+
             return this;
         }
 
-        public DashboardStatsBuilder collectedThisMonth(BigDecimal value) {
+        public DashboardStatsBuilder collectedThisMonth(
+                BigDecimal value) {
             this.collectedThisMonth = value;
+
             return this;
         }
 
-        public DashboardStatsBuilder portfolioAtRiskPct(Double value) {
-            this.portfolioAtRiskPct = value == null ? null : BigDecimal.valueOf(value);
+        public DashboardStatsBuilder portfolioAtRiskPct(
+                Double value) {
+            this.portfolioAtRiskPct = value == null
+                    ? null
+                    : BigDecimal.valueOf(value);
+
             return this;
         }
 
-        public DashboardStatsBuilder portfolioAtRiskPct(BigDecimal value) {
+        public DashboardStatsBuilder portfolioAtRiskPct(
+                BigDecimal value) {
             this.portfolioAtRiskPct = value;
+
             return this;
         }
     }

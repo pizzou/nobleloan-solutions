@@ -1,11 +1,11 @@
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.dto.DashboardStats;
-import com.patrick.fintech.loan_backend.dto.LoanResponse;
-import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.dto.LoanRequest;
+import com.patrick.fintech.loan_backend.dto.LoanResponse;
 import com.patrick.fintech.loan_backend.dto.publicportal.BorrowerDashboardResponse;
 import com.patrick.fintech.loan_backend.dto.publicportal.DashboardSummaryResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Borrower;
 import com.patrick.fintech.loan_backend.model.DocumentType;
 import com.patrick.fintech.loan_backend.model.Loan;
@@ -2357,18 +2357,35 @@ public class LoanService {
                                 .orElse(ZERO);
 
                 return DashboardStats.builder()
-                                .totalLoans(loanRepo.countByOrganization(org))
-                                .pendingLoans(loanRepo.countByOrganizationAndStatus(org, LoanStatus.PENDING))
-                                .activeLoans(loanRepo.countByOrganizationAndStatus(org, LoanStatus.ACTIVE))
+                                .totalLoans(
+                                                loanRepo.countByOrganization(org))
+                                .pendingLoans(
+                                                loanRepo.countByOrganizationAndStatus(
+                                                                org,
+                                                                LoanStatus.PENDING))
+                                .activeLoans(
+                                                loanRepo.countByOrganizationAndStatus(
+                                                                org,
+                                                                LoanStatus.ACTIVE))
                                 .overdueLoans(overdueCount)
-                                .completedLoans(loanRepo.countByOrganizationAndStatus(org, LoanStatus.PAID))
-                                .defaultedLoans(loanRepo.countByOrganizationAndStatus(org, LoanStatus.DEFAULTED))
+                                .completedLoans(
+                                                loanRepo.countByOrganizationAndStatus(
+                                                                org,
+                                                                LoanStatus.PAID))
+                                .defaultedLoans(
+                                                loanRepo.countByOrganizationAndStatus(
+                                                                org,
+                                                                LoanStatus.DEFAULTED))
                                 .totalDisbursed(totalDisbursed)
                                 .totalCollected(totalCollected)
                                 .outstandingBalance(outstandingBalance)
                                 .collectedThisMonth(collectedThisMonth)
-                                .totalBorrowers(borrowerRepo.countByOrganization(org))
-                                .latePaymentsCount(Optional.ofNullable(paymentRepo.countLatePayments(org)).orElse(0L))
+                                .totalBorrowers(
+                                                borrowerRepo.countByOrganization(org))
+                                .latePaymentsCount(
+                                                Optional.ofNullable(
+                                                                paymentRepo.countLatePayments(org))
+                                                                .orElse(0L))
                                 .loanTypeBreakdown(typeBreakdown)
                                 .recentLoans(recent)
                                 .build();
@@ -2508,7 +2525,10 @@ public class LoanService {
                 for (int i = 1; i <= months; i++) {
                         balance = money(balance);
 
-                        LocalDate rawDueDate = startDate.plusMonths(i);
+                        // Advance exactly one contractual month from the previous period.
+                        // Using +i here while startDate is already advanced would turn a
+                        // 3-month loan into periods of 1, 2 and 3 months.
+                        LocalDate rawDueDate = startDate.plusMonths(1);
                         LocalDate dueDate = holidayService.adjustToBusinessDay(
                                         orgId,
                                         rawDueDate);
