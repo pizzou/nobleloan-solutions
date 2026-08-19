@@ -41,14 +41,24 @@ public interface BorrowerRepository extends JpaRepository<Borrower, Long> {
     long countByOrganization_Id(
             Long organizationId);
 
+    /**
+     * Dashboard gender totals are returned as ONE aggregate row.
+     *
+     * Do not use GROUP BY here. Besides being simpler for the dashboard,
+     * this prevents Hibernate/PostgreSQL from producing an invalid grouped
+     * projection when entity-level joins/filters are added.
+     *
+     * Result order: MALE, FEMALE, OTHER/UNKNOWN.
+     */
     @Query("""
-            SELECT b.gender, COUNT(b)
+            SELECT
+                COALESCE(SUM(CASE WHEN UPPER(COALESCE(b.gender, '')) IN ('MALE', 'M') THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN UPPER(COALESCE(b.gender, '')) IN ('FEMALE', 'F') THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN UPPER(COALESCE(b.gender, '')) NOT IN ('MALE', 'M', 'FEMALE', 'F') THEN 1 ELSE 0 END), 0)
             FROM Borrower b
             WHERE b.organization.id = :organizationId
-            GROUP BY b.gender
-            ORDER BY b.gender
             """)
-    List<Object[]> getDashboardGenderBreakdown(
+    Object[] getDashboardGenderBreakdown(
             @Param("organizationId") Long organizationId);
 
     // ============================================================

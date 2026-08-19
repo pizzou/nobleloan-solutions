@@ -2632,30 +2632,15 @@ public class LoanService {
                         LocalDate endDate,
                         BigDecimal monthlyRatePercent) {
 
-                if (outstandingPrincipal == null
-                                || outstandingPrincipal.compareTo(ZERO) <= 0
-                                || startDate == null
-                                || endDate == null
-                                || !startDate.isBefore(endDate)
-                                || monthlyRatePercent == null
-                                || monthlyRatePercent.compareTo(ZERO) <= 0) {
-                        return ZERO;
-                }
-
-                BigDecimal total = ZERO;
-                LocalDate cursor = startDate;
-
-                while (cursor.isBefore(endDate)) {
-                        YearMonth month = YearMonth.from(cursor);
-                        BigDecimal dailyRate = monthlyRatePercent
-                                        .divide(ONE_HUNDRED, 16, RoundingMode.HALF_UP)
-                                        .divide(BigDecimal.valueOf(month.lengthOfMonth()), 16, RoundingMode.HALF_UP);
-
-                        total = total.add(outstandingPrincipal.multiply(dailyRate));
-                        cursor = cursor.plusDays(1);
-                }
-
-                return money(total);
+                /*
+                 * ALL loan screens and services use FinancialPolicy.
+                 * Do not duplicate the monthly-to-calendar-day formula here.
+                 */
+                return FinancialPolicy.accrueDaily(
+                                outstandingPrincipal,
+                                startDate,
+                                endDate,
+                                monthlyRatePercent);
         }
 
         // ================================================================

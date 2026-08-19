@@ -172,22 +172,12 @@ public class DashboardService {
                 genderCounts.put("FEMALE", 0L);
                 genderCounts.put("OTHER", 0L);
 
-                List<Object[]> genderRows = borrowerRepository.getDashboardGenderBreakdown(orgId);
+                Object[] genderRow = borrowerRepository.getDashboardGenderBreakdown(orgId);
 
-                if (genderRows != null) {
-                        for (Object[] row : genderRows) {
-                                if (row == null || row.length < 2) {
-                                        continue;
-                                }
-
-                                String label = normalizeGenderLabel(
-                                                row[0] == null ? null : row[0].toString());
-
-                                genderCounts.merge(
-                                                label,
-                                                asLong(row[1]),
-                                                Long::sum);
-                        }
+                if (genderRow != null && genderRow.length >= 3) {
+                        genderCounts.put("MALE", asLong(genderRow[0]));
+                        genderCounts.put("FEMALE", asLong(genderRow[1]));
+                        genderCounts.put("OTHER", asLong(genderRow[2]));
                 }
 
                 List<Map<String, Object>> borrowerGenderBreakdown = new ArrayList<>();

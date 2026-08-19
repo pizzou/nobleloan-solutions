@@ -283,15 +283,17 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                   WHEN l.status IN (
                       'ACTIVE',
                       'DISBURSED',
-                      'OVERDUE'
+                      'OVERDUE',
+                      'RESTRUCTURED'
                   )
                   THEN 1 ELSE 0
               END),
-          SUM(CASE WHEN l.status = 'PAID' THEN 1 ELSE 0 END),
-          SUM(CASE WHEN l.status = 'DEFAULTED' THEN 1 ELSE 0 END),
+          SUM(CASE WHEN l.status IN ('PAID', 'CLOSED') THEN 1 ELSE 0 END),
+          SUM(CASE WHEN l.status IN ('DEFAULTED', 'WRITTEN_OFF') THEN 1 ELSE 0 END),
           COALESCE(SUM(
               CASE
-                  WHEN l.disbursedAmount IS NOT NULL
+                  WHEN (l.imported = false OR l.imported IS NULL)
+                   AND l.disbursedAmount IS NOT NULL
                   THEN l.disbursedAmount
                   ELSE 0
               END

@@ -14,8 +14,6 @@ public class FinancialCalculationService {
     private static final int RATE_SCALE = 12;
     private static final RoundingMode ROUNDING = RoundingMode.HALF_UP;
     private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100);
-    private static final BigDecimal TWELVE = BigDecimal.valueOf(12);
-    private static final BigDecimal THREE_HUNDRED_SIXTY_FIVE = BigDecimal.valueOf(365);
 
     public BigDecimal money(Number value) {
         if (value == null) {
@@ -42,11 +40,15 @@ public class FinancialCalculationService {
         }
 
         if ("ANNUAL".equalsIgnoreCase(rateType)) {
+            /* Annual pricing is normalized to an actual 365-day basis. */
             return normalized
                     .divide(ONE_HUNDRED, RATE_SCALE, ROUNDING)
-                    .divide(THREE_HUNDRED_SIXTY_FIVE, RATE_SCALE, ROUNDING);
+                    .divide(BigDecimal.valueOf(365), RATE_SCALE, ROUNDING);
         }
 
+        /*
+         * Monthly pricing always uses the actual calendar length of the date's month.
+         */
         return FinancialPolicy.dailyRateFraction(normalized, date)
                 .setScale(RATE_SCALE, ROUNDING);
     }
