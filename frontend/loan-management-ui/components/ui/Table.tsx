@@ -1,50 +1,92 @@
-'use client';
-import React from 'react';
+import React from "react";
 
-export function Table({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+export function Table({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <div className={`overflow-x-auto rounded-xl border border-gray-200 ${className}`}>
-      <table className="w-full text-sm border-collapse">{children}</table>
+    <div className="w-full overflow-x-auto">
+      <table className={`w-full border-collapse text-sm ${className}`}>
+        {children}
+      </table>
     </div>
   );
 }
 
-export function Thead({ children }: { children: React.ReactNode }) {
-  return <thead className="bg-gray-50 border-b border-gray-200">{children}</thead>;
+export function Thead({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return <thead className={`bg-gray-50/80 ${className}`}>{children}</thead>;
 }
 
-export function Th({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+export function Th({
+  children,
+  className = "",
+  ...props
+}: React.ThHTMLAttributes<HTMLTableCellElement>) {
   return (
-    <th className={`px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap ${className}`}>
+    <th
+      {...props}
+      className={`px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 ${className}`}
+    >
       {children}
     </th>
   );
 }
 
-export function Tbody({ children }: { children: React.ReactNode }) {
-  return <tbody className="divide-y divide-gray-100 bg-white">{children}</tbody>;
+export function Tbody({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <tbody className={`divide-y divide-gray-100 ${className}`}>
+      {children}
+    </tbody>
+  );
 }
 
-export function Tr({ children, onClick, className = '' }: { children: React.ReactNode; onClick?: () => void; className?: string }) {
+export function Tr({
+  children,
+  className = "",
+  onClick,
+  ...props
+}: React.HTMLAttributes<HTMLTableRowElement>) {
   return (
-    <tr onClick={onClick}
-      className={`${onClick ? 'cursor-pointer hover:bg-gray-50' : ''} transition-colors ${className}`}>
+    <tr
+      {...props}
+      onClick={onClick}
+      className={`
+        transition-colors
+        ${onClick ? "cursor-pointer hover:bg-gray-50" : ""}
+        ${className}
+      `}
+    >
       {children}
     </tr>
   );
 }
 
-export function Td({ children, className = '', onClick }: { children: React.ReactNode; className?: string; onClick?: (e: React.MouseEvent) => void }) {
-  return <td className={`px-4 py-3 text-gray-700 ${className}`} onClick={onClick}>{children}</td>;
-}
-
-export function EmptyRow({ cols, message = 'No data found' }: { cols: number; message?: string }) {
+export function Td({
+  children,
+  className = "",
+  ...props
+}: React.TdHTMLAttributes<HTMLTableCellElement>) {
   return (
-    <Tr>
-      <Td className={`col-span-${cols} text-center py-12 text-gray-400`}>
-        <div className="text-4xl mb-2 opacity-40">📋</div>
-        <div className="font-medium">{message}</div>
-      </Td>
-    </Tr>
+    <td
+      {...props}
+      className={`px-4 py-4 align-middle text-sm text-gray-700 ${className}`}
+    >
+      {children}
+    </td>
   );
 }

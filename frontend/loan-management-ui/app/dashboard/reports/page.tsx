@@ -10,9 +10,9 @@ import { getLoans } from "../../../services/loanService";
 
 import { PageSpinner } from "../../../components/ui/Skeleton";
 
-/* ========================================================================== */
-/* TYPES                                                                      */
-/* ========================================================================== */
+/* ==========================================================================
+   TYPES
+   ========================================================================== */
 
 type Numeric = number | string | null | undefined;
 
@@ -95,21 +95,29 @@ interface LoanLike {
     firstName?: string;
     lastName?: string;
     nationalId?: string;
+    gender?: string;
+    sex?: string;
   };
 
   amount?: Numeric;
   outstandingBalance?: Numeric;
   creditQuality?: string;
   daysOverdue?: Numeric;
+
+  loanType?: string;
+  productName?: string;
+  product?: {
+    name?: string;
+  };
 }
 
 interface PaymentLike {
   penalty?: Numeric;
 }
 
-/* ========================================================================== */
-/* HELPERS                                                                    */
-/* ========================================================================== */
+/* ==========================================================================
+   HELPERS
+   ========================================================================== */
 
 const numberValue = (value: Numeric): number => {
   if (value === null || value === undefined || value === "") {
@@ -140,10 +148,10 @@ const fmtPrecise = (value: Numeric): string =>
 const fmtNumber = (value: Numeric): string =>
   new Intl.NumberFormat("en-RW").format(numberValue(value));
 
+const fmtPercent = (value: number): string => `${value.toFixed(1)}%`;
+
 const fmtDate = (value?: string | null): string => {
-  if (!value) {
-    return "—";
-  }
+  if (!value) return "—";
 
   const date = new Date(value);
 
@@ -175,14 +183,6 @@ const monthEnd = (date: Date): Date =>
 const previousMonth = (date: Date, monthsBack: number): Date =>
   new Date(date.getFullYear(), date.getMonth() - monthsBack, 1);
 
-/**
- * Safely unwraps common Axios/API response structures:
- *
- * response
- * response.data
- * response.data.data
- * response.data.content
- */
 const unwrap = <T,>(value: unknown): T => {
   if (value === null || value === undefined) {
     return value as T;
@@ -247,9 +247,6 @@ const normalizeArray = <T,>(value: unknown): T[] => {
   return [];
 };
 
-/**
- * Converts a frontend report identifier to a safe filename.
- */
 const filenamePart = (value: string): string =>
   value
     .trim()
@@ -257,9 +254,6 @@ const filenamePart = (value: string): string =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
-/**
- * Downloads a binary response returned by Axios.
- */
 const downloadBlob = async (url: string, filename: string): Promise<void> => {
   const response = await API.get(url, {
     responseType: "blob",
@@ -287,9 +281,155 @@ const downloadBlob = async (url: string, filename: string): Promise<void> => {
   }, 60_000);
 };
 
-/* ========================================================================== */
-/* EXPORT BUTTONS                                                             */
-/* ========================================================================== */
+/* ==========================================================================
+   ICONS
+   ========================================================================== */
+
+function Icon({
+  name,
+  size = 18,
+}: {
+  name:
+    | "download"
+    | "chevron"
+    | "arrow"
+    | "document"
+    | "ledger"
+    | "balance"
+    | "profit"
+    | "cash"
+    | "portfolio"
+    | "users"
+    | "risk"
+    | "calendar";
+  size?: number;
+}) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  switch (name) {
+    case "download":
+      return (
+        <svg {...common}>
+          <path d="M12 3v12" />
+          <path d="m7 10 5 5 5-5" />
+          <path d="M4 21h16" />
+        </svg>
+      );
+
+    case "chevron":
+      return (
+        <svg {...common}>
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+      );
+
+    case "arrow":
+      return (
+        <svg {...common}>
+          <path d="M5 12h14" />
+          <path d="m13 6 6 6-6 6" />
+        </svg>
+      );
+
+    case "document":
+      return (
+        <svg {...common}>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <path d="M14 2v6h6" />
+          <path d="M8 13h8" />
+          <path d="M8 17h6" />
+        </svg>
+      );
+
+    case "ledger":
+      return (
+        <svg {...common}>
+          <path d="M4 5a2 2 0 0 1 2-2h14v18H6a2 2 0 0 1-2-2z" />
+          <path d="M8 7h8" />
+          <path d="M8 11h8" />
+          <path d="M8 15h5" />
+        </svg>
+      );
+
+    case "balance":
+      return (
+        <svg {...common}>
+          <path d="M12 3v18" />
+          <path d="M5 7h14" />
+          <path d="M7 7 4 13h6z" />
+          <path d="m17 7-3 6h6z" />
+        </svg>
+      );
+
+    case "profit":
+      return (
+        <svg {...common}>
+          <path d="M4 19V5" />
+          <path d="M4 19h16" />
+          <path d="m7 15 4-4 3 2 5-6" />
+        </svg>
+      );
+
+    case "cash":
+      return (
+        <svg {...common}>
+          <rect x="3" y="5" width="18" height="14" rx="2" />
+          <circle cx="12" cy="12" r="3" />
+          <path d="M7 9h.01M17 15h.01" />
+        </svg>
+      );
+
+    case "portfolio":
+      return (
+        <svg {...common}>
+          <path d="M4 7h16v13H4z" />
+          <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          <path d="M4 11h16" />
+        </svg>
+      );
+
+    case "users":
+      return (
+        <svg {...common}>
+          <circle cx="9" cy="8" r="3" />
+          <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
+          <path d="M16 5.5a3 3 0 0 1 0 5.8" />
+          <path d="M18 14c1.8.8 3 2.7 3 6" />
+        </svg>
+      );
+
+    case "risk":
+      return (
+        <svg {...common}>
+          <path d="M12 3 4 6v5c0 5 3.2 8.7 8 10 4.8-1.3 8-5 8-10V6z" />
+          <path d="M12 8v5" />
+          <path d="M12 16h.01" />
+        </svg>
+      );
+
+    case "calendar":
+      return (
+        <svg {...common}>
+          <rect x="3" y="5" width="18" height="16" rx="2" />
+          <path d="M16 3v4M8 3v4M3 10h18" />
+        </svg>
+      );
+  }
+}
+
+/* ==========================================================================
+   EXPORT BUTTON
+   ========================================================================== */
 
 function ExportButtons({
   endpoint,
@@ -303,9 +443,7 @@ function ExportButtons({
   const [loading, setLoading] = useState<"csv" | "excel" | null>(null);
 
   const exportReport = async (format: "csv" | "excel"): Promise<void> => {
-    if (loading !== null) {
-      return;
-    }
+    if (loading !== null) return;
 
     try {
       setLoading(format);
@@ -339,220 +477,212 @@ function ExportButtons({
   };
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex items-center gap-2">
       <button
         type="button"
         disabled={loading !== null}
         onClick={() => void exportReport("csv")}
-        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {loading === "csv" ? "Preparing..." : "CSV"}
+        <Icon name="download" size={13} />
+        {loading === "csv" ? "Preparing" : "CSV"}
       </button>
 
       <button
         type="button"
         disabled={loading !== null}
         onClick={() => void exportReport("excel")}
-        className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-900 px-3 text-[11px] font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {loading === "excel" ? "Preparing..." : "Excel"}
+        <Icon name="download" size={13} />
+        {loading === "excel" ? "Preparing" : "Excel"}
       </button>
     </div>
   );
 }
 
-/* ========================================================================== */
-/* REPORT CARDS                                                               */
-/* ========================================================================== */
+/* ==========================================================================
+   SECTION TITLE
+   ========================================================================== */
 
-function ReportCard({
-  endpoint,
+function SectionHeading({
+  eyebrow,
   title,
   description,
-  icon,
 }: {
-  endpoint: string;
+  eyebrow?: string;
   title: string;
-  description: string;
-  icon: string;
+  description?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
-      <div className="flex gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-50 text-xl">
-          {icon}
-        </div>
+    <div className="mb-5">
+      {eyebrow ? (
+        <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+          {eyebrow}
+        </p>
+      ) : null}
 
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+      <h2 className="text-base font-bold tracking-tight text-slate-900">
+        {title}
+      </h2>
 
-          <p className="mt-1 text-xs leading-5 text-gray-500">{description}</p>
-        </div>
-      </div>
-
-      <div className="mt-5 flex items-center justify-between border-t border-gray-100 pt-4">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-          Export
-        </span>
-
-        <ExportButtons endpoint={endpoint} label={title} />
-      </div>
+      {description ? (
+        <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+      ) : null}
     </div>
   );
 }
 
-function AccountingReportCard({
-  endpoint,
-  title,
-  description,
-  icon,
+/* ==========================================================================
+   EXECUTIVE METRIC
+   ========================================================================== */
+
+function ExecutiveMetric({
+  label,
+  value,
+  detail,
+  emphasis = false,
 }: {
-  endpoint: string;
-  title: string;
-  description: string;
-  icon: string;
+  label: string;
+  value: string;
+  detail?: string;
+  emphasis?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
-      <div className="flex gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-xl">
-          {icon}
-        </div>
+    <div className="min-w-0 px-5 py-5">
+      <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-slate-400">
+        {label}
+      </p>
 
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+      <p
+        className={`mt-2 truncate text-xl font-bold tracking-tight ${
+          emphasis ? "text-slate-950" : "text-slate-800"
+        }`}
+      >
+        {value}
+      </p>
 
-          <p className="mt-1 text-xs leading-5 text-gray-500">{description}</p>
-        </div>
+      {detail ? (
+        <p className="mt-1 truncate text-[11px] text-slate-400">{detail}</p>
+      ) : null}
+    </div>
+  );
+}
+
+/* ==========================================================================
+   STATEMENT TABLE
+   ========================================================================== */
+
+function StatementTable({
+  title,
+  rows,
+  total,
+}: {
+  title: string;
+  rows?: AccountingAccountRow[];
+  total: Numeric;
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+        <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-600">
+          {title}
+        </h3>
       </div>
 
-      <div className="mt-5 flex items-center justify-between border-t border-gray-100 pt-4">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-          Financial
-        </span>
+      <table className="min-w-full">
+        <tbody className="divide-y divide-slate-100">
+          {rows && rows.length > 0 ? (
+            rows.map((row, index) => {
+              const value =
+                row.balance ?? row.amount ?? row.credit ?? row.debit ?? 0;
 
+              return (
+                <tr
+                  key={`${row.code ?? row.name ?? "row"}-${index}`}
+                  className="hover:bg-slate-50/70"
+                >
+                  <td className="w-24 px-4 py-3 text-[11px] text-slate-400">
+                    {row.code ?? "—"}
+                  </td>
+
+                  <td className="px-4 py-3 text-xs font-medium text-slate-700">
+                    {row.name ?? "Unnamed Account"}
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold text-slate-800">
+                    {fmtPrecise(value)}
+                  </td>
+                </tr>
+              );
+            })
+          ) : (
+            <tr>
+              <td
+                colSpan={3}
+                className="px-4 py-8 text-center text-xs text-slate-400"
+              >
+                No accounts reported.
+              </td>
+            </tr>
+          )}
+
+          <tr className="bg-slate-50">
+            <td />
+            <td className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-700">
+              Total
+            </td>
+            <td className="px-4 py-3 text-right text-xs font-bold text-slate-950">
+              {fmtPrecise(total)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ==========================================================================
+   REPORT DOCUMENT
+   ========================================================================== */
+
+function ReportDocument({
+  icon,
+  title,
+  description,
+  endpoint,
+}: {
+  icon: Parameters<typeof Icon>[0]["name"];
+  title: string;
+  description: string;
+  endpoint: string;
+}) {
+  return (
+    <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 transition hover:border-slate-300 hover:shadow-sm">
+      <div>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+            <Icon name={icon} size={17} />
+          </div>
+
+          <Icon name="chevron" size={15} />
+        </div>
+
+        <h3 className="mt-4 text-sm font-bold text-slate-900">{title}</h3>
+
+        <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+      </div>
+
+      <div className="mt-5 border-t border-slate-100 pt-4">
         <ExportButtons endpoint={endpoint} label={title} accounting />
       </div>
     </div>
   );
 }
 
-/* ========================================================================== */
-/* KPI                                                                         */
-/* ========================================================================== */
-
-function Kpi({
-  label,
-  value,
-  description,
-}: {
-  label: string;
-  value: string;
-  description?: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-        {label}
-      </p>
-
-      <p className="mt-2 text-2xl font-bold tracking-tight text-gray-900">
-        {value}
-      </p>
-
-      {description ? (
-        <p className="mt-1 text-xs text-gray-400">{description}</p>
-      ) : null}
-    </div>
-  );
-}
-
-/* ========================================================================== */
-/* ACCOUNTING STATUS                                                          */
-/* ========================================================================== */
-
-function AccountingStatus({
-  label,
-  balanced,
-}: {
-  label: string;
-  balanced?: boolean;
-}) {
-  if (balanced === undefined) {
-    return (
-      <span className="rounded-full bg-gray-100 px-3 py-1 text-[10px] font-semibold text-gray-500">
-        {label}: unavailable
-      </span>
-    );
-  }
-
-  return (
-    <span
-      className={
-        balanced
-          ? "rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-semibold text-emerald-700"
-          : "rounded-full bg-red-50 px-3 py-1 text-[10px] font-semibold text-red-700"
-      }
-    >
-      {label}: {balanced ? "balanced" : "attention required"}
-    </span>
-  );
-}
-
-/* ========================================================================== */
-/* ACCOUNT TABLE                                                              */
-/* ========================================================================== */
-
-function AccountTable({
-  title,
-  rows,
-}: {
-  title: string;
-  rows?: AccountingAccountRow[];
-}) {
-  return (
-    <div className="overflow-hidden rounded-2xl border border-gray-200">
-      <div className="border-b border-gray-100 bg-gray-50 px-4 py-3">
-        <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
-      </div>
-
-      {!rows || rows.length === 0 ? (
-        <div className="p-5 text-sm text-gray-400">No accounts reported.</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <tbody className="divide-y divide-gray-100">
-              {rows.map((row, index) => {
-                const value =
-                  row.balance ?? row.amount ?? row.credit ?? row.debit ?? 0;
-
-                return (
-                  <tr key={`${row.code ?? row.name ?? "account"}-${index}`}>
-                    <td className="whitespace-nowrap px-4 py-3 text-gray-400">
-                      {row.code ?? "—"}
-                    </td>
-
-                    <td className="px-4 py-3 font-medium text-gray-700">
-                      {row.name ?? "Unnamed Account"}
-                    </td>
-
-                    <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-gray-900">
-                      {fmtPrecise(value)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ========================================================================== */
-/* PAGE                                                                       */
-/* ========================================================================== */
+/* ==========================================================================
+   PAGE
+   ========================================================================== */
 
 export default function ReportsPage() {
   const [stats, setStats] = useState<DashboardStatsLike | null>(null);
@@ -594,45 +724,40 @@ export default function ReportsPage() {
             getLoans(),
           ]);
 
-        if (!mounted) {
-          return;
-        }
+        if (!mounted) return;
 
         if (dashboardStatsResult.status === "fulfilled") {
-          const dashboardData = unwrap<DashboardStatsLike>(
-            dashboardStatsResult.value,
+          setStats(
+            unwrap<DashboardStatsLike>(dashboardStatsResult.value) ?? null,
           );
-
-          setStats(dashboardData ?? null);
         } else {
           console.error(
             "Dashboard statistics failed",
             dashboardStatsResult.reason,
           );
-
           setStats(null);
         }
 
         if (overduePaymentsResult.status === "fulfilled") {
-          const overdueData = unwrap<unknown>(overduePaymentsResult.value);
-
-          setOverdue(normalizeArray<PaymentLike>(overdueData));
+          setOverdue(
+            normalizeArray<PaymentLike>(
+              unwrap<unknown>(overduePaymentsResult.value),
+            ),
+          );
         } else {
           console.error(
-            "Overdue payments report failed",
+            "Overdue payments failed",
             overduePaymentsResult.reason,
           );
-
           setOverdue([]);
         }
 
         if (loanListResult.status === "fulfilled") {
-          const loanData = unwrap<unknown>(loanListResult.value);
-
-          setLoans(normalizeArray<LoanLike>(loanData));
+          setLoans(
+            normalizeArray<LoanLike>(unwrap<unknown>(loanListResult.value)),
+          );
         } else {
-          console.error("Loan portfolio report failed", loanListResult.reason);
-
+          console.error("Loan portfolio failed", loanListResult.reason);
           setLoans([]);
         }
       } catch (error) {
@@ -655,49 +780,38 @@ export default function ReportsPage() {
           API.get("/accounting/cash-flow"),
         ]);
 
-        if (!mounted) {
-          return;
-        }
+        if (!mounted) return;
 
-        const trialBalanceResult = results[0];
+        const trial = results[0];
+        const balance = results[1];
+        const pnl = results[2];
+        const cash = results[3];
 
-        const balanceSheetResult = results[1];
-
-        const profitAndLossResult = results[2];
-
-        const cashFlowResult = results[3];
-
-        if (trialBalanceResult.status === "fulfilled") {
-          setTrialBalance(unwrap<TrialBalanceReport>(trialBalanceResult.value));
+        if (trial.status === "fulfilled") {
+          setTrialBalance(unwrap<TrialBalanceReport>(trial.value));
         } else {
-          console.error("Trial balance failed", trialBalanceResult.reason);
-
+          console.error("Trial balance failed", trial.reason);
           setTrialBalance(null);
         }
 
-        if (balanceSheetResult.status === "fulfilled") {
-          setBalanceSheet(unwrap<BalanceSheetReport>(balanceSheetResult.value));
+        if (balance.status === "fulfilled") {
+          setBalanceSheet(unwrap<BalanceSheetReport>(balance.value));
         } else {
-          console.error("Balance sheet failed", balanceSheetResult.reason);
-
+          console.error("Balance sheet failed", balance.reason);
           setBalanceSheet(null);
         }
 
-        if (profitAndLossResult.status === "fulfilled") {
-          setProfitAndLoss(
-            unwrap<ProfitAndLossReport>(profitAndLossResult.value),
-          );
+        if (pnl.status === "fulfilled") {
+          setProfitAndLoss(unwrap<ProfitAndLossReport>(pnl.value));
         } else {
-          console.error("Profit and loss failed", profitAndLossResult.reason);
-
+          console.error("Profit and loss failed", pnl.reason);
           setProfitAndLoss(null);
         }
 
-        if (cashFlowResult.status === "fulfilled") {
-          setCashFlow(unwrap<CashFlowReport>(cashFlowResult.value));
+        if (cash.status === "fulfilled") {
+          setCashFlow(unwrap<CashFlowReport>(cash.value));
         } else {
-          console.error("Cash flow failed", cashFlowResult.reason);
-
+          console.error("Cash flow failed", cash.reason);
           setCashFlow(null);
         }
 
@@ -708,18 +822,9 @@ export default function ReportsPage() {
         if (accountingSucceeded) {
           setAccountingError(null);
         } else {
-          setAccountingError(
-            "Accounting reports could not be loaded. Operational reports remain available.",
-          );
+          setAccountingError("Accounting reports could not be loaded.");
         }
 
-        /*
-         * Monthly accounting trend.
-         *
-         * This is deliberately loaded independently for each month.
-         * One failed month must not prevent the other months from
-         * appearing.
-         */
         const today = new Date();
 
         const periods = Array.from({ length: 6 }, (_, index) => {
@@ -745,65 +850,48 @@ export default function ReportsPage() {
 
             return {
               month: period.from.slice(0, 7),
-
               label: new Intl.DateTimeFormat("en-RW", {
                 month: "short",
                 year: "numeric",
               }).format(period.date),
-
               from: period.from,
               to: period.to,
-
               revenue: numberValue(data?.totalIncome),
-
               expenses: numberValue(data?.totalExpense ?? data?.totalExpenses),
-
               profit: numberValue(data?.netIncome),
             } satisfies MonthlyAccountingReport;
           }),
         );
 
-        if (!mounted) {
-          return;
-        }
+        if (!mounted) return;
 
-        const monthly = monthlyResults.map((result, index) => {
-          const period = periods[index];
+        setMonthlyAccounting(
+          monthlyResults.map((result, index) => {
+            const period = periods[index];
 
-          if (result.status === "fulfilled") {
-            return result.value;
-          }
+            if (result.status === "fulfilled") {
+              return result.value;
+            }
 
-          console.error(
-            `Monthly accounting report failed for ${period.from}`,
-            result.reason,
-          );
-
-          return {
-            month: period.from.slice(0, 7),
-
-            label: new Intl.DateTimeFormat("en-RW", {
-              month: "short",
-              year: "numeric",
-            }).format(period.date),
-
-            from: period.from,
-            to: period.to,
-
-            revenue: 0,
-            expenses: 0,
-            profit: 0,
-          };
-        });
-
-        setMonthlyAccounting(monthly);
+            return {
+              month: period.from.slice(0, 7),
+              label: new Intl.DateTimeFormat("en-RW", {
+                month: "short",
+                year: "numeric",
+              }).format(period.date),
+              from: period.from,
+              to: period.to,
+              revenue: 0,
+              expenses: 0,
+              profit: 0,
+            };
+          }),
+        );
       } catch (error) {
         console.error("Accounting reports failed", error);
 
         if (mounted) {
-          setAccountingError(
-            "Accounting reports could not be loaded. Operational reports remain available.",
-          );
+          setAccountingError("Accounting reports could not be loaded.");
 
           setTrialBalance(null);
           setBalanceSheet(null);
@@ -818,11 +906,6 @@ export default function ReportsPage() {
       setLoading(true);
 
       try {
-        /*
-         * Operational and accounting reporting are intentionally
-         * independent. A failure in AccountingService must not
-         * prevent the dashboard/operational report page from loading.
-         */
         await Promise.all([loadOperationalReports(), loadAccountingReports()]);
       } finally {
         if (mounted) {
@@ -838,30 +921,44 @@ export default function ReportsPage() {
     };
   }, []);
 
-  /* ======================================================================== */
-  /* DERIVED VALUES                                                           */
-  /* ======================================================================== */
+  /* ==========================================================================
+     DERIVED VALUES
+     ========================================================================== */
+
+  const today = new Date();
+
+  const asOfDate = toDateString(today);
 
   const collectionRate = useMemo(() => {
     const disbursed = numberValue(stats?.totalDisbursed);
 
     const collected = numberValue(stats?.totalCollected);
 
-    if (disbursed <= 0) {
-      return "0.0";
-    }
+    if (disbursed <= 0) return 0;
 
-    const rate = (collected / disbursed) * 100;
-
-    return rate.toFixed(1);
+    return (collected / disbursed) * 100;
   }, [stats]);
 
-  const penalties = useMemo(() => {
-    return overdue.reduce(
-      (sum, payment) => sum + numberValue(payment.penalty),
+  const outstandingPortfolio = useMemo(() => {
+    const disbursed = numberValue(stats?.totalDisbursed);
+
+    const collected = numberValue(stats?.totalCollected);
+
+    if (disbursed > 0) {
+      return Math.max(0, disbursed - collected);
+    }
+
+    return loans.reduce(
+      (sum, loan) => sum + numberValue(loan.outstandingBalance),
       0,
     );
-  }, [overdue]);
+  }, [stats, loans]);
+
+  const penalties = useMemo(
+    () =>
+      overdue.reduce((sum, payment) => sum + numberValue(payment.penalty), 0),
+    [overdue],
+  );
 
   const totalIncome = numberValue(profitAndLoss?.totalIncome);
 
@@ -897,6 +994,124 @@ export default function ReportsPage() {
     numberValue(stats?.completedLoans) +
     rejectedCount;
 
+  const currentLoans = loans.filter(
+    (loan) => String(loan.status ?? "").toUpperCase() === "ACTIVE",
+  );
+
+  const qualityBreakdown = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        count: number;
+        amount: number;
+      }
+    >();
+
+    currentLoans.forEach((loan) => {
+      const quality = loan.creditQuality?.trim() || "Not Classified";
+
+      const existing = groups.get(quality) ?? {
+        count: 0,
+        amount: 0,
+      };
+
+      existing.count += 1;
+      existing.amount += numberValue(loan.outstandingBalance ?? loan.amount);
+
+      groups.set(quality, existing);
+    });
+
+    return Array.from(groups.entries())
+      .map(([quality, value]) => ({
+        quality,
+        ...value,
+      }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [currentLoans]);
+
+  const borrowerGender = useMemo(() => {
+    let male = 0;
+    let female = 0;
+    let unknown = 0;
+
+    const seen = new Set<string>();
+
+    loans.forEach((loan) => {
+      const borrower = loan.borrower;
+
+      if (!borrower) return;
+
+      const key =
+        borrower.nationalId ?? `${borrower.firstName}-${borrower.lastName}`;
+
+      if (seen.has(key)) return;
+
+      seen.add(key);
+
+      const gender = String(borrower.gender ?? borrower.sex ?? "")
+        .trim()
+        .toUpperCase();
+
+      if (gender === "M" || gender === "MALE") {
+        male += 1;
+      } else if (gender === "F" || gender === "FEMALE") {
+        female += 1;
+      } else {
+        unknown += 1;
+      }
+    });
+
+    const total = male + female + unknown;
+
+    return {
+      male,
+      female,
+      unknown,
+      total,
+    };
+  }, [loans]);
+
+  const loanProducts = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        count: number;
+        amount: number;
+      }
+    >();
+
+    loans.forEach((loan) => {
+      const product =
+        loan.productName ??
+        loan.loanType ??
+        loan.product?.name ??
+        "Unclassified";
+
+      const existing = groups.get(product) ?? {
+        count: 0,
+        amount: 0,
+      };
+
+      existing.count += 1;
+      existing.amount += numberValue(loan.amount);
+
+      groups.set(product, existing);
+    });
+
+    const total = Array.from(groups.values()).reduce(
+      (sum, item) => sum + item.amount,
+      0,
+    );
+
+    return Array.from(groups.entries())
+      .map(([name, value]) => ({
+        name,
+        ...value,
+        percentage: total > 0 ? (value.amount / total) * 100 : 0,
+      }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [loans]);
+
   const monthlyMax = Math.max(
     1,
     ...monthlyAccounting.flatMap((row) => [
@@ -906,567 +1121,985 @@ export default function ReportsPage() {
     ]),
   );
 
+  const reportingFrom =
+    profitAndLoss?.from ?? monthlyAccounting[0]?.from ?? asOfDate;
+
+  const reportingTo =
+    profitAndLoss?.to ??
+    monthlyAccounting[monthlyAccounting.length - 1]?.to ??
+    asOfDate;
+
   const hasAccountingReports = Boolean(
     trialBalance || balanceSheet || profitAndLoss || cashFlow,
   );
 
-  /* ======================================================================== */
-  /* LOADING                                                                   */
-  /* ======================================================================== */
+  /* ==========================================================================
+     LOADING
+     ========================================================================== */
 
   if (loading) {
     return <PageSpinner />;
   }
 
-  /* ======================================================================== */
-  /* RENDER                                                                    */
-  /* ======================================================================== */
+  /* ==========================================================================
+     RENDER
+     ========================================================================== */
 
   return (
-    <div className="min-h-full space-y-8 pb-12">
-      {/* ==================================================================== */}
-      {/* HEADER                                                               */}
-      {/* ==================================================================== */}
+    <main className="min-h-full bg-[#f7f8fa] pb-16 text-slate-900 print:bg-white">
+      <div className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6 lg:px-8">
+        {/* ==================================================================
+           REPORT HEADER
+           ================================================================== */}
 
-      <section className="relative overflow-hidden rounded-3xl border border-slate-200/80 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-6 shadow-[0_18px_50px_rgba(15,23,42,0.12)] sm:p-8 lg:flex lg:items-end lg:justify-between">
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-sm">
-              ◫
-            </span>
+        <header className="border-b border-slate-300 pb-6">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-900 text-white">
+                  <span className="text-sm font-black">NL</span>
+                </div>
 
-            <span className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-300">
-              Business Intelligence
-            </span>
-          </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                    Noble Loan
+                  </p>
 
-          <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
-            Reports &amp; Analytics
-          </h1>
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">
+                    Management Information System
+                  </p>
+                </div>
+              </div>
 
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
-            Portfolio, operational, regulatory and accounting intelligence from
-            one reporting workspace.
-          </p>
-        </div>
+              <h1 className="mt-7 text-3xl font-bold tracking-tight text-slate-950">
+                Management &amp; Financial Report
+              </h1>
 
-        <Link
-          href="/dashboard/reports/regulatory"
-          className="inline-flex items-center rounded-xl border border-white/15 bg-white/10 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-white/15"
-        >
-          Regulatory Reports →
-        </Link>
-      </section>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
+                Executive overview of lending operations, portfolio performance,
+                borrower activity and financial position.
+              </p>
+            </div>
 
-      {/* ==================================================================== */}
-      {/* ACCOUNTING WARNING                                                   */}
-      {/* ==================================================================== */}
+            <div className="min-w-[250px] border-l border-slate-200 pl-5 lg:text-right">
+              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">
+                Reporting date
+              </p>
 
-      {accountingError ? (
-        <section className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
-          <p className="text-sm font-semibold text-amber-900">
-            Accounting reporting unavailable
-          </p>
+              <p className="mt-1 text-sm font-bold text-slate-900">
+                {fmtDate(asOfDate)}
+              </p>
 
-          <p className="mt-1 text-xs text-amber-700">{accountingError}</p>
-        </section>
-      ) : null}
+              <p className="mt-4 text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">
+                Reporting period
+              </p>
 
-      {/* ==================================================================== */}
-      {/* PORTFOLIO PERFORMANCE                                                */}
-      {/* ==================================================================== */}
-
-      <section>
-        <div className="mb-3">
-          <h2 className="text-sm font-semibold text-gray-900">
-            Portfolio Performance
-          </h2>
-
-          <p className="mt-0.5 text-xs text-gray-400">
-            Operational portfolio indicators.
-          </p>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Kpi label="Total Disbursed" value={fmt(stats?.totalDisbursed)} />
-
-          <Kpi label="Total Collected" value={fmt(stats?.totalCollected)} />
-
-          <Kpi label="Collection Rate" value={`${collectionRate}%`} />
-
-          <Kpi
-            label="Overdue Penalties"
-            value={fmt(penalties)}
-            description="Operational overdue exposure."
-          />
-        </div>
-      </section>
-
-      {/* ==================================================================== */}
-      {/* PORTFOLIO HEALTH                                                     */}
-      {/* ==================================================================== */}
-
-      <section>
-        <div className="mb-3">
-          <h2 className="text-sm font-semibold text-gray-900">
-            Portfolio Health
-          </h2>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Kpi label="Borrowers" value={fmtNumber(stats?.totalBorrowers)} />
-
-          <Kpi label="Active Loans" value={fmtNumber(stats?.activeLoans)} />
-
-          <Kpi label="Overdue Loans" value={fmtNumber(stats?.overdueLoans)} />
-
-          <Kpi label="Closed Loans" value={fmtNumber(stats?.completedLoans)} />
-        </div>
-      </section>
-
-      {/* ==================================================================== */}
-      {/* FINANCIAL PERFORMANCE                                                */}
-      {/* ==================================================================== */}
-
-      <section>
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-gray-900">
-              Financial Performance
-            </h2>
-            <p className="mt-1 text-xs text-gray-500">
-              Plain-language view of the business financial position. Figures
-              come directly from the accounting records.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <AccountingStatus label="Books" balanced={trialBalance?.balanced} />
-            <AccountingStatus
-              label="Financial Position"
-              balanced={balanceSheet?.balanced}
-            />
-          </div>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <Kpi
-            label="Money Earned"
-            value={fmt(totalIncome)}
-            description="Income recognized during the reporting period."
-          />
-
-          <Kpi
-            label="Money Spent"
-            value={fmt(totalExpenses)}
-            description="Expenses recognized during the reporting period."
-          />
-
-          <Kpi
-            label="Profit"
-            value={fmt(netIncome)}
-            description={
-              netIncome >= 0
-                ? "Business earned more than it spent."
-                : "Business spent more than it earned."
-            }
-          />
-
-          <Kpi
-            label="What the Business Owns"
-            value={fmt(totalAssets)}
-            description="Assets recorded in the accounting system."
-          />
-
-          <Kpi
-            label="What the Business Owes"
-            value={fmt(totalLiabilities)}
-            description="Liabilities recorded in the accounting system."
-          />
-
-          <Kpi
-            label="Business Value"
-            value={fmt(totalEquity)}
-            description="Assets minus what the business owes."
-          />
-        </div>
-      </section>
-
-      {/* ==================================================================== */}
-      {/* ACCOUNTING CONTROL SUMMARY                                           */}
-      {/* ==================================================================== */}
-
-      {hasAccountingReports ? (
-        <section className="rounded-2xl border border-slate-200/80 bg-white shadow-sm overflow-hidden">
-          <div className="border-b border-slate-100 px-6 py-5">
-            <div className="flex flex-col gap-1">
-              <h2 className="text-sm font-semibold text-gray-900">
-                Financial Health Check
-              </h2>
-              <p className="text-xs text-gray-500">
-                These checks help management verify that the books are complete
-                and internally consistent.
+              <p className="mt-1 text-sm font-semibold text-slate-700">
+                {fmtDate(reportingFrom)} — {fmtDate(reportingTo)}
               </p>
             </div>
           </div>
 
-          <div className="grid gap-4 p-6 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi
-              label="Total Recorded Debits"
-              value={fmtPrecise(totalDebit)}
-              description="Internal accounting control total."
-            />
+          <div className="mt-6 flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <Icon name="calendar" size={14} />
+              <span>Prepared from operational and accounting records</span>
+            </div>
 
-            <Kpi
-              label="Total Recorded Credits"
-              value={fmtPrecise(totalCredit)}
-              description="Should match total debits."
-            />
+            <Link
+              href="/dashboard/reports/regulatory"
+              className="inline-flex items-center gap-2 text-xs font-bold text-slate-700 transition hover:text-slate-950"
+            >
+              Regulatory reporting
+              <Icon name="arrow" size={14} />
+            </Link>
+          </div>
+        </header>
 
-            <Kpi
-              label="Current Period Profit"
-              value={fmtPrecise(currentPeriodNetIncome)}
-              description="Profit carried into the current financial position."
-            />
+        {/* ==================================================================
+           WARNING
+           ================================================================== */}
 
-            <Kpi
-              label="Cash Movement"
-              value={fmtPrecise(netCashChange)}
-              description={
-                netCashChange >= 0
-                  ? "Net cash increased."
-                  : "Net cash decreased."
-              }
-            />
+        {accountingError ? (
+          <div className="mt-5 border border-amber-200 bg-amber-50 px-5 py-4">
+            <p className="text-xs font-bold uppercase tracking-wide text-amber-900">
+              Accounting data unavailable
+            </p>
+
+            <p className="mt-1 text-xs text-amber-700">{accountingError}</p>
+          </div>
+        ) : null}
+
+        {/* ==================================================================
+           EXECUTIVE SUMMARY
+           ================================================================== */}
+
+        <section className="mt-8">
+          <SectionHeading
+            eyebrow="01 / Executive Summary"
+            title="Portfolio at a glance"
+            description="Key indicators for management review."
+          />
+
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
+              <ExecutiveMetric
+                label="Gross Disbursements"
+                value={fmt(stats?.totalDisbursed)}
+                detail={`${fmtNumber(portfolioCount)} recorded loans`}
+                emphasis
+              />
+
+              <ExecutiveMetric
+                label="Collections"
+                value={fmt(stats?.totalCollected)}
+                detail={`${fmtPercent(collectionRate)} collection rate`}
+              />
+
+              <ExecutiveMetric
+                label="Outstanding Portfolio"
+                value={fmt(outstandingPortfolio)}
+                detail="Estimated remaining exposure"
+                emphasis
+              />
+
+              <ExecutiveMetric
+                label="Overdue Penalties"
+                value={fmt(penalties)}
+                detail={`${fmtNumber(stats?.overdueLoans)} overdue loans`}
+              />
+            </div>
           </div>
 
-          <div className="border-t border-slate-100 bg-slate-50/50 px-6 py-5">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">
-                  Accounting control
+          <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
+              <ExecutiveMetric
+                label="Borrowers"
+                value={fmtNumber(stats?.totalBorrowers ?? borrowerGender.total)}
+                detail="Customer base"
+              />
+
+              <ExecutiveMetric
+                label="Active Loans"
+                value={fmtNumber(stats?.activeLoans)}
+                detail="Currently performing"
+              />
+
+              <ExecutiveMetric
+                label="Overdue Loans"
+                value={fmtNumber(stats?.overdueLoans)}
+                detail="Require collection attention"
+              />
+
+              <ExecutiveMetric
+                label="Closed Loans"
+                value={fmtNumber(stats?.completedLoans)}
+                detail="Completed facilities"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* ==================================================================
+           PORTFOLIO COMPOSITION
+           ================================================================== */}
+
+        <section className="mt-10">
+          <SectionHeading
+            eyebrow="02 / Portfolio Analysis"
+            title="Portfolio composition"
+            description="Distribution of loan exposure by product or loan type."
+          />
+
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead className="border-b border-slate-200 bg-slate-50">
+                  <tr>
+                    <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                      Loan product
+                    </th>
+
+                    <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                      Facilities
+                    </th>
+
+                    <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                      Amount
+                    </th>
+
+                    <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                      Portfolio %
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-100">
+                  {loanProducts.length > 0 ? (
+                    loanProducts.map((product) => (
+                      <tr key={product.name} className="hover:bg-slate-50">
+                        <td className="px-5 py-3.5 text-xs font-semibold text-slate-800">
+                          {product.name}
+                        </td>
+
+                        <td className="px-5 py-3.5 text-right text-xs text-slate-600">
+                          {fmtNumber(product.count)}
+                        </td>
+
+                        <td className="px-5 py-3.5 text-right text-xs font-semibold text-slate-800">
+                          {fmt(product.amount)}
+                        </td>
+
+                        <td className="px-5 py-3.5 text-right text-xs font-semibold text-slate-700">
+                          {fmtPercent(product.percentage)}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td
+                        colSpan={4}
+                        className="px-5 py-10 text-center text-xs text-slate-400"
+                      >
+                        No portfolio composition data available.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        {/* ==================================================================
+           BORROWER + RISK
+           ================================================================== */}
+
+        <section className="mt-10">
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div>
+              <SectionHeading
+                eyebrow="03 / Borrower Profile"
+                title="Borrower composition"
+                description="Borrower distribution based on available customer records."
+              />
+
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <table className="min-w-full">
+                  <thead className="border-b border-slate-200 bg-slate-50">
+                    <tr>
+                      <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                        Category
+                      </th>
+
+                      <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                        Borrowers
+                      </th>
+
+                      <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                        %
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-100">
+                    {[
+                      {
+                        label: "Male",
+                        value: borrowerGender.male,
+                      },
+                      {
+                        label: "Female",
+                        value: borrowerGender.female,
+                      },
+                      {
+                        label: "Not specified",
+                        value: borrowerGender.unknown,
+                      },
+                    ].map((row) => {
+                      const percentage =
+                        borrowerGender.total > 0
+                          ? (row.value / borrowerGender.total) * 100
+                          : 0;
+
+                      return (
+                        <tr key={row.label}>
+                          <td className="px-5 py-4 text-xs font-semibold text-slate-700">
+                            {row.label}
+                          </td>
+
+                          <td className="px-5 py-4 text-right text-xs text-slate-600">
+                            {fmtNumber(row.value)}
+                          </td>
+
+                          <td className="px-5 py-4 text-right text-xs font-semibold text-slate-800">
+                            {fmtPercent(percentage)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    <tr className="bg-slate-50">
+                      <td className="px-5 py-4 text-xs font-bold uppercase tracking-wide text-slate-700">
+                        Total
+                      </td>
+
+                      <td className="px-5 py-4 text-right text-xs font-bold text-slate-900">
+                        {fmtNumber(borrowerGender.total)}
+                      </td>
+
+                      <td className="px-5 py-4 text-right text-xs font-bold text-slate-900">
+                        100.0%
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div>
+              <SectionHeading
+                eyebrow="04 / Credit Risk"
+                title="Portfolio quality"
+                description="Outstanding exposure by credit-quality classification."
+              />
+
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <table className="min-w-full">
+                  <thead className="border-b border-slate-200 bg-slate-50">
+                    <tr>
+                      <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                        Classification
+                      </th>
+
+                      <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                        Loans
+                      </th>
+
+                      <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                        Exposure
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-100">
+                    {qualityBreakdown.length > 0 ? (
+                      qualityBreakdown.map((row) => (
+                        <tr key={row.quality}>
+                          <td className="px-5 py-4 text-xs font-semibold text-slate-700">
+                            {row.quality}
+                          </td>
+
+                          <td className="px-5 py-4 text-right text-xs text-slate-600">
+                            {fmtNumber(row.count)}
+                          </td>
+
+                          <td className="px-5 py-4 text-right text-xs font-semibold text-slate-800">
+                            {fmt(row.amount)}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td
+                          colSpan={3}
+                          className="px-5 py-10 text-center text-xs text-slate-400"
+                        >
+                          No credit-quality classifications available.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ==================================================================
+           FINANCIAL PERFORMANCE
+           ================================================================== */}
+
+        <section className="mt-10">
+          <SectionHeading
+            eyebrow="05 / Financial Performance"
+            title="Income statement summary"
+            description="Financial performance derived from the accounting records."
+          />
+
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <div className="grid divide-y divide-slate-200 lg:grid-cols-3 lg:divide-x lg:divide-y-0">
+              <div className="p-6">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                  Total income
                 </p>
-                <p className="text-xs text-slate-500">
-                  A balanced trial balance means the recorded financial entries
-                  are mathematically in balance.
+
+                <p className="mt-3 text-2xl font-bold tracking-tight text-slate-950">
+                  {fmt(totalIncome)}
+                </p>
+
+                <p className="mt-2 text-xs text-slate-500">
+                  Revenue recognized during the reporting period.
                 </p>
               </div>
 
-              <span
-                className={`inline-flex w-fit rounded-full px-3 py-1.5 text-xs font-bold ${
-                  trialBalance?.balanced
-                    ? "bg-emerald-50 text-emerald-700"
-                    : "bg-red-50 text-red-700"
-                }`}
-              >
-                {trialBalance?.balanced
-                  ? "✓ Records are balanced"
-                  : "⚠ Review required"}
-              </span>
+              <div className="p-6">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                  Total expenses
+                </p>
+
+                <p className="mt-3 text-2xl font-bold tracking-tight text-slate-950">
+                  {fmt(totalExpenses)}
+                </p>
+
+                <p className="mt-2 text-xs text-slate-500">
+                  Expenses recognized during the reporting period.
+                </p>
+              </div>
+
+              <div className="bg-slate-950 p-6 text-white">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                  Net income
+                </p>
+
+                <p className="mt-3 text-2xl font-bold tracking-tight">
+                  {fmt(netIncome)}
+                </p>
+
+                <p className="mt-2 text-xs text-slate-300">
+                  {netIncome >= 0
+                    ? "Positive earnings for the reporting period."
+                    : "Negative earnings for the reporting period."}
+                </p>
+              </div>
             </div>
+
+            {profitAndLoss ? (
+              <details className="border-t border-slate-200">
+                <summary className="cursor-pointer px-6 py-4 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                  View income and expense accounts
+                </summary>
+
+                <div className="grid gap-6 border-t border-slate-100 bg-slate-50/50 p-6 xl:grid-cols-2">
+                  <StatementTable
+                    title="Income"
+                    rows={profitAndLoss.income}
+                    total={profitAndLoss.totalIncome}
+                  />
+
+                  <StatementTable
+                    title="Expenses"
+                    rows={profitAndLoss.expense}
+                    total={
+                      profitAndLoss.totalExpense ?? profitAndLoss.totalExpenses
+                    }
+                  />
+                </div>
+              </details>
+            ) : null}
+          </div>
+        </section>
+
+        {/* ==================================================================
+           STATEMENT OF FINANCIAL POSITION
+           ================================================================== */}
+
+        <section className="mt-10">
+          <SectionHeading
+            eyebrow="06 / Financial Position"
+            title="Statement of financial position"
+            description="Assets, liabilities and equity at the reporting date."
+          />
+
+          <div className="grid gap-6 xl:grid-cols-3">
+            <StatementTable
+              title="Assets"
+              rows={balanceSheet?.assets}
+              total={balanceSheet?.totalAssets}
+            />
+
+            <StatementTable
+              title="Liabilities"
+              rows={balanceSheet?.liabilities}
+              total={balanceSheet?.totalLiabilities}
+            />
+
+            <StatementTable
+              title="Equity"
+              rows={balanceSheet?.equity}
+              total={balanceSheet?.totalEquity}
+            />
           </div>
 
-          {trialBalance ? (
-            <details className="border-t border-slate-100 px-6 py-5">
-              <summary className="cursor-pointer text-sm font-semibold text-slate-800">
-                Show detailed accounting accounts
-              </summary>
-              <p className="mt-2 text-xs text-slate-500">
-                This technical detail is available for authorized finance users
-                without making it the main business view.
-              </p>
+          <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <div className="grid divide-y divide-slate-200 sm:grid-cols-3 sm:divide-y-0 sm:divide-x">
+              <ExecutiveMetric label="Total assets" value={fmt(totalAssets)} />
 
-              <div className="mt-4 grid gap-6 xl:grid-cols-2">
-                <AccountTable
-                  title="Trial Balance Accounts"
-                  rows={trialBalance.accounts}
+              <ExecutiveMetric
+                label="Total liabilities"
+                value={fmt(totalLiabilities)}
+              />
+
+              <ExecutiveMetric
+                label="Total equity"
+                value={fmt(totalEquity)}
+                emphasis
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* ==================================================================
+           CASH FLOW
+           ================================================================== */}
+
+        <section className="mt-10">
+          <SectionHeading
+            eyebrow="07 / Liquidity"
+            title="Cash flow summary"
+            description="Summary of cash movements recorded by the accounting system."
+          />
+
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <table className="min-w-full">
+              <tbody className="divide-y divide-slate-100">
+                <tr>
+                  <td className="px-5 py-4 text-xs font-semibold text-slate-700">
+                    Cash used for lending
+                  </td>
+
+                  <td className="px-5 py-4 text-right text-xs font-semibold text-slate-800">
+                    {fmt(cashFlow?.cashUsedForLending)}
+                  </td>
+                </tr>
+
+                <tr>
+                  <td className="px-5 py-4 text-xs font-semibold text-slate-700">
+                    Cash from collections
+                  </td>
+
+                  <td className="px-5 py-4 text-right text-xs font-semibold text-slate-800">
+                    {fmt(cashFlow?.cashFromCollections)}
+                  </td>
+                </tr>
+
+                <tr>
+                  <td className="px-5 py-4 text-xs font-semibold text-slate-700">
+                    Cash from fees
+                  </td>
+
+                  <td className="px-5 py-4 text-right text-xs font-semibold text-slate-800">
+                    {fmt(cashFlow?.cashFromFees)}
+                  </td>
+                </tr>
+
+                <tr>
+                  <td className="px-5 py-4 text-xs font-semibold text-slate-700">
+                    Other cash movements
+                  </td>
+
+                  <td className="px-5 py-4 text-right text-xs font-semibold text-slate-800">
+                    {fmt(cashFlow?.otherCashMovement)}
+                  </td>
+                </tr>
+
+                <tr className="bg-slate-50">
+                  <td className="px-5 py-4 text-xs font-bold uppercase tracking-wide text-slate-700">
+                    Net change in cash
+                  </td>
+
+                  <td
+                    className={`px-5 py-4 text-right text-sm font-bold ${
+                      netCashChange >= 0 ? "text-slate-900" : "text-red-700"
+                    }`}
+                  >
+                    {fmt(netCashChange)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* ==================================================================
+           MONTHLY PERFORMANCE
+           ================================================================== */}
+
+        <section className="mt-10">
+          <SectionHeading
+            eyebrow="08 / Trend Analysis"
+            title="Six-month financial trend"
+            description="Monthly income, expenses and net income."
+          />
+
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <div className="overflow-x-auto">
+              <div className="min-w-[900px]">
+                <div className="grid grid-cols-[130px_1fr_150px_150px_150px] border-b border-slate-200 bg-slate-50 px-5 py-3">
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    Period
+                  </span>
+
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    Relative trend
+                  </span>
+
+                  <span className="text-right text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    Income
+                  </span>
+
+                  <span className="text-right text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    Expenses
+                  </span>
+
+                  <span className="text-right text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    Net income
+                  </span>
+                </div>
+
+                {monthlyAccounting.length > 0 ? (
+                  monthlyAccounting.map((row) => {
+                    const revenueWidth = Math.min(
+                      100,
+                      (Math.abs(row.revenue) / monthlyMax) * 100,
+                    );
+
+                    const expenseWidth = Math.min(
+                      100,
+                      (Math.abs(row.expenses) / monthlyMax) * 100,
+                    );
+
+                    const profitWidth = Math.min(
+                      100,
+                      (Math.abs(row.profit) / monthlyMax) * 100,
+                    );
+
+                    return (
+                      <div
+                        key={`${row.month}-${row.from}`}
+                        className="grid grid-cols-[130px_1fr_150px_150px_150px] items-center border-b border-slate-100 px-5 py-4 last:border-0"
+                      >
+                        <div>
+                          <p className="text-xs font-bold text-slate-800">
+                            {row.label}
+                          </p>
+
+                          <p className="mt-0.5 text-[9px] text-slate-400">
+                            {row.from}
+                          </p>
+                        </div>
+
+                        <div className="space-y-2 pr-8">
+                          <div className="flex items-center gap-2">
+                            <span className="w-3 text-[8px] font-bold text-slate-400">
+                              I
+                            </span>
+
+                            <div className="h-1.5 flex-1 rounded-full bg-slate-100">
+                              <div
+                                className="h-full rounded-full bg-slate-700"
+                                style={{
+                                  width: `${revenueWidth}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="w-3 text-[8px] font-bold text-slate-400">
+                              E
+                            </span>
+
+                            <div className="h-1.5 flex-1 rounded-full bg-slate-100">
+                              <div
+                                className="h-full rounded-full bg-slate-400"
+                                style={{
+                                  width: `${expenseWidth}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="w-3 text-[8px] font-bold text-slate-400">
+                              P
+                            </span>
+
+                            <div className="h-1.5 flex-1 rounded-full bg-slate-100">
+                              <div
+                                className={`h-full rounded-full ${
+                                  row.profit >= 0
+                                    ? "bg-slate-950"
+                                    : "bg-red-600"
+                                }`}
+                                style={{
+                                  width: `${profitWidth}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <p className="text-right text-xs font-semibold text-slate-700">
+                          {fmt(row.revenue)}
+                        </p>
+
+                        <p className="text-right text-xs font-semibold text-slate-600">
+                          {fmt(row.expenses)}
+                        </p>
+
+                        <p
+                          className={`text-right text-xs font-bold ${
+                            row.profit >= 0 ? "text-slate-950" : "text-red-700"
+                          }`}
+                        >
+                          {fmt(row.profit)}
+                        </p>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="px-5 py-10 text-center text-xs text-slate-400">
+                    No monthly financial trend data available.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ==================================================================
+           ACCOUNTING CONTROL
+           ================================================================== */}
+
+        {hasAccountingReports ? (
+          <section className="mt-10">
+            <SectionHeading
+              eyebrow="09 / Accounting Control"
+              title="Accounting integrity"
+              description="Internal control indicators for management and finance users."
+            />
+
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+              <div className="grid divide-y divide-slate-200 sm:grid-cols-2 lg:grid-cols-4 lg:divide-y-0 lg:divide-x">
+                <ExecutiveMetric
+                  label="Total debits"
+                  value={fmtPrecise(totalDebit)}
+                  detail="Trial balance"
                 />
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Kpi
-                    label="Debit"
-                    value={fmtPrecise(trialBalance.totalDebit)}
-                  />
-                  <Kpi
-                    label="Credit"
-                    value={fmtPrecise(trialBalance.totalCredit)}
+                <ExecutiveMetric
+                  label="Total credits"
+                  value={fmtPrecise(totalCredit)}
+                  detail="Trial balance"
+                />
+
+                <ExecutiveMetric
+                  label="Current period income"
+                  value={fmtPrecise(currentPeriodNetIncome)}
+                  detail="Financial position"
+                />
+
+                <ExecutiveMetric
+                  label="Net cash movement"
+                  value={fmtPrecise(netCashChange)}
+                  detail={netCashChange >= 0 ? "Increase" : "Decrease"}
+                />
+              </div>
+
+              <div className="flex flex-col gap-4 border-t border-slate-200 bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-bold text-slate-800">
+                    Trial balance control
+                  </p>
+
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Debit and credit totals should remain mathematically
+                    balanced.
+                  </p>
+                </div>
+
+                <div
+                  className={`inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide ${
+                    trialBalance?.balanced
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-red-200 bg-red-50 text-red-700"
+                  }`}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-current" />
+
+                  {trialBalance?.balanced ? "Balanced" : "Review required"}
+                </div>
+              </div>
+
+              {trialBalance ? (
+                <details className="border-t border-slate-200">
+                  <summary className="cursor-pointer px-5 py-4 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                    View trial balance accounts
+                  </summary>
+
+                  <div className="border-t border-slate-100 p-5">
+                    <StatementTable
+                      title="Trial Balance"
+                      rows={trialBalance.accounts}
+                      total={trialBalance.totalDebit}
+                    />
+                  </div>
+                </details>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+
+        {/* ==================================================================
+           REPORT DOCUMENTS
+           ================================================================== */}
+
+        <section className="mt-10">
+          <SectionHeading
+            eyebrow="10 / Official Reports"
+            title="Financial report centre"
+            description="Download controlled accounting reports for management, finance and audit purposes."
+          />
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <ReportDocument
+              icon="ledger"
+              endpoint="trial-balance"
+              title="Trial Balance"
+              description="Account balances and debit/credit control totals."
+            />
+
+            <ReportDocument
+              icon="balance"
+              endpoint="balance-sheet"
+              title="Statement of Financial Position"
+              description="Assets, liabilities and equity at the reporting date."
+            />
+
+            <ReportDocument
+              icon="profit"
+              endpoint="profit-and-loss"
+              title="Statement of Profit or Loss"
+              description="Income, expenses and net earnings for the period."
+            />
+
+            <ReportDocument
+              icon="cash"
+              endpoint="cash-flow"
+              title="Statement of Cash Flows"
+              description="Cash generated and used through lending and collections."
+            />
+          </div>
+        </section>
+
+        {/* ==================================================================
+           OPERATIONAL REPORTS
+           ================================================================== */}
+
+        <section className="mt-10">
+          <SectionHeading
+            eyebrow="11 / Operational Reporting"
+            title="Portfolio reports"
+            description="Operational exports supporting lending, collections and customer management."
+          />
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                endpoint: "loans",
+                title: "Loan Portfolio",
+                description:
+                  "Complete portfolio of facilities, balances and statuses.",
+                icon: "portfolio" as const,
+              },
+              {
+                endpoint: "payments",
+                title: "Payments",
+                description: "Payment and collection activity.",
+                icon: "cash" as const,
+              },
+              {
+                endpoint: "borrowers",
+                title: "Borrowers",
+                description: "Borrower and customer portfolio information.",
+                icon: "users" as const,
+              },
+              {
+                endpoint: "overdue",
+                title: "Overdue Portfolio",
+                description: "Overdue facilities and repayment exposure.",
+                icon: "risk" as const,
+              },
+            ].map((report) => (
+              <div
+                key={report.endpoint}
+                className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5"
+              >
+                <div>
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+                    <Icon name={report.icon} size={17} />
+                  </div>
+
+                  <h3 className="mt-4 text-sm font-bold text-slate-900">
+                    {report.title}
+                  </h3>
+
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    {report.description}
+                  </p>
+                </div>
+
+                <div className="mt-5 border-t border-slate-100 pt-4">
+                  <ExportButtons
+                    endpoint={report.endpoint}
+                    label={report.title}
                   />
                 </div>
               </div>
-            </details>
-          ) : null}
-
-          {balanceSheet ? (
-            <details className="border-t border-slate-100 px-6 py-5">
-              <summary className="cursor-pointer text-sm font-semibold text-slate-800">
-                Show detailed business position
-              </summary>
-
-              <div className="mt-4 grid gap-6 xl:grid-cols-3">
-                <AccountTable
-                  title="What the Business Owns"
-                  rows={balanceSheet.assets}
-                />
-                <AccountTable
-                  title="What the Business Owes"
-                  rows={balanceSheet.liabilities}
-                />
-                <AccountTable
-                  title="Business Value"
-                  rows={balanceSheet.equity}
-                />
-              </div>
-            </details>
-          ) : null}
-
-          {profitAndLoss ? (
-            <details className="border-t border-slate-100 px-6 py-5">
-              <summary className="cursor-pointer text-sm font-semibold text-slate-800">
-                Show income and expense accounts
-              </summary>
-
-              <div className="mt-4 grid gap-6 xl:grid-cols-2">
-                <AccountTable title="Income" rows={profitAndLoss.income} />
-                <AccountTable title="Expenses" rows={profitAndLoss.expense} />
-              </div>
-            </details>
-          ) : null}
+            ))}
+          </div>
         </section>
-      ) : null}
 
-      {/* ==================================================================== */}
-      {/* MONTHLY PROFITABILITY                                                */}
-      {/* ==================================================================== */}
+        {/* ==================================================================
+           REGULATORY
+           ================================================================== */}
 
-      <section className="rounded-2xl border border-gray-200 bg-white shadow-sm">
-        <div className="border-b border-gray-100 px-6 py-5">
-          <h2 className="text-sm font-semibold text-gray-900">
-            Monthly Profitability
-          </h2>
+        <section className="mt-10 border border-slate-300 bg-slate-900 px-5 py-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                Regulatory reporting
+              </p>
 
-          <p className="mt-1 text-xs text-gray-400">
-            Six-month trend of income, expenses and profit. Higher bars show
-            larger amounts.
-          </p>
-        </div>
-
-        {monthlyAccounting.length === 0 ? (
-          <div className="p-6 text-sm text-gray-400">
-            No monthly accounting data is currently available.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <div className="min-w-[800px]">
-              {monthlyAccounting.map((row) => {
-                const revenueWidth = Math.min(
-                  100,
-                  (Math.abs(row.revenue) / monthlyMax) * 100,
-                );
-
-                const expenseWidth = Math.min(
-                  100,
-                  (Math.abs(row.expenses) / monthlyMax) * 100,
-                );
-
-                const profitWidth = Math.min(
-                  100,
-                  (Math.abs(row.profit) / monthlyMax) * 100,
-                );
-
-                return (
-                  <div
-                    key={`${row.month}-${row.from}`}
-                    className="grid grid-cols-[130px_1fr_160px_160px_160px] items-center border-b border-gray-100 px-6 py-4 last:border-b-0"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-gray-800">
-                        {row.label}
-                      </p>
-
-                      <p className="text-[10px] text-gray-400">
-                        {row.from} → {row.to}
-                      </p>
-                    </div>
-
-                    <div className="space-y-2 pr-8">
-                      <div className="h-1.5 rounded-full bg-gray-100">
-                        <div
-                          className="h-full rounded-full bg-emerald-500"
-                          style={{
-                            width: `${revenueWidth}%`,
-                          }}
-                        />
-                      </div>
-
-                      <div className="h-1.5 rounded-full bg-gray-100">
-                        <div
-                          className="h-full rounded-full bg-red-400"
-                          style={{
-                            width: `${expenseWidth}%`,
-                          }}
-                        />
-                      </div>
-
-                      <div className="h-1.5 rounded-full bg-gray-100">
-                        <div
-                          className={`h-full rounded-full ${
-                            row.profit >= 0 ? "bg-indigo-500" : "bg-red-500"
-                          }`}
-                          style={{
-                            width: `${profitWidth}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    <p className="text-right text-sm font-semibold text-emerald-600">
-                      {fmt(row.revenue)}
-                    </p>
-
-                    <p className="text-right text-sm font-semibold text-red-500">
-                      {fmt(row.expenses)}
-                    </p>
-
-                    <p
-                      className={`text-right text-sm font-bold ${
-                        row.profit >= 0 ? "text-indigo-600" : "text-red-600"
-                      }`}
-                    >
-                      {fmt(row.profit)}
-                    </p>
-                  </div>
-                );
-              })}
+              <p className="mt-1 text-sm font-semibold text-white">
+                Regulatory reports are maintained in the dedicated reporting
+                workspace.
+              </p>
             </div>
+
+            <Link
+              href="/dashboard/reports/regulatory"
+              className="inline-flex shrink-0 items-center gap-2 text-xs font-bold text-white hover:text-slate-300"
+            >
+              Open regulatory reports
+              <Icon name="arrow" size={14} />
+            </Link>
           </div>
-        )}
-      </section>
+        </section>
 
-      {/* ==================================================================== */}
-      {/* ACCOUNTING REPORT CENTER                                             */}
-      {/* ==================================================================== */}
+        {/* ==================================================================
+           FOOTER
+           ================================================================== */}
 
-      <section>
-        <div className="mb-4">
-          <h2 className="text-sm font-semibold text-gray-900">
-            Accounting Report Center
-          </h2>
+        <footer className="mt-8 flex flex-col gap-2 border-t border-slate-300 pt-5 text-[10px] text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+          <p>Noble Loan Management Information System</p>
 
-          <p className="mt-1 text-xs text-gray-400">
-            Download the official reports. Technical accounting detail is
-            available for finance users.
+          <p>
+            Confidential management information • Generated {fmtDate(asOfDate)}
           </p>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <AccountingReportCard
-            endpoint="trial-balance"
-            title="Trial Balance"
-            description="Debit and credit balances for every accounting account."
-            icon="⚖️"
-          />
-
-          <AccountingReportCard
-            endpoint="balance-sheet"
-            title="Balance Sheet"
-            description="Assets, liabilities, equity and current-period earnings."
-            icon="🏦"
-          />
-
-          <AccountingReportCard
-            endpoint="profit-and-loss"
-            title="Profit & Loss"
-            description="Income, expenses and net profit for the accounting period."
-            icon="📈"
-          />
-
-          <AccountingReportCard
-            endpoint="cash-flow"
-            title="Cash Flow"
-            description="Cash generated and used through lending, collections and other movements."
-            icon="💵"
-          />
-        </div>
-      </section>
-
-      {/* ==================================================================== */}
-      {/* OPERATIONAL REPORT CENTER                                            */}
-      {/* ==================================================================== */}
-
-      <section>
-        <div className="mb-4">
-          <h2 className="text-sm font-semibold text-gray-900">
-            Operational Report Center
-          </h2>
-
-          <p className="mt-1 text-xs text-gray-400">
-            Existing operational portfolio exports.
-          </p>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <ReportCard
-            endpoint="loans"
-            title="Loan Portfolio"
-            description="Complete loan portfolio including status, amount, balance and branch information."
-            icon="📋"
-          />
-
-          <ReportCard
-            endpoint="payments"
-            title="Payments"
-            description="Payment and collection activity."
-            icon="💳"
-          />
-
-          <ReportCard
-            endpoint="borrowers"
-            title="Borrowers"
-            description="Borrower portfolio and customer information."
-            icon="👥"
-          />
-
-          <ReportCard
-            endpoint="overdue"
-            title="Overdue Portfolio"
-            description="Loans and repayment schedules with overdue exposure."
-            icon="⚠️"
-          />
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-5 py-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-indigo-900">
-              Regulatory reporting is available from the dedicated workspace.
-            </p>
-            <p className="mt-1 text-xs text-indigo-700">
-              This page stays focused on operational and accounting analytics.
-            </p>
-          </div>
-
-          <Link
-            href="/dashboard/reports/regulatory"
-            className="inline-flex shrink-0 items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-indigo-700"
-          >
-            Open Regulatory Reports →
-          </Link>
-        </div>
-      </section>
-
-      {/* ==================================================================== */}
-      {/* FOOTER                                                               */}
-      {/* ==================================================================== */}
-
-      <footer className="flex flex-col gap-2 border-t border-slate-200 pt-6 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-        <p>Financial figures are sourced from the accounting records.</p>
-
-        <p>
-          Operational, financial and regulatory reports remain available through
-          their respective report centers.
-        </p>
-      </footer>
-    </div>
+        </footer>
+      </div>
+    </main>
   );
 }
