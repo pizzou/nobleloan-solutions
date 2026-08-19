@@ -293,7 +293,7 @@ export default function PublicLoanCalculator({
                     Management
                   </div>
                   <div className="mt-1 text-sm font-black text-slate-900">
-                    {managementRate}%
+                    {managementRate}% /{" "}
                   </div>
                 </div>
                 <div className="rounded-2xl bg-slate-50 p-4">
