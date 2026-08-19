@@ -3,7 +3,6 @@ package com.patrick.fintech.loan_backend.dto;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import com.patrick.fintech.loan_backend.model.Loan;
 import lombok.*;
 import java.math.BigDecimal;
 import java.util.List;
@@ -47,7 +46,7 @@ public class DashboardStats {
      */
     private List<Map<String, Object>> borrowerGenderBreakdown;
 
-    private List<Loan> recentLoans;
+    private List<LoanResponse> recentLoans;
     private List<Map<String, Object>> loanTypeBreakdown;
 
     @Deprecated

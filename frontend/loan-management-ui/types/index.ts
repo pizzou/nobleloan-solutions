@@ -199,7 +199,17 @@ export interface Loan {
     currency: string;
   };
 
-  borrower: Borrower;
+  /**
+   * Detailed loan responses may include the full borrower profile.
+   * Portfolio/dashboard DTOs intentionally expose only borrowerId/name.
+   */
+  borrower?: Borrower;
+
+  /**
+   * Flat borrower fields returned by the bank-safe LoanResponse DTO.
+   */
+  borrowerId?: number;
+  borrowerName?: string;
 
   approvedBy?: {
     id: number;

@@ -8,6 +8,7 @@ import {
   paymentApi,
   creditBureauApi,
   esignatureApi,
+  borrowerApi,
 } from "@/services/api";
 
 import { Loan, Payment } from "@/types";
@@ -1115,12 +1116,35 @@ export default function LoanDetailPage() {
         loanApi.schedule(loanId),
       ]);
 
-      setLoan(loanResponse as Loan);
-      setSchedule(Array.isArray(scheduleResponse) ? scheduleResponse : []);
+      let loanData = loanResponse as Loan;
+
+      /*
+       * Portfolio/dashboard APIs return the bank-safe flat LoanResponse DTO
+       * (borrowerId + borrowerName). The detail screen needs the full
+       * borrower profile, so hydrate it explicitly when necessary.
+       */
+      if (!loanData.borrower && loanData.borrowerId) {
+        try {
+          const borrower = await borrowerApi.get(loanData.borrowerId);
+          loanData = { ...loanData, borrower };
+        } catch (borrowerError) {
+          console.warn(
+            "Loan loaded but borrower profile could not be hydrated",
+            borrowerError,
+          );
+        }
+      }
+
+      const normalizedSchedule = Array.isArray(scheduleResponse)
+        ? scheduleResponse
+        : [];
+
+      setLoan(loanData);
+      setSchedule(normalizedSchedule);
 
       await cacheSet(`/loans/${loanId}`, {
-        loan: loanResponse,
-        schedule: scheduleResponse,
+        loan: loanData,
+        schedule: normalizedSchedule,
       });
     } catch (error) {
       console.error("Failed to load loan", error);
@@ -1771,15 +1795,13 @@ export default function LoanDetailPage() {
   const managementFeeDailyRate = dailyRateFromMonthly(managementFeeRate);
   const interestDailyRate = dailyRateFromMonthly(interestRate);
 
-  const currentOutstandingPrincipal = Math.max(
-    0,
-    Number(loan.outstandingBalance ?? loan.amount ?? 0),
-  );
-
   const dailyManagementFeeAmount = dailyAmountFromMonthlyRate(
-    currentOutstandingPrincipal,
+    loan.outstandingBalance ?? loan.amount,
     managementFeeRate,
   );
+
+  const currentOutstandingPrincipal =
+    loan.outstandingBalance ?? loan.amount ?? 0;
 
   const dailyInterestAmount = dailyAmountFromMonthlyRate(
     currentOutstandingPrincipal,
@@ -2023,8 +2045,8 @@ export default function LoanDetailPage() {
             },
 
             {
-              label: "Management Fee",
-              value: fc(loan.managementFee),
+              label: "Management Fee Rate",
+              value: `${managementFeeRate.toFixed(2)}%`,
               Icon: IconFileText,
               color: "#7C3AED",
             },
@@ -2062,7 +2084,7 @@ export default function LoanDetailPage() {
           <CardHeader title="Loan Charges" />
 
           <CardBody>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <div className="rounded-xl border border-purple-100 bg-purple-50/60 p-4">
                 <div className="text-[10px] font-bold text-purple-500 uppercase tracking-wider">
                   Monthly Management Fee
@@ -2096,27 +2118,14 @@ export default function LoanDetailPage() {
 
               <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
                 <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                  Total Monthly Charge
-                </div>
-                <div className="text-xl font-extrabold text-gray-900 mt-1">
-                  {totalMonthlyChargeRate.toFixed(2)}%
-                </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {totalDailyChargeRate.toFixed(6)}% per day using the current
-                  calendar month
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
-                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                  Management Fee Balance
+                  Management Fee Outstanding
                 </div>
                 <div className="text-xl font-extrabold text-gray-900 mt-1">
                   {fc(managementFeeRemaining)}
                 </div>
                 <div className="text-xs text-gray-500 mt-1">
                   {fc(managementFeePaid)} paid of {fc(managementFeeScheduled)}{" "}
-                  scheduled
+                  scheduled across the loan schedule
                 </div>
               </div>
             </div>
@@ -2135,6 +2144,24 @@ export default function LoanDetailPage() {
             </div>
           </CardBody>
         </Card>
+
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Combined recurring charge
+            </div>
+            <div className="mt-1 text-sm font-bold text-slate-800">
+              {interestRate.toFixed(2)}% interest +{" "}
+              {managementFeeRate.toFixed(2)}% management fee ={" "}
+              <span className="text-teal-700">
+                {totalMonthlyChargeRate.toFixed(2)}% monthly
+              </span>
+            </div>
+          </div>
+          <div className="text-xs font-medium text-slate-400">
+            {totalDailyChargeRate.toFixed(6)}% per calendar day basis
+          </div>
+        </div>
 
         {loan.imported && (
           <Card className="mb-5 border-amber-200 bg-amber-50/50 shadow-sm overflow-hidden">
@@ -2234,11 +2261,11 @@ export default function LoanDetailPage() {
 
               <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-4">
                 <div className="text-[10px] font-bold uppercase tracking-wider text-teal-600">
-                  Management Fee
+                  Management Fee (Term Total)
                 </div>
                 <div className="mt-3 space-y-2 text-sm">
                   <div className="flex justify-between gap-4">
-                    <span className="text-slate-500">Scheduled</span>
+                    <span className="text-slate-500">Scheduled over term</span>
                     <strong>{fc(loan.managementFee)}</strong>
                   </div>
                   <div className="flex justify-between gap-4">

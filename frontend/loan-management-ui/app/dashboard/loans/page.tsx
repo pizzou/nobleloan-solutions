@@ -127,17 +127,27 @@ const humanize = (value?: string): string => {
 const getBorrowerName = (loan: Loan): string => {
   const first = loan.borrower?.firstName?.trim() ?? "";
   const last = loan.borrower?.lastName?.trim() ?? "";
+  const nestedName = `${first} ${last}`.trim();
 
-  return `${first} ${last}`.trim() || "Unnamed borrower";
+  return nestedName || loan.borrowerName?.trim() || "Unnamed borrower";
 };
 
 const getBorrowerInitials = (loan: Loan): string => {
   const first = loan.borrower?.firstName?.trim()?.charAt(0) ?? "";
   const last = loan.borrower?.lastName?.trim()?.charAt(0) ?? "";
 
-  const initials = `${first}${last}`.toUpperCase();
+  if (first || last) {
+    return `${first}${last}`.toUpperCase();
+  }
 
-  return initials || "BR";
+  const name = loan.borrowerName?.trim() ?? "";
+  const parts = name.split(/\s+/).filter(Boolean);
+
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  }
+
+  return parts[0]?.slice(0, 2).toUpperCase() || "BR";
 };
 
 const getLoanTypeLabel = (loan: Loan): string =>
@@ -439,7 +449,9 @@ function LoanRow({
               {loan.borrower?.nationalId ??
                 loan.borrower?.phone ??
                 loan.borrower?.email ??
-                "No borrower identifier"}
+                (loan.borrowerId
+                  ? `Borrower #${loan.borrowerId}`
+                  : "No borrower identifier")}
             </div>
           </div>
         </div>

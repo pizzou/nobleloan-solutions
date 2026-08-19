@@ -86,6 +86,29 @@ function safeNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizeDashboardResponse(value: unknown): DashboardStats {
+  if (!value || typeof value !== "object") {
+    return value as DashboardStats;
+  }
+
+  const root = value as Record<string, unknown>;
+  const nested = root.data;
+
+  if (nested && typeof nested === "object") {
+    const candidate = nested as Record<string, unknown>;
+
+    if (
+      "totalLoans" in candidate ||
+      "totalBorrowers" in candidate ||
+      "totalDisbursed" in candidate
+    ) {
+      return candidate as unknown as DashboardStats;
+    }
+  }
+
+  return value as DashboardStats;
+}
+
 function hasValue(value: unknown): boolean {
   if (value === null || value === undefined || value === "") {
     return false;
@@ -163,7 +186,7 @@ export default function DashboardPage() {
 
       const data = await loanApi.dashboard();
 
-      setStats(data);
+      setStats(normalizeDashboardResponse(data));
 
       setLastUpdated(new Date());
     } catch (e: any) {
@@ -190,7 +213,7 @@ export default function DashboardPage() {
           return;
         }
 
-        setStats(data);
+        setStats(normalizeDashboardResponse(data));
         setLastUpdated(new Date());
       } catch (e: any) {
         if (!mounted) {
@@ -1018,21 +1041,23 @@ export default function DashboardPage() {
                         <BorrowerAvatar
                           firstName={loan.borrower?.firstName}
                           lastName={loan.borrower?.lastName}
+                          borrowerName={loan.borrowerName}
                         />
 
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold text-slate-900">
-                            {loan.borrower?.firstName || loan.borrower?.lastName
-                              ? `${loan.borrower?.firstName || ""} ${
-                                  loan.borrower?.lastName || ""
-                                }`.trim()
-                              : "Unnamed borrower"}
+                            {loan.borrowerName ||
+                              (loan.borrower?.firstName || loan.borrower?.lastName
+                                ? `${loan.borrower?.firstName || ""} ${
+                                    loan.borrower?.lastName || ""
+                                  }`.trim()
+                                : "Unnamed borrower")}
                           </div>
 
                           <div className="truncate text-xs text-slate-400">
                             {loan.borrower?.nationalId ||
                               loan.borrower?.email ||
-                              "No identifier"}
+                              (loan.borrowerId ? `Borrower #${loan.borrowerId}` : "No identifier")}
                           </div>
                         </div>
                       </div>
@@ -1247,17 +1272,27 @@ function QuickAction({
 function BorrowerAvatar({
   firstName,
   lastName,
+  borrowerName,
 }: {
   firstName?: string | null;
   lastName?: string | null;
+  borrowerName?: string | null;
 }) {
-  const initials = `${firstName?.charAt(0) || ""}${lastName?.charAt(0) || ""}`
+  const directInitials = `${firstName?.charAt(0) || ""}${lastName?.charAt(0) || ""}`
     .trim()
     .toUpperCase();
 
+  const parts = (borrowerName || "").trim().split(/\s+/).filter(Boolean);
+  const nameInitials =
+    parts.length >= 2
+      ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+      : parts[0]?.slice(0, 2).toUpperCase();
+
+  const initials = directInitials || nameInitials || "B";
+
   return (
     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#E1EAF4] text-xs font-bold text-[#0B1F3A] ring-2 ring-white">
-      {initials || "B"}
+      {initials}
     </div>
   );
 }

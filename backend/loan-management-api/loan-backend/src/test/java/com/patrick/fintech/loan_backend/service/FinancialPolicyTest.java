@@ -20,6 +20,22 @@ class FinancialPolicyTest {
     }
 
     @Test
+    void fivePercentMonthlyRateOnTenMillionIsFiveHundredThousandForA31DayMonth() {
+        BigDecimal principal = new BigDecimal("10000000.00");
+
+        BigDecimal monthlyAmount = principal
+                .multiply(FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE)
+                .divide(new BigDecimal("100"));
+
+        assertEquals(new BigDecimal("500000.00"), monthlyAmount.setScale(2));
+
+        BigDecimal combinedMonthlyRate = FinancialPolicy.MONTHLY_INTEREST_RATE
+                .add(FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE);
+
+        assertEquals(new BigDecimal("10.00"), combinedMonthlyRate);
+    }
+
+    @Test
     void monthlyRateUsesActualDaysInEachCalendarMonth() {
         BigDecimal january = FinancialPolicy.dailyRateFraction(
                 FinancialPolicy.MONTHLY_INTEREST_RATE,
@@ -30,6 +46,32 @@ class FinancialPolicyTest {
 
         assertEquals(new BigDecimal("0.0016129032258064516"), january);
         assertEquals(new BigDecimal("0.0017857142857142857"), february);
+    }
+
+    @Test
+    void fivePercentIsARecurringRateAndTermTotalsCanExceedFivePercentOfOriginalPrincipal() {
+        BigDecimal first = FinancialPolicy.accrueDaily(
+                new BigDecimal("10000000.00"),
+                LocalDate.of(2026, 8, 17),
+                LocalDate.of(2026, 9, 17),
+                FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE);
+
+        BigDecimal second = FinancialPolicy.accrueDaily(
+                new BigDecimal("6666666.67"),
+                LocalDate.of(2026, 9, 17),
+                LocalDate.of(2026, 10, 19),
+                FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE);
+
+        BigDecimal third = FinancialPolicy.accrueDaily(
+                new BigDecimal("3333333.33"),
+                LocalDate.of(2026, 10, 19),
+                LocalDate.of(2026, 11, 17),
+                FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE);
+
+        BigDecimal scheduledTermTotal = first.add(second).add(third)
+                .setScale(2, java.math.RoundingMode.HALF_UP);
+
+        assertEquals(new BigDecimal("1016487.45"), scheduledTermTotal);
     }
 
     @Test
