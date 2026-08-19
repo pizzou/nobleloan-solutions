@@ -50,7 +50,7 @@ public class DataSeeder implements CommandLineRunner {
 
         private static final String INTEREST_RATE_TYPE = "MONTHLY";
 
-        private static final BigDecimal PROCESSING_FEE = new BigDecimal("2.00");
+        private static final BigDecimal APPLICATION_FEE = new BigDecimal("2.00");
 
         private static final BigDecimal MANAGEMENT_FEE = new BigDecimal("5.00");
 
@@ -102,24 +102,6 @@ public class DataSeeder implements CommandLineRunner {
 
                         return;
                 }
-
-                /*
-                 * ========================================================
-                 * EXISTING ORGANIZATIONS
-                 * ========================================================
-                 *
-                 * Do not skip.
-                 *
-                 * Existing production organizations may have old product
-                 * configurations such as:
-                 *
-                 * 8%, 9%, 10%, 11%, 12%
-                 * 12/24/48 month terms
-                 * artificial maximum loan amounts
-                 * old fee configuration
-                 *
-                 * The current business rules must be enforced.
-                 */
 
                 for (Organization organization : organizations) {
 
@@ -495,7 +477,7 @@ public class DataSeeder implements CommandLineRunner {
                                 MAX_TERM_MONTHS);
 
                 product.setProcessingFeePercent(
-                                PROCESSING_FEE);
+                                APPLICATION_FEE);
 
                 product.setManagementFeePercent(
                                 MANAGEMENT_FEE);
@@ -562,8 +544,8 @@ public class DataSeeder implements CommandLineRunner {
                                 "║ Interest     : {}% MONTHLY",
                                 INTEREST_RATE);
                 log.info(
-                                "║ Processing   : {}%",
-                                PROCESSING_FEE);
+                                "║ Application   : {}%",
+                                APPLICATION_FEE);
                 log.info(
                                 "║ Management   : {}%",
                                 MANAGEMENT_FEE);
