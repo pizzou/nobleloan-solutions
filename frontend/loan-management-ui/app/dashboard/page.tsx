@@ -1047,7 +1047,8 @@ export default function DashboardPage() {
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold text-slate-900">
                             {loan.borrowerName ||
-                              (loan.borrower?.firstName || loan.borrower?.lastName
+                              (loan.borrower?.firstName ||
+                              loan.borrower?.lastName
                                 ? `${loan.borrower?.firstName || ""} ${
                                     loan.borrower?.lastName || ""
                                   }`.trim()
@@ -1057,7 +1058,9 @@ export default function DashboardPage() {
                           <div className="truncate text-xs text-slate-400">
                             {loan.borrower?.nationalId ||
                               loan.borrower?.email ||
-                              (loan.borrowerId ? `Borrower #${loan.borrowerId}` : "No identifier")}
+                              (loan.borrowerId
+                                ? `Borrower #${loan.borrowerId}`
+                                : "No identifier")}
                           </div>
                         </div>
                       </div>
@@ -1278,9 +1281,10 @@ function BorrowerAvatar({
   lastName?: string | null;
   borrowerName?: string | null;
 }) {
-  const directInitials = `${firstName?.charAt(0) || ""}${lastName?.charAt(0) || ""}`
-    .trim()
-    .toUpperCase();
+  const directInitials =
+    `${firstName?.charAt(0) || ""}${lastName?.charAt(0) || ""}`
+      .trim()
+      .toUpperCase();
 
   const parts = (borrowerName || "").trim().split(/\s+/).filter(Boolean);
   const nameInitials =

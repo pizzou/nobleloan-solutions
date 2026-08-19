@@ -1,9 +1,13 @@
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.dto.DashboardStats;
+import com.patrick.fintech.loan_backend.dto.LoanResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Loan;
+import com.patrick.fintech.loan_backend.model.LoanStatus;
 import com.patrick.fintech.loan_backend.repository.BorrowerRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
+import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -29,6 +33,7 @@ import java.util.Map;
 public class DashboardService {
 
         private final LoanRepository loanRepository;
+        private final OrganizationRepository organizationRepository;
         private final PaymentRepository paymentRepository;
         private final BorrowerRepository borrowerRepository;
 
@@ -70,13 +75,75 @@ public class DashboardService {
                 long completedLoans = asLong(valueAt(loanAggregate, 3));
                 long defaultedLoans = asLong(valueAt(loanAggregate, 4));
 
+                /*
+                 * The total loan count is a hard control figure. If the
+                 * aggregate ever disagrees with the tenant-scoped repository
+                 * count, do not present a false zero to operations staff.
+                 */
+                long repositoryLoanCount = loanRepository.countByOrganization_Id(orgId);
                 BigDecimal totalDisbursed = money(valueAt(loanAggregate, 5));
-
                 BigDecimal totalOutstanding = money(valueAt(loanAggregate, 6));
-
                 BigDecimal atRiskPrincipal = money(valueAt(loanAggregate, 7));
-
                 long overdueLoans = asLong(valueAt(loanAggregate, 8));
+
+                if (totalLoans != repositoryLoanCount) {
+                        log.warn(
+                                        "Dashboard loan aggregate mismatch. orgId={}, aggregateTotal={}, repositoryTotal={}",
+                                        orgId,
+                                        totalLoans,
+                                        repositoryLoanCount);
+
+                        totalLoans = repositoryLoanCount;
+
+                        /*
+                         * Rebuild the operational count controls from the
+                         * tenant-scoped repository only when the aggregate
+                         * disagrees. This keeps the normal dashboard path
+                         * fast while making a bad aggregate impossible to
+                         * present as a clean zero/empty portfolio.
+                         */
+                        pendingLoans = loanRepository.countByOrganization_IdAndStatus(orgId, LoanStatus.PENDING)
+                                        + loanRepository.countByOrganization_IdAndStatus(orgId,
+                                                        LoanStatus.UNDER_REVIEW);
+
+                        activeLoans = loanRepository.countByOrganization_IdAndStatus(orgId, LoanStatus.ACTIVE)
+                                        + loanRepository.countByOrganization_IdAndStatus(orgId, LoanStatus.DISBURSED)
+                                        + loanRepository.countByOrganization_IdAndStatus(orgId, LoanStatus.OVERDUE)
+                                        + loanRepository.countByOrganization_IdAndStatus(orgId,
+                                                        LoanStatus.RESTRUCTURED);
+
+                        completedLoans = loanRepository.countByOrganization_IdAndStatus(orgId, LoanStatus.PAID)
+                                        + loanRepository.countByOrganization_IdAndStatus(orgId, LoanStatus.CLOSED);
+
+                        defaultedLoans = loanRepository.countByOrganization_IdAndStatus(orgId, LoanStatus.DEFAULTED)
+                                        + loanRepository.countByOrganization_IdAndStatus(orgId, LoanStatus.WRITTEN_OFF);
+
+                        overdueLoans = paymentRepository.countDistinctOverdueLoans(orgId, today);
+
+                }
+
+                /*
+                 * A live active portfolio cannot legitimately report both zero
+                 * disbursed cash and zero outstanding principal. If that
+                 * control breaks, use the established organization-scoped sum
+                 * queries as the recovery path.
+                 */
+                if (repositoryLoanCount > 0 && activeLoans > 0
+                                && totalDisbursed.compareTo(ZERO) == 0
+                                && totalOutstanding.compareTo(ZERO) == 0) {
+                        var org = organizationRepository.findById(orgId).orElse(null);
+                        if (org != null) {
+                                log.warn(
+                                                "Dashboard financial aggregate returned zero for an active portfolio. orgId={}",
+                                                orgId);
+                                totalDisbursed = money(loanRepository.sumGrossDisbursedPrincipal(org));
+                                totalOutstanding = money(loanRepository.sumOutstandingBalance(org));
+                                // The recovery path restores the core financial
+                                // balances; PAR remains the aggregate value unless
+                                // the overdue control is explicitly recalculated.
+                                atRiskPrincipal = money(valueAt(loanAggregate, 7));
+                        }
+                }
 
                 /*
                  * ------------------------------------------------------------
@@ -197,13 +264,16 @@ public class DashboardService {
                  * Only eight records are returned and only the relationships
                  * required by the dashboard are eagerly loaded.
                  */
-                List<Loan> recentLoans = loanRepository.findRecentByOrganizationId(
+                List<Loan> recentLoanEntities = loanRepository.findRecentByOrganizationId(
                                 orgId,
                                 PageRequest.of(0, 8));
 
-                if (recentLoans == null) {
-                        recentLoans = List.of();
-                }
+                List<LoanResponse> recentLoans = recentLoanEntities == null
+                                ? List.of()
+                                : recentLoanEntities.stream()
+                                                .filter(java.util.Objects::nonNull)
+                                                .map(ResponseDtoMapper::loan)
+                                                .toList();
 
                 log.debug(
                                 "Dashboard calculated efficiently. " +

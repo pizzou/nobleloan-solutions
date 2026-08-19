@@ -1,6 +1,8 @@
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.dto.DashboardStats;
+import com.patrick.fintech.loan_backend.dto.LoanResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.dto.LoanRequest;
 import com.patrick.fintech.loan_backend.dto.publicportal.BorrowerDashboardResponse;
 import com.patrick.fintech.loan_backend.dto.publicportal.DashboardSummaryResponse;
@@ -2327,9 +2329,16 @@ public class LoanService {
                                 })
                                 .collect(Collectors.toList());
 
-                List<Loan> recent = loanRepo.findRecentByOrg(
+                List<Loan> recentEntities = loanRepo.findRecentByOrg(
                                 org,
                                 PageRequest.of(0, 8));
+
+                List<LoanResponse> recent = recentEntities == null
+                                ? List.of()
+                                : recentEntities.stream()
+                                                .filter(java.util.Objects::nonNull)
+                                                .map(ResponseDtoMapper::loan)
+                                                .toList();
 
                 BigDecimal totalDisbursed = Optional.ofNullable(
                                 loanRepo.sumGrossDisbursedPrincipal(org))
@@ -2499,10 +2508,7 @@ public class LoanService {
                 for (int i = 1; i <= months; i++) {
                         balance = money(balance);
 
-                        // Advance exactly one contractual month from the previous period.
-                        // Using +i here while startDate is already advanced would turn a
-                        // 3-month loan into periods of 1, 2 and 3 months.
-                        LocalDate rawDueDate = startDate.plusMonths(1);
+                        LocalDate rawDueDate = startDate.plusMonths(i);
                         LocalDate dueDate = holidayService.adjustToBusinessDay(
                                         orgId,
                                         rawDueDate);
