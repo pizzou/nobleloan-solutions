@@ -2,6 +2,7 @@ package com.patrick.fintech.loan_backend.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.patrick.fintech.loan_backend.model.Loan;
 
 import lombok.*;
 import java.math.BigDecimal;
@@ -26,7 +27,7 @@ public class DashboardStats {
     private long defaultedLoans;
 
     // ============================================================
-    // PORTFOLIO FINANCIAL VALUES
+    // PORTFOLIO FINANCIALS
     // ============================================================
 
     @JsonProperty("totalDisbursed")
@@ -66,9 +67,9 @@ public class DashboardStats {
     /**
      * Organization-level borrower demographic breakdown.
      *
-     * Each item contains:
-     * label
-     * count
+     * Each row contains:
+     * - label
+     * - count
      */
     private List<Map<String, Object>> borrowerGenderBreakdown;
 
@@ -77,23 +78,14 @@ public class DashboardStats {
     // ============================================================
     //
     // IMPORTANT:
+    // DashboardService currently supplies List<Loan>.
+    // The frontend DashboardStats type also expects Loan[].
     //
-    // DashboardService converts Loan entities into LoanResponse DTOs
-    // before returning them.
-    //
-    // Therefore this MUST be:
-    //
-    // List<LoanResponse>
-    //
-    // and NOT:
-    //
-    // List<Loan>
-    //
-    // This also prevents JPA Loan entities from leaking through the
-    // dashboard API.
+    // Therefore this must remain List<Loan> unless the entire
+    // dashboard response is deliberately migrated to LoanResponse.
     // ============================================================
 
-    private List<LoanResponse> recentLoans;
+    private List<Loan> recentLoans;
 
     // ============================================================
     // LOAN TYPE BREAKDOWN
@@ -103,6 +95,12 @@ public class DashboardStats {
 
     // ============================================================
     // BACKWARD-COMPATIBLE DOUBLE ACCESSORS
+    // ============================================================
+    //
+    // Keep these because other parts of the application may still
+    // use the historical Double-based API.
+    //
+    // Internally, financial values remain BigDecimal.
     // ============================================================
 
     @Deprecated
@@ -234,16 +232,15 @@ public class DashboardStats {
     }
 
     // ============================================================
-    // CUSTOM BUILDER
+    // LOMBOK BUILDER COMPATIBILITY
     // ============================================================
     //
-    // Lombok generates the other builder methods.
+    // Lombok generates the remaining builder methods, including:
     //
-    // Because recentLoans is List<LoanResponse>, Lombok will generate:
+    // recentLoans(List<Loan>)
     //
-    // recentLoans(List<LoanResponse>)
-    //
-    // which exactly matches DashboardService.
+    // The explicit BigDecimal overloads below preserve compatibility
+    // with existing code that supplies Double values.
     // ============================================================
 
     public static class DashboardStatsBuilder {

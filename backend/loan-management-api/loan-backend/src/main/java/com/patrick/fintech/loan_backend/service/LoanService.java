@@ -2,10 +2,8 @@ package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.dto.DashboardStats;
 import com.patrick.fintech.loan_backend.dto.LoanRequest;
-import com.patrick.fintech.loan_backend.dto.LoanResponse;
 import com.patrick.fintech.loan_backend.dto.publicportal.BorrowerDashboardResponse;
 import com.patrick.fintech.loan_backend.dto.publicportal.DashboardSummaryResponse;
-import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Borrower;
 import com.patrick.fintech.loan_backend.model.DocumentType;
 import com.patrick.fintech.loan_backend.model.Loan;
@@ -2329,16 +2327,9 @@ public class LoanService {
                                 })
                                 .collect(Collectors.toList());
 
-                List<Loan> recentEntities = loanRepo.findRecentByOrg(
+                List<Loan> recent = loanRepo.findRecentByOrg(
                                 org,
                                 PageRequest.of(0, 8));
-
-                List<LoanResponse> recent = recentEntities == null
-                                ? List.of()
-                                : recentEntities.stream()
-                                                .filter(java.util.Objects::nonNull)
-                                                .map(ResponseDtoMapper::loan)
-                                                .toList();
 
                 BigDecimal totalDisbursed = Optional.ofNullable(
                                 loanRepo.sumGrossDisbursedPrincipal(org))
@@ -2357,35 +2348,18 @@ public class LoanService {
                                 .orElse(ZERO);
 
                 return DashboardStats.builder()
-                                .totalLoans(
-                                                loanRepo.countByOrganization(org))
-                                .pendingLoans(
-                                                loanRepo.countByOrganizationAndStatus(
-                                                                org,
-                                                                LoanStatus.PENDING))
-                                .activeLoans(
-                                                loanRepo.countByOrganizationAndStatus(
-                                                                org,
-                                                                LoanStatus.ACTIVE))
+                                .totalLoans(loanRepo.countByOrganization(org))
+                                .pendingLoans(loanRepo.countByOrganizationAndStatus(org, LoanStatus.PENDING))
+                                .activeLoans(loanRepo.countByOrganizationAndStatus(org, LoanStatus.ACTIVE))
                                 .overdueLoans(overdueCount)
-                                .completedLoans(
-                                                loanRepo.countByOrganizationAndStatus(
-                                                                org,
-                                                                LoanStatus.PAID))
-                                .defaultedLoans(
-                                                loanRepo.countByOrganizationAndStatus(
-                                                                org,
-                                                                LoanStatus.DEFAULTED))
+                                .completedLoans(loanRepo.countByOrganizationAndStatus(org, LoanStatus.PAID))
+                                .defaultedLoans(loanRepo.countByOrganizationAndStatus(org, LoanStatus.DEFAULTED))
                                 .totalDisbursed(totalDisbursed)
                                 .totalCollected(totalCollected)
                                 .outstandingBalance(outstandingBalance)
                                 .collectedThisMonth(collectedThisMonth)
-                                .totalBorrowers(
-                                                borrowerRepo.countByOrganization(org))
-                                .latePaymentsCount(
-                                                Optional.ofNullable(
-                                                                paymentRepo.countLatePayments(org))
-                                                                .orElse(0L))
+                                .totalBorrowers(borrowerRepo.countByOrganization(org))
+                                .latePaymentsCount(Optional.ofNullable(paymentRepo.countLatePayments(org)).orElse(0L))
                                 .loanTypeBreakdown(typeBreakdown)
                                 .recentLoans(recent)
                                 .build();
