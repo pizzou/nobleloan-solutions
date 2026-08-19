@@ -298,7 +298,7 @@ export default function PublicLoanCalculator({
                 </div>
                 <div className="rounded-2xl bg-slate-50 p-4">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Processing
+                    Application
                   </div>
                   <div className="mt-1 text-sm font-black text-slate-900">
                     {processingRate}%
