@@ -3,7 +3,6 @@ package com.patrick.fintech.loan_backend.service;
 import com.patrick.fintech.loan_backend.dto.publicportal.PaymentScheduleResponse;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.PaymentSchedule;
-import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 import com.patrick.fintech.loan_backend.model.PaymentSchedule.ScheduleStatus;
 import com.patrick.fintech.loan_backend.repository.PaymentScheduleRepository;
 
@@ -57,12 +56,12 @@ public class PaymentScheduleService {
         /**
          * Monthly contractual loan interest.
          */
-        private static final BigDecimal MONTHLY_INTEREST_RATE = FinancialPolicy.MONTHLY_INTEREST_RATE;
+        private static final BigDecimal MONTHLY_INTEREST_RATE = new BigDecimal("5.00");
 
         /**
          * Monthly management fee.
          */
-        private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE;
+        private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = new BigDecimal("5.00");
 
         /**
          * Combined monthly charge.
@@ -75,7 +74,7 @@ public class PaymentScheduleService {
         /**
          * One-time processing fee.
          */
-        private static final BigDecimal PROCESSING_FEE_RATE = FinancialPolicy.PROCESSING_FEE_RATE;
+        private static final BigDecimal PROCESSING_FEE_RATE = new BigDecimal("2.00");
 
         // ================================================================
         // GENERAL CONSTANTS
@@ -825,11 +824,37 @@ public class PaymentScheduleService {
                         LocalDate startDate,
                         LocalDate endDate,
                         BigDecimal monthlyRatePercent) {
-                return FinancialPolicy.accrueDaily(
-                                outstandingPrincipal,
-                                startDate,
-                                endDate,
-                                monthlyRatePercent);
+
+                if (outstandingPrincipal == null
+                                || outstandingPrincipal.compareTo(ZERO) <= 0
+                                || startDate == null
+                                || endDate == null
+                                || !startDate.isBefore(endDate)
+                                || monthlyRatePercent == null
+                                || monthlyRatePercent.compareTo(ZERO) <= 0) {
+                        return ZERO;
+                }
+
+                BigDecimal total = ZERO;
+                LocalDate cursor = startDate;
+
+                while (cursor.isBefore(endDate)) {
+                        YearMonth month = YearMonth.from(cursor);
+
+                        BigDecimal dailyRate = monthlyRatePercent
+                                        .divide(ONE_HUNDRED, CALCULATION_SCALE, RoundingMode.HALF_UP)
+                                        .divide(
+                                                        BigDecimal.valueOf(month.lengthOfMonth()),
+                                                        CALCULATION_SCALE,
+                                                        RoundingMode.HALF_UP);
+
+                        total = total.add(
+                                        outstandingPrincipal.multiply(dailyRate));
+
+                        cursor = cursor.plusDays(1);
+                }
+
+                return money(total);
         }
 
         private BigDecimal normalizeMoney(
