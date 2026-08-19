@@ -284,7 +284,7 @@ export default function PublicLoanCalculator({
                     Interest
                   </div>
                   <div className="mt-1 text-sm font-black text-slate-900">
-                    {interestRate}% /{" "}
+                    {interestRate}%{" "}
                     {String(product.rateType ?? "p.m").toLowerCase()}
                   </div>
                 </div>
@@ -293,7 +293,7 @@ export default function PublicLoanCalculator({
                     Management
                   </div>
                   <div className="mt-1 text-sm font-black text-slate-900">
-                    {managementRate}% /{" "}
+                    {managementRate}%{" "}
                     {String(product.rateType ?? "p.m").toLowerCase()}
                   </div>
                 </div>
