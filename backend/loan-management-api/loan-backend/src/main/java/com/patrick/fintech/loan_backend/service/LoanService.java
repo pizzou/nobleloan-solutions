@@ -1422,6 +1422,20 @@ public class LoanService {
                                 saved.getReferenceNumber(),
                                 saved.getDisbursedAt());
 
+                /*
+                 * Approval creates a provisional schedule so the approved
+                 * loan can already display repayment information. The
+                 * contractual accrual period must, however, begin on the
+                 * actual disbursement date. Rebuild the operational Payment
+                 * rows now that the exact disbursement timestamp is known.
+                 *
+                 * This keeps the staff loan-detail schedule, PaymentService
+                 * calculations, and the separate payment_schedules table on
+                 * the same contractual start date without changing the
+                 * existing architecture.
+                 */
+                regenerateRepaymentScheduleAfterDisbursement(saved);
+
                 paymentScheduleService.generateSchedule(
                                 saved);
 
@@ -2202,7 +2216,120 @@ public class LoanService {
                                                         + loanId);
                 }
 
+                /*
+                 * For system-originated loans, the operational Payment rows
+                 * are the authoritative declining-balance schedule used by
+                 * the staff loan-detail page and PaymentService. Older loan
+                 * rows can still contain a legacy EMI-style totalRepayable
+                 * even though their schedule already contains the correct
+                 * daily-basis declining charges. Reconcile those aggregate
+                 * fields when the detail loan is loaded.
+                 *
+                 * Imported legacy loans are deliberately excluded because
+                 * their opening balances are historical accounting data and
+                 * must not be silently rewritten from a reconstructed schedule.
+                 */
+                synchronizeLoanTotalsFromOperationalSchedule(loan);
+
                 return loan;
+        }
+
+        // ================================================================
+        // RECONCILE LOAN TOTALS FROM OPERATIONAL SCHEDULE
+        // ================================================================
+
+        private void synchronizeLoanTotalsFromOperationalSchedule(
+                        Loan loan) {
+
+                if (loan == null
+                                || loan.getId() == null
+                                || Boolean.TRUE.equals(loan.getImported())) {
+                        return;
+                }
+
+                List<Payment> payments = paymentRepo.findByLoanId(loan.getId());
+
+                if (payments == null || payments.isEmpty()) {
+                        return;
+                }
+
+                BigDecimal scheduledInterest = payments.stream()
+                                .filter(java.util.Objects::nonNull)
+                                .map(payment -> payment.getScheduledInterestDecimal() != null
+                                                ? payment.getScheduledInterestDecimal()
+                                                : payment.getInterestComponentDecimal())
+                                .filter(java.util.Objects::nonNull)
+                                .reduce(ZERO, BigDecimal::add);
+
+                BigDecimal scheduledManagementFee = payments.stream()
+                                .filter(java.util.Objects::nonNull)
+                                .map(payment -> payment.getScheduledManagementFeeDecimal() != null
+                                                ? payment.getScheduledManagementFeeDecimal()
+                                                : payment.getManagementFeeComponentDecimal())
+                                .filter(java.util.Objects::nonNull)
+                                .reduce(ZERO, BigDecimal::add);
+
+                BigDecimal normalizedInterest = money(scheduledInterest);
+                BigDecimal normalizedManagementFee = money(scheduledManagementFee);
+                BigDecimal normalizedTotalRepayable = money(
+                                moneyValue(loan.getAmountDecimal())
+                                                .add(normalizedInterest)
+                                                .add(normalizedManagementFee));
+
+                boolean changed = false;
+
+                if (moneyValue(loan.getTotalInterestDecimal())
+                                .compareTo(normalizedInterest) != 0) {
+                        loan.setTotalInterest(normalizedInterest);
+                        changed = true;
+                }
+
+                if (moneyValue(loan.getManagementFeeDecimal())
+                                .compareTo(normalizedManagementFee) != 0) {
+                        loan.setManagementFee(normalizedManagementFee);
+                        changed = true;
+                }
+
+                if (moneyValue(loan.getTotalRepayableDecimal())
+                                .compareTo(normalizedTotalRepayable) != 0) {
+                        loan.setTotalRepayable(normalizedTotalRepayable);
+                        changed = true;
+                }
+
+                Payment next = payments.stream()
+                                .filter(java.util.Objects::nonNull)
+                                .filter(payment -> !Boolean.TRUE.equals(payment.getPaid()))
+                                .filter(payment -> payment.getDueDate() != null)
+                                .sorted(java.util.Comparator.comparing(Payment::getDueDate))
+                                .findFirst()
+                                .orElse(null);
+
+                if (next != null) {
+                        if (!java.util.Objects.equals(
+                                        loan.getNextPaymentDate(),
+                                        next.getDueDate())) {
+                                loan.setNextPaymentDate(next.getDueDate());
+                                changed = true;
+                        }
+
+                        if (!java.util.Objects.equals(
+                                        loan.getNextDueDate(),
+                                        next.getDueDate())) {
+                                loan.setNextDueDate(next.getDueDate());
+                                changed = true;
+                        }
+
+                        BigDecimal nextAmount = money(next.getAmountDecimal());
+                        if (moneyValue(loan.getNextInstallmentAmountDecimal())
+                                        .compareTo(nextAmount) != 0) {
+                                loan.setNextInstallmentAmount(nextAmount);
+                                changed = true;
+                        }
+                }
+
+                if (changed) {
+                        loanRepo.save(loan);
+                }
         }
 
         // ================================================================
@@ -2372,6 +2499,51 @@ public class LoanService {
                                 .loanTypeBreakdown(typeBreakdown)
                                 .recentLoans(recent)
                                 .build();
+        }
+
+        // ================================================================
+        // REBUILD OPERATIONAL REPAYMENT SCHEDULE AFTER DISBURSEMENT
+        // ================================================================
+
+        /**
+         * Rebuilds the operational Payment schedule from the exact
+         * disbursement date.
+         *
+         * Approval may create a provisional schedule before the loan is
+         * actually disbursed. Once disbursement happens, the daily accrual
+         * clock must start from the real disbursement date. This method only
+         * replaces schedule rows that have no financial activity.
+         */
+        @Transactional
+        public void regenerateRepaymentScheduleAfterDisbursement(Loan loan) {
+
+                if (loan == null || loan.getId() == null) {
+                        throw new IllegalArgumentException(
+                                        "Loan is required before rebuilding repayment schedule");
+                }
+
+                List<Payment> existingPayments = paymentRepo.findByLoanId(loan.getId());
+
+                boolean hasFinancialActivity = existingPayments.stream()
+                                .filter(java.util.Objects::nonNull)
+                                .anyMatch(payment -> Boolean.TRUE.equals(payment.getPaid())
+                                                || (payment.getAmountPaidDecimal() != null
+                                                                && payment.getAmountPaidDecimal()
+                                                                                .compareTo(ZERO) > 0));
+
+                if (hasFinancialActivity) {
+                        log.warn(
+                                        "Skipping disbursement schedule rebuild for loan {} because payment activity already exists",
+                                        loan.getId());
+                        return;
+                }
+
+                if (!existingPayments.isEmpty()) {
+                        paymentRepo.deleteAll(existingPayments);
+                        paymentRepo.flush();
+                }
+
+                generateRepaymentSchedule(loan);
         }
 
         // ================================================================

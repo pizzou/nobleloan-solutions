@@ -1808,11 +1808,11 @@ export default function LoanDetailPage() {
     interestRate,
   );
 
-  const managementFeePaid = loan.managementFeePaid ?? 0;
-  const managementFeeScheduled = loan.managementFee ?? 0;
-  const managementFeeRemaining =
-    loan.managementFeeOutstanding ??
-    Math.max(0, managementFeeScheduled - managementFeePaid);
+  const currentMonthlyManagementAmount =
+    currentOutstandingPrincipal * (managementFeeRate / 100);
+
+  const currentMonthlyInterestAmount =
+    currentOutstandingPrincipal * (interestRate / 100);
 
   const totalMonthlyChargeRate = interestRate + managementFeeRate;
 
@@ -2096,8 +2096,12 @@ export default function LoanDetailPage() {
                   {managementFeeDailyRate.toFixed(6)}% per day
                 </div>
                 <div className="text-xs text-purple-600 mt-1">
-                  Approx. {fc(dailyManagementFeeAmount)} per day on the current
-                  outstanding principal
+                  {fc(currentMonthlyManagementAmount)} for a full calendar month
+                  if the outstanding principal remains unchanged
+                </div>
+                <div className="text-xs text-purple-500 mt-1">
+                  Approx. {fc(dailyManagementFeeAmount)} per day in the current
+                  calendar month
                 </div>
               </div>
 
@@ -2112,20 +2116,25 @@ export default function LoanDetailPage() {
                   {interestDailyRate.toFixed(6)}% per day
                 </div>
                 <div className="text-xs text-blue-600 mt-1">
-                  Current daily interest basis: {fc(dailyInterestAmount)}
+                  {fc(currentMonthlyInterestAmount)} for a full calendar month
+                  if the outstanding principal remains unchanged
+                </div>
+                <div className="text-xs text-blue-500 mt-1">
+                  Approx. {fc(dailyInterestAmount)} per day in the current
+                  calendar month
                 </div>
               </div>
 
-              <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
-                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                  Management Fee Outstanding
+              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  Current Outstanding Principal
                 </div>
-                <div className="text-xl font-extrabold text-gray-900 mt-1">
-                  {fc(managementFeeRemaining)}
+                <div className="text-xl font-extrabold text-slate-900 mt-1">
+                  {fc(currentOutstandingPrincipal)}
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {fc(managementFeePaid)} paid of {fc(managementFeeScheduled)}{" "}
-                  scheduled across the loan schedule
+                <div className="text-xs text-slate-500 mt-1">
+                  Both recurring charges accrue daily against this outstanding
+                  principal.
                 </div>
               </div>
             </div>
@@ -2484,7 +2493,7 @@ export default function LoanDetailPage() {
                 />
 
                 <Field
-                  label="Management Fee Scheduled"
+                  label="Management Fee — Term Total"
                   value={fc(loan.managementFee)}
                 />
 
@@ -2494,7 +2503,7 @@ export default function LoanDetailPage() {
                 />
 
                 <Field
-                  label="Interest Scheduled"
+                  label="Interest — Term Total"
                   value={fc(loan.totalInterest)}
                 />
 
@@ -2821,6 +2830,20 @@ export default function LoanDetailPage() {
               <CardHeader
                 title={`Repayment Schedule (${schedule.length} installments)`}
               />
+
+              <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-3 text-xs text-slate-600 sm:px-5">
+                <strong className="text-slate-800">
+                  5.00% monthly interest
+                </strong>{" "}
+                and
+                <strong className="ml-1 text-slate-800">
+                  5.00% monthly management fee
+                </strong>
+                are accrued on a calendar-day basis against the outstanding
+                principal. As principal is repaid, future installments are
+                recalculated from the lower outstanding balance; the schedule is
+                not a fixed installment amount.
+              </div>
 
               <Table>
                 <Thead>

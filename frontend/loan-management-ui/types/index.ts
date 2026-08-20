@@ -351,6 +351,12 @@ export interface Payment {
 
   interestComponent?: number;
 
+  managementFeeComponent?: number;
+
+  scheduledInterest?: number;
+
+  scheduledManagementFee?: number;
+
   amountPaid?: number;
 
   penalty?: number;

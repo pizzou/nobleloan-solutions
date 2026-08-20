@@ -1261,13 +1261,14 @@ public class PaymentService {
                         }
                 }
 
-                // Once an installment is completed, rebuild the future unpaid installments
-                // from the NEW outstanding principal. This makes the next installment
-                // decrease when the borrower has paid principal early/extra.
-                if (!principalCovered) {
-                        // No future schedule refresh is needed while the current installment
-                        // remains partially unpaid.
-                } else if (!loan.getStatus().equals(LoanStatus.PAID)) {
+                // Any payment that actually reduces principal changes the
+                // outstanding balance. Rebuild every future unpaid installment
+                // from that NEW balance immediately. This is especially
+                // important for early/extra principal payments; waiting until
+                // the entire loan is paid would leave the future schedule
+                // calculated from an old balance.
+                if (principalPaidThisPayment.compareTo(ZERO) > 0
+                                && !loan.getStatus().equals(LoanStatus.PAID)) {
                         refreshFutureInstallments(
                                         loan,
                                         today,
@@ -2042,7 +2043,9 @@ public class PaymentService {
                         return;
                 }
 
-                List<Payment> future = paymentRepo.findByLoanId(loan.getId())
+                List<Payment> allPayments = paymentRepo.findByLoanId(loan.getId());
+
+                List<Payment> future = allPayments
                                 .stream()
                                 .filter(p -> p != null)
                                 .filter(p -> !Boolean.TRUE.equals(p.getPaid()))
@@ -2096,9 +2099,16 @@ public class PaymentService {
                         BigDecimal projectedAmount = roundMoney(
                                         principalComponent.add(interest).add(managementFee));
 
-                        p.setAmount(projectedAmount);
+                        p.setPrincipalComponent(principalComponent);
+                        p.setInterestComponent(interest);
+                        p.setManagementFeeComponent(managementFee);
                         p.setScheduledInterest(interest);
                         p.setScheduledManagementFee(managementFee);
+                        p.setCycleInterestDue(interest);
+                        p.setCycleInterestRemaining(interest);
+                        p.setCycleManagementFeeDue(managementFee);
+                        p.setCycleManagementFeeRemaining(managementFee);
+                        p.setAmount(projectedAmount);
                         p.setOutstandingAfter(
                                         roundMoney(balance.subtract(principalComponent).max(ZERO)));
                         paymentRepo.save(p);
@@ -2106,6 +2116,28 @@ public class PaymentService {
                         balance = roundMoney(balance.subtract(principalComponent).max(ZERO));
                         start = dueDate;
                 }
+
+                BigDecimal scheduledInterestTotal = allPayments
+                                .stream()
+                                .filter(java.util.Objects::nonNull)
+                                .map(Payment::getScheduledInterestDecimal)
+                                .filter(java.util.Objects::nonNull)
+                                .reduce(ZERO, BigDecimal::add);
+
+                BigDecimal scheduledManagementFeeTotal = allPayments
+                                .stream()
+                                .filter(java.util.Objects::nonNull)
+                                .map(Payment::getScheduledManagementFeeDecimal)
+                                .filter(java.util.Objects::nonNull)
+                                .reduce(ZERO, BigDecimal::add);
+
+                loan.setTotalInterest(roundMoney(scheduledInterestTotal));
+                loan.setManagementFee(roundMoney(scheduledManagementFeeTotal));
+                loan.setTotalRepayable(
+                                roundMoney(
+                                                safe(loan.getAmountDecimal())
+                                                                .add(scheduledInterestTotal)
+                                                                .add(scheduledManagementFeeTotal)));
 
                 Payment next = future.get(0);
                 loan.setNextDueDate(next.getDueDate());
