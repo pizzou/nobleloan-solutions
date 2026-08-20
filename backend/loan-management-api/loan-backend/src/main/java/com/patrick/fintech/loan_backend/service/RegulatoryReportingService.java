@@ -890,6 +890,8 @@ public class RegulatoryReportingService {
                                                 ? amountPaid
                                                 : principal
                                                                 + interest
+                                                                + number(payment.getManagementFeeComponent())
+                                                                + number(payment.getExtensionFeeComponent())
                                                                 + penalty;
 
                         } else {

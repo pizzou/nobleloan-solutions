@@ -148,33 +148,34 @@ public class ScheduledJobs {
                                                         continue;
                                                 }
 
-                                                BigDecimal interestRate = money(loan.getInterestRateDecimal());
+                                                // Contractual interest and management fees are accrued
+                                                // from the approved repayment schedule, not from a daily
+                                                // 5%/calendar-day reconstruction. This guarantees that
+                                                // accounting and the borrower-facing schedule reconcile.
+                                                List<Payment> dueInstallments = paymentRepo.findByLoanId(loan.getId())
+                                                                .stream()
+                                                                .filter(p -> p != null)
+                                                                .filter(p -> p.getDueDate() != null)
+                                                                .filter(p -> !p.getDueDate().isAfter(accrualDate))
+                                                                .toList();
 
-                                                BigDecimal managementRate = money(loan.getManagementFeeRateDecimal());
-
-                                                if (interestRate.compareTo(ZERO) > 0) {
-                                                        BigDecimal dailyInterest = outstanding
-                                                                        .multiply(FinancialPolicy.dailyRateFraction(
-                                                                                        interestRate, accrualDate))
-                                                                        .setScale(MONEY_SCALE, MONEY_ROUNDING);
-
-                                                        if (dailyInterest.compareTo(ZERO) > 0) {
-                                                                accountingService.postInterestAccrual(loan,
-                                                                                dailyInterest);
-                                                                posted++;
-                                                        }
-                                                }
-
-                                                if (managementRate.compareTo(ZERO) > 0) {
-                                                        BigDecimal dailyManagementFee = outstanding
-                                                                        .multiply(FinancialPolicy.dailyRateFraction(
-                                                                                        managementRate, accrualDate))
-                                                                        .setScale(MONEY_SCALE, MONEY_ROUNDING);
-
-                                                        if (dailyManagementFee.compareTo(ZERO) > 0) {
-                                                                accountingService.postManagementFeeAccrual(
-                                                                                loan, dailyManagementFee);
-                                                                posted++;
+                                                for (Payment installment : dueInstallments) {
+                                                        try {
+                                                                if (accountingService.postScheduledInterestAccrual(
+                                                                                installment) != null) {
+                                                                        posted++;
+                                                                }
+                                                                if (accountingService.postScheduledManagementFeeAccrual(
+                                                                                installment) != null) {
+                                                                        posted++;
+                                                                }
+                                                        } catch (Exception scheduleAccrualError) {
+                                                                log.warn(
+                                                                                "[Scheduler] Contractual installment accrual failed for loan {}, payment {}: {}",
+                                                                                loan.getId(),
+                                                                                installment.getId(),
+                                                                                scheduleAccrualError.getMessage(),
+                                                                                scheduleAccrualError);
                                                         }
                                                 }
 

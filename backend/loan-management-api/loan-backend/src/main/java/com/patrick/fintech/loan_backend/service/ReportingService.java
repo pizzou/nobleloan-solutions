@@ -1,4 +1,3 @@
-
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.model.Loan;
@@ -137,24 +136,23 @@ public class ReportingService {
                                 continue;
                         }
 
-                        BigDecimal amount = normalizeMoney(
+                        BigDecimal scheduledAmount = normalizeMoney(
                                         payment.getAmountDecimal());
+                        BigDecimal amountPaid = normalizeMoney(
+                                        payment.getAmountPaidDecimal());
 
                         BigDecimal penalty = normalizeMoney(
                                         payment.getPenaltyDecimal());
 
-                        if (Boolean.TRUE.equals(
-                                        payment.getPaid())) {
-
-                                totalPaid = add(
-                                                totalPaid,
-                                                amount);
-
+                        if (Boolean.TRUE.equals(payment.getPaid())) {
+                                // Collected cash must always come from amountPaid,
+                                // never from the scheduled installment amount.
+                                totalPaid = add(totalPaid, amountPaid);
                         } else {
-
-                                totalPending = add(
-                                                totalPending,
-                                                amount);
+                                BigDecimal remaining = scheduledAmount
+                                                .subtract(amountPaid)
+                                                .max(ZERO);
+                                totalPending = add(totalPending, remaining);
                         }
 
                         totalPenalties = add(
@@ -668,7 +666,6 @@ public class ReportingService {
 
                 } else if (value instanceof BigDecimal decimal) {
 
-                
                         cell.setCellValue(
                                         decimal.doubleValue());
 

@@ -2660,7 +2660,7 @@ public class LoanService {
                                 processingFee);
 
                 // ============================================================
-                // DAILY-BASIS DECLINING-BALANCE SCHEDULE
+                // CONTRACTUAL MONTHLY DECLINING-BALANCE SCHEDULE
                 // ============================================================
 
                 BigDecimal balance = principal;
@@ -2669,22 +2669,16 @@ public class LoanService {
                 LocalDate firstDueDate = null;
                 Long orgId = loan.getOrganization().getId();
 
-                LocalDate scheduleStartDate = loan.getDisbursedAt() != null
+                LocalDate scheduleBaseDate = loan.getDisbursedAt() != null
                                 ? loan.getDisbursedAt().toLocalDate()
                                 : (loan.getStartDate() != null
                                                 ? loan.getStartDate()
                                                 : LocalDate.now());
 
-                int remainingInstallments = months;
-
                 for (int i = 1; i <= months; i++) {
                         balance = money(balance);
 
-                        // Each due date is anchored to the contractual start
-                        // date. Do not compound plusMonths(i) on the previous
-                        // due date; that silently turns a 6-month loan into a
-                        // 1/3/6/10/15/21-month schedule.
-                        LocalDate rawDueDate = scheduleStartDate.plusMonths(i);
+                        LocalDate rawDueDate = scheduleBaseDate.plusMonths(i);
                         LocalDate dueDate = holidayService.adjustToBusinessDay(
                                         orgId,
                                         rawDueDate);
@@ -2693,38 +2687,23 @@ public class LoanService {
                                 firstDueDate = dueDate;
                         }
 
-                        BigDecimal principalComponent = i == months
-                                        ? money(balance)
-                                        : money(balance.divide(
-                                                        BigDecimal.valueOf(remainingInstallments),
-                                                        16,
-                                                        RoundingMode.HALF_UP));
-
-                        BigDecimal interest = FinancialPolicy.accrueScheduledMonthly(
+                        FinancialPolicy.ScheduleLine line = FinancialPolicy.contractualScheduleLine(
                                         balance,
-                                        interestRate);
-
-                        BigDecimal managementFee = FinancialPolicy.accrueScheduledMonthly(
-                                        balance,
+                                        months - i + 1,
+                                        interestRate,
                                         managementRate);
 
-                        BigDecimal installmentAmount = money(
-                                        principalComponent
-                                                        .add(interest)
-                                                        .add(managementFee));
+                        BigDecimal principalComponent = money(line.principal());
+                        BigDecimal interest = money(line.interest());
+                        BigDecimal managementFee = money(line.managementFee());
+                        BigDecimal installmentAmount = money(line.installment());
+                        balance = money(line.remainingBalance());
 
                         accumulatedInterest = money(
                                         accumulatedInterest.add(interest));
 
                         accumulatedManagementFee = money(
                                         accumulatedManagementFee.add(managementFee));
-
-                        balance = money(
-                                        balance.subtract(principalComponent));
-
-                        if (balance.compareTo(MIN_MONEY_UNIT) < 0) {
-                                balance = ZERO;
-                        }
 
                         Payment payment = Payment.builder()
                                         .paymentReference(generatePayRef(loan, i))
@@ -2752,8 +2731,6 @@ public class LoanService {
                                         .build();
 
                         paymentRepo.save(payment);
-
-                        remainingInstallments--;
                 }
 
                 // ============================================================
@@ -2893,44 +2870,32 @@ public class LoanService {
                                         RoundingMode.HALF_UP);
                 }
 
-                LocalDate startDate = LocalDate.now();
+                if (!"MONTHLY".equalsIgnoreCase(rateType)
+                                && !"ANNUAL".equalsIgnoreCase(rateType)) {
+                        throw new IllegalArgumentException(
+                                        "Unsupported loan rate type: " + rateType);
+                }
+
                 BigDecimal balance = money(principal);
                 BigDecimal totalRecurringCharges = ZERO;
                 BigDecimal firstInstallment = ZERO;
-                int remainingInstallments = months;
 
                 for (int i = 1; i <= months; i++) {
-                        LocalDate dueDate = startDate.plusMonths(1);
-
-                        BigDecimal principalComponent = i == months
-                                        ? money(balance)
-                                        : money(balance.divide(
-                                                        BigDecimal.valueOf(remainingInstallments),
-                                                        16,
-                                                        RoundingMode.HALF_UP));
-
-                        BigDecimal recurringCharge = accrueDaily(
+                        FinancialPolicy.ScheduleLine line = FinancialPolicy.contractualScheduleLine(
                                         balance,
-                                        startDate,
-                                        dueDate,
-                                        monthlyRatePercent);
+                                        months - i + 1,
+                                        monthlyRatePercent,
+                                        ZERO);
 
-                        BigDecimal installment = money(
-                                        principalComponent.add(recurringCharge));
+                        BigDecimal installment = money(line.principal().add(line.interest()));
 
                         if (i == 1) {
                                 firstInstallment = installment;
                         }
 
                         totalRecurringCharges = money(
-                                        totalRecurringCharges.add(recurringCharge));
-
-                        balance = money(balance.subtract(principalComponent));
-                        if (balance.compareTo(MIN_MONEY_UNIT) < 0) {
-                                balance = ZERO;
-                        }
-
-                        remainingInstallments--;
+                                        totalRecurringCharges.add(line.interest()));
+                        balance = money(line.remainingBalance());
                 }
 
                 return new BigDecimal[] {

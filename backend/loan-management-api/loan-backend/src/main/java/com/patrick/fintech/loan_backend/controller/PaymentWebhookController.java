@@ -21,6 +21,9 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.security.MessageDigest;
 import java.util.Locale;
 
@@ -61,7 +64,8 @@ public class PaymentWebhookController {
 
         @PostMapping("/flutterwave")
         public ResponseEntity<String> flutterwave(
-                        @RequestHeader(value = "verif-hash", required = false) String verificationHash,
+                        @RequestHeader(value = "flutterwave-signature", required = false) String flutterwaveSignature,
+                        @RequestHeader(value = "verif-hash", required = false) String legacyVerificationHash,
 
                         @RequestBody String rawBody) {
 
@@ -74,9 +78,11 @@ public class PaymentWebhookController {
                         // VERIFY WEBHOOK SECRET
                         // ========================================================
 
-                        if (!isValidSecret(
+                        if (!isValidFlutterwaveSignature(
                                         flutterwaveWebhookSecret,
-                                        verificationHash)) {
+                                        flutterwaveSignature,
+                                        legacyVerificationHash,
+                                        rawBody)) {
 
                                 log.warn(
                                                 "[FLUTTERWAVE WEBHOOK] Invalid webhook signature.");
@@ -199,21 +205,39 @@ public class PaymentWebhookController {
                         // VERIFY TRANSACTION WITH FLUTTERWAVE
                         // ========================================================
 
-                        boolean verified = flutterwaveService.verifyTransaction(
-                                        transactionId);
+                        FlutterwaveService.VerificationResult verification = flutterwaveService
+                                        .verifyTransactionDetails(transactionId);
 
-                        if (!verified) {
-
+                        if (!verification.successful()) {
                                 log.warn(
-                                                "[FLUTTERWAVE WEBHOOK] Transaction verification failed. " +
-                                                                "loanId={}, transactionId={}",
-                                                loanId,
-                                                transactionId);
+                                                "[FLUTTERWAVE WEBHOOK] Provider verification failed. loanId={}, transactionId={}, status={}",
+                                                loanId, transactionId, verification.status());
+                                return ResponseEntity.badRequest().body("Transaction verification failed");
+                        }
 
-                                return ResponseEntity
-                                                .badRequest()
-                                                .body(
-                                                                "Transaction verification failed");
+                        if (verification.transactionReference() != null
+                                        && !transactionReference.equals(verification.transactionReference())) {
+                                log.error(
+                                                "[FLUTTERWAVE WEBHOOK] Reference mismatch. loanId={}, webhookTxRef={}, providerTxRef={}",
+                                                loanId, transactionReference, verification.transactionReference());
+                                return ResponseEntity.badRequest().body("Transaction reference mismatch");
+                        }
+
+                        BigDecimal verifiedAmount = verification.amount();
+                        if (verifiedAmount != null
+                                        && verifiedAmount.setScale(2, RoundingMode.HALF_UP)
+                                                        .compareTo(amountFromNode(data)) != 0) {
+                                log.error(
+                                                "[FLUTTERWAVE WEBHOOK] Amount mismatch. loanId={}, transactionId={}, webhookAmount={}, verifiedAmount={}",
+                                                loanId, transactionId, amountFromNode(data), verifiedAmount);
+                                return ResponseEntity.badRequest().body("Transaction amount mismatch");
+                        }
+
+                        if (verification.currency() != null
+                                        && loan.getCurrency() != null
+                                        && !loan.getCurrency().equalsIgnoreCase(verification.currency())) {
+                                return ResponseEntity.badRequest()
+                                                .body("Verified payment currency does not match loan currency");
                         }
 
                         // ========================================================
@@ -925,6 +949,54 @@ public class PaymentWebhookController {
                 }
 
                 return value.asText();
+        }
+
+        // ================================================================
+        // WEBHOOK SIGNATURE
+        // ================================================================
+
+        private boolean isValidFlutterwaveSignature(
+                        String configuredSecret,
+                        String flutterwaveSignature,
+                        String legacyVerificationHash,
+                        String rawBody) {
+
+                if (isBlank(configuredSecret) || isBlank(rawBody)) {
+                        log.error("[FLUTTERWAVE WEBHOOK] Webhook secret is not configured or body is empty.");
+                        return false;
+                }
+
+                try {
+                        if (!isBlank(flutterwaveSignature)) {
+                                Mac mac = Mac.getInstance("HmacSHA256");
+                                mac.init(new SecretKeySpec(
+                                                configuredSecret.trim().getBytes(StandardCharsets.UTF_8),
+                                                "HmacSHA256"));
+                                byte[] digest = mac.doFinal(rawBody.getBytes(StandardCharsets.UTF_8));
+                                byte[] actual = Base64.getDecoder().decode(flutterwaveSignature.trim());
+                                return MessageDigest.isEqual(digest, actual);
+                        }
+
+                        // Legacy Flutterwave integrations used verif-hash. Keep
+                        // this fallback so an existing configured webhook does
+                        // not fail during migration to flutterwave-signature.
+                        return isValidSecret(configuredSecret, legacyVerificationHash);
+
+                } catch (Exception e) {
+                        log.error("[FLUTTERWAVE WEBHOOK] Signature verification failed", e);
+                        return false;
+                }
+        }
+
+        private BigDecimal amountFromNode(JsonNode data) {
+                if (data == null || data.get("amount") == null || data.get("amount").isNull()) {
+                        return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+                }
+                try {
+                        return new BigDecimal(data.get("amount").asText()).setScale(2, RoundingMode.HALF_UP);
+                } catch (NumberFormatException e) {
+                        return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+                }
         }
 
         // ================================================================

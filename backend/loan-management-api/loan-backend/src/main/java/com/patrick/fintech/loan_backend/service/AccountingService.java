@@ -1130,6 +1130,131 @@ public class AccountingService {
         }
 
         // ============================================================
+        // CONTRACTUAL SCHEDULE ACCRUAL
+        // ============================================================
+
+        /**
+         * Accrues the unpaid portion of a contractual installment's interest
+         * once the installment reaches its due date. This keeps accounting
+         * income exactly aligned with the approved repayment schedule.
+         */
+        @Transactional
+        public JournalEntry postScheduledInterestAccrual(Payment installment) {
+                if (installment == null || installment.getLoan() == null || installment.getId() == null) {
+                        throw new IllegalArgumentException("Payment installment is required");
+                }
+
+                Loan loan = installment.getLoan();
+                Organization org = loan.getOrganization();
+                requireOrganization(org);
+                ensureChartOfAccounts(org);
+
+                BigDecimal scheduled = money(installment.getScheduledInterestDecimal());
+                BigDecimal paid = money(installment.getInterestComponentDecimal());
+                BigDecimal amount = maxZero(scheduled.subtract(paid));
+                if (amount.compareTo(ZERO) <= 0) {
+                        return null;
+                }
+
+                String sourceId = "PAYMENT-" + installment.getId();
+                JournalEntry existing = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(), "SCHEDULED_INTEREST_ACCRUAL", sourceId)
+                                .orElse(null);
+                if (existing != null) {
+                        return existing;
+                }
+
+                String reference = loan.getReferenceNumber() != null && !loan.getReferenceNumber().isBlank()
+                                ? loan.getReferenceNumber().trim()
+                                : "LOAN-" + loan.getId();
+
+                return post(
+                                org,
+                                loan.getBranch(),
+                                "SCHEDULED_INTEREST_ACCRUAL",
+                                sourceId,
+                                reference,
+                                "Contractual interest accrued for installment " + installment.getInstallmentNumber()
+                                                + " — " + reference,
+                                List.of(
+                                                JournalLine.builder()
+                                                                .account(account(org, "1150"))
+                                                                .debit(amount)
+                                                                .credit(ZERO)
+                                                                .description("Contractual interest receivable — "
+                                                                                + reference)
+                                                                .build(),
+                                                JournalLine.builder()
+                                                                .account(account(org, "4000"))
+                                                                .debit(ZERO)
+                                                                .credit(amount)
+                                                                .description("Contractual interest income — "
+                                                                                + reference)
+                                                                .build()));
+        }
+
+        /**
+         * Accrues the unpaid portion of a contractual installment's management
+         * fee once the installment reaches its due date.
+         */
+        @Transactional
+        public JournalEntry postScheduledManagementFeeAccrual(Payment installment) {
+                if (installment == null || installment.getLoan() == null || installment.getId() == null) {
+                        throw new IllegalArgumentException("Payment installment is required");
+                }
+
+                Loan loan = installment.getLoan();
+                Organization org = loan.getOrganization();
+                requireOrganization(org);
+                ensureChartOfAccounts(org);
+
+                BigDecimal scheduled = money(installment.getScheduledManagementFeeDecimal());
+                BigDecimal paid = money(installment.getManagementFeeComponentDecimal());
+                BigDecimal amount = maxZero(scheduled.subtract(paid));
+                if (amount.compareTo(ZERO) <= 0) {
+                        return null;
+                }
+
+                String sourceId = "PAYMENT-" + installment.getId();
+                JournalEntry existing = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(), "SCHEDULED_MANAGEMENT_FEE_ACCRUAL", sourceId)
+                                .orElse(null);
+                if (existing != null) {
+                        return existing;
+                }
+
+                String reference = loan.getReferenceNumber() != null && !loan.getReferenceNumber().isBlank()
+                                ? loan.getReferenceNumber().trim()
+                                : "LOAN-" + loan.getId();
+
+                return post(
+                                org,
+                                loan.getBranch(),
+                                "SCHEDULED_MANAGEMENT_FEE_ACCRUAL",
+                                sourceId,
+                                reference,
+                                "Contractual management fee accrued for installment "
+                                                + installment.getInstallmentNumber() + " — " + reference,
+                                List.of(
+                                                JournalLine.builder()
+                                                                .account(account(org, "1160"))
+                                                                .debit(amount)
+                                                                .credit(ZERO)
+                                                                .description("Contractual management fee receivable — "
+                                                                                + reference)
+                                                                .build(),
+                                                JournalLine.builder()
+                                                                .account(account(org, "4100"))
+                                                                .debit(ZERO)
+                                                                .credit(amount)
+                                                                .description("Contractual management fee income — "
+                                                                                + reference)
+                                                                .build()));
+        }
+
+        // ============================================================
         // INTEREST ACCRUAL
         // ============================================================
 

@@ -62,7 +62,25 @@ public class PaymentTransaction {
     private BigDecimal principalComponent;
 
     @Column(precision = 19, scale = 2)
+    private BigDecimal managementFeeComponent;
+
+    @Column(precision = 19, scale = 2)
+    private BigDecimal extensionFeeComponent;
+
+    @Column(precision = 19, scale = 2)
     private BigDecimal unappliedAmount;
+
+    @Column(length = 40)
+    private String provider;
+
+    @Column(length = 12)
+    private String currency;
+
+    @Column(length = 120)
+    private String externalReference;
+
+    @Column(length = 40)
+    private String gatewayStatus;
 
     private String paymentMethod;
     private String channel;
@@ -99,12 +117,16 @@ public class PaymentTransaction {
             interestComponent = MoneyMath.ZERO;
         if (principalComponent == null)
             principalComponent = MoneyMath.ZERO;
+        if (managementFeeComponent == null)
+            managementFeeComponent = MoneyMath.ZERO;
+        if (extensionFeeComponent == null)
+            extensionFeeComponent = MoneyMath.ZERO;
         if (unappliedAmount == null)
             unappliedAmount = MoneyMath.ZERO;
     }
 
     public enum TransactionStatus {
-        POSTED, REVERSED
+        INITIATED, PENDING, POSTED, FAILED, REVERSED
     }
 
     /**
@@ -160,6 +182,16 @@ public class PaymentTransaction {
 
         public PaymentTransactionBuilder principalComponent(BigDecimal value) {
             this.principalComponent = value;
+            return this;
+        }
+
+        public PaymentTransactionBuilder managementFeeComponent(BigDecimal value) {
+            this.managementFeeComponent = value;
+            return this;
+        }
+
+        public PaymentTransactionBuilder extensionFeeComponent(BigDecimal value) {
+            this.extensionFeeComponent = value;
             return this;
         }
 

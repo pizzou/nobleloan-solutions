@@ -1,4 +1,3 @@
-
 package com.patrick.fintech.loan_backend.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -91,6 +90,9 @@ public class AirtelMobileMoneyService {
         @Value("${airtel.money.callback-url:}")
         private String callbackUrl;
 
+        @Value("${airtel.money.webhook-secret:}")
+        private String webhookSecret;
+
         @Value("${airtel.money.country:RW}")
         private String country;
 
@@ -113,7 +115,9 @@ public class AirtelMobileMoneyService {
                 return enabled
                                 && hasText(baseUrl)
                                 && hasText(clientId)
-                                && hasText(clientSecret);
+                                && hasText(clientSecret)
+                                && hasText(callbackUrl)
+                                && hasText(webhookSecret);
         }
 
         /**
@@ -707,7 +711,6 @@ public class AirtelMobileMoneyService {
                         value = value.substring(1);
                 }
 
-               
                 if (value.startsWith("0")
                                 && value.length() == 10) {
 

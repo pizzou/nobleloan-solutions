@@ -459,10 +459,16 @@ export default function TrackPage() {
       /*
        * Initiate payment.
        */
+      const idempotencyKey =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `public-payment-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
       const res = (await publicApi.initiatePayment(
         result.referenceNumber || result.reference,
         phone.trim(),
         payload,
+        idempotencyKey,
       )) as any;
 
       const data = res?.data ?? res;

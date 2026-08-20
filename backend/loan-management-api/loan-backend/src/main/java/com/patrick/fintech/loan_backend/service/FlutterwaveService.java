@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -20,18 +21,18 @@ import java.util.UUID;
  *
  * Supports:
  *
- *  - Card
- *  - Mobile Money
- *  - Bank Transfer
+ * - Card
+ * - Mobile Money
+ * - Bank Transfer
  *
  * Rwanda:
- *  - RWF
- *  - MTN Mobile Money
- *  - Airtel Money
+ * - RWF
+ * - MTN Mobile Money
+ * - Airtel Money
  *
  * Real payments are used when:
  *
- *     FLUTTERWAVE_SECRET_KEY
+ * FLUTTERWAVE_SECRET_KEY
  *
  * is configured.
  *
@@ -42,847 +43,754 @@ import java.util.UUID;
 @Service
 public class FlutterwaveService {
 
-    private static final String FLW_BASE =
-            "https://api.flutterwave.com/v3";
+        private static final String FLW_BASE = "https://api.flutterwave.com/v3";
 
-    @Value("${flutterwave.secret-key:}")
-    private String secretKey;
+        @Value("${flutterwave.secret-key:}")
+        private String secretKey;
 
-    @Value("${flutterwave.public-key:}")
-    private String publicKey;
+        @Value("${flutterwave.public-key:}")
+        private String publicKey;
 
-    @Value("${app.frontend.url:http://localhost:3000}")
-    private String frontendUrl;
+        @Value("${flutterwave.webhook-secret:}")
+        private String webhookSecret;
 
-    @Value("${app.environment:development}")
-    private String applicationEnvironment;
+        @Value("${app.frontend.url:http://localhost:3000}")
+        private String frontendUrl;
 
-    private final WebClient webClient;
+        @Value("${app.environment:development}")
+        private String applicationEnvironment;
 
-    public FlutterwaveService(WebClient.Builder builder) {
+        private final WebClient webClient;
 
-        this.webClient = builder
-                .baseUrl(FLW_BASE)
-                .defaultHeader(
-                        HttpHeaders.CONTENT_TYPE,
-                        MediaType.APPLICATION_JSON_VALUE
-                )
-                .build();
-    }
+        public FlutterwaveService(WebClient.Builder builder) {
 
-    /**
-     * ============================================================
-     * CONFIGURATION
-     * ============================================================
-     */
-    public boolean isConfigured() {
-
-        return secretKey != null
-                && !secretKey.isBlank();
-    }
-
-    /**
-     * ============================================================
-     * INITIATE PAYMENT
-     * ============================================================
-     */
-    public PaymentGatewayResponse initiatePayment(
-            Long loanId,
-            PaymentGatewayRequest req,
-            Double amount,
-            String currency,
-            String description
-    ) {
-
-        if (amount == null || amount <= 0) {
-            throw new IllegalArgumentException(
-                    "Payment amount must be greater than zero"
-            );
-        }
-
-        if (currency == null || currency.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Loan currency is required"
-            );
-        }
-
-        if (req == null) {
-            throw new IllegalArgumentException(
-                    "Payment request is required"
-            );
-        }
-
-        String paymentMethod =
-                req.getPaymentMethod();
-
-        if (paymentMethod == null
-                || paymentMethod.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Payment method is required"
-            );
+                this.webClient = builder
+                                .baseUrl(FLW_BASE)
+                                .defaultHeader(
+                                                HttpHeaders.CONTENT_TYPE,
+                                                MediaType.APPLICATION_JSON_VALUE)
+                                .build();
         }
 
         /**
-         * --------------------------------------------------------
-         * DEVELOPMENT / SIMULATION MODE
-         * --------------------------------------------------------
+         * ============================================================
+         * CONFIGURATION
+         * ============================================================
+         */
+        public boolean isConfigured() {
+
+                return secretKey != null
+                                && !secretKey.isBlank()
+                                && webhookSecret != null
+                                && !webhookSecret.isBlank();
+        }
+
+        /**
+         * ============================================================
+         * INITIATE PAYMENT
+         * ============================================================
+         */
+        public PaymentGatewayResponse initiatePayment(
+                        Long loanId,
+                        PaymentGatewayRequest req,
+                        Double amount,
+                        String currency,
+                        String description) {
+
+                if (amount == null || amount <= 0) {
+                        throw new IllegalArgumentException(
+                                        "Payment amount must be greater than zero");
+                }
+
+                if (currency == null || currency.isBlank()) {
+                        throw new IllegalArgumentException(
+                                        "Loan currency is required");
+                }
+
+                if (req == null) {
+                        throw new IllegalArgumentException(
+                                        "Payment request is required");
+                }
+
+                String paymentMethod = req.getPaymentMethod();
+
+                if (paymentMethod == null
+                                || paymentMethod.isBlank()) {
+
+                        throw new IllegalArgumentException(
+                                        "Payment method is required");
+                }
+
+                /**
+                 * --------------------------------------------------------
+                 * DEVELOPMENT / SIMULATION MODE
+                 * --------------------------------------------------------
+                 *
+                 * Only used when no Flutterwave secret key exists.
+                 */
+                if (!isConfigured()) {
+
+                        if (isProductionEnvironment()) {
+                                throw new IllegalStateException(
+                                                "Flutterwave is not configured for production.");
+                        }
+
+                        log.warn(
+                                        "[FLW SIMULATION] {} {} via {}",
+                                        currency,
+                                        amount,
+                                        paymentMethod);
+
+                        return simulatedSuccess(
+                                        amount,
+                                        currency,
+                                        paymentMethod);
+                }
+
+                return switch (paymentMethod.toUpperCase()) {
+
+                        case "CARD" ->
+                                chargeCard(
+                                                loanId,
+                                                req,
+                                                amount,
+                                                currency);
+
+                        case "MOBILE_MONEY" ->
+                                chargeMobileMoney(
+                                                loanId,
+                                                req,
+                                                amount,
+                                                currency);
+
+                        case "BANK_TRANSFER" ->
+                                chargeBankTransfer(
+                                                loanId,
+                                                req,
+                                                amount,
+                                                currency);
+
+                        default ->
+                                throw new IllegalArgumentException(
+                                                "Unsupported payment method: "
+                                                                + paymentMethod);
+                };
+        }
+
+        /**
+         * ============================================================
+         * VERIFY FLUTTERWAVE TRANSACTION
+         * ============================================================
          *
-         * Only used when no Flutterwave secret key exists.
-         */
-        if (!isConfigured()) {
-
-            if (isProductionEnvironment()) {
-                throw new IllegalStateException(
-                        "Flutterwave is not configured for production."
-                );
-            }
-
-            log.warn(
-                    "[FLW SIMULATION] {} {} via {}",
-                    currency,
-                    amount,
-                    paymentMethod
-            );
-
-            return simulatedSuccess(
-                    amount,
-                    currency,
-                    paymentMethod
-            );
-        }
-
-        return switch (
-                paymentMethod.toUpperCase()
-        ) {
-
-            case "CARD" ->
-                    chargeCard(
-                            loanId,
-                            req,
-                            amount,
-                            currency
-                    );
-
-            case "MOBILE_MONEY" ->
-                    chargeMobileMoney(
-                            loanId,
-                            req,
-                            amount,
-                            currency
-                    );
-
-            case "BANK_TRANSFER" ->
-                    chargeBankTransfer(
-                            loanId,
-                            req,
-                            amount,
-                            currency
-                    );
-
-            default ->
-                    throw new IllegalArgumentException(
-                            "Unsupported payment method: "
-                                    + paymentMethod
-                    );
-        };
-    }
-
-    /**
-     * ============================================================
-     * VERIFY FLUTTERWAVE TRANSACTION
-     * ============================================================
-     *
-     * Never trust the webhook payload alone.
-     *
-     * The backend asks Flutterwave directly whether the
-     * transaction is actually successful.
-     */
-    @SuppressWarnings("unchecked")
-    public boolean verifyTransaction(
-            String transactionId
-    ) {
-
-        if (transactionId == null
-                || transactionId.isBlank()) {
-
-            return false;
-        }
-
-        if (!isConfigured()) {
-
-            if (isProductionEnvironment()) {
-                log.error(
-                        "[FLW] Cannot verify transaction in production because Flutterwave is not configured. transactionId={}",
-                        transactionId
-                );
-                return false;
-            }
-
-            log.warn(
-                    "[FLW SIMULATION] Transaction {} treated as verified",
-                    transactionId
-            );
-
-            return true;
-        }
-
-        try {
-
-            Map<String, Object> response =
-                    webClient.get()
-                            .uri(
-                                    "/transactions/"
-                                            + transactionId
-                                            + "/verify"
-                            )
-                            .header(
-                                    HttpHeaders.AUTHORIZATION,
-                                    "Bearer " + secretKey
-                            )
-                            .retrieve()
-                            .bodyToMono(Map.class)
-                            .block();
-
-            if (response == null) {
-                return false;
-            }
-
-            Map<String, Object> data =
-                    (Map<String, Object>)
-                            response.get("data");
-
-            if (data == null) {
-                return false;
-            }
-
-            String status =
-                    String.valueOf(
-                            data.get("status")
-                    );
-
-            return "successful".equalsIgnoreCase(
-                    status
-            );
-
-        } catch (Exception e) {
-
-            log.error(
-                    "[FLW] Transaction verification failed: {}",
-                    e.getMessage(),
-                    e
-            );
-
-            return false;
-        }
-    }
-
-    /**
-     * ============================================================
-     * CARD
-     * ============================================================
-     */
-    private PaymentGatewayResponse chargeCard(
-            Long loanId,
-            PaymentGatewayRequest req,
-            Double amount,
-            String currency
-    ) {
-
-        Map<String, Object> body =
-                new HashMap<>();
-
-        body.put(
-                "card_number",
-                req.getCardNumber()
-        );
-
-        body.put(
-                "cvv",
-                req.getCardCvv()
-        );
-
-        body.put(
-                "expiry_month",
-                req.getCardExpiryMonth()
-        );
-
-        body.put(
-                "expiry_year",
-                req.getCardExpiryYear()
-        );
-
-        body.put(
-                "currency",
-                currency
-        );
-
-        body.put(
-                "amount",
-                amount
-        );
-
-        body.put(
-                "email",
-                safeEmail(req)
-        );
-
-        body.put(
-                "tx_ref",
-                txRef(loanId)
-        );
-
-        body.put(
-                "redirect_url",
-                frontendUrl
-                        + "/dashboard/payments/complete"
-        );
-
-        return callFlutterwave(
-                "/charges?type=card",
-                body,
-                "CARD"
-        );
-    }
-
-    /**
-     * ============================================================
-     * MOBILE MONEY
-     * ============================================================
-     *
-     * Rwanda:
-     *
-     *   RWF
-     *   MTN
-     *   Airtel
-     *
-     * The actual network is supplied by:
-     *
-     *   req.getNetwork()
-     */
-    private PaymentGatewayResponse chargeMobileMoney(
-            Long loanId,
-            PaymentGatewayRequest req,
-            Double amount,
-            String currency
-    ) {
-
-        if (req.getPhoneNumber() == null
-                || req.getPhoneNumber().isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Mobile money phone number is required"
-            );
-        }
-
-        String network =
-                req.getNetwork();
-
-        if (network == null
-                || network.isBlank()) {
-
-            network = "MTN";
-        }
-
-        network =
-                network.trim()
-                        .toUpperCase();
-
-        /**
-         * --------------------------------------------------------
-         * Validate Rwanda mobile networks
-         * --------------------------------------------------------
-         */
-        if ("RWF".equalsIgnoreCase(currency)) {
-
-            if (!network.equals("MTN")
-                    && !network.equals("AIRTEL")) {
-
-                throw new IllegalArgumentException(
-                        "Unsupported Rwanda mobile network: "
-                                + network
-                                + ". Use MTN or AIRTEL."
-                );
-            }
-        }
-
-        Map<String, Object> body =
-                new HashMap<>();
-
-        body.put(
-                "amount",
-                amount
-        );
-
-        body.put(
-                "currency",
-                currency.toUpperCase()
-        );
-
-        body.put(
-                "email",
-                safeEmail(req)
-        );
-
-        body.put(
-                "phone_number",
-                req.getPhoneNumber()
-        );
-
-        body.put(
-                "network",
-                network
-        );
-
-        body.put(
-                "tx_ref",
-                txRef(loanId)
-        );
-
-        /**
-         * --------------------------------------------------------
-         * Flutterwave mobile-money endpoint
-         * --------------------------------------------------------
-         */
-        String endpoint;
-
-        switch (
-                currency.toUpperCase()
-        ) {
-
-            case "RWF":
-
-                endpoint =
-                        "/charges?type=mobile_money_rwanda";
-
-                break;
-
-            case "KES":
-
-                endpoint =
-                        "/charges?type=mpesa";
-
-                break;
-
-            case "GHS":
-
-                endpoint =
-                        "/charges?type=mobile_money_ghana";
-
-                break;
-
-            case "UGX":
-
-                endpoint =
-                        "/charges?type=mobile_money_uganda";
-
-                break;
-
-            case "XAF":
-            case "XOF":
-
-                endpoint =
-                        "/charges?type=mobile_money_franco";
-
-                break;
-
-            default:
-
-                throw new IllegalArgumentException(
-                        "Mobile money is not configured for currency: "
-                                + currency
-                );
-        }
-
-        log.info(
-                "[FLW] Initiating mobile money payment: loan={}, currency={}, network={}, phone={}",
-                loanId,
-                currency,
-                network,
-                maskPhone(req.getPhoneNumber())
-        );
-
-        return callFlutterwave(
-                endpoint,
-                body,
-                "MOBILE_MONEY"
-        );
-    }
-
-    /**
-     * ============================================================
-     * BANK TRANSFER
-     * ============================================================
-     */
-    private PaymentGatewayResponse chargeBankTransfer(
-            Long loanId,
-            PaymentGatewayRequest req,
-            Double amount,
-            String currency
-    ) {
-
-        Map<String, Object> body =
-                new HashMap<>();
-
-        body.put(
-                "amount",
-                amount
-        );
-
-        body.put(
-                "currency",
-                currency
-        );
-
-        body.put(
-                "email",
-                safeEmail(req)
-        );
-
-        body.put(
-                "tx_ref",
-                txRef(loanId)
-        );
-
-        body.put(
-                "is_permanent",
-                false
-        );
-
-        return callFlutterwave(
-                "/charges?type=bank_transfer",
-                body,
-                "BANK_TRANSFER"
-        );
-    }
-
-    /**
-     * ============================================================
-     * CALL FLUTTERWAVE
-     * ============================================================
-     */
-    @SuppressWarnings("unchecked")
-    private PaymentGatewayResponse callFlutterwave(
-            String endpoint,
-            Map<String, Object> body,
-            String type
-    ) {
-
-        try {
-
-            Map<String, Object> response =
-                    webClient.post()
-                            .uri(endpoint)
-                            .header(
-                                    HttpHeaders.AUTHORIZATION,
-                                    "Bearer " + secretKey
-                            )
-                            .bodyValue(body)
-                            .retrieve()
-                            .bodyToMono(Map.class)
-                            .block();
-
-            return parseResponse(
-                    response,
-                    type
-            );
-
-        } catch (Exception e) {
-
-            log.error(
-                    "[FLW] {} payment failed: {}",
-                    type,
-                    e.getMessage(),
-                    e
-            );
-
-            throw new RuntimeException(
-                    type
-                            + " payment failed: "
-                            + e.getMessage(),
-                    e
-            );
-        }
-    }
-
-    /**
-     * ============================================================
-     * PARSE FLUTTERWAVE RESPONSE
-     * ============================================================
-     */
-    @SuppressWarnings("unchecked")
-    private PaymentGatewayResponse parseResponse(
-            Map<String, Object> response,
-            String type
-    ) {
-
-        PaymentGatewayResponse result =
-                new PaymentGatewayResponse();
-
-        result.setPaymentType(type);
-
-        if (response == null) {
-
-            result.setStatus("failed");
-            result.setMessage(
-                    "No response received from Flutterwave"
-            );
-
-            return result;
-        }
-
-        String gatewayStatus =
-                String.valueOf(
-                        response.get("status")
-                );
-
-        /**
-         * Flutterwave "success" means that the charge
-         * was accepted/created.
+         * Never trust the webhook payload alone.
          *
-         * It does NOT necessarily mean the money has
-         * already been received.
-         *
-         * Therefore mobile money remains PENDING until
-         * the webhook confirms the payment.
+         * The backend asks Flutterwave directly whether the
+         * transaction is actually successful.
          */
-        if ("success".equalsIgnoreCase(
-                gatewayStatus
-        )) {
+        @SuppressWarnings("unchecked")
+        public VerificationResult verifyTransactionDetails(
+                        String transactionId) {
 
-            result.setStatus("pending");
+                if (transactionId == null || transactionId.isBlank()) {
+                        return VerificationResult.failed();
+                }
 
-        } else {
+                if (!isConfigured()) {
+                        if (isProductionEnvironment()) {
+                                log.error(
+                                                "[FLW] Cannot verify transaction in production because Flutterwave is not configured. transactionId={}",
+                                                transactionId);
+                                return VerificationResult.failed();
+                        }
 
-            result.setStatus("failed");
+                        log.warn("[FLW SIMULATION] Transaction {} treated as verified", transactionId);
+                        return new VerificationResult(true, transactionId, null, null, null, "successful");
+                }
+
+                try {
+                        Map<String, Object> response = webClient.get()
+                                        .uri("/transactions/" + transactionId + "/verify")
+                                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + secretKey)
+                                        .retrieve()
+                                        .bodyToMono(Map.class)
+                                        .block();
+
+                        if (response == null) {
+                                return VerificationResult.failed();
+                        }
+
+                        Map<String, Object> data = (Map<String, Object>) response.get("data");
+                        if (data == null) {
+                                return VerificationResult.failed();
+                        }
+
+                        String status = data.get("status") != null ? String.valueOf(data.get("status")) : null;
+                        String verifiedId = data.get("id") != null ? String.valueOf(data.get("id")) : null;
+                        String txRef = data.get("tx_ref") != null ? String.valueOf(data.get("tx_ref")) : null;
+                        String currency = data.get("currency") != null
+                                        ? String.valueOf(data.get("currency")).trim().toUpperCase()
+                                        : null;
+
+                        BigDecimal amount = null;
+                        Object rawAmount = data.get("amount");
+                        if (rawAmount instanceof Number number) {
+                                amount = BigDecimal.valueOf(number.doubleValue()).setScale(2,
+                                                java.math.RoundingMode.HALF_UP);
+                        } else if (rawAmount != null) {
+                                amount = new BigDecimal(String.valueOf(rawAmount)).setScale(2,
+                                                java.math.RoundingMode.HALF_UP);
+                        }
+
+                        boolean successful = "successful".equalsIgnoreCase(status);
+                        return new VerificationResult(successful, verifiedId, txRef, amount, currency, status);
+
+                } catch (Exception e) {
+                        log.error("[FLW] Transaction verification failed: {}", e.getMessage(), e);
+                        return VerificationResult.failed();
+                }
         }
 
-        result.setMessage(
-                response.get("message") != null
-                        ? String.valueOf(
-                                response.get("message")
-                        )
-                        : "No gateway message"
-        );
+        public boolean verifyTransaction(String transactionId) {
+                return verifyTransactionDetails(transactionId).successful();
+        }
 
-        Map<String, Object> data =
-                (Map<String, Object>)
-                        response.get("data");
+        public record VerificationResult(
+                        boolean successful,
+                        String transactionId,
+                        String transactionReference,
+                        BigDecimal amount,
+                        String currency,
+                        String status) {
 
-        if (data != null) {
+                static VerificationResult failed() {
+                        return new VerificationResult(false, null, null, null, null, null);
+                }
+        }
 
-            Object id =
-                    data.get("id");
+        /**
+         * ============================================================
+         * CARD
+         * ============================================================
+         */
+        private PaymentGatewayResponse chargeCard(
+                        Long loanId,
+                        PaymentGatewayRequest req,
+                        Double amount,
+                        String currency) {
 
-            if (id != null) {
+                Map<String, Object> body = new HashMap<>();
+
+                body.put(
+                                "card_number",
+                                req.getCardNumber());
+
+                body.put(
+                                "cvv",
+                                req.getCardCvv());
+
+                body.put(
+                                "expiry_month",
+                                req.getCardExpiryMonth());
+
+                body.put(
+                                "expiry_year",
+                                req.getCardExpiryYear());
+
+                body.put(
+                                "currency",
+                                currency);
+
+                body.put(
+                                "amount",
+                                amount);
+
+                body.put(
+                                "email",
+                                safeEmail(req));
+
+                body.put(
+                                "tx_ref",
+                                txRef(loanId));
+
+                body.put(
+                                "redirect_url",
+                                frontendUrl
+                                                + "/dashboard/payments/complete");
+
+                return callFlutterwave(
+                                "/charges?type=card",
+                                body,
+                                "CARD");
+        }
+
+        /**
+         * ============================================================
+         * MOBILE MONEY
+         * ============================================================
+         *
+         * Rwanda:
+         *
+         * RWF
+         * MTN
+         * Airtel
+         *
+         * The actual network is supplied by:
+         *
+         * req.getNetwork()
+         */
+        private PaymentGatewayResponse chargeMobileMoney(
+                        Long loanId,
+                        PaymentGatewayRequest req,
+                        Double amount,
+                        String currency) {
+
+                if (req.getPhoneNumber() == null
+                                || req.getPhoneNumber().isBlank()) {
+
+                        throw new IllegalArgumentException(
+                                        "Mobile money phone number is required");
+                }
+
+                String network = req.getNetwork();
+
+                if (network == null
+                                || network.isBlank()) {
+
+                        network = "MTN";
+                }
+
+                network = network.trim()
+                                .toUpperCase();
+
+                /**
+                 * --------------------------------------------------------
+                 * Validate Rwanda mobile networks
+                 * --------------------------------------------------------
+                 */
+                if ("RWF".equalsIgnoreCase(currency)) {
+
+                        if (!network.equals("MTN")
+                                        && !network.equals("AIRTEL")) {
+
+                                throw new IllegalArgumentException(
+                                                "Unsupported Rwanda mobile network: "
+                                                                + network
+                                                                + ". Use MTN or AIRTEL.");
+                        }
+                }
+
+                Map<String, Object> body = new HashMap<>();
+
+                body.put(
+                                "amount",
+                                amount);
+
+                body.put(
+                                "currency",
+                                currency.toUpperCase());
+
+                body.put(
+                                "email",
+                                safeEmail(req));
+
+                body.put(
+                                "phone_number",
+                                req.getPhoneNumber());
+
+                body.put(
+                                "network",
+                                network);
+
+                body.put(
+                                "tx_ref",
+                                txRef(loanId));
+
+                /**
+                 * --------------------------------------------------------
+                 * Flutterwave mobile-money endpoint
+                 * --------------------------------------------------------
+                 */
+                String endpoint;
+
+                switch (currency.toUpperCase()) {
+
+                        case "RWF":
+
+                                endpoint = "/charges?type=mobile_money_rwanda";
+
+                                break;
+
+                        case "KES":
+
+                                endpoint = "/charges?type=mpesa";
+
+                                break;
+
+                        case "GHS":
+
+                                endpoint = "/charges?type=mobile_money_ghana";
+
+                                break;
+
+                        case "UGX":
+
+                                endpoint = "/charges?type=mobile_money_uganda";
+
+                                break;
+
+                        case "XAF":
+                        case "XOF":
+
+                                endpoint = "/charges?type=mobile_money_franco";
+
+                                break;
+
+                        default:
+
+                                throw new IllegalArgumentException(
+                                                "Mobile money is not configured for currency: "
+                                                                + currency);
+                }
+
+                log.info(
+                                "[FLW] Initiating mobile money payment: loan={}, currency={}, network={}, phone={}",
+                                loanId,
+                                currency,
+                                network,
+                                maskPhone(req.getPhoneNumber()));
+
+                return callFlutterwave(
+                                endpoint,
+                                body,
+                                "MOBILE_MONEY");
+        }
+
+        /**
+         * ============================================================
+         * BANK TRANSFER
+         * ============================================================
+         */
+        private PaymentGatewayResponse chargeBankTransfer(
+                        Long loanId,
+                        PaymentGatewayRequest req,
+                        Double amount,
+                        String currency) {
+
+                Map<String, Object> body = new HashMap<>();
+
+                body.put(
+                                "amount",
+                                amount);
+
+                body.put(
+                                "currency",
+                                currency);
+
+                body.put(
+                                "email",
+                                safeEmail(req));
+
+                body.put(
+                                "tx_ref",
+                                txRef(loanId));
+
+                body.put(
+                                "is_permanent",
+                                false);
+
+                return callFlutterwave(
+                                "/charges?type=bank_transfer",
+                                body,
+                                "BANK_TRANSFER");
+        }
+
+        /**
+         * ============================================================
+         * CALL FLUTTERWAVE
+         * ============================================================
+         */
+        @SuppressWarnings("unchecked")
+        private PaymentGatewayResponse callFlutterwave(
+                        String endpoint,
+                        Map<String, Object> body,
+                        String type) {
+
+                try {
+
+                        Map<String, Object> response = webClient.post()
+                                        .uri(endpoint)
+                                        .header(
+                                                        HttpHeaders.AUTHORIZATION,
+                                                        "Bearer " + secretKey)
+                                        .bodyValue(body)
+                                        .retrieve()
+                                        .bodyToMono(Map.class)
+                                        .block();
+
+                        return parseResponse(
+                                        response,
+                                        type);
+
+                } catch (Exception e) {
+
+                        log.error(
+                                        "[FLW] {} payment failed: {}",
+                                        type,
+                                        e.getMessage(),
+                                        e);
+
+                        throw new RuntimeException(
+                                        type
+                                                        + " payment failed: "
+                                                        + e.getMessage(),
+                                        e);
+                }
+        }
+
+        /**
+         * ============================================================
+         * PARSE FLUTTERWAVE RESPONSE
+         * ============================================================
+         */
+        @SuppressWarnings("unchecked")
+        private PaymentGatewayResponse parseResponse(
+                        Map<String, Object> response,
+                        String type) {
+
+                PaymentGatewayResponse result = new PaymentGatewayResponse();
+
+                result.setPaymentType(type);
+
+                if (response == null) {
+
+                        result.setStatus("failed");
+                        result.setMessage(
+                                        "No response received from Flutterwave");
+
+                        return result;
+                }
+
+                String gatewayStatus = String.valueOf(
+                                response.get("status"));
+
+                /**
+                 * Flutterwave "success" means that the charge
+                 * was accepted/created.
+                 *
+                 * It does NOT necessarily mean the money has
+                 * already been received.
+                 *
+                 * Therefore mobile money remains PENDING until
+                 * the webhook confirms the payment.
+                 */
+                if ("success".equalsIgnoreCase(
+                                gatewayStatus)) {
+
+                        result.setStatus("pending");
+
+                } else {
+
+                        result.setStatus("failed");
+                }
+
+                result.setMessage(
+                                response.get("message") != null
+                                                ? String.valueOf(
+                                                                response.get("message"))
+                                                : "No gateway message");
+
+                Map<String, Object> data = (Map<String, Object>) response.get("data");
+
+                if (data != null) {
+
+                        Object id = data.get("id");
+
+                        if (id != null) {
+
+                                result.setTransactionId(
+                                                String.valueOf(id));
+                        }
+
+                        Object flwRef = data.get("flw_ref");
+
+                        if (flwRef != null) {
+
+                                result.setFlwRef(
+                                                String.valueOf(flwRef));
+                        }
+
+                        Object redirect = data.get("redirect");
+
+                        if (redirect != null) {
+
+                                result.setRedirectUrl(
+                                                String.valueOf(redirect));
+                        }
+
+                        Object amt = data.get("amount");
+
+                        if (amt instanceof Number number) {
+
+                                result.setAmount(
+                                                number.doubleValue());
+                        }
+
+                        result.setCurrency(
+                                        currencyFromResponse(
+                                                        data));
+                }
+
+                return result;
+        }
+
+        /**
+         * ============================================================
+         * SIMULATION
+         * ============================================================
+         */
+        private PaymentGatewayResponse simulatedSuccess(
+                        Double amount,
+                        String currency,
+                        String method) {
+
+                PaymentGatewayResponse result = new PaymentGatewayResponse();
+
+                result.setStatus("success");
+
+                result.setMessage(
+                                "Simulated payment successful");
 
                 result.setTransactionId(
-                        String.valueOf(id)
-                );
-            }
-
-            Object flwRef =
-                    data.get("flw_ref");
-
-            if (flwRef != null) {
+                                "SIM-"
+                                                + UUID.randomUUID()
+                                                                .toString()
+                                                                .substring(0, 8)
+                                                                .toUpperCase());
 
                 result.setFlwRef(
-                        String.valueOf(flwRef)
-                );
-            }
+                                "FLW-SIM-"
+                                                + System.currentTimeMillis());
 
-            Object redirect =
-                    data.get("redirect");
+                result.setAmount(amount);
 
-            if (redirect != null) {
+                result.setCurrency(currency);
 
-                result.setRedirectUrl(
-                        String.valueOf(redirect)
-                );
-            }
+                result.setPaymentType(method);
 
-            Object amt =
-                    data.get("amount");
-
-            if (amt instanceof Number number) {
-
-                result.setAmount(
-                        number.doubleValue()
-                );
-            }
-
-            result.setCurrency(
-                    currencyFromResponse(
-                            data
-                    )
-            );
+                return result;
         }
 
-        return result;
-    }
+        /**
+         * ============================================================
+         * TRANSACTION REFERENCE
+         * ============================================================
+         */
+        private String txRef(Long loanId) {
 
-    /**
-     * ============================================================
-     * SIMULATION
-     * ============================================================
-     */
-    private PaymentGatewayResponse simulatedSuccess(
-            Double amount,
-            String currency,
-            String method
-    ) {
-
-        PaymentGatewayResponse result =
-                new PaymentGatewayResponse();
-
-        result.setStatus("success");
-
-        result.setMessage(
-                "Simulated payment successful"
-        );
-
-        result.setTransactionId(
-                "SIM-"
-                        + UUID.randomUUID()
-                                .toString()
-                                .substring(0, 8)
-                                .toUpperCase()
-        );
-
-        result.setFlwRef(
-                "FLW-SIM-"
-                        + System.currentTimeMillis()
-        );
-
-        result.setAmount(amount);
-
-        result.setCurrency(currency);
-
-        result.setPaymentType(method);
-
-        return result;
-    }
-
-    /**
-     * ============================================================
-     * TRANSACTION REFERENCE
-     * ============================================================
-     */
-    private String txRef(Long loanId) {
-
-        return "LOAN-"
-                + loanId
-                + "-"
-                + UUID.randomUUID()
-                        .toString()
-                        .substring(0, 8)
-                        .toUpperCase();
-    }
-
-    /**
-     * ============================================================
-     * EXTRACT LOAN ID FROM TRANSACTION REFERENCE
-     * ============================================================
-     */
-    public static Long loanIdFromTxRef(
-            String txRef
-    ) {
-
-        if (txRef == null
-                || txRef.isBlank()) {
-
-            return null;
+                return "LOAN-"
+                                + loanId
+                                + "-"
+                                + UUID.randomUUID()
+                                                .toString()
+                                                .substring(0, 8)
+                                                .toUpperCase();
         }
 
-        try {
+        /**
+         * ============================================================
+         * EXTRACT LOAN ID FROM TRANSACTION REFERENCE
+         * ============================================================
+         */
+        public static Long loanIdFromTxRef(
+                        String txRef) {
 
-            String[] parts =
-                    txRef.split("-");
+                if (txRef == null
+                                || txRef.isBlank()) {
 
-            if (parts.length < 2) {
-                return null;
-            }
+                        return null;
+                }
 
-            return Long.valueOf(
-                    parts[1]
-            );
+                try {
 
-        } catch (Exception e) {
+                        String[] parts = txRef.split("-");
 
-            return null;
-        }
-    }
+                        if (parts.length < 2) {
+                                return null;
+                        }
 
-    /**
-     * ============================================================
-     * EMAIL
-     * ============================================================
-     *
-     * We intentionally do NOT call:
-     *
-     *     req.getFullName()
-     *
-     * because PaymentGatewayRequest does not have that field.
-     */
-    private String safeEmail(
-            PaymentGatewayRequest req
-    ) {
+                        return Long.valueOf(
+                                        parts[1]);
 
-        if (req.getEmail() != null
-                && !req.getEmail().isBlank()) {
+                } catch (Exception e) {
 
-            return req.getEmail().trim();
+                        return null;
+                }
         }
 
-        return "customer@loansaas.com";
-    }
+        /**
+         * ============================================================
+         * EMAIL
+         * ============================================================
+         *
+         * We intentionally do NOT call:
+         *
+         * req.getFullName()
+         *
+         * because PaymentGatewayRequest does not have that field.
+         */
+        private String safeEmail(
+                        PaymentGatewayRequest req) {
 
-    /**
-     * ============================================================
-     * PHONE MASKING
-     * ============================================================
-     *
-     * Prevents full phone numbers from being written to logs.
-     */
-    private String maskPhone(
-            String phone
-    ) {
+                if (req.getEmail() != null
+                                && !req.getEmail().isBlank()) {
 
-        if (phone == null
-                || phone.length() < 4) {
+                        return req.getEmail().trim();
+                }
 
-            return "****";
+                return "customer@loansaas.com";
         }
 
-        int visible =
-                Math.min(4, phone.length());
+        /**
+         * ============================================================
+         * PHONE MASKING
+         * ============================================================
+         *
+         * Prevents full phone numbers from being written to logs.
+         */
+        private String maskPhone(
+                        String phone) {
 
-        return "****"
-                + phone.substring(
-                        phone.length() - visible
-                );
-    }
+                if (phone == null
+                                || phone.length() < 4) {
 
-    /**
-     * ============================================================
-     * CURRENCY FROM RESPONSE
-     * ============================================================
-     */
-    private String currencyFromResponse(
-            Map<String, Object> data
-    ) {
+                        return "****";
+                }
 
-        Object currency =
-                data.get("currency");
+                int visible = Math.min(4, phone.length());
 
-        return currency != null
-                ? String.valueOf(currency)
-                : null;
-    }
+                return "****"
+                                + phone.substring(
+                                                phone.length() - visible);
+        }
 
-    private boolean isProductionEnvironment() {
-        return "production".equalsIgnoreCase(applicationEnvironment)
-                || "prod".equalsIgnoreCase(applicationEnvironment);
-    }
+        /**
+         * ============================================================
+         * CURRENCY FROM RESPONSE
+         * ============================================================
+         */
+        private String currencyFromResponse(
+                        Map<String, Object> data) {
+
+                Object currency = data.get("currency");
+
+                return currency != null
+                                ? String.valueOf(currency)
+                                : null;
+        }
+
+        private boolean isProductionEnvironment() {
+                return "production".equalsIgnoreCase(applicationEnvironment)
+                                || "prod".equalsIgnoreCase(applicationEnvironment);
+        }
 
 }

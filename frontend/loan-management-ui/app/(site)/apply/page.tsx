@@ -1112,16 +1112,10 @@ export default function ApplyPage() {
                     Estimated Repayment
                   </div>
 
-                  <div className="grid grid-cols-3 gap-3 text-center text-sm">
+                  <div className="grid grid-cols-2 gap-3 text-center text-sm">
                     {(() => {
                       const principal = Number(form.amount);
-
                       const months = Number(form.durationMonths);
-
-                      // This is an estimate only. The backend remains authoritative
-                      // for the final schedule and agreement. Keep the public
-                      // calculator formula aligned with the existing Noble product
-                      // configuration: simple monthly interest + management fee.
                       const interestRate = Number(
                         selectedService?.interestRate ??
                           selectedService?.rate ??
@@ -1133,40 +1127,87 @@ export default function ApplyPage() {
                       const processingRate = Number(
                         selectedService?.processingFeeRate ?? 2,
                       );
-                      const interest =
-                        principal * (interestRate / 100) * months;
-                      const management =
-                        principal * (managementRate / 100) * months;
-                      const processing = principal * (processingRate / 100);
-                      const total =
-                        principal + interest + management + processing;
-                      const monthly = total / months;
+
+                      let balance = Math.max(0, principal);
+                      let interest = 0;
+                      let management = 0;
+                      let firstInstallment = 0;
+
+                      for (let i = 1; i <= months; i += 1) {
+                        const remaining = months - i + 1;
+                        const principalComponent =
+                          remaining === 1
+                            ? balance
+                            : Math.round((balance / remaining) * 100) / 100;
+                        const monthInterest =
+                          Math.round(balance * (interestRate / 100) * 100) /
+                          100;
+                        const monthManagement =
+                          Math.round(balance * (managementRate / 100) * 100) /
+                          100;
+                        const installment =
+                          Math.round(
+                            (principalComponent +
+                              monthInterest +
+                              monthManagement) *
+                              100,
+                          ) / 100;
+
+                        if (i === 1) firstInstallment = installment;
+                        interest =
+                          Math.round((interest + monthInterest) * 100) / 100;
+                        management =
+                          Math.round((management + monthManagement) * 100) /
+                          100;
+                        balance = Math.max(
+                          0,
+                          Math.round((balance - principalComponent) * 100) /
+                            100,
+                        );
+                      }
+
+                      const processing =
+                        Math.round(principal * (processingRate / 100) * 100) /
+                        100;
+                      const contractualTotal =
+                        Math.round((principal + interest + management) * 100) /
+                        100;
 
                       return [
                         [
-                          "Monthly",
-                          `${tenant.currency} ${monthly.toLocaleString("en", {
-                            maximumFractionDigits: 0,
-                          })}`,
+                          "First installment",
+                          `${tenant.currency} ${firstInstallment.toLocaleString(
+                            "en",
+                            {
+                              maximumFractionDigits: 0,
+                            },
+                          )}`,
                         ],
                         [
-                          "Total",
-                          `${tenant.currency} ${(
-                            monthly * months
-                          ).toLocaleString("en", {
-                            maximumFractionDigits: 0,
-                          })}`,
+                          "Repayment total",
+                          `${tenant.currency} ${contractualTotal.toLocaleString(
+                            "en",
+                            {
+                              maximumFractionDigits: 0,
+                            },
+                          )}`,
+                        ],
+                        [
+                          "Processing fee",
+                          `${tenant.currency} ${processing.toLocaleString(
+                            "en",
+                            {
+                              maximumFractionDigits: 0,
+                            },
+                          )}`,
                         ],
                         ["Rate", `${interestRate}% / mo`],
                       ].map(([l, v]) => (
                         <div key={l}>
                           <div className="text-gray-400 text-[10px]">{l}</div>
-
                           <div
                             className="font-extrabold"
-                            style={{
-                              color: primary,
-                            }}
+                            style={{ color: primary }}
                           >
                             {v}
                           </div>

@@ -897,12 +897,18 @@ export const publicApi = {
 
       email?: string;
     },
+    idempotencyKey: string,
   ) =>
     post(
       `/public/applications/${encodeURIComponent(
         reference.trim(),
       )}/payments/initiate?phone=${encodeURIComponent(phone.trim())}`,
       data,
+      {
+        headers: {
+          "Idempotency-Key": idempotencyKey,
+        },
+      },
     ),
 
   trackComments: (reference: string, phone: string) =>

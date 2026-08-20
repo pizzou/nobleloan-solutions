@@ -28,6 +28,7 @@ function numeric(value: unknown, fallback: number) {
 
 function parseTerm(product?: Product) {
   if (!product) return { min: 1, max: 6 };
+
   if (
     product.minTermMonths !== undefined ||
     product.maxTermMonths !== undefined
@@ -36,17 +37,23 @@ function parseTerm(product?: Product) {
     const max = Math.max(min, product.maxTermMonths ?? min);
     return { min, max };
   }
+
   const matches =
     String(product.term ?? "")
       .match(/\d+/g)
       ?.map(Number) ?? [];
-  if (matches.length >= 2)
+
+  if (matches.length >= 2) {
     return {
       min: Math.max(1, matches[0]),
       max: Math.max(matches[0], matches[1]),
     };
-  if (matches.length === 1)
+  }
+
+  if (matches.length === 1) {
     return { min: Math.max(1, matches[0]), max: Math.max(1, matches[0]) };
+  }
+
   return { min: 1, max: 6 };
 }
 
@@ -58,6 +65,58 @@ function hasMaximum(
     product?.maxAmount !== undefined &&
     product.maxAmount !== ""
   );
+}
+
+function calculateSchedule(
+  principal: number,
+  months: number,
+  interestRate: number,
+  managementRate: number,
+) {
+  let balance = Math.max(0, principal);
+  let totalInterest = 0;
+  let totalManagement = 0;
+  let firstInstallment = 0;
+  let lastInstallment = 0;
+
+  for (
+    let installmentNumber = 1;
+    installmentNumber <= months;
+    installmentNumber += 1
+  ) {
+    const remainingInstallments = months - installmentNumber + 1;
+
+    const principalComponent =
+      remainingInstallments === 1
+        ? balance
+        : Math.round((balance / remainingInstallments) * 100) / 100;
+
+    const interest = Math.round(balance * (interestRate / 100) * 100) / 100;
+    const management = Math.round(balance * (managementRate / 100) * 100) / 100;
+
+    const installment =
+      Math.round((principalComponent + interest + management) * 100) / 100;
+
+    totalInterest = Math.round((totalInterest + interest) * 100) / 100;
+    totalManagement = Math.round((totalManagement + management) * 100) / 100;
+
+    if (installmentNumber === 1) firstInstallment = installment;
+    if (installmentNumber === months) lastInstallment = installment;
+
+    balance = Math.max(
+      0,
+      Math.round((balance - principalComponent) * 100) / 100,
+    );
+  }
+
+  return {
+    interest: totalInterest,
+    management: totalManagement,
+    total:
+      Math.round((principal + totalInterest + totalManagement) * 100) / 100,
+    firstInstallment,
+    lastInstallment,
+  };
 }
 
 export default function PublicLoanCalculator({
@@ -98,29 +157,22 @@ export default function PublicLoanCalculator({
       setAmount(minAmount);
       return;
     }
+
     if (configuredMax !== null && value > configuredMax) {
       setAmount(configuredMax);
       return;
     }
+
     setAmount(value);
   }
 
-  const estimate = useMemo(() => {
-    // Preserve the existing public calculator formula. The backend remains
-    // authoritative for the final repayment schedule and agreement.
-    const interest = amount * (interestRate / 100) * months;
-    const management = amount * (managementRate / 100) * months;
-    const total = amount + interest + management;
-    return {
-      interest,
-      management,
-      total,
-      installment: months > 0 ? total / months : total,
-    };
-  }, [amount, interestRate, managementRate, months]);
+  const estimate = useMemo(
+    () => calculateSchedule(amount, months, interestRate, managementRate),
+    [amount, months, interestRate, managementRate],
+  );
 
   const fmt = (value: number) =>
-    value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    value.toLocaleString("en-RW", { maximumFractionDigits: 0 });
 
   const termOptions = Array.from(
     { length: Math.max(1, terms.max - terms.min + 1) },
@@ -146,8 +198,9 @@ export default function PublicLoanCalculator({
             Plan before you apply
           </h2>
           <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">
-            Review Noble Loan Solutions products and an indicative repayment
-            estimate using the published product terms.
+            Estimate the contractual repayment using the published product rates
+            and the same declining-principal method used by the lending
+            schedule.
           </p>
 
           {products.length > 0 ? (
@@ -161,7 +214,7 @@ export default function PublicLoanCalculator({
                     key={`${item.title}-${index}`}
                     type="button"
                     onClick={() => switchProduct(index)}
-                    className="rounded-full border px-4 py-2 text-xs font-bold transition"
+                    className="rounded-full border px-4 py-2 text-xs font-bold transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-offset-2"
                     style={
                       productIndex === index
                         ? {
@@ -197,6 +250,7 @@ export default function PublicLoanCalculator({
                     {currency}
                   </span>
                 </div>
+
                 <div className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 focus-within:border-slate-400">
                   <span className="text-xs font-bold text-slate-400">
                     {currency}
@@ -261,7 +315,7 @@ export default function PublicLoanCalculator({
                       key={term}
                       type="button"
                       onClick={() => setMonths(term)}
-                      className="rounded-full border px-4 py-2 text-xs font-bold transition"
+                      className="rounded-full border px-4 py-2 text-xs font-bold transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-offset-2"
                       style={
                         months === term
                           ? {
@@ -284,8 +338,7 @@ export default function PublicLoanCalculator({
                     Interest
                   </div>
                   <div className="mt-1 text-sm font-black text-slate-900">
-                    {interestRate}%{" "}
-                    {String(product.rateType ?? "p.m").toLowerCase()}
+                    {interestRate}% / mo
                   </div>
                 </div>
                 <div className="rounded-2xl bg-slate-50 p-4">
@@ -293,16 +346,15 @@ export default function PublicLoanCalculator({
                     Management
                   </div>
                   <div className="mt-1 text-sm font-black text-slate-900">
-                    {managementRate}%{" "}
-                    {String(product.rateType ?? "p.m").toLowerCase()}
+                    {managementRate}% / mo
                   </div>
                 </div>
                 <div className="rounded-2xl bg-slate-50 p-4">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Application
+                    Processing
                   </div>
                   <div className="mt-1 text-sm font-black text-slate-900">
-                    {processingRate}%
+                    {processingRate}% once
                   </div>
                 </div>
               </div>
@@ -315,19 +367,21 @@ export default function PublicLoanCalculator({
           style={{ background: `linear-gradient(160deg, ${primary}, #0B223E)` }}
         >
           <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">
-            Indicative repayment
+            Indicative contractual repayment
           </div>
+
           {product ? (
             <>
               <div className="mt-6 text-sm text-white/70">
-                Estimated monthly payment
+                First scheduled installment
               </div>
               <div className="mt-1 text-4xl font-black tracking-tight text-white">
-                {currency} {fmt(estimate.installment)}
+                {currency} {fmt(estimate.firstInstallment)}
               </div>
               <div className="mt-1 text-xs text-white/60">
-                over {months} {months === 1 ? "month" : "months"}
+                The installment normally reduces as principal declines.
               </div>
+
               <div className="mt-8 space-y-3 border-t border-white/10 pt-5">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white/60">Principal</span>
@@ -351,26 +405,42 @@ export default function PublicLoanCalculator({
                     {currency} {fmt(estimate.management)}
                   </strong>
                 </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/60">Processing fee</span>
+                  <strong className="text-white">
+                    {currency} {fmt(amount * (processingRate / 100))}
+                  </strong>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/60">
+                    Last scheduled installment
+                  </span>
+                  <strong className="text-white">
+                    {currency} {fmt(estimate.lastInstallment)}
+                  </strong>
+                </div>
                 <div className="flex items-center justify-between border-t border-white/10 pt-3 text-sm">
                   <span className="font-bold text-white/80">
-                    Estimated total
+                    Contractual repayment total
                   </span>
                   <strong className="text-lg text-white">
                     {currency} {fmt(estimate.total)}
                   </strong>
                 </div>
               </div>
+
               <Link
                 href={`/apply${product.title ? `?type=${encodeURIComponent(product.loanType || product.title)}` : ""}`}
-                className="mt-8 block rounded-2xl bg-white px-5 py-3.5 text-center text-sm font-black transition hover:-translate-y-0.5"
+                className="mt-8 block rounded-2xl bg-white px-5 py-3.5 text-center text-sm font-black transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-white"
                 style={{ color: primary }}
               >
                 Start application
               </Link>
+
               <div className="mt-4 text-center text-[10px] leading-4 text-white/50">
-                Indicative only. Final eligibility, fees and repayment terms are
-                determined by credit assessment and the applicable loan
-                agreement.
+                Indicative only. The final agreement, eligibility, fees and
+                schedule are determined by credit assessment and approved loan
+                terms. Processing fee is collected separately at disbursement.
               </div>
             </>
           ) : (
