@@ -5,13 +5,6 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
 
-/**
- * Single source of truth for the platform's loan pricing rules.
- *
- * Rates are stored as percentage values, not fractions:
- * 5.00 means 5%, 15.00 means 15%.
- * Recurring monthly rates accrue on a calendar-day basis.
- */
 public final class FinancialPolicy {
 
     public static final BigDecimal MONTHLY_INTEREST_RATE = new BigDecimal("5.00");
@@ -27,33 +20,69 @@ public final class FinancialPolicy {
     private FinancialPolicy() {
     }
 
-    /** Returns a fraction such as 0.001666... for 5% in a 30-day month. */
-    public static BigDecimal dailyRateFraction(BigDecimal monthlyRatePercent, LocalDate date) {
-        if (monthlyRatePercent == null || monthlyRatePercent.signum() <= 0 || date == null) {
+    public static BigDecimal dailyRateFraction(
+            BigDecimal monthlyRatePercent,
+            LocalDate date) {
+
+        if (monthlyRatePercent == null
+                || monthlyRatePercent.signum() <= 0
+                || date == null) {
             return BigDecimal.ZERO;
         }
+
         int daysInMonth = YearMonth.from(date).lengthOfMonth();
+
         return monthlyRatePercent
                 .divide(ONE_HUNDRED, RATE_SCALE, ROUNDING)
-                .divide(BigDecimal.valueOf(daysInMonth), RATE_SCALE, ROUNDING);
+                .divide(
+                        BigDecimal.valueOf(daysInMonth),
+                        RATE_SCALE,
+                        ROUNDING);
     }
 
-    /**
-     * Calculates a contractual scheduled charge for one monthly installment.
-     *
-     * A rate declared as 5.00 means exactly 5% of the opening outstanding
-     * principal for that contractual month. This is intentionally separate
-     * from {@link #accrueDaily}, which is used for elapsed-day accrual between
-     * payment events. Scheduled installments must not gain or lose value just
-     * because a monthly period crosses from a 31-day month into a 30-day month.
-     */
-    public static BigDecimal accrueScheduledMonthly(
+    public static BigDecimal accrueDaily(
+            BigDecimal principal,
+            LocalDate startDate,
+            LocalDate endDate,
+            BigDecimal monthlyRatePercent) {
+
+        if (principal == null
+                || principal.signum() <= 0
+                || startDate == null
+                || endDate == null
+                || !startDate.isBefore(endDate)
+                || monthlyRatePercent == null
+                || monthlyRatePercent.signum() <= 0) {
+
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+
+        BigDecimal total = BigDecimal.ZERO;
+        LocalDate cursor = startDate;
+
+        while (cursor.isBefore(endDate)) {
+            total = total.add(
+                    principal.multiply(
+                            dailyRateFraction(
+                                    monthlyRatePercent,
+                                    cursor)));
+
+            cursor = cursor.plusDays(1);
+        }
+
+        return total.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    public static BigDecimal contractualMonthlyCharge(
             BigDecimal openingPrincipal,
             BigDecimal monthlyRatePercent) {
 
-        if (openingPrincipal == null || openingPrincipal.signum() <= 0
-                || monthlyRatePercent == null || monthlyRatePercent.signum() <= 0) {
-            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        if (openingPrincipal == null
+                || openingPrincipal.signum() <= 0
+                || monthlyRatePercent == null
+                || monthlyRatePercent.signum() < 0) {
+
+            return BigDecimal.ZERO.setScale(2, ROUNDING);
         }
 
         return openingPrincipal
@@ -61,46 +90,117 @@ public final class FinancialPolicy {
                 .divide(ONE_HUNDRED, 2, ROUNDING);
     }
 
-    /**
-     * Accrues a monthly percentage daily over [startDate, endDate), using the
-     * actual calendar length of every month crossed by the interval.
-     */
-    public static BigDecimal accrueDaily(
-            BigDecimal principal,
-            LocalDate startDate,
-            LocalDate endDate,
+    public static BigDecimal accrueScheduledMonthly(
+            BigDecimal openingPrincipal,
             BigDecimal monthlyRatePercent) {
 
-        if (principal == null || principal.signum() <= 0
-                || startDate == null || endDate == null
-                || !startDate.isBefore(endDate)
-                || monthlyRatePercent == null || monthlyRatePercent.signum() <= 0) {
-            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        return contractualMonthlyCharge(
+                openingPrincipal,
+                monthlyRatePercent);
+    }
+
+    public static ScheduleLine contractualScheduleLine(
+            BigDecimal openingPrincipal,
+            int remainingInstallments,
+            BigDecimal monthlyInterestRatePercent,
+            BigDecimal monthlyManagementFeeRatePercent) {
+
+        if (openingPrincipal == null || openingPrincipal.signum() < 0) {
+            throw new IllegalArgumentException(
+                    "Opening principal cannot be negative");
         }
 
-        BigDecimal total = BigDecimal.ZERO;
-        LocalDate cursor = startDate;
-        while (cursor.isBefore(endDate)) {
-            total = total.add(principal.multiply(dailyRateFraction(monthlyRatePercent, cursor)));
-            cursor = cursor.plusDays(1);
+        if (remainingInstallments <= 0) {
+            throw new IllegalArgumentException(
+                    "Remaining installments must be greater than zero");
         }
 
-        return total.setScale(2, RoundingMode.HALF_UP);
+        if (monthlyInterestRatePercent == null
+                || monthlyInterestRatePercent.signum() < 0) {
+
+            throw new IllegalArgumentException(
+                    "Interest rate cannot be negative");
+        }
+
+        if (monthlyManagementFeeRatePercent == null
+                || monthlyManagementFeeRatePercent.signum() < 0) {
+
+            throw new IllegalArgumentException(
+                    "Management fee rate cannot be negative");
+        }
+
+        BigDecimal opening = openingPrincipal.setScale(2, ROUNDING);
+
+        BigDecimal principalComponent;
+
+        if (remainingInstallments == 1) {
+
+            principalComponent = opening;
+        } else {
+            principalComponent = opening
+                    .divide(
+                            BigDecimal.valueOf(remainingInstallments),
+                            16,
+                            ROUNDING)
+                    .setScale(2, ROUNDING);
+        }
+
+        BigDecimal interest = contractualMonthlyCharge(
+                opening,
+                monthlyInterestRatePercent);
+
+        BigDecimal managementFee = contractualMonthlyCharge(
+                opening,
+                monthlyManagementFeeRatePercent);
+
+        BigDecimal installment = principalComponent
+                .add(interest)
+                .add(managementFee)
+                .setScale(2, ROUNDING);
+
+        BigDecimal remainingBalance = opening
+                .subtract(principalComponent)
+                .max(BigDecimal.ZERO)
+                .setScale(2, ROUNDING);
+
+        return new ScheduleLine(
+                principalComponent,
+                interest,
+                managementFee,
+                installment,
+                remainingBalance);
+    }
+
+    public record ScheduleLine(
+            BigDecimal principal,
+            BigDecimal interest,
+            BigDecimal managementFee,
+            BigDecimal installment,
+            BigDecimal remainingBalance) {
     }
 
     public static BigDecimal processingFee(BigDecimal principal) {
+
         if (principal == null || principal.signum() <= 0) {
             return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }
+
         return principal
                 .multiply(PROCESSING_FEE_RATE)
                 .divide(ONE_HUNDRED, 2, ROUNDING);
     }
 
-    public static BigDecimal extensionFee(BigDecimal outstandingPrincipal) {
-        if (outstandingPrincipal == null || outstandingPrincipal.signum() <= 0) {
-            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+    public static BigDecimal extensionFee(
+            BigDecimal outstandingPrincipal) {
+
+        if (outstandingPrincipal == null
+                || outstandingPrincipal.signum() <= 0) {
+
+            return BigDecimal.ZERO.setScale(
+                    2,
+                    RoundingMode.HALF_UP);
         }
+
         return outstandingPrincipal
                 .multiply(EXTENSION_FEE_RATE)
                 .divide(ONE_HUNDRED, 2, ROUNDING);
