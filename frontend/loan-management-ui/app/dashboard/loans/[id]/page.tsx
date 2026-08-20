@@ -1884,106 +1884,208 @@ export default function LoanDetailPage() {
             </div>
 
             <div className="flex gap-2 flex-wrap justify-end">
-              {isOfficer && loan.borrower && (
-                <Button
-                  variant="outline"
-                  onClick={handleCreditBureauCheck}
-                  disabled={cbBusy}
-                >
-                  <IconBank className="w-4 h-4" />
-
-                  {cbBusy ? "Checking…" : "Credit Bureau Check"}
-                </Button>
-              )}
-
-              {isOfficer &&
-                (loan.status === "APPROVED" ||
-                  loan.status === "DISBURSED" ||
-                  loan.status === "ACTIVE") && (
-                  <Button
-                    variant="outline"
-                    onClick={handleSendForSignature}
-                    disabled={esignBusy}
-                  >
-                    <IconSignature className="w-4 h-4" />
-
-                    {esignBusy ? "Sending…" : "Send for E-Signature"}
-                  </Button>
-                )}
-
-              {isOfficer && loan.status === "APPROVED" && (
-                <Button
-                  onClick={handleDisburseLoan}
-                  loading={stSaving}
-                  aria-label={`Disburse loan ${loan.referenceNumber}`}
-                >
-                  <IconSend className="w-4 h-4" />
-                  Disburse Loan
-                </Button>
-              )}
-
+              {/* ======================================================
+                  BANK-GRADE LOAN OPERATIONS
+                  Consequential actions are grouped, labelled and visually
+                  prioritized without changing any existing API behaviour.
+              ====================================================== */}
               {isOfficer && (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setStForm((current) => ({
-                      ...current,
-                      status: "",
-                      rejectionReason: "",
-                      internalNotes: "",
-                    }));
-                    setStOpen(true);
-                  }}
-                  aria-label={`Update status for loan ${loan.referenceNumber}`}
-                >
-                  Update Status
-                </Button>
-              )}
+                <div className="w-full lg:w-auto lg:min-w-[760px] rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-sm">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between px-2.5 pt-0.5">
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-900 text-white">
+                          <IconBank className="h-3.5 w-3.5" />
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
+                            Loan Operations
+                          </div>
+                          <div className="text-[11px] text-slate-400">
+                            Controlled servicing actions
+                          </div>
+                        </div>
+                      </div>
+                      <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-bold text-slate-500">
+                        <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
+                        Authorized officer
+                      </span>
+                    </div>
 
-              {isOfficer &&
-                ["ACTIVE", "OVERDUE", "DEFAULTED", "RESTRUCTURED"].includes(
-                  loan.status,
-                ) &&
-                (loan.durationMonths ?? 0) < 6 &&
-                (loan.outstandingBalance ?? 0) > 0 && (
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      const remainingTerm = Math.max(
-                        1,
-                        6 - (loan.durationMonths ?? 0),
-                      );
-                      setExtensionMonths(String(Math.min(1, remainingTerm)));
-                      setExtensionReason("");
-                      setExtensionOpen(true);
-                    }}
-                    aria-label={`Request extension for loan ${loan.referenceNumber}`}
-                  >
-                    <IconCalendar className="w-4 h-4" />
-                    Request Extension
-                  </Button>
-                )}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2">
+                      {loan.borrower && (
+                        <button
+                          type="button"
+                          onClick={handleCreditBureauCheck}
+                          disabled={cbBusy}
+                          title="Retrieve the latest borrower credit information"
+                          className="group flex min-h-[72px] flex-col items-start justify-between rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                        >
+                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700 transition group-hover:bg-blue-600 group-hover:text-white">
+                            <IconBank className="h-4 w-4" />
+                          </span>
+                          <span>
+                            <span className="block text-xs font-extrabold text-slate-800">
+                              {cbBusy ? "Checking…" : "Credit Bureau"}
+                            </span>
+                            <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
+                              {cbBusy
+                                ? "Retrieving report"
+                                : "Run credit check"}
+                            </span>
+                          </span>
+                        </button>
+                      )}
 
-              {loan.status === "ACTIVE" && (
-                <Button
-                  onClick={() => {
-                    setPayForm((f) => ({
-                      ...f,
+                      {(loan.status === "APPROVED" ||
+                        loan.status === "DISBURSED" ||
+                        loan.status === "ACTIVE") && (
+                        <button
+                          type="button"
+                          onClick={handleSendForSignature}
+                          disabled={esignBusy}
+                          title="Send the loan documents for electronic signature"
+                          className="group flex min-h-[72px] flex-col items-start justify-between rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-violet-200 hover:bg-violet-50 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                        >
+                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700 transition group-hover:bg-violet-600 group-hover:text-white">
+                            <IconSignature className="h-4 w-4" />
+                          </span>
+                          <span>
+                            <span className="block text-xs font-extrabold text-slate-800">
+                              {esignBusy ? "Sending…" : "E-Signature"}
+                            </span>
+                            <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
+                              {esignBusy
+                                ? "Sending to borrower"
+                                : "Send for signing"}
+                            </span>
+                          </span>
+                        </button>
+                      )}
 
-                      amount: String(
-                        loan.nextInstallmentAmount ??
-                          loan.outstandingBalance ??
-                          loan.amount ??
-                          0,
-                      ),
-                    }));
+                      {loan.status === "APPROVED" && (
+                        <button
+                          type="button"
+                          onClick={handleDisburseLoan}
+                          disabled={stSaving}
+                          title="Release the approved loan amount by bank transfer"
+                          className="group relative flex min-h-[72px] flex-col items-start justify-between rounded-xl border border-teal-200 bg-teal-600 px-3 py-2.5 text-left text-white shadow-sm transition-all hover:-translate-y-0.5 hover:bg-teal-700 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                        >
+                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/20">
+                            <IconSend className="h-4 w-4" />
+                          </span>
+                          <span>
+                            <span className="block text-xs font-extrabold">
+                              {stSaving ? "Processing…" : "Disburse Loan"}
+                            </span>
+                            <span className="mt-0.5 block text-[10px] font-medium text-teal-100">
+                              {stSaving
+                                ? "Posting transaction"
+                                : "Release approved funds"}
+                            </span>
+                          </span>
+                        </button>
+                      )}
 
-                    setPayOpen(true);
-                  }}
-                >
-                  <IconCard className="w-4 h-4" />
-                  Record Payment
-                </Button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStForm((current) => ({
+                            ...current,
+                            status: "",
+                            rejectionReason: "",
+                            internalNotes: "",
+                          }));
+                          setStOpen(true);
+                        }}
+                        title="Change the operational status of this loan"
+                        className="group flex min-h-[72px] flex-col items-start justify-between rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-sm"
+                      >
+                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-200 text-slate-700 transition group-hover:bg-slate-900 group-hover:text-white">
+                          <IconFileEdit className="h-4 w-4" />
+                        </span>
+                        <span>
+                          <span className="block text-xs font-extrabold text-slate-800">
+                            Status
+                          </span>
+                          <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
+                            Update loan status
+                          </span>
+                        </span>
+                      </button>
+
+                      {[
+                        "ACTIVE",
+                        "OVERDUE",
+                        "DEFAULTED",
+                        "RESTRUCTURED",
+                      ].includes(loan.status) &&
+                        (loan.durationMonths ?? 0) < 6 &&
+                        (loan.outstandingBalance ?? 0) > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const remainingTerm = Math.max(
+                                1,
+                                6 - (loan.durationMonths ?? 0),
+                              );
+                              setExtensionMonths(
+                                String(Math.min(1, remainingTerm)),
+                              );
+                              setExtensionReason("");
+                              setExtensionOpen(true);
+                            }}
+                            title="Request additional repayment time for an eligible loan"
+                            className="group flex min-h-[72px] flex-col items-start justify-between rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-amber-200 hover:bg-amber-50 hover:shadow-sm"
+                          >
+                            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-700 transition group-hover:bg-amber-500 group-hover:text-white">
+                              <IconCalendar className="h-4 w-4" />
+                            </span>
+                            <span>
+                              <span className="block text-xs font-extrabold text-slate-800">
+                                Extension
+                              </span>
+                              <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
+                                Request more time
+                              </span>
+                            </span>
+                          </button>
+                        )}
+
+                      {loan.status === "ACTIVE" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPayForm((f) => ({
+                              ...f,
+                              amount: String(
+                                loan.nextInstallmentAmount ??
+                                  loan.outstandingBalance ??
+                                  loan.amount ??
+                                  0,
+                              ),
+                            }));
+                            setPayOpen(true);
+                          }}
+                          title="Record a borrower repayment against this loan"
+                          className="group flex min-h-[72px] flex-col items-start justify-between rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50 hover:shadow-sm"
+                        >
+                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 transition group-hover:bg-emerald-600 group-hover:text-white">
+                            <IconCard className="h-4 w-4" />
+                          </span>
+                          <span>
+                            <span className="block text-xs font-extrabold text-slate-800">
+                              Payment
+                            </span>
+                            <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
+                              Record repayment
+                            </span>
+                          </span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           </div>
