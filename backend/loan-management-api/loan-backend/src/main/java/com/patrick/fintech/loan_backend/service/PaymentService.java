@@ -2085,15 +2085,11 @@ public class PaymentService {
                                         ? roundMoney(balance)
                                         : roundMoney(equalPrincipal.min(balance));
 
-                        BigDecimal interest = accrueDaily(
+                        BigDecimal interest = FinancialPolicy.accrueScheduledMonthly(
                                         balance,
-                                        start,
-                                        dueDate,
                                         moneyRatePercent(loan.getInterestRateDecimal(), MONTHLY_INTEREST_RATE));
-                        BigDecimal managementFee = accrueDaily(
+                        BigDecimal managementFee = FinancialPolicy.accrueScheduledMonthly(
                                         balance,
-                                        start,
-                                        dueDate,
                                         moneyRatePercent(loan.getManagementFeeRateDecimal(),
                                                         MONTHLY_MANAGEMENT_FEE_RATE));
                         BigDecimal projectedAmount = roundMoney(

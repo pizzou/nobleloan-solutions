@@ -2669,7 +2669,7 @@ public class LoanService {
                 LocalDate firstDueDate = null;
                 Long orgId = loan.getOrganization().getId();
 
-                LocalDate startDate = loan.getDisbursedAt() != null
+                LocalDate scheduleStartDate = loan.getDisbursedAt() != null
                                 ? loan.getDisbursedAt().toLocalDate()
                                 : (loan.getStartDate() != null
                                                 ? loan.getStartDate()
@@ -2680,7 +2680,11 @@ public class LoanService {
                 for (int i = 1; i <= months; i++) {
                         balance = money(balance);
 
-                        LocalDate rawDueDate = startDate.plusMonths(i);
+                        // Each due date is anchored to the contractual start
+                        // date. Do not compound plusMonths(i) on the previous
+                        // due date; that silently turns a 6-month loan into a
+                        // 1/3/6/10/15/21-month schedule.
+                        LocalDate rawDueDate = scheduleStartDate.plusMonths(i);
                         LocalDate dueDate = holidayService.adjustToBusinessDay(
                                         orgId,
                                         rawDueDate);
@@ -2696,16 +2700,12 @@ public class LoanService {
                                                         16,
                                                         RoundingMode.HALF_UP));
 
-                        BigDecimal interest = accrueDaily(
+                        BigDecimal interest = FinancialPolicy.accrueScheduledMonthly(
                                         balance,
-                                        startDate,
-                                        dueDate,
                                         interestRate);
 
-                        BigDecimal managementFee = accrueDaily(
+                        BigDecimal managementFee = FinancialPolicy.accrueScheduledMonthly(
                                         balance,
-                                        startDate,
-                                        dueDate,
                                         managementRate);
 
                         BigDecimal installmentAmount = money(
@@ -2753,7 +2753,6 @@ public class LoanService {
 
                         paymentRepo.save(payment);
 
-                        startDate = dueDate;
                         remainingInstallments--;
                 }
 
@@ -2931,7 +2930,6 @@ public class LoanService {
                                 balance = ZERO;
                         }
 
-                        startDate = dueDate;
                         remainingInstallments--;
                 }
 

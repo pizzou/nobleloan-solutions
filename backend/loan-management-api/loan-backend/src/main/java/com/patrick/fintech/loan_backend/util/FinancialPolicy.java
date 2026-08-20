@@ -39,6 +39,29 @@ public final class FinancialPolicy {
     }
 
     /**
+     * Calculates a contractual scheduled charge for one monthly installment.
+     *
+     * A rate declared as 5.00 means exactly 5% of the opening outstanding
+     * principal for that contractual month. This is intentionally separate
+     * from {@link #accrueDaily}, which is used for elapsed-day accrual between
+     * payment events. Scheduled installments must not gain or lose value just
+     * because a monthly period crosses from a 31-day month into a 30-day month.
+     */
+    public static BigDecimal accrueScheduledMonthly(
+            BigDecimal openingPrincipal,
+            BigDecimal monthlyRatePercent) {
+
+        if (openingPrincipal == null || openingPrincipal.signum() <= 0
+                || monthlyRatePercent == null || monthlyRatePercent.signum() <= 0) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+
+        return openingPrincipal
+                .multiply(monthlyRatePercent)
+                .divide(ONE_HUNDRED, 2, ROUNDING);
+    }
+
+    /**
      * Accrues a monthly percentage daily over [startDate, endDate), using the
      * actual calendar length of every month crossed by the interval.
      */

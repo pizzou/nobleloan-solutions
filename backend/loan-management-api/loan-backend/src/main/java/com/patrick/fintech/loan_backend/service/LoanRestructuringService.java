@@ -503,19 +503,13 @@ public class LoanRestructuringService {
 
                         principalComponent = money(principalComponent.min(balance).max(ZERO));
 
-                        BigDecimal interest = money(
-                                        FinancialPolicy.accrueDaily(
-                                                        balance,
-                                                        accrualStart,
-                                                        dueDate,
-                                                        interestRate));
+                        BigDecimal interest = FinancialPolicy.accrueScheduledMonthly(
+                                        balance,
+                                        interestRate);
 
-                        BigDecimal managementFee = money(
-                                        FinancialPolicy.accrueDaily(
-                                                        balance,
-                                                        accrualStart,
-                                                        dueDate,
-                                                        managementRate));
+                        BigDecimal managementFee = FinancialPolicy.accrueScheduledMonthly(
+                                        balance,
+                                        managementRate);
 
                         BigDecimal installmentAmount = money(
                                         principalComponent

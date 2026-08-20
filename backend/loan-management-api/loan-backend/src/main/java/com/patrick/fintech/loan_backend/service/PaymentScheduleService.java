@@ -367,7 +367,6 @@ public class PaymentScheduleService {
                                 managementFeeRate,
                                 processingFee);
 
-                LocalDate accrualStart = baseDate;
                 int remainingInstallments = months;
 
                 for (int installmentNumber = 1; installmentNumber <= months; installmentNumber++) {
@@ -385,16 +384,17 @@ public class PaymentScheduleService {
                                                         16,
                                                         RoundingMode.HALF_UP));
 
-                        BigDecimal interest = accrueDaily(
+                        // Contractual monthly pricing: 5% means exactly 5%
+                        // of the opening principal for this installment. Do not
+                        // prorate a scheduled monthly charge by calendar-day
+                        // month lengths; doing so makes a nominal 5% monthly
+                        // rate become 4.8%/5.2% depending on the dates.
+                        BigDecimal interest = FinancialPolicy.accrueScheduledMonthly(
                                         balance,
-                                        accrualStart,
-                                        dueDate,
                                         interestRate);
 
-                        BigDecimal managementFee = accrueDaily(
+                        BigDecimal managementFee = FinancialPolicy.accrueScheduledMonthly(
                                         balance,
-                                        accrualStart,
-                                        dueDate,
                                         managementFeeRate);
 
                         BigDecimal installmentAmount = money(
@@ -427,7 +427,6 @@ public class PaymentScheduleService {
 
                         repository.save(schedule);
 
-                        accrualStart = dueDate;
                         remainingInstallments--;
                 }
 

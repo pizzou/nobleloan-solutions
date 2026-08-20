@@ -1764,11 +1764,6 @@ export default function LoanDetailPage() {
     );
   }
 
-  const prog =
-    loan.totalRepayable && loan.totalPaid
-      ? Math.min(100, Math.round((loan.totalPaid / loan.totalRepayable) * 100))
-      : 0;
-
   const chartData = schedule
     .filter((p) => p.paid)
     .slice(-12)
@@ -1787,7 +1782,48 @@ export default function LoanDetailPage() {
     0,
   );
 
+  const scheduledInterestTotal = schedule.reduce(
+    (sum, p) => sum + Number(p.scheduledInterest ?? p.interestComponent ?? 0),
+    0,
+  );
+
+  const scheduledManagementFeeTotal = schedule.reduce(
+    (sum, p) =>
+      sum +
+      Number(
+        p.scheduledManagementFee ??
+          p.managementFeeComponent ??
+          getScheduleManagementFee(p),
+      ),
+    0,
+  );
+
+  // The repayment rows are the operational contractual schedule displayed
+  // to staff. Prefer their totals over potentially stale loan aggregate
+  // fields so the reconciliation card cannot report a different amount from
+  // the schedule itself.
+  const contractualInterest =
+    schedule.length > 0
+      ? scheduledInterestTotal
+      : Number(loan.totalInterest ?? 0);
+
+  const contractualManagementFee =
+    schedule.length > 0
+      ? scheduledManagementFeeTotal
+      : Number(loan.managementFee ?? 0);
+
+  const contractualTotalRepayable =
+    Number(loan.amount ?? 0) + contractualInterest + contractualManagementFee;
+
   const totalPenalty = loan.penaltiesAssessed ?? scheduledPenalty;
+
+  const prog =
+    contractualTotalRepayable > 0 && loan.totalPaid != null
+      ? Math.min(
+          100,
+          Math.round((loan.totalPaid / contractualTotalRepayable) * 100),
+        )
+      : 0;
 
   const managementFeeRate = loan.managementFeeRate ?? 5;
   const interestRate = loan.interestRate ?? 5;
@@ -2250,7 +2286,10 @@ export default function LoanDetailPage() {
                 label="Net Disbursed"
                 value={fc(loan.netDisbursedAmount)}
               />
-              <Field label="Total Repayable" value={fc(loan.totalRepayable)} />
+              <Field
+                label="Total Repayable"
+                value={fc(contractualTotalRepayable)}
+              />
               <Field label="Interest Paid" value={fc(loan.interestPaid)} />
             </div>
           </CardBody>
@@ -2346,7 +2385,7 @@ export default function LoanDetailPage() {
                 <div className="mt-3 space-y-2 text-sm">
                   <div className="flex justify-between gap-4">
                     <span className="text-slate-500">Scheduled</span>
-                    <strong>{fc(loan.totalInterest)}</strong>
+                    <strong>{fc(contractualInterest)}</strong>
                   </div>
                   <div className="flex justify-between gap-4">
                     <span className="text-slate-500">Paid</span>
@@ -2358,12 +2397,10 @@ export default function LoanDetailPage() {
                     </span>
                     <strong className="text-purple-700">
                       {fc(
-                        loan.interestOutstanding ??
-                          Math.max(
-                            0,
-                            (loan.totalInterest ?? 0) -
-                              (loan.interestPaid ?? 0),
-                          ),
+                        Math.max(
+                          0,
+                          contractualInterest - (loan.interestPaid ?? 0),
+                        ),
                       )}
                     </strong>
                   </div>
@@ -2377,7 +2414,7 @@ export default function LoanDetailPage() {
                 <div className="mt-3 space-y-2 text-sm">
                   <div className="flex justify-between gap-4">
                     <span className="text-slate-500">Scheduled over term</span>
-                    <strong>{fc(loan.managementFee)}</strong>
+                    <strong>{fc(contractualManagementFee)}</strong>
                   </div>
                   <div className="flex justify-between gap-4">
                     <span className="text-slate-500">Paid</span>
@@ -2389,12 +2426,11 @@ export default function LoanDetailPage() {
                     </span>
                     <strong className="text-teal-700">
                       {fc(
-                        loan.managementFeeOutstanding ??
-                          Math.max(
-                            0,
-                            (loan.managementFee ?? 0) -
-                              (loan.managementFeePaid ?? 0),
-                          ),
+                        Math.max(
+                          0,
+                          contractualManagementFee -
+                            (loan.managementFeePaid ?? 0),
+                        ),
                       )}
                     </strong>
                   </div>
@@ -2434,7 +2470,10 @@ export default function LoanDetailPage() {
 
             <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <Field label="Total Paid" value={fc(loan.totalPaid)} />
-              <Field label="Total Repayable" value={fc(loan.totalRepayable)} />
+              <Field
+                label="Total Repayable"
+                value={fc(contractualTotalRepayable)}
+              />
               <Field
                 label="Processing Fee Paid"
                 value={fc(loan.processingFeePaid)}
@@ -2475,7 +2514,7 @@ export default function LoanDetailPage() {
 
               <span>{fc(loan.outstandingBalance)} remaining</span>
 
-              <span>{fc(loan.totalRepayable)} total</span>
+              <span>{fc(contractualTotalRepayable)} total</span>
             </div>
             {loan.status === "PAID" && (
               <div className="mt-2 bg-teal-50 border border-teal-200 text-teal-700 text-xs rounded-lg px-3 py-2 flex items-center gap-1.5">
@@ -2591,12 +2630,12 @@ export default function LoanDetailPage() {
 
                 <Field
                   label="Total Repayable"
-                  value={fc(loan.totalRepayable)}
+                  value={fc(contractualTotalRepayable)}
                 />
 
                 <Field
                   label="Management Fee — Term Total"
-                  value={fc(loan.managementFee)}
+                  value={fc(contractualManagementFee)}
                 />
 
                 <Field
@@ -2606,7 +2645,7 @@ export default function LoanDetailPage() {
 
                 <Field
                   label="Interest — Term Total"
-                  value={fc(loan.totalInterest)}
+                  value={fc(contractualInterest)}
                 />
 
                 <Field label="Interest Paid" value={fc(loan.interestPaid)} />

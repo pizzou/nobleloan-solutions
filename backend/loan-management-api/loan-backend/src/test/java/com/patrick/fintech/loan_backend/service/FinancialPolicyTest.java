@@ -36,6 +36,46 @@ class FinancialPolicyTest {
     }
 
     @Test
+    void scheduledMonthlyChargeIsExactlyFivePercentOfOpeningPrincipal() {
+        BigDecimal principal = new BigDecimal("10000000.00");
+
+        assertEquals(
+                new BigDecimal("500000.00"),
+                FinancialPolicy.accrueScheduledMonthly(
+                        principal,
+                        FinancialPolicy.MONTHLY_INTEREST_RATE));
+
+        assertEquals(
+                new BigDecimal("500000.00"),
+                FinancialPolicy.accrueScheduledMonthly(
+                        principal,
+                        FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE));
+    }
+
+    @Test
+    void sixMonthDecliningPrincipalScheduleProduces1750000PerFivePercentCharge() {
+        BigDecimal balance = new BigDecimal("10000000.00");
+        BigDecimal totalInterest = BigDecimal.ZERO;
+
+        for (int installment = 1; installment <= 6; installment++) {
+            BigDecimal principalComponent = installment == 6
+                    ? balance
+                    : balance.divide(new BigDecimal(7 - installment), 16, java.math.RoundingMode.HALF_UP);
+
+            totalInterest = totalInterest.add(
+                    FinancialPolicy.accrueScheduledMonthly(
+                            balance,
+                            FinancialPolicy.MONTHLY_INTEREST_RATE));
+
+            balance = balance.subtract(principalComponent);
+        }
+
+        assertEquals(
+                new BigDecimal("1750000.00"),
+                totalInterest.setScale(2, java.math.RoundingMode.HALF_UP));
+    }
+
+    @Test
     void monthlyRateUsesActualDaysInEachCalendarMonth() {
         BigDecimal january = FinancialPolicy.dailyRateFraction(
                 FinancialPolicy.MONTHLY_INTEREST_RATE,
