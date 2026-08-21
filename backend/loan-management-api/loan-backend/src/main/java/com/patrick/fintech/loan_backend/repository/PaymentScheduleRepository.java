@@ -7,14 +7,19 @@ import java.util.List;
 import java.util.Optional;
 
 public interface PaymentScheduleRepository
-        extends JpaRepository<PaymentSchedule,Long> {
+                extends JpaRepository<PaymentSchedule, Long> {
 
-    List<PaymentSchedule> findByLoanIdOrderByInstallmentNumberAsc(Long loanId);
+        List<PaymentSchedule> findByLoanIdOrderByInstallmentNumberAsc(
+                        Long loanId);
 
-void deleteByLoanId(Long loanId);
+        void deleteByLoanId(
+                        Long loanId);
 
-Optional<PaymentSchedule> findFirstByLoanIdAndStatusOrderByInstallmentNumberAsc(
-        Long loanId,
-        PaymentSchedule.ScheduleStatus status
-);
+        Optional<PaymentSchedule> findFirstByLoanIdAndStatusOrderByInstallmentNumberAsc(
+                        Long loanId,
+                        PaymentSchedule.ScheduleStatus status);
+
+        Optional<PaymentSchedule> findByLoanIdAndInstallmentNumber(
+                        Long loanId,
+                        Integer installmentNumber);
 }

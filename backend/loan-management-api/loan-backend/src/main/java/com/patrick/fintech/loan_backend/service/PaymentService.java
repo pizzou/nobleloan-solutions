@@ -474,6 +474,22 @@ public class PaymentService {
                         penaltyAlreadyPaid = existingPenaltyAssessed;
                 }
 
+                /*
+                 * A persisted contractual schedule may contain the full monthly
+                 * scheduled interest. That amount is NOT earned merely because
+                 * the schedule exists. On the first actual payment, contractual
+                 * interest must be rebuilt from the daily accrual rule.
+                 *
+                 * This prevents a same-day repayment from inheriting an entire
+                 * month's scheduled interest.
+                 */
+                if (firstInterestCalculation
+                                && amountPaidSoFar.compareTo(ZERO) == 0) {
+                        existingCycleInterestDue = ZERO;
+                        existingCycleInterestRemaining = ZERO;
+                        interestAlreadyPaidThisCycle = ZERO;
+                }
+
                 // ============================================================
                 // CURRENT GROSS PRINCIPAL
                 // ============================================================
@@ -554,7 +570,8 @@ public class PaymentService {
                                 currentBalance,
                                 interestStartDateTime.toLocalDate(),
                                 now.toLocalDate(),
-                                moneyRatePercent(loan.getInterestRateDecimal(), MONTHLY_INTEREST_RATE));
+                                moneyRatePercent(loan.getInterestRateDecimal(), MONTHLY_INTEREST_RATE),
+                                firstInterestCalculation);
 
                 // ============================================================
                 // NEW MANAGEMENT FEE
@@ -943,14 +960,11 @@ public class PaymentService {
                 // ============================================================
 
                 BigDecimal allocated = extensionFeePaidThisPayment
-                                .add(
-                                                penaltyPaidThisPayment)
-                                .add(
-                                                managementFeePaidThisPayment)
-                                .add(
-                                                principalPaidThisPayment)
-                                .add(
-                                                overpayment);
+                                .add(penaltyPaidThisPayment)
+                                .add(interestPaidThisPayment)
+                                .add(managementFeePaidThisPayment)
+                                .add(principalPaidThisPayment)
+                                .add(overpayment);
 
                 allocated = roundMoney(allocated);
 
@@ -1195,7 +1209,8 @@ public class PaymentService {
                 if (principalCovered
                                 && interestCovered
                                 && managementFeeCovered
-                                && penaltyCovered) {
+                                && penaltyCovered
+                                && extensionFeeCovered) {
 
                         loan.setStatus(
                                         LoanStatus.PAID);
@@ -1966,13 +1981,16 @@ public class PaymentService {
                 }
 
                 if (firstInterestCalculation) {
-                        // Disbursement day is not an extra charge day.
-                        // The first charge is earned only for calendar days actually elapsed.
-                        return interestStart == null || now == null
-                                        ? 0L
-                                        : Math.max(0L, ChronoUnit.DAYS.between(
-                                                        interestStart.toLocalDate(),
-                                                        now.toLocalDate()));
+                        if (interestStart == null) {
+                                return 0L;
+                        }
+
+                        long calendarDays = ChronoUnit.DAYS.between(
+                                        interestStart.toLocalDate(),
+                                        now.toLocalDate());
+
+                        // Minimum one chargeable day for the first repayment.
+                        return Math.max(1L, calendarDays);
                 }
 
                 if (interestStart == null) {
@@ -2163,8 +2181,37 @@ public class PaymentService {
                         BigDecimal currentBalance,
                         LocalDate startDate,
                         LocalDate endDate,
-                        BigDecimal monthlyRate) {
-                return accrueDaily(currentBalance, startDate, endDate, monthlyRate);
+                        BigDecimal monthlyRate,
+                        boolean firstInterestCalculation) {
+
+                if (currentBalance == null
+                                || currentBalance.compareTo(ZERO) <= 0
+                                || startDate == null
+                                || endDate == null
+                                || monthlyRate == null
+                                || monthlyRate.compareTo(ZERO) <= 0) {
+                        return ZERO;
+                }
+
+                /*
+                 * Noble Loan rule: the first repayment always carries at least
+                 * one chargeable calendar day of interest. A payment one minute
+                 * after disbursement therefore receives one day's interest, not
+                 * zero and never the full contractual month.
+                 */
+                if (firstInterestCalculation && !startDate.isBefore(endDate)) {
+                        return FinancialPolicy.accrueDaily(
+                                        currentBalance,
+                                        startDate,
+                                        startDate.plusDays(1),
+                                        monthlyRate);
+                }
+
+                return accrueDaily(
+                                currentBalance,
+                                startDate,
+                                endDate,
+                                monthlyRate);
         }
 
         private BigDecimal calculateNewManagementFee(

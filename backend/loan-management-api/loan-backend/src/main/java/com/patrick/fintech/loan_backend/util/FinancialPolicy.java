@@ -34,10 +34,29 @@ public final class FinancialPolicy {
 
         return monthlyRatePercent
                 .divide(ONE_HUNDRED, RATE_SCALE, ROUNDING)
-                .divide(
-                        BigDecimal.valueOf(daysInMonth),
-                        RATE_SCALE,
-                        ROUNDING);
+                .divide(BigDecimal.valueOf(daysInMonth), RATE_SCALE, ROUNDING);
+    }
+
+    public static BigDecimal contractualMonthlyCharge(
+            BigDecimal openingPrincipal,
+            BigDecimal monthlyRatePercent) {
+
+        if (openingPrincipal == null
+                || openingPrincipal.signum() <= 0
+                || monthlyRatePercent == null
+                || monthlyRatePercent.signum() < 0) {
+            return BigDecimal.ZERO.setScale(2, ROUNDING);
+        }
+
+        return openingPrincipal
+                .multiply(monthlyRatePercent)
+                .divide(ONE_HUNDRED, 2, ROUNDING);
+    }
+
+    public static BigDecimal accrueScheduledMonthly(
+            BigDecimal openingPrincipal,
+            BigDecimal monthlyRatePercent) {
+        return contractualMonthlyCharge(openingPrincipal, monthlyRatePercent);
     }
 
     public static BigDecimal accrueDaily(
@@ -53,8 +72,7 @@ public final class FinancialPolicy {
                 || !startDate.isBefore(endDate)
                 || monthlyRatePercent == null
                 || monthlyRatePercent.signum() <= 0) {
-
-            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            return BigDecimal.ZERO.setScale(2, ROUNDING);
         }
 
         BigDecimal total = BigDecimal.ZERO;
@@ -63,40 +81,11 @@ public final class FinancialPolicy {
         while (cursor.isBefore(endDate)) {
             total = total.add(
                     principal.multiply(
-                            dailyRateFraction(
-                                    monthlyRatePercent,
-                                    cursor)));
-
+                            dailyRateFraction(monthlyRatePercent, cursor)));
             cursor = cursor.plusDays(1);
         }
 
-        return total.setScale(2, RoundingMode.HALF_UP);
-    }
-
-    public static BigDecimal contractualMonthlyCharge(
-            BigDecimal openingPrincipal,
-            BigDecimal monthlyRatePercent) {
-
-        if (openingPrincipal == null
-                || openingPrincipal.signum() <= 0
-                || monthlyRatePercent == null
-                || monthlyRatePercent.signum() < 0) {
-
-            return BigDecimal.ZERO.setScale(2, ROUNDING);
-        }
-
-        return openingPrincipal
-                .multiply(monthlyRatePercent)
-                .divide(ONE_HUNDRED, 2, ROUNDING);
-    }
-
-    public static BigDecimal accrueScheduledMonthly(
-            BigDecimal openingPrincipal,
-            BigDecimal monthlyRatePercent) {
-
-        return contractualMonthlyCharge(
-                openingPrincipal,
-                monthlyRatePercent);
+        return total.setScale(2, ROUNDING);
     }
 
     public static ScheduleLine contractualScheduleLine(
@@ -106,44 +95,32 @@ public final class FinancialPolicy {
             BigDecimal monthlyManagementFeeRatePercent) {
 
         if (openingPrincipal == null || openingPrincipal.signum() < 0) {
-            throw new IllegalArgumentException(
-                    "Opening principal cannot be negative");
+            throw new IllegalArgumentException("Opening principal cannot be negative");
         }
-
         if (remainingInstallments <= 0) {
             throw new IllegalArgumentException(
                     "Remaining installments must be greater than zero");
         }
-
         if (monthlyInterestRatePercent == null
                 || monthlyInterestRatePercent.signum() < 0) {
-
-            throw new IllegalArgumentException(
-                    "Interest rate cannot be negative");
+            throw new IllegalArgumentException("Interest rate cannot be negative");
         }
-
         if (monthlyManagementFeeRatePercent == null
                 || monthlyManagementFeeRatePercent.signum() < 0) {
-
             throw new IllegalArgumentException(
                     "Management fee rate cannot be negative");
         }
 
         BigDecimal opening = openingPrincipal.setScale(2, ROUNDING);
 
-        BigDecimal principalComponent;
-
-        if (remainingInstallments == 1) {
-
-            principalComponent = opening;
-        } else {
-            principalComponent = opening
-                    .divide(
-                            BigDecimal.valueOf(remainingInstallments),
-                            16,
-                            ROUNDING)
-                    .setScale(2, ROUNDING);
-        }
+        BigDecimal principalComponent = remainingInstallments == 1
+                ? opening
+                : opening
+                        .divide(
+                                BigDecimal.valueOf(remainingInstallments),
+                                16,
+                                ROUNDING)
+                        .setScale(2, ROUNDING);
 
         BigDecimal interest = contractualMonthlyCharge(
                 opening,
@@ -180,9 +157,8 @@ public final class FinancialPolicy {
     }
 
     public static BigDecimal processingFee(BigDecimal principal) {
-
         if (principal == null || principal.signum() <= 0) {
-            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            return BigDecimal.ZERO.setScale(2, ROUNDING);
         }
 
         return principal
@@ -190,15 +166,9 @@ public final class FinancialPolicy {
                 .divide(ONE_HUNDRED, 2, ROUNDING);
     }
 
-    public static BigDecimal extensionFee(
-            BigDecimal outstandingPrincipal) {
-
-        if (outstandingPrincipal == null
-                || outstandingPrincipal.signum() <= 0) {
-
-            return BigDecimal.ZERO.setScale(
-                    2,
-                    RoundingMode.HALF_UP);
+    public static BigDecimal extensionFee(BigDecimal outstandingPrincipal) {
+        if (outstandingPrincipal == null || outstandingPrincipal.signum() <= 0) {
+            return BigDecimal.ZERO.setScale(2, ROUNDING);
         }
 
         return outstandingPrincipal
