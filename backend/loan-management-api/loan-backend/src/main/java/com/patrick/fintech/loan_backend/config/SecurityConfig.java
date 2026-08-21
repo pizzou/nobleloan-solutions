@@ -55,6 +55,16 @@ public class SecurityConfig {
         @Value("${app.cors.allowed-origins:https://nobleloan-solutions.vercel.app}")
         private String allowedOrigins;
 
+        /**
+         * Development-only surfaces. Both default to false so a production
+         * deployment cannot accidentally expose H2 or API documentation.
+         */
+        @Value("${app.security.expose-h2:false}")
+        private boolean exposeH2;
+
+        @Value("${app.security.expose-api-docs:false}")
+        private boolean exposeApiDocs;
+
         @Bean
         public SecurityFilterChain filterChain(
                         HttpSecurity http) throws Exception {
@@ -150,19 +160,26 @@ public class SecurityConfig {
 
                                                 .requestMatchers(
                                                                 "/api/auth/**",
-
-                                                                "/h2-console/**",
-
-                                                                "/swagger-ui/**",
-                                                                "/swagger-ui.html",
-                                                                "/api-docs/**",
-
                                                                 "/actuator/health",
                                                                 "/actuator/health/**",
-
-                                                                "/api/public/**",
-                                                                "/public/**")
+                                                                "/api/public/webhooks/**")
                                                 .permitAll()
+
+                                                /*
+                                                 * Public borrower/application APIs remain available through
+                                                 * their own controller-level validation. Development tools are
+                                                 * explicitly opt-in and are never public by default.
+                                                 */
+                                                .requestMatchers(
+                                                                "/h2-console/**",
+                                                                "/swagger-ui/**",
+                                                                "/swagger-ui.html",
+                                                                "/api-docs/**")
+                                                .access((authentication,
+                                                                context) -> new org.springframework.security.authorization.AuthorizationDecision(
+                                                                                isDevelopmentSurfaceEnabled(
+                                                                                                context.getRequest()
+                                                                                                                .getRequestURI())))
 
                                                 // ------------------------------------------------
                                                 // WEBSOCKET HANDSHAKE
@@ -212,6 +229,18 @@ public class SecurityConfig {
                                                 UsernamePasswordAuthenticationFilter.class);
 
                 return http.build();
+        }
+
+        private boolean isDevelopmentSurfaceEnabled(String uri) {
+                if (uri == null) {
+                        return false;
+                }
+
+                if (uri.startsWith("/h2-console")) {
+                        return exposeH2;
+                }
+
+                return exposeApiDocs;
         }
 
         // ============================================================

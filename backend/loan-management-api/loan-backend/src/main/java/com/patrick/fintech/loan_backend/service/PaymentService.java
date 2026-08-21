@@ -587,20 +587,38 @@ public class PaymentService {
                 // TOTAL CURRENT CYCLE INTEREST
                 // ============================================================
 
-                BigDecimal totalCycleInterestDue = roundMoney(
-                                existingCycleInterestDue
-                                                .add(
-                                                                newlyAccruedInterest));
+                /*
+                 * Earned-interest rule:
+                 *
+                 * The contractual schedule is a future repayment plan. It is
+                 * NOT evidence that the full month's interest has already been
+                 * earned. On the first payment, use only the daily accrual
+                 * calculated from disbursement, with the minimum-one-day rule.
+                 *
+                 * After the first payment, preserve already-earned/remaining
+                 * interest for the current cycle and add only newly accrued
+                 * days. Never replace earned interest with a full contractual
+                 * monthly amount.
+                 */
+                BigDecimal totalCycleInterestDue;
 
-                BigDecimal minimumInterestObligation = roundMoney(
-                                interestAlreadyPaidThisCycle
-                                                .add(
-                                                                existingCycleInterestRemaining));
+                if (firstInterestCalculation) {
+                        totalCycleInterestDue = roundMoney(
+                                        interestAlreadyPaidThisCycle
+                                                        .add(newlyAccruedInterest));
+                } else {
+                        totalCycleInterestDue = roundMoney(
+                                        existingCycleInterestDue
+                                                        .add(newlyAccruedInterest));
 
-                if (minimumInterestObligation.compareTo(
-                                totalCycleInterestDue) > 0) {
+                        BigDecimal minimumInterestObligation = roundMoney(
+                                        interestAlreadyPaidThisCycle
+                                                        .add(existingCycleInterestRemaining));
 
-                        totalCycleInterestDue = minimumInterestObligation;
+                        if (minimumInterestObligation.compareTo(
+                                        totalCycleInterestDue) > 0) {
+                                totalCycleInterestDue = minimumInterestObligation;
+                        }
                 }
 
                 // ============================================================
@@ -2199,15 +2217,15 @@ public class PaymentService {
                  * after disbursement therefore receives one day's interest, not
                  * zero and never the full contractual month.
                  */
-                if (firstInterestCalculation && !startDate.isBefore(endDate)) {
-                        return FinancialPolicy.accrueDaily(
+                if (firstInterestCalculation) {
+                        return FinancialPolicy.accrueDailyMinimumOneDay(
                                         currentBalance,
                                         startDate,
-                                        startDate.plusDays(1),
+                                        endDate,
                                         monthlyRate);
                 }
 
-                return accrueDaily(
+                return FinancialPolicy.accrueDaily(
                                 currentBalance,
                                 startDate,
                                 endDate,

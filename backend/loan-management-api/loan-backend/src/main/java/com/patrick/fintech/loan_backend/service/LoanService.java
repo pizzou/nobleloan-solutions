@@ -1260,9 +1260,18 @@ public class LoanService {
                                         "Disbursing officer must belong to an organization");
                 }
 
-                Loan loan = getLoanForOrg(
-                                loanId,
-                                officer.getOrganization().getId());
+                Loan loan = loanRepo.findByIdForUpdate(
+                                loanId)
+                                .orElseThrow(
+                                                () -> new RuntimeException(
+                                                                "Loan not found: " + loanId));
+
+                if (loan.getOrganization() == null
+                                || loan.getOrganization().getId() == null
+                                || !loan.getOrganization().getId().equals(
+                                                officer.getOrganization().getId())) {
+                        throw new RuntimeException("Access denied.");
+                }
 
                 if (loan.getStatus() != LoanStatus.APPROVED) {
 

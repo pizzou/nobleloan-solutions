@@ -59,6 +59,38 @@ public final class FinancialPolicy {
         return contractualMonthlyCharge(openingPrincipal, monthlyRatePercent);
     }
 
+    /**
+     * Accrues a monthly percentage on calendar-day basis with Noble Loan's
+     * minimum-one-chargeable-day rule for a first repayment.
+     *
+     * Same-day repayment (for example 10:00 -> 10:01) is one chargeable day.
+     * This method is for earned/accrued interest and must not be used to
+     * reconstruct the contractual monthly schedule.
+     */
+    public static BigDecimal accrueDailyMinimumOneDay(
+            BigDecimal principal,
+            LocalDate startDate,
+            LocalDate paymentDate,
+            BigDecimal monthlyRatePercent) {
+
+        if (principal == null || principal.signum() <= 0
+                || startDate == null || paymentDate == null
+                || monthlyRatePercent == null || monthlyRatePercent.signum() <= 0) {
+            return BigDecimal.ZERO.setScale(2, ROUNDING);
+        }
+
+        LocalDate endExclusive = paymentDate;
+        if (!startDate.isBefore(endExclusive)) {
+            endExclusive = startDate.plusDays(1);
+        }
+
+        return accrueDaily(
+                principal,
+                startDate,
+                endExclusive,
+                monthlyRatePercent);
+    }
+
     public static BigDecimal accrueDaily(
             BigDecimal principal,
             LocalDate startDate,
