@@ -19,7 +19,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -32,7 +31,8 @@ import java.util.*;
  * Production BNR export service.
  *
  * IMPORTANT:
- * - The uploaded BNR workbook is used as the structural template.
+ * - The BNR workbook structure is constructed entirely in Java.
+ * - No uploaded XLSX template is loaded at runtime.
  * - Loan, borrower and schedule values are read from Noble's database.
  * - Contractual interest is NOT recalculated here. The export reports the
  * contractual rate stored on Loan and the balances stored by the
@@ -47,10 +47,7 @@ import java.util.*;
  * Loss 100%
  * - Missing source data is left blank rather than fabricated.
  *
- * Required resource:
- * src/main/resources/bnr/BNR_REPORTING_NEW_TEMPLATES.xlsx
- *
- * Put the exact BNR template supplied by the business into that location.
+ * Runtime dependency: none on an XLSX template resource.
  */
 @Service
 @RequiredArgsConstructor
@@ -85,6 +82,8 @@ public class BnrTemplateExportService {
             LocalDate to) {
 
         if (organizationId == null || organizationId <= 0) {
+
+        if (organizationId == null || organizationId <= 0) {
             throw new IllegalArgumentException("organizationId is required");
         }
 
@@ -99,7 +98,7 @@ public class BnrTemplateExportService {
                         reportDate));
 
         try (XSSFWorkbook workbook = buildBnrWorkbook();
-                ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
 
             configureWorkbook(workbook);
             populateMetadata(workbook, organizationId, branchId, period, window, loans);
@@ -128,12 +127,13 @@ public class BnrTemplateExportService {
                 }
             }
 
-            BnrFinancialStatementReport financialStatement = regulatoryReportingService.buildBnrFinancialStatement(
-                    organizationId,
-                    branchId,
-                    period,
-                    window[0],
-                    window[1]);
+            BnrFinancialStatementReport financialStatement =
+                    regulatoryReportingService.buildBnrFinancialStatement(
+                            organizationId,
+                            branchId,
+                            period,
+                            window[0],
+                            window[1]);
 
             populateFinancialStatement(workbook, financialStatement);
             addValidationSheet(workbook, loans, classified, reportDate);
@@ -176,12 +176,9 @@ public class BnrTemplateExportService {
     /**
      * Builds the BNR workbook in Java.
      *
-     * This intentionally does NOT load an XLSX resource from the classpath.
-     * The previous implementation depended on:
-     * classpath:/bnr/BNR_REPORTING_NEW_TEMPLATES.xlsx
-     *
-     * That external resource was the direct failure point behind the HTTP 409
-     * response when the deployed application could not open the template.
+     * This intentionally does NOT load any XLSX resource from the classpath.
+     * The workbook structure is defined by Java code and populated from the
+     * Noble Loan database at export time.
      *
      * The regulatory sheet names, reporting columns, formula columns and
      * explanatory-note headings are defined here so the export is deterministic
@@ -251,6 +248,7 @@ public class BnrTemplateExportService {
                 restructuredHeaders());
 
         createWrittenOffSheet(workbook);
+        createSheet1(workbook);
 
         return workbook;
     }
@@ -259,38 +257,31 @@ public class BnrTemplateExportService {
         Sheet sheet = workbook.createSheet("A1.1  Explanatory Note ");
 
         String[][] notes = {
-                { "DENOMINATION", "Explanatory Notes" },
-                { "A.BALANCE SHEET", "" },
-                { "1.Total Liquid Assets (2+3+4)", "" },
-                { "2.Cash in vault", "Physical cash held on the institution premises as at reporting date." },
-                { "3.Cash in bank and other FIs (Current account)",
-                        "Balances at banks, financial institutions and transactional mobile money accounts." },
-                { "4.Cash in bank and other FIs (Term deposit)",
-                        "Cash placed in fixed-term accounts earning interest." },
-                { "5.Gross loans", "Outstanding loan balance before eligible collateral and provisions." },
-                { "6.Provision for bad and doubtful debts",
-                        "Required provisioning based on regulatory loan classification." },
-                { "7.Net loans", "Gross loans less provisions." },
-                { "B.INCOME STATEMENT", "" },
-                { "Interest income", "Interest income recognized from the lending portfolio." },
-                { "Fee and penalty income",
-                        "Management fees, processing fees, extension fees and penalties recognized as income." },
-                { "Operating expenses", "Operating expenses supported by the accounting ledger." },
-                { "Net income", "Income less operating and loan-loss expenses." },
-                { "C.LOAN CLASSIFICATION", "" },
-                { "Normal", "Current performing loans with no qualifying arrears." },
-                { "Watch", "Loans with arrears requiring watch classification." },
-                { "Substandard", "Loans meeting the regulatory substandard arrears threshold." },
-                { "Doubtful", "Loans meeting the regulatory doubtful arrears threshold." },
-                { "Loss", "Loans meeting the regulatory loss threshold." },
-                { "Restructured loans", "Loans formally restructured or extended according to the platform record." },
-                { "Written off", "Loans recorded as written off in the Noble Loan system." },
-                { "INTEREST BASIS",
-                        "Noble Loan contractual interest is monthly. The BNR annual-interest field is the contractual monthly rate multiplied by 12." },
-                { "COLLATERAL",
-                        "Eligible collateral is limited by the collateral treatment implemented by the BNR exporter." },
-                { "SOURCE",
-                        "All report values are sourced from Noble Loan operational and accounting data. Missing source values are left blank." }
+                {"DENOMINATION", "Explanatory Notes"},
+                {"A.BALANCE SHEET", ""},
+                {"1.Total Liquid Assets (2+3+4)", ""},
+                {"2.Cash in vault", "Physical cash held on the institution premises as at reporting date."},
+                {"3.Cash in bank and other FIs (Current account)", "Balances at banks, financial institutions and transactional mobile money accounts."},
+                {"4.Cash in bank and other FIs (Term deposit)", "Cash placed in fixed-term accounts earning interest."},
+                {"5.Gross loans", "Outstanding loan balance before eligible collateral and provisions."},
+                {"6.Provision for bad and doubtful debts", "Required provisioning based on regulatory loan classification."},
+                {"7.Net loans", "Gross loans less provisions."},
+                {"B.INCOME STATEMENT", ""},
+                {"Interest income", "Interest income recognized from the lending portfolio."},
+                {"Fee and penalty income", "Management fees, processing fees, extension fees and penalties recognized as income."},
+                {"Operating expenses", "Operating expenses supported by the accounting ledger."},
+                {"Net income", "Income less operating and loan-loss expenses."},
+                {"C.LOAN CLASSIFICATION", ""},
+                {"Normal", "Current performing loans with no qualifying arrears."},
+                {"Watch", "Loans with arrears requiring watch classification."},
+                {"Substandard", "Loans meeting the regulatory substandard arrears threshold."},
+                {"Doubtful", "Loans meeting the regulatory doubtful arrears threshold."},
+                {"Loss", "Loans meeting the regulatory loss threshold."},
+                {"Restructured loans", "Loans formally restructured or extended according to the platform record."},
+                {"Written off", "Loans recorded as written off in the Noble Loan system."},
+                {"INTEREST BASIS", "Noble Loan contractual interest is monthly. The BNR annual-interest field is the contractual monthly rate multiplied by 12."},
+                {"COLLATERAL", "Eligible collateral is limited by the collateral treatment implemented by the BNR exporter."},
+                {"SOURCE", "All report values are sourced from Noble Loan operational and accounting data. Missing source values are left blank."}
         };
 
         CellStyle title = createTitleStyle(workbook);
@@ -399,7 +390,7 @@ public class BnrTemplateExportService {
         section.createCell(2).setCellValue("A.BALANCE SHEET");
         section.getCell(2).setCellStyle(title);
 
-        String[] periodColumns = { "D", "E", "F", "G", "H", "I" };
+        String[] periodColumns = {"D", "E", "F", "G", "H", "I"};
 
         for (int i = 0; i < labels.length; i++) {
             int rowIndex = 4 + i;
@@ -486,18 +477,11 @@ public class BnrTemplateExportService {
                 "Portfolio at risk / regulatory classification: " + classification);
         classificationRow.getCell(0).setCellStyle(title);
 
-        Row headerRow = sheet.createRow(6);
-
+        Row header = sheet.createRow(headerRowNumber - 1);
         for (int c = 0; c < headers.length; c++) {
-            Cell cell = headerRow.createCell(c);
+            Cell cell = header.createCell(c);
             cell.setCellValue(headers[c]);
             cell.setCellStyle(header);
-
-            sheet.setColumnWidth(
-                    c,
-                    Math.min(
-                            18000,
-                            Math.max(4200, headers[c].length() * 300)));
         }
 
         Row placeholder = sheet.createRow(headerRowNumber);
@@ -519,6 +503,38 @@ public class BnrTemplateExportService {
                 headerRowNumber,
                 0,
                 headers.length - 1));
+    }
+
+    private void createSheet1(XSSFWorkbook workbook) {
+        Sheet sheet = workbook.createSheet("Sheet1");
+        CellStyle title = createTitleStyle(workbook);
+        CellStyle body = createBodyStyle(workbook);
+
+        Row row0 = sheet.createRow(0);
+        Cell titleCell = row0.createCell(0);
+        titleCell.setCellValue("BNR REGULATORY REPORT - NOBLE LOAN SOLUTIONS");
+        titleCell.setCellStyle(title);
+        sheet.addMergedRegion(new org.apache.poi.ss.util.CellRangeAddress(0, 0, 0, 5));
+
+        String[][] rows = {
+                {"Report purpose", "Regulatory portfolio and financial reporting"},
+                {"Data source", "Noble Loan operational and accounting database"},
+                {"Workbook construction", "Programmatically generated; no XLSX template is required at runtime"},
+                {"Interest basis", "Contractual interest is monthly; BNR annual-interest field is nominal monthly rate multiplied by 12"},
+                {"Classification", "Normal / Watch / Substandard / Doubtful / Loss / Restructured / Written off"}
+        };
+        for (int i = 0; i < rows.length; i++) {
+            Row row = sheet.createRow(i + 2);
+            Cell a = row.createCell(0);
+            a.setCellValue(rows[i][0]);
+            a.setCellStyle(title);
+            Cell b = row.createCell(1);
+            b.setCellValue(rows[i][1]);
+            b.setCellStyle(body);
+        }
+        sheet.setColumnWidth(0, 10000);
+        sheet.setColumnWidth(1, 28000);
+        sheet.createFreezePane(0, 2);
     }
 
     private void createWrittenOffSheet(XSSFWorkbook workbook) {
@@ -576,18 +592,14 @@ public class BnrTemplateExportService {
         r4.getCell(0).setCellStyle(header);
         r4.getCell(1).setCellStyle(title);
 
-        Row headerRow = sheet.createRow(6);
-
+        Row header = sheet.createRow(6);
         for (int c = 0; c < headers.length; c++) {
-            Cell cell = headerRow.createCell(c);
+            Cell cell = header.createCell(c);
             cell.setCellValue(headers[c]);
             cell.setCellStyle(header);
-
             sheet.setColumnWidth(
                     c,
-                    Math.min(
-                            18000,
-                            Math.max(4200, headers[c].length() * 300)));
+                    Math.min(18000, Math.max(4200, headers[c].length() * 300)));
         }
 
         Row placeholder = sheet.createRow(7);
@@ -709,14 +721,7 @@ public class BnrTemplateExportService {
         return style;
     }
 
-    private void configureWorkbook(XSSFWorkbook workbook) {
-        workbook.setForceFormulaRecalculation(true);
-        workbook.getProperties().getCoreProperties().setCreator("Noble Loan Solutions");
-        workbook.getProperties().getCoreProperties().setTitle("BNR Regulatory Reporting");
-        // Apache POI versions used by Noble do not expose setSubject on CoreProperties.
-        // Use the supported description field instead.
-        workbook.getProperties().getCoreProperties().setDescription(
-                "Loan portfolio, classification and financial statement reporting");
+s().getCoreProperties().setTitle("BNR Regulatory Reporting");
     }
 
     private void populateMetadata(
@@ -1987,12 +1992,6 @@ public class BnrTemplateExportService {
         }
 
         cell.setCellValue(String.valueOf(value));
-    }
-
-    private void setIfPresent(Sheet sheet, int column, int rowIndex, BigDecimal value) {
-        if (value != null) {
-            setCellValue(sheet, rowIndex, column, value);
-        }
     }
 
     private void setCellValue(Sheet sheet, int row, int column, Object value) {
