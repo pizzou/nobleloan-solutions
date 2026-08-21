@@ -9,10 +9,10 @@ import com.patrick.fintech.loan_backend.dto.regulatory.BnrFinancialStatementRepo
 import com.patrick.fintech.loan_backend.dto.regulatory.BnrSummaryReport;
 
 import com.patrick.fintech.loan_backend.service.AuditService;
-import com.patrick.fintech.loan_backend.service.BnrTemplateExportService;
 import com.patrick.fintech.loan_backend.service.RegulatoryReportingService;
 import com.patrick.fintech.loan_backend.service.RegulatoryReportingService.ReportPeriod;
 import com.patrick.fintech.loan_backend.service.ReportExportService;
+import com.patrick.fintech.loan_backend.service.BnrTemplateExportService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 
 import lombok.RequiredArgsConstructor;
@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.math.BigDecimal;
 
 @RestController
@@ -44,6 +45,8 @@ public class BnrReportController {
 
         private final RegulatoryReportingService reportingService;
 
+        private final BnrTemplateExportService bnrTemplateExportService;
+
         private final ReportExportService exportService;
 
         private final AuditService auditService;
@@ -51,7 +54,6 @@ public class BnrReportController {
         private final CurrentUserUtil currentUserUtil;
 
         private final ObjectMapper objectMapper;
-        private final BnrTemplateExportService bnrTemplateExportService;
 
         @GetMapping("/summary")
         public ResponseEntity<ApiResponse<BnrSummaryReport>> summary(
@@ -222,11 +224,19 @@ public class BnrReportController {
 
         @GetMapping("/export")
         public ResponseEntity<byte[]> exportBnrSummary(
+
                         @RequestParam(defaultValue = "xlsx") String format,
+
                         @RequestParam(required = false) Long branchId,
+
                         @RequestParam(required = false, defaultValue = "MONTHLY") ReportPeriod period,
+
                         @RequestParam(required = false) String from,
-                        @RequestParam(required = false) String to) {
+
+                        @RequestParam(required = false) String to
+
+        ) {
+
                 Long organizationId = currentUserUtil.getCurrentOrganizationId();
 
                 if (organizationId == null) {
@@ -236,18 +246,11 @@ public class BnrReportController {
 
                 String normalizedFormat = format == null || format.isBlank()
                                 ? "xlsx"
-                                : format.trim().toLowerCase();
+                                : format.trim().toLowerCase(Locale.ROOT);
 
-                /*
-                 * The BNR workbook is a regulatory template.
-                 * Do not route it through the generic report exporter because that
-                 * produces a generic table rather than the BNR submission structure.
-                 */
                 if (!"xlsx".equals(normalizedFormat)) {
                         throw new IllegalArgumentException(
-                                        "The BNR template export is available as XLSX. "
-                                                        + "Use /financial-statement/export for the "
-                                                        + "separate financial-statement export.");
+                                        "The BNR regulatory workbook export is available as XLSX.");
                 }
 
                 byte[] bytes = bnrTemplateExportService.export(
@@ -257,20 +260,15 @@ public class BnrReportController {
                                 parseDate(from),
                                 parseDate(to));
 
-                auditExport(
-                                "BnrReport",
-                                period,
-                                "xlsx");
+                auditExport("BnrReport", period, "xlsx");
 
                 String filename = "BNR-REPORT-"
-                                + LocalDate.now().format(
-                                                DateTimeFormatter.ISO_DATE)
+                                + LocalDate.now().format(DateTimeFormatter.ISO_DATE)
                                 + ".xlsx";
 
                 return ResponseEntity.ok()
-                                .contentType(
-                                                MediaType.parseMediaType(
-                                                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                                .contentType(MediaType.parseMediaType(
+                                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                                 .header(
                                                 HttpHeaders.CONTENT_DISPOSITION,
                                                 "attachment; filename=\"" + filename + "\"")
