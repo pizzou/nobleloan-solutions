@@ -9,6 +9,7 @@ import com.patrick.fintech.loan_backend.dto.regulatory.BnrFinancialStatementRepo
 import com.patrick.fintech.loan_backend.dto.regulatory.BnrSummaryReport;
 
 import com.patrick.fintech.loan_backend.service.AuditService;
+import com.patrick.fintech.loan_backend.service.BnrTemplateExportService;
 import com.patrick.fintech.loan_backend.service.RegulatoryReportingService;
 import com.patrick.fintech.loan_backend.service.RegulatoryReportingService.ReportPeriod;
 import com.patrick.fintech.loan_backend.service.ReportExportService;
@@ -50,6 +51,7 @@ public class BnrReportController {
         private final CurrentUserUtil currentUserUtil;
 
         private final ObjectMapper objectMapper;
+        private final BnrTemplateExportService bnrTemplateExportService;
 
         @GetMapping("/summary")
         public ResponseEntity<ApiResponse<BnrSummaryReport>> summary(
@@ -220,71 +222,59 @@ public class BnrReportController {
 
         @GetMapping("/export")
         public ResponseEntity<byte[]> exportBnrSummary(
-
                         @RequestParam(defaultValue = "xlsx") String format,
-
                         @RequestParam(required = false) Long branchId,
-
                         @RequestParam(required = false, defaultValue = "MONTHLY") ReportPeriod period,
-
                         @RequestParam(required = false) String from,
-
-                        @RequestParam(required = false) String to
-
-        ) {
-
+                        @RequestParam(required = false) String to) {
                 Long organizationId = currentUserUtil.getCurrentOrganizationId();
 
-                BnrSummaryReport report = reportingService.buildBnrSummary(
+                if (organizationId == null) {
+                        throw new IllegalStateException(
+                                        "No organization is associated with the current user.");
+                }
 
+                String normalizedFormat = format == null || format.isBlank()
+                                ? "xlsx"
+                                : format.trim().toLowerCase();
+
+                /*
+                 * The BNR workbook is a regulatory template.
+                 * Do not route it through the generic report exporter because that
+                 * produces a generic table rather than the BNR submission structure.
+                 */
+                if (!"xlsx".equals(normalizedFormat)) {
+                        throw new IllegalArgumentException(
+                                        "The BNR template export is available as XLSX. "
+                                                        + "Use /financial-statement/export for the "
+                                                        + "separate financial-statement export.");
+                }
+
+                byte[] bytes = bnrTemplateExportService.export(
                                 organizationId,
-
                                 branchId,
-
                                 period,
-
                                 parseDate(from),
-
                                 parseDate(to));
 
-                List<Map<String, Object>> rows = summaryRows(report);
-
-                List<String> columns = List.of(
-                                "Section",
-                                "Metric",
-                                "Value",
-                                "Percentage");
-
-                String organizationName = currentUserUtil
-                                .getCurrentUser()
-                                .getOrganization()
-                                .getName();
-
-                String filename = "BNR-Summary-" +
-                                LocalDate.now().format(
-                                                DateTimeFormatter.ISO_DATE);
-
                 auditExport(
-
                                 "BnrReport",
-
                                 period,
+                                "xlsx");
 
-                                format);
+                String filename = "BNR-REPORT-"
+                                + LocalDate.now().format(
+                                                DateTimeFormatter.ISO_DATE)
+                                + ".xlsx";
 
-                return respond(
-
-                                format,
-
-                                filename,
-
-                                "BNR Regulatory Summary",
-
-                                columns,
-
-                                rows,
-
-                                organizationName);
+                return ResponseEntity.ok()
+                                .contentType(
+                                                MediaType.parseMediaType(
+                                                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                                .header(
+                                                HttpHeaders.CONTENT_DISPOSITION,
+                                                "attachment; filename=\"" + filename + "\"")
+                                .body(bytes);
         }
 
         @GetMapping("/financial-statement/export")
