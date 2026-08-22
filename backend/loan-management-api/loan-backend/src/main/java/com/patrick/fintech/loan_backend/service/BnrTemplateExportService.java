@@ -370,6 +370,11 @@ public class BnrTemplateExportService {
     }
 
     private void createFinancialStatementSheet(XSSFWorkbook workbook) {
+
+        if (workbook == null) {
+            throw new IllegalArgumentException("Workbook cannot be null");
+        }
+
         Sheet sheet = workbook.createSheet("A1.2. FS");
 
         String[] labels = {
@@ -423,77 +428,148 @@ public class BnrTemplateExportService {
                 "Other disbursed amount"
         };
 
-        CellStyle title = createTitleStyle(workbook);
-        CellStyle header = createHeaderStyle(workbook);
-        CellStyle body = createBodyStyle(workbook);
-        CellStyle currency = createCurrencyStyle(workbook);
+        CellStyle titleStyle = createTitleStyle(workbook);
+        CellStyle headerStyle = createHeaderStyle(workbook);
+        CellStyle bodyStyle = createBodyStyle(workbook);
+        CellStyle currencyStyle = createCurrencyStyle(workbook);
 
         Row meta = sheet.createRow(0);
-        meta.createCell(0).setCellValue("NAME OF THE NDFSP:");
-        meta.getCell(0).setCellStyle(header);
+
+        Cell metaLabel = meta.createCell(0);
+        metaLabel.setCellValue("NAME OF THE NDFSP:");
+        metaLabel.setCellStyle(headerStyle);
+
+        Cell metaValue = meta.createCell(1);
+        metaValue.setCellValue("");
+        metaValue.setCellStyle(bodyStyle);
 
         Row sector = sheet.createRow(1);
-        sector.createCell(0).setCellValue("SECTOR:");
-        sector.getCell(0).setCellStyle(header);
+
+        Cell sectorLabel = sector.createCell(0);
+        sectorLabel.setCellValue("SECTOR:");
+        sectorLabel.setCellStyle(headerStyle);
+
+        Cell sectorValue = sector.createCell(1);
+        sectorValue.setCellValue("");
+        sectorValue.setCellStyle(bodyStyle);
 
         Row district = sheet.createRow(2);
-        district.createCell(0).setCellValue("DISTRICT:");
-        district.getCell(0).setCellStyle(header);
-        district.createCell(2).setCellValue("DENOMINATION");
-        district.getCell(2).setCellStyle(header);
-        district.createCell(8).setCellValue(LocalDate.now());
-        district.getCell(8).setCellStyle(body);
+
+        Cell districtLabel = district.createCell(0);
+        districtLabel.setCellValue("DISTRICT:");
+        districtLabel.setCellStyle(headerStyle);
+
+        Cell districtValue = district.createCell(1);
+        districtValue.setCellValue("");
+        districtValue.setCellStyle(bodyStyle);
+
+        Cell denomination = district.createCell(2);
+        denomination.setCellValue("DENOMINATION");
+        denomination.setCellStyle(headerStyle);
+
+        Cell reportDate = district.createCell(8);
+        reportDate.setCellValue(LocalDate.now());
+        reportDate.setCellStyle(bodyStyle);
 
         Row section = sheet.createRow(3);
-        section.createCell(2).setCellValue("A.BALANCE SHEET");
-        section.getCell(2).setCellStyle(title);
 
-        String[] periodColumns = { "D", "E", "F", "G", "H", "I" };
+        Cell sectionCell = section.createCell(2);
+        sectionCell.setCellValue("A.BALANCE SHEET");
+        sectionCell.setCellStyle(titleStyle);
 
         for (int i = 0; i < labels.length; i++) {
-            int rowIndex = 4 + i;
-            Row row = sheet.createRow(rowIndex);
-            Cell label = row.createCell(2);
-            label.setCellValue(labels[i]);
-            label.setCellStyle(header);
 
-            for (int c = 3; c <= 8; c++) {
-                Cell cell = row.createCell(c);
-                cell.setCellStyle(currency);
+            int rowIndex = 4 + i;
+
+            Row row = sheet.createRow(rowIndex);
+
+            Cell labelCell = row.createCell(2);
+            labelCell.setCellValue(labels[i]);
+
+            if ("A.BALANCE SHEET".equals(labels[i])
+                    || "B.LIABILITIES".equals(labels[i])
+                    || "C.EQUITY".equals(labels[i])
+                    || "D.INCOME STATEMENT".equals(labels[i])
+                    || "E.LOAN PORTFOLIO STATISTICS".equals(labels[i])
+                    || "9.TOTAL ASSETS".equals(labels[i])
+                    || "13.TOTAL LIABILITIES".equals(labels[i])
+                    || "17.TOTAL EQUITY".equals(labels[i])
+                    || "18.TOTAL LIABILITIES AND EQUITY".equals(labels[i])
+                    || "21.TOTAL INCOME".equals(labels[i])
+                    || "26.TOTAL EXPENSES".equals(labels[i])
+                    || "27.Current period net income".equals(labels[i])) {
+
+                labelCell.setCellStyle(titleStyle);
+
+            } else {
+
+                labelCell.setCellStyle(headerStyle);
+            }
+
+            for (int column = 3; column <= 8; column++) {
+
+                Cell valueCell = row.createCell(column);
+
+                valueCell.setCellStyle(currencyStyle);
             }
         }
 
-        // Keep the regulatory-style calculation columns D:I.
-        // The current reporting cut-off is written into I by
-        // populateFinancialStatement().
-        for (int c = 3; c <= 8; c++) {
-            String col = org.apache.poi.ss.util.CellReference.convertNumToColString(c);
+        for (int column = 3; column <= 8; column++) {
 
-            sheet.getRow(4).getCell(c)
-                    .setCellFormula("=" + col + "7+" + col + "8+" + col + "9");
+            String col = org.apache.poi.ss.util.CellReference
+                    .convertNumToColString(column);
 
-            sheet.getRow(10).getCell(c)
-                    .setCellFormula("=" + col + "11+" + col + "12+" + col + "13");
+            setFormula(
+                    sheet.getRow(4),
+                    column,
+                    col + "7+" + col + "8+" + col + "9");
 
-            sheet.getRow(21).getCell(c)
-                    .setCellFormula("=" + col + "22+" + col + "23");
+            setFormula(
+                    sheet.getRow(10),
+                    column,
+                    col + "11+" + col + "12+" + col + "13");
 
-            sheet.getRow(26).getCell(c)
-                    .setCellFormula("=" + col + "27+" + col + "28+" + col + "29+" + col + "30");
+            setFormula(
+                    sheet.getRow(21),
+                    column,
+                    col + "22+" + col + "23");
 
-            sheet.getRow(31).getCell(c)
-                    .setCellFormula("=" + col + "26-" + col + "30");
+            setFormula(
+                    sheet.getRow(26),
+                    column,
+                    col + "27+" + col + "28+" + col + "29+" + col + "30");
+
+            setFormula(
+                    sheet.getRow(31),
+                    column,
+                    col + "26-" + col + "30");
         }
 
-        sheet.getRow(4).getCell(2).setCellStyle(title);
-        sheet.getRow(21).getCell(2).setCellStyle(title);
-        sheet.getRow(32).getCell(2).setCellStyle(title);
+        sheet.getRow(4).getCell(2).setCellStyle(titleStyle);
+        sheet.getRow(21).getCell(2).setCellStyle(titleStyle);
+        sheet.getRow(32).getCell(2).setCellStyle(titleStyle);
 
-        for (int c = 0; c <= 14; c++) {
-            sheet.setColumnWidth(c, c == 2 ? 22000 : 4800);
+        for (int column = 0; column <= 14; column++) {
+
+            if (column == 2) {
+                sheet.setColumnWidth(column, 22000);
+            } else {
+                sheet.setColumnWidth(column, 4800);
+            }
         }
 
         sheet.createFreezePane(3, 4);
+
+        sheet.setFitToPage(true);
+
+        PrintSetup printSetup = sheet.getPrintSetup();
+        printSetup.setLandscape(true);
+        printSetup.setFitWidth((short) 1);
+        printSetup.setFitHeight((short) 0);
+
+        sheet.setAutobreaks(true);
+
+        workbook.setForceFormulaRecalculation(true);
     }
 
     private void createClassificationSheet(
