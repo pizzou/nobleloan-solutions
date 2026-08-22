@@ -12,6 +12,7 @@ import com.patrick.fintech.loan_backend.repository.PaymentScheduleRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import org.apache.poi.ooxml.POIXMLProperties;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
@@ -27,28 +28,6 @@ import java.time.Period;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
-/**
- * Production BNR export service.
- *
- * IMPORTANT:
- * - The BNR workbook structure is constructed entirely in Java.
- * - No uploaded XLSX template is loaded at runtime.
- * - Loan, borrower and schedule values are read from Noble's database.
- * - Contractual interest is NOT recalculated here. The export reports the
- * contractual rate stored on Loan and the balances stored by the
- * operational loan/payment system.
- * - Provisioning is calculated from outstanding principal less eligible
- * collateral using the classification rates represented by the supplied
- * BNR template:
- * Normal 0%
- * Watch 1%
- * Substandard 20%
- * Doubtful 50%
- * Loss 100%
- * - Missing source data is left blank rather than fabricated.
- *
- * Runtime dependency: none on an XLSX template resource.
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -82,12 +61,19 @@ public class BnrTemplateExportService {
             LocalDate to) {
 
         if (organizationId == null || organizationId <= 0) {
-
-        if (organizationId == null || organizationId <= 0) {
             throw new IllegalArgumentException("organizationId is required");
         }
 
+        if (period == null) {
+            throw new IllegalArgumentException("period is required");
+        }
+
         LocalDate[] window = resolvePeriod(period, from, to);
+
+        if (window == null || window.length < 2 || window[0] == null || window[1] == null) {
+            throw new IllegalStateException("Unable to resolve BNR reporting period");
+        }
+
         LocalDate reportDate = window[1];
 
         List<Loan> loans = safeLoans(
@@ -97,58 +83,116 @@ public class BnrTemplateExportService {
                         reportDate.plusDays(1).atStartOfDay(),
                         reportDate));
 
-        try (XSSFWorkbook workbook = buildBnrWorkbook();
-             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+        try (
+                XSSFWorkbook workbook = buildBnrWorkbook();
+                ByteArrayOutputStream output = new ByteArrayOutputStream()) {
 
             configureWorkbook(workbook);
-            populateMetadata(workbook, organizationId, branchId, period, window, loans);
+
+            /*
+             * Populate organization/report metadata.
+             */
+            populateMetadata(
+                    workbook,
+                    organizationId,
+                    branchId,
+                    period,
+                    window,
+                    loans);
 
             Map<String, List<Loan>> classified = classifyLoans(loans);
 
+            if (classified == null) {
+                classified = new java.util.LinkedHashMap<>();
+            }
+
             for (String sheetName : CLASSIFICATION_SHEETS) {
+
                 Sheet sheet = workbook.getSheet(sheetName);
+
                 if (sheet == null) {
                     throw new IllegalStateException(
-                            "Internal BNR workbook definition is missing sheet '" + sheetName + "'");
+                            "Internal BNR workbook definition is missing sheet '"
+                                    + sheetName
+                                    + "'");
                 }
 
                 if ("A1.9. Written off".equals(sheetName)) {
+
+                    List<Loan> writtenOffLoans = classified.getOrDefault(
+                            "WRITTEN_OFF",
+                            java.util.Collections.emptyList());
+
                     writeWrittenOffSheet(
                             sheet,
-                            classified.getOrDefault("WRITTEN_OFF", List.of()),
+                            writtenOffLoans,
                             reportDate);
+
                 } else {
+
                     String classification = classificationForSheet(sheetName);
+
+                    if (classification == null
+                            || classification.isBlank()) {
+
+                        throw new IllegalStateException(
+                                "No BNR classification mapping exists for sheet '"
+                                        + sheetName
+                                        + "'");
+                    }
+
+                    List<Loan> classificationLoans = classified.getOrDefault(
+                            classification,
+                            java.util.Collections.emptyList());
+
                     writeLoanSheet(
                             sheet,
-                            classified.getOrDefault(classification, List.of()),
+                            classificationLoans,
                             reportDate,
                             classification);
                 }
             }
 
-            BnrFinancialStatementReport financialStatement =
-                    regulatoryReportingService.buildBnrFinancialStatement(
-                            organizationId,
-                            branchId,
-                            period,
-                            window[0],
-                            window[1]);
+            BnrFinancialStatementReport financialStatement = regulatoryReportingService.buildBnrFinancialStatement(
+                    organizationId,
+                    branchId,
+                    period,
+                    window[0],
+                    window[1]);
 
-            populateFinancialStatement(workbook, financialStatement);
-            addValidationSheet(workbook, loans, classified, reportDate);
+            if (financialStatement == null) {
+                throw new IllegalStateException(
+                        "BNR financial statement could not be generated");
+            }
+
+            populateFinancialStatement(
+                    workbook,
+                    financialStatement);
+
+            addValidationSheet(
+                    workbook,
+                    loans,
+                    classified,
+                    reportDate);
 
             workbook.setForceFormulaRecalculation(true);
+
+            /*
+             * Serialize the generated workbook.
+             */
             workbook.write(output);
             output.flush();
 
             byte[] bytes = output.toByteArray();
+
             if (bytes.length == 0) {
-                throw new IllegalStateException("Generated BNR workbook is empty");
+                throw new IllegalStateException(
+                        "Generated BNR workbook is empty");
             }
 
             log.info(
-                    "BNR XLSX generated successfully. organizationId={}, branchId={}, period={}, from={}, to={}, loans={}, bytes={}",
+                    "BNR XLSX generated successfully. " +
+                            "organizationId={}, branchId={}, period={}, from={}, to={}, loans={}, bytes={}",
                     organizationId,
                     branchId,
                     period,
@@ -160,30 +204,37 @@ public class BnrTemplateExportService {
             return bytes;
 
         } catch (IOException e) {
+
             log.error(
-                    "Failed to serialize hard-coded BNR XLSX. organizationId={}, branchId={}, period={}",
+                    "Failed to serialize hard-coded BNR XLSX. " +
+                            "organizationId={}, branchId={}, period={}, from={}, to={}",
                     organizationId,
                     branchId,
                     period,
+                    window[0],
+                    window[1],
                     e);
 
             throw new IllegalStateException(
                     "Unable to generate the BNR Excel report",
                     e);
+
+        } catch (RuntimeException e) {
+
+            log.error(
+                    "BNR XLSX generation failed. " +
+                            "organizationId={}, branchId={}, period={}, from={}, to={}",
+                    organizationId,
+                    branchId,
+                    period,
+                    window[0],
+                    window[1],
+                    e);
+
+            throw e;
         }
     }
 
-    /**
-     * Builds the BNR workbook in Java.
-     *
-     * This intentionally does NOT load any XLSX resource from the classpath.
-     * The workbook structure is defined by Java code and populated from the
-     * Noble Loan database at export time.
-     *
-     * The regulatory sheet names, reporting columns, formula columns and
-     * explanatory-note headings are defined here so the export is deterministic
-     * in every environment (local, Render, Docker, etc.).
-     */
     private XSSFWorkbook buildBnrWorkbook() {
 
         XSSFWorkbook workbook = new XSSFWorkbook();
@@ -257,31 +308,38 @@ public class BnrTemplateExportService {
         Sheet sheet = workbook.createSheet("A1.1  Explanatory Note ");
 
         String[][] notes = {
-                {"DENOMINATION", "Explanatory Notes"},
-                {"A.BALANCE SHEET", ""},
-                {"1.Total Liquid Assets (2+3+4)", ""},
-                {"2.Cash in vault", "Physical cash held on the institution premises as at reporting date."},
-                {"3.Cash in bank and other FIs (Current account)", "Balances at banks, financial institutions and transactional mobile money accounts."},
-                {"4.Cash in bank and other FIs (Term deposit)", "Cash placed in fixed-term accounts earning interest."},
-                {"5.Gross loans", "Outstanding loan balance before eligible collateral and provisions."},
-                {"6.Provision for bad and doubtful debts", "Required provisioning based on regulatory loan classification."},
-                {"7.Net loans", "Gross loans less provisions."},
-                {"B.INCOME STATEMENT", ""},
-                {"Interest income", "Interest income recognized from the lending portfolio."},
-                {"Fee and penalty income", "Management fees, processing fees, extension fees and penalties recognized as income."},
-                {"Operating expenses", "Operating expenses supported by the accounting ledger."},
-                {"Net income", "Income less operating and loan-loss expenses."},
-                {"C.LOAN CLASSIFICATION", ""},
-                {"Normal", "Current performing loans with no qualifying arrears."},
-                {"Watch", "Loans with arrears requiring watch classification."},
-                {"Substandard", "Loans meeting the regulatory substandard arrears threshold."},
-                {"Doubtful", "Loans meeting the regulatory doubtful arrears threshold."},
-                {"Loss", "Loans meeting the regulatory loss threshold."},
-                {"Restructured loans", "Loans formally restructured or extended according to the platform record."},
-                {"Written off", "Loans recorded as written off in the Noble Loan system."},
-                {"INTEREST BASIS", "Noble Loan contractual interest is monthly. The BNR annual-interest field is the contractual monthly rate multiplied by 12."},
-                {"COLLATERAL", "Eligible collateral is limited by the collateral treatment implemented by the BNR exporter."},
-                {"SOURCE", "All report values are sourced from Noble Loan operational and accounting data. Missing source values are left blank."}
+                { "DENOMINATION", "Explanatory Notes" },
+                { "A.BALANCE SHEET", "" },
+                { "1.Total Liquid Assets (2+3+4)", "" },
+                { "2.Cash in vault", "Physical cash held on the institution premises as at reporting date." },
+                { "3.Cash in bank and other FIs (Current account)",
+                        "Balances at banks, financial institutions and transactional mobile money accounts." },
+                { "4.Cash in bank and other FIs (Term deposit)",
+                        "Cash placed in fixed-term accounts earning interest." },
+                { "5.Gross loans", "Outstanding loan balance before eligible collateral and provisions." },
+                { "6.Provision for bad and doubtful debts",
+                        "Required provisioning based on regulatory loan classification." },
+                { "7.Net loans", "Gross loans less provisions." },
+                { "B.INCOME STATEMENT", "" },
+                { "Interest income", "Interest income recognized from the lending portfolio." },
+                { "Fee and penalty income",
+                        "Management fees, processing fees, extension fees and penalties recognized as income." },
+                { "Operating expenses", "Operating expenses supported by the accounting ledger." },
+                { "Net income", "Income less operating and loan-loss expenses." },
+                { "C.LOAN CLASSIFICATION", "" },
+                { "Normal", "Current performing loans with no qualifying arrears." },
+                { "Watch", "Loans with arrears requiring watch classification." },
+                { "Substandard", "Loans meeting the regulatory substandard arrears threshold." },
+                { "Doubtful", "Loans meeting the regulatory doubtful arrears threshold." },
+                { "Loss", "Loans meeting the regulatory loss threshold." },
+                { "Restructured loans", "Loans formally restructured or extended according to the platform record." },
+                { "Written off", "Loans recorded as written off in the Noble Loan system." },
+                { "INTEREST BASIS",
+                        "Noble Loan contractual interest is monthly. The BNR annual-interest field is the contractual monthly rate multiplied by 12." },
+                { "COLLATERAL",
+                        "Eligible collateral is limited by the collateral treatment implemented by the BNR exporter." },
+                { "SOURCE",
+                        "All report values are sourced from Noble Loan operational and accounting data. Missing source values are left blank." }
         };
 
         CellStyle title = createTitleStyle(workbook);
@@ -390,7 +448,7 @@ public class BnrTemplateExportService {
         section.createCell(2).setCellValue("A.BALANCE SHEET");
         section.getCell(2).setCellStyle(title);
 
-        String[] periodColumns = {"D", "E", "F", "G", "H", "I"};
+        String[] periodColumns = { "D", "E", "F", "G", "H", "I" };
 
         for (int i = 0; i < labels.length; i++) {
             int rowIndex = 4 + i;
@@ -446,63 +504,138 @@ public class BnrTemplateExportService {
             int headerRowNumber,
             String[] headers) {
 
+        if (workbook == null) {
+            throw new IllegalArgumentException("Workbook cannot be null");
+        }
+
+        if (sheetName == null || sheetName.isBlank()) {
+            throw new IllegalArgumentException("Sheet name is required");
+        }
+
+        if (headers == null || headers.length == 0) {
+            throw new IllegalArgumentException(
+                    "Classification sheet headers are required");
+        }
+
+        if (headerRowNumber < 1) {
+            throw new IllegalArgumentException(
+                    "Header row number must be greater than zero");
+        }
+
         Sheet sheet = workbook.createSheet(sheetName);
 
-        CellStyle title = createTitleStyle(workbook);
-        CellStyle header = createHeaderStyle(workbook);
-        CellStyle body = createBodyStyle(workbook);
+        CellStyle titleStyle = createTitleStyle(workbook);
+        CellStyle headerStyle = createHeaderStyle(workbook);
+        CellStyle bodyStyle = createBodyStyle(workbook);
 
-        Row r1 = sheet.createRow(0);
-        r1.createCell(0).setCellValue("NDFSP Name");
-        r1.getCell(0).setCellStyle(header);
+        Row ndfspLabelRow = sheet.createRow(0);
 
-        Row r2 = sheet.createRow(1);
-        r2.createCell(0).setCellValue("NDFSP Name");
-        r2.getCell(0).setCellStyle(body);
+        Cell ndfspLabelCell = ndfspLabelRow.createCell(0);
+        ndfspLabelCell.setCellValue("NDFSP Name");
+        ndfspLabelCell.setCellStyle(headerStyle);
 
-        Row r3 = sheet.createRow(2);
-        r3.createCell(0).setCellValue("Report Date");
-        r3.getCell(0).setCellStyle(body);
-        r3.createCell(2).setCellValue(LocalDate.now());
-        r3.getCell(2).setCellStyle(body);
+        Row ndfspValueRow = sheet.createRow(1);
 
-        Row r4 = sheet.createRow(3);
-        r4.createCell(0).setCellValue("Report Name");
-        r4.createCell(2).setCellValue(reportName);
-        r4.getCell(0).setCellStyle(header);
-        r4.getCell(2).setCellStyle(title);
+        Cell ndfspValueCell = ndfspValueRow.createCell(0);
+        ndfspValueCell.setCellValue("NDFSP Name");
+        ndfspValueCell.setCellStyle(bodyStyle);
+
+        Row reportDateRow = sheet.createRow(2);
+
+        Cell reportDateLabelCell = reportDateRow.createCell(0);
+        reportDateLabelCell.setCellValue("Report Date");
+        reportDateLabelCell.setCellStyle(bodyStyle);
+
+        Cell reportDateCell = reportDateRow.createCell(2);
+        reportDateCell.setCellValue(LocalDate.now());
+        reportDateCell.setCellStyle(bodyStyle);
+
+        Row reportNameRow = sheet.createRow(3);
+
+        Cell reportNameLabelCell = reportNameRow.createCell(0);
+        reportNameLabelCell.setCellValue("Report Name");
+        reportNameLabelCell.setCellStyle(headerStyle);
+
+        Cell reportNameCell = reportNameRow.createCell(2);
+        reportNameCell.setCellValue(
+                reportName == null ? "" : reportName);
+        reportNameCell.setCellStyle(titleStyle);
 
         Row classificationRow = sheet.createRow(5);
-        classificationRow.createCell(0).setCellValue(
-                "Portfolio at risk / regulatory classification: " + classification);
-        classificationRow.getCell(0).setCellStyle(title);
 
-        Row header = sheet.createRow(headerRowNumber - 1);
-        for (int c = 0; c < headers.length; c++) {
-            Cell cell = header.createCell(c);
-            cell.setCellValue(headers[c]);
-            cell.setCellStyle(header);
+        Cell classificationCell = classificationRow.createCell(0);
+
+        classificationCell.setCellValue(
+                "Portfolio at risk / regulatory classification: "
+                        + (classification == null
+                                ? ""
+                                : classification));
+
+        classificationCell.setCellStyle(titleStyle);
+
+        int actualHeaderRowIndex = headerRowNumber - 1;
+
+        Row headerRow = sheet.createRow(actualHeaderRowIndex);
+
+        for (int columnIndex = 0; columnIndex < headers.length; columnIndex++) {
+
+            String headerText = headers[columnIndex];
+
+            if (headerText == null) {
+                headerText = "";
+            }
+
+            Cell headerCell = headerRow.createCell(columnIndex);
+
+            headerCell.setCellValue(headerText);
+
+            headerCell.setCellStyle(headerStyle);
         }
 
-        Row placeholder = sheet.createRow(headerRowNumber);
-        for (int c = 0; c < headers.length; c++) {
-            Cell cell = placeholder.createCell(c);
-            cell.setCellValue("");
-            cell.setCellStyle(body);
+        Row firstDataRow = sheet.createRow(headerRowNumber);
+
+        for (int columnIndex = 0; columnIndex < headers.length; columnIndex++) {
+
+            Cell dataCell = firstDataRow.createCell(columnIndex);
+
+            dataCell.setCellValue("");
+
+            dataCell.setCellStyle(bodyStyle);
         }
 
-        for (int c = 0; c < headers.length; c++) {
-            sheet.setColumnWidth(c, Math.min(
-                    18000,
-                    Math.max(4200, Math.min(14000, headers[c].length() * 300))));
+        for (int columnIndex = 0; columnIndex < headers.length; columnIndex++) {
+
+            String headerText = headers[columnIndex];
+
+            if (headerText == null) {
+                headerText = "";
+            }
+
+            int calculatedWidth = headerText.length() * 300;
+
+            int boundedWidth = Math.max(
+                    4200,
+                    Math.min(
+                            14000,
+                            calculatedWidth));
+
+            sheet.setColumnWidth(
+                    columnIndex,
+                    Math.min(
+                            18000,
+                            boundedWidth));
         }
 
-        sheet.createFreezePane(0, headerRowNumber);
-        sheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(
-                headerRowNumber - 1,
-                headerRowNumber,
+        sheet.createFreezePane(
                 0,
-                headers.length - 1));
+                headerRowNumber);
+
+        sheet.setAutoFilter(
+                new org.apache.poi.ss.util.CellRangeAddress(
+                        actualHeaderRowIndex,
+                        headerRowNumber,
+                        0,
+                        headers.length - 1));
     }
 
     private void createSheet1(XSSFWorkbook workbook) {
@@ -517,11 +650,12 @@ public class BnrTemplateExportService {
         sheet.addMergedRegion(new org.apache.poi.ss.util.CellRangeAddress(0, 0, 0, 5));
 
         String[][] rows = {
-                {"Report purpose", "Regulatory portfolio and financial reporting"},
-                {"Data source", "Noble Loan operational and accounting database"},
-                {"Workbook construction", "Programmatically generated; no XLSX template is required at runtime"},
-                {"Interest basis", "Contractual interest is monthly; BNR annual-interest field is nominal monthly rate multiplied by 12"},
-                {"Classification", "Normal / Watch / Substandard / Doubtful / Loss / Restructured / Written off"}
+                { "Report purpose", "Regulatory portfolio and financial reporting" },
+                { "Data source", "Noble Loan operational and accounting database" },
+                { "Workbook construction", "Programmatically generated; no XLSX template is required at runtime" },
+                { "Interest basis",
+                        "Contractual interest is monthly; BNR annual-interest field is nominal monthly rate multiplied by 12" },
+                { "Classification", "Normal / Watch / Substandard / Doubtful / Loss / Restructured / Written off" }
         };
         for (int i = 0; i < rows.length; i++) {
             Row row = sheet.createRow(i + 2);
@@ -538,6 +672,7 @@ public class BnrTemplateExportService {
     }
 
     private void createWrittenOffSheet(XSSFWorkbook workbook) {
+
         String[] headers = {
                 "Names of Borrowers",
                 "ID of the Borrower",
@@ -567,49 +702,99 @@ public class BnrTemplateExportService {
 
         Sheet sheet = workbook.createSheet("A1.9. Written off");
 
-        CellStyle title = createTitleStyle(workbook);
-        CellStyle header = createHeaderStyle(workbook);
-        CellStyle body = createBodyStyle(workbook);
+        CellStyle titleStyle = createTitleStyle(workbook);
+        CellStyle headerStyle = createHeaderStyle(workbook);
+        CellStyle bodyStyle = createBodyStyle(workbook);
 
-        Row r1 = sheet.createRow(0);
-        r1.createCell(0).setCellValue("NDFSP Name");
-        r1.getCell(0).setCellStyle(header);
+        Row ndfspLabelRow = sheet.createRow(0);
 
-        Row r2 = sheet.createRow(1);
-        r2.createCell(0).setCellValue("NDFSP Name");
-        r2.getCell(0).setCellStyle(body);
+        Cell ndfspLabelCell = ndfspLabelRow.createCell(0);
+        ndfspLabelCell.setCellValue("NDFSP Name");
+        ndfspLabelCell.setCellStyle(headerStyle);
 
-        Row r3 = sheet.createRow(2);
-        r3.createCell(0).setCellValue("Report Date");
-        r3.getCell(0).setCellStyle(body);
-        r3.createCell(1).setCellValue(LocalDate.now());
-        r3.getCell(1).setCellStyle(body);
+        Row ndfspValueRow = sheet.createRow(1);
 
-        Row r4 = sheet.createRow(3);
-        r4.createCell(0).setCellValue("Report Name");
-        r4.createCell(1).setCellValue(
+        Cell ndfspValueCell = ndfspValueRow.createCell(0);
+        ndfspValueCell.setCellValue("NDFSP Name");
+        ndfspValueCell.setCellStyle(bodyStyle);
+
+        Row reportDateRow = sheet.createRow(2);
+
+        Cell reportDateLabelCell = reportDateRow.createCell(0);
+        reportDateLabelCell.setCellValue("Report Date");
+        reportDateLabelCell.setCellStyle(bodyStyle);
+
+        Cell reportDateCell = reportDateRow.createCell(1);
+        reportDateCell.setCellValue(LocalDate.now());
+        reportDateCell.setCellStyle(bodyStyle);
+
+        Row reportNameRow = sheet.createRow(3);
+
+        Cell reportNameLabelCell = reportNameRow.createCell(0);
+        reportNameLabelCell.setCellValue("Report Name");
+        reportNameLabelCell.setCellStyle(headerStyle);
+
+        Cell reportNameCell = reportNameRow.createCell(1);
+        reportNameCell.setCellValue(
                 "Written Off Loans-Individuals (1 year in loss)");
-        r4.getCell(0).setCellStyle(header);
-        r4.getCell(1).setCellStyle(title);
+        reportNameCell.setCellStyle(titleStyle);
 
-        Row header = sheet.createRow(6);
-        for (int c = 0; c < headers.length; c++) {
-            Cell cell = header.createCell(c);
-            cell.setCellValue(headers[c]);
-            cell.setCellStyle(header);
+        final int headerRowIndex = 6;
+
+        Row headerRow = sheet.createRow(headerRowIndex);
+
+        for (int columnIndex = 0; columnIndex < headers.length; columnIndex++) {
+
+            String headerText = headers[columnIndex];
+
+            if (headerText == null) {
+                headerText = "";
+            }
+
+            Cell headerCell = headerRow.createCell(columnIndex);
+
+            headerCell.setCellValue(headerText);
+
+            headerCell.setCellStyle(headerStyle);
+
+            int calculatedWidth = headerText.length() * 300;
+
+            int boundedWidth = Math.max(
+                    4200,
+                    Math.min(
+                            14000,
+                            calculatedWidth));
+
             sheet.setColumnWidth(
-                    c,
-                    Math.min(18000, Math.max(4200, headers[c].length() * 300)));
+                    columnIndex,
+                    Math.min(
+                            18000,
+                            boundedWidth));
         }
 
-        Row placeholder = sheet.createRow(7);
-        for (int c = 0; c < headers.length; c++) {
-            placeholder.createCell(c).setCellStyle(body);
+        final int firstDataRowIndex = 7;
+
+        Row firstDataRow = sheet.createRow(firstDataRowIndex);
+
+        for (int columnIndex = 0; columnIndex < headers.length; columnIndex++) {
+
+            Cell dataCell = firstDataRow.createCell(columnIndex);
+
+            dataCell.setCellValue("");
+
+            dataCell.setCellStyle(bodyStyle);
         }
 
-        sheet.createFreezePane(0, 7);
-        sheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(
-                6, 7, 0, headers.length - 1));
+        sheet.createFreezePane(
+                0,
+                firstDataRowIndex);
+
+        sheet.setAutoFilter(
+                new org.apache.poi.ss.util.CellRangeAddress(
+                        headerRowIndex,
+                        firstDataRowIndex,
+                        0,
+                        headers.length - 1));
     }
 
     private String[] normalHeaders() {
@@ -717,11 +902,23 @@ public class BnrTemplateExportService {
 
     private CellStyle createCurrencyStyle(XSSFWorkbook workbook) {
         CellStyle style = createBodyStyle(workbook);
-        style.setDataFormat(workbook.createDataFormat().getFormat("#,##0.00"));
+        style.setDataFormat(
+                workbook.createDataFormat().getFormat("#,##0.00"));
         return style;
     }
 
-s().getCoreProperties().setTitle("BNR Regulatory Reporting");
+    private void configureWorkbook(XSSFWorkbook workbook) {
+
+        if (workbook == null) {
+            throw new IllegalArgumentException("Workbook cannot be null");
+        }
+
+        workbook.setForceFormulaRecalculation(true);
+
+        POIXMLProperties.CoreProperties properties = workbook.getProperties().getCoreProperties();
+
+        properties.setCreator("Noble Loan Solutions");
+        properties.setTitle("BNR Regulatory Reporting");
     }
 
     private void populateMetadata(
@@ -1380,6 +1577,31 @@ s().getCoreProperties().setTitle("BNR Regulatory Reporting");
         setCellValue(sheet, 99, currentColumn, summary.otherDisbursedAmount);
     }
 
+    private void setIfPresent(
+            Sheet sheet,
+            int rowIndex,
+            int columnIndex,
+            BigDecimal value) {
+
+        if (sheet == null || value == null) {
+            return;
+        }
+
+        Row row = sheet.getRow(rowIndex);
+
+        if (row == null) {
+            row = sheet.createRow(rowIndex);
+        }
+
+        Cell cell = row.getCell(columnIndex);
+
+        if (cell == null) {
+            cell = row.createCell(columnIndex);
+        }
+
+        cell.setCellValue(value.doubleValue());
+    }
+
     private void populateAccountingComponents(
             Sheet sheet,
             int column,
@@ -1433,13 +1655,6 @@ s().getCoreProperties().setTitle("BNR Regulatory Reporting");
                 report.getExpenses(), "5207", "bank charges")); // row 53
     }
 
-    /**
-     * Finds an accounting line by account code first and, when no code is
-     * available, by a normalized description fragment. This keeps the BNR
-     * exporter read-only and prevents it from inventing accounting balances.
-     * The method accepts the report DTO's List<Map<String,Object>> shape
-     * without coupling the exporter to a particular accounting entity.
-     */
     private BigDecimal findAccountingAmount(
             List<?> lines,
             String accountCode,
