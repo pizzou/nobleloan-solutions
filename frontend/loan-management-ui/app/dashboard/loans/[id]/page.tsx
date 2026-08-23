@@ -1081,6 +1081,15 @@ export default function LoanDetailPage() {
   const [esignBusy, setEsignBusy] = useState(false);
 
   // ==========================================================
+  // LOAN EXTENSION
+  // ==========================================================
+
+  const [extensionOpen, setExtensionOpen] = useState(false);
+  const [extensionMonths, setExtensionMonths] = useState("1");
+  const [extensionReason, setExtensionReason] = useState("");
+  const [extensionSaving, setExtensionSaving] = useState(false);
+
+  // ==========================================================
   // LOAD LOAN
   // ==========================================================
 
@@ -1660,6 +1669,73 @@ export default function LoanDetailPage() {
     setEsignBusy(false);
   };
 
+  const openExtensionModal = () => {
+    const duration = Number(loan?.durationMonths ?? 0);
+    const remainingTerm = Math.max(1, 6 - duration);
+
+    setExtensionMonths(String(Math.min(1, remainingTerm)));
+    setExtensionReason("");
+    setExtensionOpen(true);
+  };
+
+  const handleExtension = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!hasValidLoanId) {
+      setMsg({
+        type: "error",
+        text: "This loan link is invalid. Extension cannot be requested.",
+      });
+      return;
+    }
+
+    const months = Number(extensionMonths);
+    const duration = Number(loan?.durationMonths ?? 0);
+    const remainingTerm = Math.max(0, 6 - duration);
+
+    if (!Number.isInteger(months) || months < 1) {
+      setMsg({
+        type: "error",
+        text: "Select a valid extension period.",
+      });
+      return;
+    }
+
+    if (remainingTerm < 1 || months > remainingTerm) {
+      setMsg({
+        type: "error",
+        text: `This loan can only be extended by up to ${remainingTerm} month${remainingTerm === 1 ? "" : "s"}.`,
+      });
+      return;
+    }
+
+    setExtensionSaving(true);
+    setMsg(null);
+
+    try {
+      await loanApi.extend(loanId, {
+        extensionMonths: months,
+        reason: extensionReason.trim(),
+      });
+
+      setExtensionOpen(false);
+      setMsg({
+        type: "success",
+        text: "Loan extension approved successfully.",
+      });
+
+      await load();
+      await loadDocReq();
+    } catch (err: any) {
+      setMsg({
+        type: "error",
+        text: err?.message ?? "Unable to extend this loan.",
+      });
+    } finally {
+      setExtensionSaving(false);
+    }
+  };
+
   if (!hasValidLoanId) {
     return (
       <div className="min-h-[60vh] bg-slate-50/70 p-4 sm:p-6 lg:p-8">
@@ -1853,65 +1929,147 @@ export default function LoanDetailPage() {
               </div>
             </div>
 
-            <div className="flex gap-2 flex-wrap justify-end">
-              {isOfficer && loan.borrower && (
-                <Button
-                  variant="outline"
-                  onClick={handleCreditBureauCheck}
-                  disabled={cbBusy}
-                >
-                  <IconBank className="w-4 h-4" />
+            <div className="w-full xl:w-auto xl:min-w-[720px] rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="flex items-center justify-between gap-3 px-2 pb-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white">
+                    <IconBank className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-500">
+                      Loan Operations
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      Controlled servicing actions
+                    </div>
+                  </div>
+                </div>
 
-                  {cbBusy ? "Checking…" : "Credit Bureau Check"}
-                </Button>
-              )}
+                {isOfficer && (
+                  <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-bold text-slate-600">
+                    <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
+                    Authorized officer
+                  </span>
+                )}
+              </div>
 
-              {isOfficer &&
-                (loan.status === "APPROVED" ||
-                  loan.status === "DISBURSED" ||
-                  loan.status === "ACTIVE") && (
-                  <Button
-                    variant="outline"
-                    onClick={handleSendForSignature}
-                    disabled={esignBusy}
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2">
+                {isOfficer && loan.borrower && (
+                  <button
+                    type="button"
+                    onClick={handleCreditBureauCheck}
+                    disabled={cbBusy}
+                    className="group min-h-[92px] rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+                    aria-label="Run Credit Bureau check"
                   >
-                    <IconSignature className="w-4 h-4" />
-
-                    {esignBusy ? "Sending…" : "Send for E-Signature"}
-                  </Button>
+                    <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                      <IconBank className="h-4 w-4" />
+                    </span>
+                    <span className="block text-xs font-extrabold text-slate-800">
+                      Credit Bureau
+                    </span>
+                    <span className="mt-0.5 block text-[10px] leading-4 text-slate-400">
+                      {cbBusy ? "Running check…" : "Run credit check"}
+                    </span>
+                  </button>
                 )}
 
-              {isOfficer && (
-                <Button
-                  variant="outline"
-                  onClick={openStatusModal}
-                  aria-label={`Update status for loan ${loan.referenceNumber}`}
-                >
-                  Update Status
-                </Button>
-              )}
+                {isOfficer &&
+                  (loan.status === "APPROVED" ||
+                    loan.status === "DISBURSED" ||
+                    loan.status === "ACTIVE") && (
+                    <button
+                      type="button"
+                      onClick={handleSendForSignature}
+                      disabled={esignBusy}
+                      className="group min-h-[92px] rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:-translate-y-0.5 hover:border-violet-200 hover:bg-violet-50/40 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+                      aria-label="Send loan for E-Signature"
+                    >
+                      <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+                        <IconSignature className="h-4 w-4" />
+                      </span>
+                      <span className="block text-xs font-extrabold text-slate-800">
+                        E-Signature
+                      </span>
+                      <span className="mt-0.5 block text-[10px] leading-4 text-slate-400">
+                        {esignBusy ? "Sending…" : "Send for signing"}
+                      </span>
+                    </button>
+                  )}
 
-              {loan.status === "ACTIVE" && (
-                <Button
-                  onClick={() => {
-                    setPayForm((f) => ({
-                      ...f,
+                {isOfficer && (
+                  <button
+                    type="button"
+                    onClick={openStatusModal}
+                    className="group min-h-[92px] rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:shadow-sm"
+                    aria-label={`Update status for loan ${loan.referenceNumber}`}
+                  >
+                    <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                      <IconFileEdit className="h-4 w-4" />
+                    </span>
+                    <span className="block text-xs font-extrabold text-slate-800">
+                      Status
+                    </span>
+                    <span className="mt-0.5 block text-[10px] leading-4 text-slate-400">
+                      Update loan status
+                    </span>
+                  </button>
+                )}
 
-                      amount: String(
-                        loan.nextInstallmentAmount ??
-                          loan.outstandingBalance ??
-                          loan.amount ??
-                          0,
-                      ),
-                    }));
+                {isOfficer &&
+                  ["ACTIVE", "OVERDUE", "DEFAULTED", "RESTRUCTURED"].includes(
+                    loan.status,
+                  ) &&
+                  (loan.durationMonths ?? 0) < 6 &&
+                  (loan.outstandingBalance ?? 0) > 0 && (
+                    <button
+                      type="button"
+                      onClick={openExtensionModal}
+                      className="group min-h-[92px] rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:-translate-y-0.5 hover:border-amber-200 hover:bg-amber-50/40 hover:shadow-sm"
+                      aria-label={`Request extension for loan ${loan.referenceNumber}`}
+                    >
+                      <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                        <IconCalendar className="h-4 w-4" />
+                      </span>
+                      <span className="block text-xs font-extrabold text-slate-800">
+                        Extension
+                      </span>
+                      <span className="mt-0.5 block text-[10px] leading-4 text-slate-400">
+                        Request more time
+                      </span>
+                    </button>
+                  )}
 
-                    setPayOpen(true);
-                  }}
-                >
-                  <IconCard className="w-4 h-4" />
-                  Record Payment
-                </Button>
-              )}
+                {loan.status === "ACTIVE" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPayForm((f) => ({
+                        ...f,
+                        amount: String(
+                          loan.nextInstallmentAmount ??
+                            loan.outstandingBalance ??
+                            loan.amount ??
+                            0,
+                        ),
+                      }));
+                      setPayOpen(true);
+                    }}
+                    className="group min-h-[92px] rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:-translate-y-0.5 hover:border-teal-200 hover:bg-teal-50/40 hover:shadow-sm"
+                    aria-label={`Record payment for loan ${loan.referenceNumber}`}
+                  >
+                    <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-teal-50 text-teal-600">
+                      <IconCard className="h-4 w-4" />
+                    </span>
+                    <span className="block text-xs font-extrabold text-slate-800">
+                      Payment
+                    </span>
+                    <span className="mt-0.5 block text-[10px] leading-4 text-slate-400">
+                      Record repayment
+                    </span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -3361,6 +3519,85 @@ export default function LoanDetailPage() {
                     internalNotes: e.target.value,
                   }))
                 }
+              />
+            </FormGroup>
+          </form>
+        </Modal>
+
+        {/* ======================================================
+          LOAN EXTENSION MODAL
+      ====================================================== */}
+
+        <Modal
+          open={extensionOpen}
+          onClose={() => setExtensionOpen(false)}
+          title="Request Loan Extension"
+          footer={
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => setExtensionOpen(false)}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                loading={extensionSaving}
+                onClick={handleExtension as any}
+                aria-label="Confirm loan extension"
+              >
+                Confirm Extension
+              </Button>
+            </>
+          }
+        >
+          <form onSubmit={handleExtension}>
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 mb-4">
+              <div className="text-xs font-bold uppercase tracking-wider text-amber-700">
+                Extension policy
+              </div>
+              <p className="mt-1 text-sm leading-6 text-amber-900">
+                An authorized officer may extend an active loan within the
+                institution's permitted term. The backend remains the authority
+                for the final extension calculation and fee.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FormGroup label="Extension period" required>
+                <Select
+                  value={extensionMonths}
+                  onChange={(e) => setExtensionMonths(e.target.value)}
+                  required
+                >
+                  {Array.from(
+                    {
+                      length: Math.max(1, 6 - Number(loan.durationMonths ?? 0)),
+                    },
+                    (_, index) => index + 1,
+                  ).map((months) => (
+                    <option key={months} value={String(months)}>
+                      {months} month{months === 1 ? "" : "s"}
+                    </option>
+                  ))}
+                </Select>
+              </FormGroup>
+
+              <FormGroup label="Current term">
+                <Input
+                  value={`${loan.durationMonths ?? 0} months`}
+                  disabled
+                  readOnly
+                />
+              </FormGroup>
+            </div>
+
+            <FormGroup label="Reason">
+              <Textarea
+                placeholder="Explain why the borrower requires additional time."
+                value={extensionReason}
+                onChange={(e) => setExtensionReason(e.target.value)}
+                rows={4}
               />
             </FormGroup>
           </form>
