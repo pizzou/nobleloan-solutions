@@ -1105,12 +1105,60 @@ export default function LoanDetailPage() {
         loanApi.schedule(loanId),
       ]);
 
-      setLoan(loanResponse as Loan);
-      setSchedule(Array.isArray(scheduleResponse) ? scheduleResponse : []);
+      /*
+       * loanApi.get() may return either:
+       *
+       *   Loan
+       *
+       * or a cached response wrapper:
+       *
+       *   CachedResponse<Loan>
+       *
+       * Keep the page compatible with the existing API service
+       * instead of changing the application's architecture.
+       */
+      const resolvedLoan =
+        loanResponse &&
+        typeof loanResponse === "object" &&
+        "data" in loanResponse
+          ? (loanResponse as { data: Loan }).data
+          : (loanResponse as unknown as Loan);
 
+      /*
+       * loanApi.schedule() may return either:
+       *
+       *   Payment[]
+       *
+       * or:
+       *
+       *   CachedResponse<Payment[]>
+       */
+      const resolvedSchedule =
+        scheduleResponse &&
+        typeof scheduleResponse === "object" &&
+        "data" in scheduleResponse
+          ? (scheduleResponse as { data: Payment[] }).data
+          : (scheduleResponse as unknown as Payment[]);
+
+      setLoan(resolvedLoan);
+
+      setSchedule(Array.isArray(resolvedSchedule) ? resolvedSchedule : []);
+
+      /*
+       * Store the normalized page payload in the cache.
+       *
+       * This means the cache contains:
+       *
+       * {
+       *   loan: Loan,
+       *   schedule: Payment[]
+       * }
+       *
+       * rather than another CachedResponse wrapper.
+       */
       await cacheSet(`/loans/${loanId}`, {
-        loan: loanResponse,
-        schedule: scheduleResponse,
+        loan: resolvedLoan,
+        schedule: Array.isArray(resolvedSchedule) ? resolvedSchedule : [],
       });
     } catch (error) {
       console.error("Failed to load loan", error);
@@ -1121,9 +1169,31 @@ export default function LoanDetailPage() {
           schedule: Payment[];
         }>(`/loans/${loanId}`);
 
-        if (cached) {
-          setLoan(cached.loan);
-          setSchedule(Array.isArray(cached.schedule) ? cached.schedule : []);
+        /*
+         * cacheGet returns CachedResponse<T>.
+         *
+         * Therefore the actual cached payload is under
+         * `cached.data`, not directly under `cached`.
+         */
+        const cachedData =
+          cached && typeof cached === "object" && "data" in cached
+            ? (
+                cached as {
+                  data: {
+                    loan: Loan;
+                    schedule: Payment[];
+                  };
+                }
+              ).data
+            : null;
+
+        if (cachedData) {
+          setLoan(cachedData.loan);
+
+          setSchedule(
+            Array.isArray(cachedData.schedule) ? cachedData.schedule : [],
+          );
+
           setMsg({
             type: "error",
             text: "You're offline — showing the last saved version of this loan.",
@@ -1131,6 +1201,7 @@ export default function LoanDetailPage() {
         } else {
           setLoan(null);
           setSchedule([]);
+
           setMsg({
             type: "error",
             text:
@@ -1141,8 +1212,10 @@ export default function LoanDetailPage() {
         }
       } catch (cacheError) {
         console.error("Failed to read cached loan", cacheError);
+
         setLoan(null);
         setSchedule([]);
+
         setMsg({
           type: "error",
           text: "Unable to load this loan or its cached copy.",
@@ -1156,10 +1229,6 @@ export default function LoanDetailPage() {
   useEffect(() => {
     void load();
   }, [loanId, hasValidLoanId]);
-
-  // ==========================================================
-  // LOAD CREDIT HISTORY
-  // ==========================================================
 
   const loadCreditHistory = async (borrowerId?: number) => {
     if (!borrowerId) {
