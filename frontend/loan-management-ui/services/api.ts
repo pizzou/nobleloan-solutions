@@ -233,6 +233,8 @@ export const loanApi = {
   restructure: (id: number, data: unknown) =>
     post(`/loans/${id}/restructure`, data),
 
+  extend: (id: number, data: unknown) => post(`/loans/${id}/extend`, data),
+
   writeOff: (id: number, reason: string) =>
     post(`/loans/${id}/write-off`, {
       reason,
