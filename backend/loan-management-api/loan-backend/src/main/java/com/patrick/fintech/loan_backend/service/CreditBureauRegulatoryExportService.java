@@ -11,7 +11,7 @@ import com.patrick.fintech.loan_backend.repository.GuarantorRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
-import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.Font;
@@ -135,7 +135,9 @@ public class CreditBureauRegulatoryExportService {
     private final CollateralRepository collateralRepository;
 
     /**
-     * Generates the native CRB .xls workbook.
+     * Generates the native CRB .xlsx workbook.
+     *
+     * The CRB worksheet structure is defined in Java; no runtime template is read.
      */
     public byte[] export(
             Long organizationId,
@@ -154,7 +156,7 @@ public class CreditBureauRegulatoryExportService {
         LocalDate reportDate = to != null ? to : LocalDate.now();
         List<Loan> loans = loadLoans(organizationId, branchId, borrowerId, from, to, reportDate);
 
-        try (HSSFWorkbook workbook = new HSSFWorkbook();
+        try (XSSFWorkbook workbook = new XSSFWorkbook();
                 ByteArrayOutputStream output = new ByteArrayOutputStream(128 * 1024)) {
 
             Styles styles = new Styles(workbook);

@@ -88,7 +88,7 @@ public class CreditBureauExportController {
         LocalDate toDate = parseDate(to);
         validateDateRange(fromDate, toDate);
 
-        if ("xlsx".equalsIgnoreCase(format) || "xls".equalsIgnoreCase(format)) {
+        if ("xlsx".equalsIgnoreCase(format)) {
             byte[] fileBytes = creditBureauRegulatoryExportService.export(
                     organizationId,
                     branchId,
@@ -96,11 +96,14 @@ public class CreditBureauExportController {
                     fromDate,
                     toDate);
 
-            String fileName = "credit_bureau_" + LocalDate.now() + ".xls";
+            String fileName = "credit_bureau_" + LocalDate.now() + ".xlsx";
             HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.parseMediaType("application/vnd.ms-excel"));
+            headers.setContentType(MediaType.parseMediaType(
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
             headers.setContentDispositionFormData("attachment", fileName);
             headers.setCacheControl("no-cache, no-store, must-revalidate");
+            headers.setPragma("no-cache");
+            headers.setContentLength(fileBytes.length);
 
             auditService.log(
                     currentUserUtil.getCurrentUser().getOrganization(),
