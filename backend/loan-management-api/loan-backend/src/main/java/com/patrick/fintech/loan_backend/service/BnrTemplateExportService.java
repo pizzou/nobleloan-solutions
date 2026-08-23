@@ -831,36 +831,37 @@ public class BnrTemplateExportService {
 
             for (int c = 3; c <= 8; c++) {
                 String destinationColumn = org.apache.poi.ss.util.CellReference.convertNumToColString(c);
+
                 String translatedFormula = sourceFormula.replaceAll(
                         "\\bD(?=\\$?\\d+)",
                         destinationColumn);
 
-                sheet.getRow(excelRow - 1)
-                        .getCell(c)
-                        .setCellFormula(translatedFormula);
+                setFormula(
+                        sheet.getRow(excelRow - 1),
+                        c,
+                        translatedFormula);
             }
         }
 
-        // Net loans / income movement helper row retained exactly as supplied.
-        sheet.getRow(29).getCell(4).setCellFormula("=D30+D31");
-        sheet.getRow(29).getCell(5).setCellFormula("=E30+E31");
-        sheet.getRow(29).getCell(6).setCellFormula("=F30+F31");
-        sheet.getRow(29).getCell(7).setCellFormula("=G30+G31");
-        sheet.getRow(29).getCell(8).setCellFormula("=H30+H31");
+        setFormula(sheet.getRow(29), 4, "=D30+D31");
+        setFormula(sheet.getRow(29), 5, "=E30+E31");
+        setFormula(sheet.getRow(29), 6, "=F30+F31");
+        setFormula(sheet.getRow(29), 7, "=G30+G31");
+        setFormula(sheet.getRow(29), 8, "=H30+H31");
 
         // ROA and ROE start from the second reporting period in the supplied
         // workbook because their denominator is a two-period average.
-        sheet.getRow(68).getCell(4).setCellFormula("=(E60)/((E20+D20)/2)");
-        sheet.getRow(68).getCell(5).setCellFormula("=(F60)/((F20+E20)/2)");
-        sheet.getRow(68).getCell(6).setCellFormula("=(G60)/((G20+F20)/2)");
-        sheet.getRow(68).getCell(7).setCellFormula("=(H60)/((H20+G20)/2)");
-        sheet.getRow(68).getCell(8).setCellFormula("=(I60)/((I20+H20)/2)");
+        setFormula(sheet.getRow(68), 4, "=(E60)/((E20+D20)/2)");
+        setFormula(sheet.getRow(68), 5, "=(F60)/((F20+E20)/2)");
+        setFormula(sheet.getRow(68), 6, "=(G60)/((G20+F20)/2)");
+        setFormula(sheet.getRow(68), 7, "=(H60)/((H20+G20)/2)");
+        setFormula(sheet.getRow(68), 8, "=(I60)/((I20+H20)/2)");
 
-        sheet.getRow(69).getCell(4).setCellFormula("=(E60)/((E26+D26)/2)");
-        sheet.getRow(69).getCell(5).setCellFormula("=(F60)/((F26+E26)/2)");
-        sheet.getRow(69).getCell(6).setCellFormula("=(G60)/((G26+F26)/2)");
-        sheet.getRow(69).getCell(7).setCellFormula("=(H60)/((H26+G26)/2)");
-        sheet.getRow(69).getCell(8).setCellFormula("=(I60)/((I26+H26)/2)");
+        setFormula(sheet.getRow(69), 4, "=(E60)/((E26+D26)/2)");
+        setFormula(sheet.getRow(69), 5, "=(F60)/((F26+E26)/2)");
+        setFormula(sheet.getRow(69), 6, "=(G60)/((G26+F26)/2)");
+        setFormula(sheet.getRow(69), 7, "=(H60)/((H26+G26)/2)");
+        setFormula(sheet.getRow(69), 8, "=(I60)/((I26+H26)/2)");
 
         for (int c = 0; c <= 8; c++) {
             sheet.setColumnWidth(c, c == 2 ? 24000 : 4800);
@@ -2477,8 +2478,27 @@ public class BnrTemplateExportService {
     }
 
     private void setFormula(Row row, int column, String formula) {
-        Cell cell = row.getCell(column, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
-        cell.setCellFormula(formula.substring(1));
+        Cell cell = row.getCell(
+                column,
+                Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+
+        cell.setCellFormula(normalizeFormula(formula));
+    }
+
+    private String normalizeFormula(String formula) {
+        if (formula == null) {
+            throw new IllegalArgumentException("Formula cannot be null");
+        }
+
+        String normalized = formula.trim();
+
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException("Formula cannot be empty");
+        }
+
+        return normalized.startsWith("=")
+                ? normalized.substring(1)
+                : normalized;
     }
 
     private void writeNote(Sheet sheet, int rowNumber, String label) {
