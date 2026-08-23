@@ -36,29 +36,12 @@ import java.util.List;
 public class SecurityConfig {
 
         private final JwtAuthFilter jwtFilter;
-
         private final RegulatoryApiKeyAuthFilter regulatoryApiKeyAuthFilter;
-
         private final RateLimitFilter rateLimitFilter;
 
-        /**
-         * Comma-separated production frontend origins.
-         *
-         * Example:
-         *
-         * https://nobleloan-solutions.vercel.app
-         *
-         * You may also configure multiple trusted origins:
-         *
-         * https://nobleloan-solutions.vercel.app,https://www.nobleloansolutions.rw
-         */
         @Value("${app.cors.allowed-origins:https://nobleloan-solutions.vercel.app}")
         private String allowedOrigins;
 
-        /**
-         * Development-only surfaces. Both default to false so a production
-         * deployment cannot accidentally expose H2 or API documentation.
-         */
         @Value("${app.security.expose-h2:false}")
         private boolean exposeH2;
 
@@ -71,36 +54,14 @@ public class SecurityConfig {
 
                 http
 
-                                // ========================================================
-                                // CORS
-                                // ========================================================
-
                                 .cors(cors -> cors.configurationSource(corsSource()))
 
-                                // ========================================================
-                                // CSRF
-                                //
-                                // API uses JWT/stateless authentication.
-                                // ========================================================
-
                                 .csrf(csrf -> csrf.disable())
-
-                                // ========================================================
-                                // SESSION
-                                // ========================================================
 
                                 .sessionManagement(session -> session.sessionCreationPolicy(
                                                 SessionCreationPolicy.STATELESS))
 
-                                // ========================================================
-                                // EXCEPTION HANDLING
-                                // ========================================================
-
                                 .exceptionHandling(exception -> exception
-
-                                                // ------------------------------------------------
-                                                // Authentication failure = 401
-                                                // ------------------------------------------------
 
                                                 .authenticationEntryPoint(
                                                                 (request, response, authException) -> {
@@ -118,14 +79,10 @@ public class SecurityConfig {
                                                                                         """
                                                                                                         {
                                                                                                           "success": false,
-                                                                                                          "error": "Your session has expired or is no longer valid. Please log in again."
+                                                                                                          "error": "Authentication is required for this resource."
                                                                                                         }
                                                                                                         """);
                                                                 })
-
-                                                // ------------------------------------------------
-                                                // Authorization failure = 403
-                                                // ------------------------------------------------
 
                                                 .accessDeniedHandler(
                                                                 (request, response, accessDeniedException) -> {
@@ -148,28 +105,30 @@ public class SecurityConfig {
                                                                                                         """);
                                                                 }))
 
-                                // ========================================================
-                                // AUTHORIZATION
-                                // ========================================================
-
                                 .authorizeHttpRequests(authorize -> authorize
 
-                                                // ------------------------------------------------
-                                                // PUBLIC / INFRASTRUCTURE ENDPOINTS
-                                                // ------------------------------------------------
+                                                .requestMatchers(
+                                                                "/api/auth/**")
+                                                .permitAll()
 
                                                 .requestMatchers(
-                                                                "/api/auth/**",
+                                                                "/api/public/**")
+                                                .permitAll()
+
+                                                .requestMatchers(
                                                                 "/actuator/health",
-                                                                "/actuator/health/**",
+                                                                "/actuator/health/**")
+                                                .permitAll()
+
+                                                .requestMatchers(
                                                                 "/api/public/webhooks/**")
                                                 .permitAll()
 
-                                                /*
-                                                 * Public borrower/application APIs remain available through
-                                                 * their own controller-level validation. Development tools are
-                                                 * explicitly opt-in and are never public by default.
-                                                 */
+                                                .requestMatchers(
+                                                                "/ws",
+                                                                "/ws/**")
+                                                .permitAll()
+
                                                 .requestMatchers(
                                                                 "/h2-console/**",
                                                                 "/swagger-ui/**",
@@ -181,48 +140,38 @@ public class SecurityConfig {
                                                                                                 context.getRequest()
                                                                                                                 .getRequestURI())))
 
-                                                // ------------------------------------------------
-                                                // WEBSOCKET HANDSHAKE
-                                                // ------------------------------------------------
+                                                .anyRequest().authenticated())
 
-                                                .requestMatchers(
-                                                                "/ws",
-                                                                "/ws/**")
-                                                .permitAll()
+                                // ============================================================
+                                // SECURITY HEADERS
+                                // ============================================================
 
-                                                // ------------------------------------------------
-                                                // EVERYTHING ELSE
-                                                // ------------------------------------------------
+                                .headers(headers -> headers
 
-                                                .anyRequest()
-                                                .authenticated())
+                                                .frameOptions(frame -> frame.sameOrigin())
 
-                                // ========================================================
-                                // H2
-                                // ========================================================
+                                                .contentTypeOptions(
+                                                                contentType -> contentType.disable()))
 
-                                .headers(headers -> headers.frameOptions(
-                                                frame -> frame.sameOrigin()))
-
-                                // ========================================================
+                                // ============================================================
                                 // RATE LIMIT
-                                // ========================================================
+                                // ============================================================
 
                                 .addFilterBefore(
                                                 rateLimitFilter,
                                                 UsernamePasswordAuthenticationFilter.class)
 
-                                // ========================================================
+                                // ============================================================
                                 // JWT
-                                // ========================================================
+                                // ============================================================
 
                                 .addFilterBefore(
                                                 jwtFilter,
                                                 UsernamePasswordAuthenticationFilter.class)
 
-                                // ========================================================
+                                // ============================================================
                                 // REGULATORY API KEY
-                                // ========================================================
+                                // ============================================================
 
                                 .addFilterBefore(
                                                 regulatoryApiKeyAuthFilter,
@@ -231,7 +180,12 @@ public class SecurityConfig {
                 return http.build();
         }
 
+        // ================================================================
+        // DEVELOPMENT SURFACES
+        // ================================================================
+
         private boolean isDevelopmentSurfaceEnabled(String uri) {
+
                 if (uri == null) {
                         return false;
                 }
@@ -243,18 +197,14 @@ public class SecurityConfig {
                 return exposeApiDocs;
         }
 
-        // ============================================================
+        // ================================================================
         // CORS
-        // ============================================================
+        // ================================================================
 
         @Bean
         public CorsConfigurationSource corsSource() {
 
                 CorsConfiguration configuration = new CorsConfiguration();
-
-                // ------------------------------------------------------------
-                // TRUSTED ORIGINS
-                // ------------------------------------------------------------
 
                 List<String> origins = Arrays.stream(
                                 allowedOrigins.split(","))
@@ -263,10 +213,6 @@ public class SecurityConfig {
                                 .toList();
 
                 configuration.setAllowedOrigins(origins);
-
-                // ------------------------------------------------------------
-                // HTTP METHODS
-                // ------------------------------------------------------------
 
                 configuration.setAllowedMethods(
                                 List.of(
@@ -277,18 +223,6 @@ public class SecurityConfig {
                                                 "DELETE",
                                                 "OPTIONS"));
 
-                // ------------------------------------------------------------
-                // REQUEST HEADERS
-                //
-                // IMPORTANT:
-                //
-                // X-Tenant-Slug is required by the Noble frontend and is part
-                // of the multi-tenant request contract.
-                //
-                // Without this header the browser's OPTIONS preflight fails
-                // before the request reaches /api/auth/login.
-                // ------------------------------------------------------------
-
                 configuration.setAllowedHeaders(
                                 List.of(
                                                 "Authorization",
@@ -296,11 +230,9 @@ public class SecurityConfig {
                                                 "Accept",
                                                 "Idempotency-Key",
                                                 "X-Requested-With",
-                                                "X-Tenant-Slug"));
-
-                // ------------------------------------------------------------
-                // RESPONSE HEADERS EXPOSED TO THE BROWSER
-                // ------------------------------------------------------------
+                                                "X-Tenant-Slug",
+                                                "X-Tenant-Host",
+                                                "X-Request-Id"));
 
                 configuration.setExposedHeaders(
                                 List.of(
@@ -308,24 +240,9 @@ public class SecurityConfig {
                                                 "Retry-After",
                                                 "X-Request-Id"));
 
-                // ------------------------------------------------------------
-                // CREDENTIALS
-                // ------------------------------------------------------------
-
                 configuration.setAllowCredentials(true);
 
-                // ------------------------------------------------------------
-                // CACHE PREFLIGHT RESPONSE
-                //
-                // 30 minutes reduces repeated OPTIONS requests while keeping
-                // configuration changes reasonably responsive.
-                // ------------------------------------------------------------
-
                 configuration.setMaxAge(1800L);
-
-                // ------------------------------------------------------------
-                // REGISTER CORS CONFIGURATION
-                // ------------------------------------------------------------
 
                 UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
 
@@ -335,10 +252,6 @@ public class SecurityConfig {
 
                 return source;
         }
-
-        // ============================================================
-        // AUTHENTICATION MANAGER
-        // ============================================================
 
         @Bean
         public AuthenticationManager authenticationManager(
