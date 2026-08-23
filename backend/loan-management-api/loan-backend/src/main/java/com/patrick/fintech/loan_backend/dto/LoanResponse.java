@@ -25,6 +25,7 @@ public class LoanResponse {
     private LocalDateTime classifiedAt;
     private Loan.RepaymentFrequency repaymentFrequency;
     private BigDecimal amount;
+    private BigDecimal requestedAmount;
     private BigDecimal disbursedAmount;
     private BigDecimal netDisbursedAmount;
     private BigDecimal totalRepayable;

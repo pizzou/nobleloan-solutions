@@ -690,6 +690,7 @@ public class LoanService {
                                                 Loan.CreditQuality.CURRENT)
                                 .daysOverdue(0)
                                 .amount(principal)
+                                .requestedAmount(principal)
                                 .interestRate(interestRate)
                                 .managementFeeRate(
                                                 managementFeeRate)
@@ -865,6 +866,30 @@ public class LoanService {
                         String notes,
                         Double newInterestRate,
                         Double newProcessingFeeRate) {
+                return approveLoan(
+                                loanId,
+                                approvedBy,
+                                notes,
+                                newInterestRate,
+                                newProcessingFeeRate,
+                                null);
+        }
+
+        /**
+         * Final approval with a contractual principal override.
+         *
+         * The borrower request is retained in requestedAmount. The approved
+         * principal becomes amount and is the sole principal used by the
+         * repayment schedule, accounting, BNR and Credit Bureau reporting.
+         */
+        @Transactional
+        public Loan approveLoan(
+                        Long loanId,
+                        User approvedBy,
+                        String notes,
+                        Double newInterestRate,
+                        Double newProcessingFeeRate,
+                        BigDecimal newApprovedAmount) {
 
                 if (approvedBy == null
                                 || approvedBy.getOrganization() == null
@@ -898,9 +923,26 @@ public class LoanService {
                 validateLoanDuration(
                                 loan.getDurationMonths());
 
-                BigDecimal principal = normalizePrincipal(
+                BigDecimal requestedAmount = normalizePrincipal(
                                 moneyValue(
-                                                loan.getAmountDecimal()));
+                                                loan.getRequestedAmountDecimal() != null
+                                                                ? loan.getRequestedAmountDecimal()
+                                                                : loan.getAmountDecimal()));
+
+                BigDecimal principal = normalizePrincipal(
+                                newApprovedAmount != null
+                                                ? newApprovedAmount
+                                                : moneyValue(loan.getAmountDecimal()));
+
+                if (principal.compareTo(ZERO) <= 0) {
+                        throw new IllegalArgumentException("Approved loan amount must be greater than zero.");
+                }
+
+                if (principal.compareTo(requestedAmount) > 0) {
+                        throw new IllegalArgumentException(
+                                        "Approved loan amount cannot exceed the borrower's requested amount of "
+                                                        + requestedAmount + ".");
+                }
 
                 if (principal.compareTo(MIN_LOAN_AMOUNT) < 0) {
 
@@ -960,6 +1002,10 @@ public class LoanService {
                                         && approvedBy.getRole().getName() != null
                                                         ? approvedBy.getRole().getName().trim().toUpperCase(Locale.ROOT)
                                                         : "";
+
+                        if (role.startsWith("ROLE_")) {
+                                role = role.substring(5);
+                        }
 
                         if (!"ADMIN".equals(role) && !"MANAGER".equals(role)) {
                                 throw new SecurityException(
@@ -1031,6 +1077,7 @@ public class LoanService {
                                                 managementFeeRate,
                                                 durationMonths));
 
+                loan.setRequestedAmount(requestedAmount);
                 loan.setAmount(principal);
 
                 if (loan.getOutstandingBalanceDecimal() == null
@@ -1059,18 +1106,19 @@ public class LoanService {
 
                 Loan saved = loanRepo.save(loan);
 
-                if (paymentRepo
-                                .findByLoanId(
-                                                saved.getId())
-                                .isEmpty()) {
+                List<Payment> existingSchedule = paymentRepo.findByLoanId(saved.getId());
 
+                if (existingSchedule.isEmpty()) {
                         generateRepaymentSchedule(saved);
-
+                } else if (existingSchedule.stream().anyMatch(p -> Boolean.TRUE.equals(p.getPaid()))) {
+                        throw new IllegalStateException(
+                                        "This loan already has a paid repayment row; its approved principal cannot be changed at this stage.");
                 } else {
-
-                        log.warn(
-                                        "Repayment schedule already exists for loan {}, skipping regeneration",
-                                        saved.getId());
+                        // A provisional schedule must never survive a contractual
+                        // approval amendment. Rebuild all unpaid rows from the
+                        // final approved principal and pricing snapshot.
+                        paymentRepo.deleteAll(existingSchedule);
+                        generateRepaymentSchedule(saved);
                 }
 
                 audit(
@@ -1081,7 +1129,11 @@ public class LoanService {
                                 loanId.toString(),
                                 "Loan "
                                                 + saved.getReferenceNumber()
-                                                + " approved — monthly interest "
+                                                + " approved — requested principal "
+                                                + requestedAmount
+                                                + " — approved principal "
+                                                + saved.getAmountDecimal()
+                                                + " — monthly interest "
                                                 + saved.getInterestRateDecimal()
                                                 + "%"
                                                 + " — monthly management fee "
@@ -1122,6 +1174,8 @@ public class LoanService {
                                                 + saved.getReferenceNumber()
                                                 + " has been approved by "
                                                 + approvedBy.getName()
+                                                + ". Requested amount: " + saved.getRequestedAmountDecimal()
+                                                + ". Approved amount: " + saved.getAmountDecimal()
                                                 + ". Monthly interest is " + saved.getInterestRateDecimal()
                                                 + "% and monthly management fee is "
                                                 + saved.getManagementFeeRateDecimal() + "%."

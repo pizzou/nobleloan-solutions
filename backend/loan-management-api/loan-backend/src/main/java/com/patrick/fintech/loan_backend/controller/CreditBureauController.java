@@ -304,9 +304,8 @@ public class CreditBureauController {
                 // --------------------------------------------------------
                 // NATIVE CRB REGULATORY XLS EXPORT
                 // --------------------------------------------------------
-                // The supplied CRB workbook is an old BIFF .xls submission
-                // structure. Generate that structure directly with Apache POI
-                // HSSFWorkbook; never load or copy the uploaded workbook.
+                // Generate a real OOXML .xlsx workbook directly with Apache POI.
+                // Never load or copy the uploaded workbook.
                 if ("xlsx".equals(requestedFormat)) {
                         byte[] bytes = creditBureauRegulatoryExportService.export(
                                         organizationId,
@@ -319,14 +318,15 @@ public class CreditBureauController {
                                         currentUser,
                                         organizationId,
                                         -1,
-                                        "xls");
+                                        "xlsx");
 
                         String filename = "credit_bureau_"
                                         + LocalDate.now()
-                                        + ".xls";
+                                        + ".xlsx";
 
                         return ResponseEntity.ok()
-                                        .contentType(MediaType.parseMediaType("application/vnd.ms-excel"))
+                                        .contentType(MediaType.parseMediaType(
+                                                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                                         .contentLength(bytes.length)
                                         .cacheControl(CacheControl.noCache())
                                         .header(

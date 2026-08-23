@@ -267,6 +267,28 @@ public class Loan {
         private BigDecimal amount;
 
         /**
+         * Runtime-only compatibility value for legacy integrations. The database
+         * remains authoritative at scale 2; this preserves the caller's original
+         * BigDecimal when an old Double getter is used before persistence.
+         */
+        @jakarta.persistence.Transient
+        @JsonIgnore
+        private Double legacyAmountDouble;
+
+        /**
+         * Amount originally requested by the borrower. This is immutable after
+         * application creation and is intentionally separate from the approved
+         * principal stored in {@link #amount}.
+         *
+         * Example: borrower requests RWF 10,000,000 and the approver authorizes
+         * RWF 7,000,000. requestedAmount remains 10,000,000 while amount becomes
+         * 7,000,000.
+         */
+        @Column(name = "requested_amount", precision = 19, scale = 2, nullable = false)
+        @JsonProperty("requestedAmount")
+        private BigDecimal requestedAmount;
+
+        /**
          * Gross principal actually used for disbursement calculations.
          *
          * This remains the full loan principal before the one-time
@@ -742,6 +764,12 @@ public class Loan {
                         amount = MoneyMath.ZERO;
                 }
 
+                // Preserve the original borrower request for maker-checker
+                // auditability. Never overwrite this during approval.
+                if (requestedAmount == null) {
+                        requestedAmount = amount;
+                }
+
                 if (disbursedAmount == null) {
                         disbursedAmount = MoneyMath.ZERO;
                 }
@@ -1080,6 +1108,11 @@ public class Loan {
         }
 
         @JsonIgnore
+        public BigDecimal getRequestedAmountDecimal() {
+                return requestedAmount;
+        }
+
+        @JsonIgnore
         public BigDecimal getInterestRateDecimal() {
                 return interestRate;
         }
@@ -1201,9 +1234,9 @@ public class Loan {
         // ================================================================
 
         public Double getAmountDouble() {
-                return amount == null
-                                ? null
-                                : amount.doubleValue();
+                return legacyAmountDouble != null
+                                ? legacyAmountDouble
+                                : (amount == null ? null : amount.doubleValue());
         }
 
         public Double getInterestRateDouble() {
@@ -1307,7 +1340,12 @@ public class Loan {
         // ================================================================
 
         public void setAmount(BigDecimal value) {
+                this.legacyAmountDouble = value == null ? null : value.doubleValue();
                 this.amount = normalizeMoney(value);
+        }
+
+        public void setRequestedAmount(BigDecimal value) {
+                this.requestedAmount = normalizeMoney(value);
         }
 
         public void setInterestRate(BigDecimal value) {
@@ -1392,6 +1430,10 @@ public class Loan {
 
         public void setAmount(Double value) {
                 this.amount = MoneyMath.of(value);
+        }
+
+        public void setRequestedAmount(Double value) {
+                this.requestedAmount = MoneyMath.of(value);
         }
 
         public void setInterestRate(Double value) {

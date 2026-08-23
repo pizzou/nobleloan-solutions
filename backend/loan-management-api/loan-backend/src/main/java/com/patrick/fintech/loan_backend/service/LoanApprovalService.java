@@ -255,6 +255,7 @@ public class LoanApprovalService {
                                 decision,
                                 comments,
                                 null,
+                                null,
                                 null);
         }
 
@@ -276,6 +277,7 @@ public class LoanApprovalService {
                                 decision,
                                 comments,
                                 newInterestRate,
+                                null,
                                 null);
         }
 
@@ -286,7 +288,8 @@ public class LoanApprovalService {
                         String decision,
                         String comments,
                         Double newInterestRate,
-                        Double newProcessingFeeRate) {
+                        Double newProcessingFeeRate,
+                        BigDecimal newApprovedAmount) {
 
                 if (decider == null) {
                         throw new IllegalArgumentException(
@@ -442,7 +445,8 @@ public class LoanApprovalService {
                                                                 ? comments
                                                                 : "Finalized from existing website approval.",
                                                 newInterestRate,
-                                                newProcessingFeeRate);
+                                                newProcessingFeeRate,
+                                                newApprovedAmount);
                                 return decisionRecord;
                         }
 
@@ -494,7 +498,8 @@ public class LoanApprovalService {
                                                         ? comments
                                                         : "Approved by " + publicRole + " for website-submitted loan.",
                                         newInterestRate,
-                                        newProcessingFeeRate);
+                                        newProcessingFeeRate,
+                                        newApprovedAmount);
 
                         return decisionRecord;
                 }
@@ -688,7 +693,8 @@ public class LoanApprovalService {
                                         decider,
                                         approvalMessage,
                                         newInterestRate,
-                                        newProcessingFeeRate);
+                                        newProcessingFeeRate,
+                                        newApprovedAmount);
                 }
 
                 return step;

@@ -101,6 +101,7 @@ public class LoanApprovalController {
 
                 Double newInterestRate = parseInterestRate(body);
                 Double newProcessingFeeRate = parseProcessingFeeRate(body);
+                java.math.BigDecimal approvedAmount = parseApprovedAmount(body);
 
                 LoanApproval result = approvalService.decide(
                                 loanId,
@@ -108,7 +109,8 @@ public class LoanApprovalController {
                                 "APPROVED",
                                 comments,
                                 newInterestRate,
-                                newProcessingFeeRate);
+                                newProcessingFeeRate,
+                                approvedAmount);
 
                 return ResponseEntity.ok(
                                 ApiResponse.safe(
@@ -148,6 +150,30 @@ public class LoanApprovalController {
                                 ApiResponse.safe(
                                                 "Loan rejection recorded",
                                                 result));
+        }
+
+        private java.math.BigDecimal parseApprovedAmount(
+                        Map<String, String> body) {
+
+                if (body == null) {
+                        return null;
+                }
+
+                String raw = body.get("amount");
+
+                if (raw == null || raw.isBlank()) {
+                        return null;
+                }
+
+                try {
+                        java.math.BigDecimal value = new java.math.BigDecimal(raw.trim());
+                        if (value.signum() <= 0) {
+                                throw new IllegalArgumentException("Approved loan amount must be greater than zero.");
+                        }
+                        return value.setScale(2, java.math.RoundingMode.HALF_UP);
+                } catch (NumberFormatException e) {
+                        throw new IllegalArgumentException("amount must be a valid monetary amount.");
+                }
         }
 
         private Double parseInterestRate(

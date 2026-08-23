@@ -845,6 +845,10 @@ export const regulatoryApi = {
         },
 
         responseType: "blob",
+        // Regulatory workbooks are generated server-side and may contain
+        // thousands of rows. Do not let the normal 20s API timeout abort the
+        // download and cause a server-side broken-pipe log.
+        timeout: 120000,
 
         headers: {
           Accept: getExportAcceptHeader(format),

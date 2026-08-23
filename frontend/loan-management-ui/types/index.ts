@@ -228,6 +228,7 @@ export interface Loan {
   status: LoanStatus;
 
   amount: number;
+  requestedAmount?: number;
 
   interestRate: number;
 

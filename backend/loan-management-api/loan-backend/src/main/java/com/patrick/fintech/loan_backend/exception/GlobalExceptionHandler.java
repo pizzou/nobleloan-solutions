@@ -17,6 +17,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -187,6 +188,22 @@ public class GlobalExceptionHandler {
                                                 "File is too large for the server to accept. "
                                                                 + "Please upload a smaller file.",
                                                 null));
+        }
+
+        // ============================================================
+        // CLIENT ABORT / BROKEN PIPE
+        // ============================================================
+
+        /**
+         * A browser, proxy, or download timeout can close the TCP connection
+         * while Spring is still writing a large XLSX/PDF response. Tomcat then
+         * raises AsyncRequestNotUsableException / ClientAbortException. This is
+         * not an application failure and there is no HTTP response left to send.
+         */
+        @ExceptionHandler(AsyncRequestNotUsableException.class)
+        public ResponseEntity<Void> handleClientAbort(AsyncRequestNotUsableException ex) {
+                log.debug("Client disconnected while the server was writing the response: {}", ex.getMessage());
+                return ResponseEntity.noContent().build();
         }
 
         // ============================================================

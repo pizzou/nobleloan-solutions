@@ -15,6 +15,7 @@ import DocumentsPanel from "../../../components/DocumentsPanel";
 import { useAuth } from "@/hooks/useAuth";
 
 type ApprovalDraft = {
+  approvedAmount: string;
   interestRate: string;
   processingFeeRate: string;
   notes: string;
@@ -31,6 +32,7 @@ export default function ApprovalsPage() {
   const [docsOpenFor, setDocsOpenFor] = useState<number | null>(null);
   const [approvalId, setApprovalId] = useState<number | null>(null);
   const [draft, setDraft] = useState<ApprovalDraft>({
+    approvedAmount: "",
     interestRate: "5",
     processingFeeRate: "2",
     notes: "",
@@ -53,6 +55,12 @@ export default function ApprovalsPage() {
   const openApproval = (loan: Loan) => {
     setApprovalId(loan.id);
     setDraft({
+      approvedAmount:
+        loan.requestedAmount != null
+          ? String(loan.requestedAmount)
+          : loan.amount != null
+            ? String(loan.amount)
+            : "",
       interestRate: loan.interestRate != null ? String(loan.interestRate) : "5",
       processingFeeRate:
         loan.processingFeeRate != null ? String(loan.processingFeeRate) : "2",
@@ -68,8 +76,32 @@ export default function ApprovalsPage() {
   const handleApprove = async () => {
     if (approvalId == null) return;
 
+    const approvedAmount = Number(draft.approvedAmount);
     const interestRate = Number(draft.interestRate);
     const processingFeeRate = Number(draft.processingFeeRate);
+
+    const selectedLoan = loans.find((loan) => loan.id === approvalId);
+
+    if (!selectedLoan) {
+      toast("error", "Loan could not be found. Please refresh the page.");
+      return;
+    }
+
+    const requestedAmount = Number(
+      selectedLoan.requestedAmount ?? selectedLoan.amount,
+    );
+
+    if (
+      !Number.isFinite(approvedAmount) ||
+      approvedAmount <= 0 ||
+      approvedAmount > requestedAmount
+    ) {
+      toast(
+        "error",
+        `Approved amount must be greater than zero and cannot exceed the requested amount of ${selectedLoan.currency} ${requestedAmount.toLocaleString()}.`,
+      );
+      return;
+    }
 
     if (!Number.isFinite(interestRate) || interestRate < 0) {
       toast("error", "Enter a valid monthly interest rate.");
@@ -98,6 +130,7 @@ export default function ApprovalsPage() {
         interestRate,
         draft.notes.trim() || undefined,
         processingFeeRate,
+        approvedAmount,
       );
 
       setApprovalId(null);
@@ -182,7 +215,11 @@ export default function ApprovalsPage() {
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <Metric label="Principal">
+                    <Metric label="Requested">
+                      {loan.currency}{" "}
+                      {(loan.requestedAmount ?? loan.amount)?.toLocaleString()}
+                    </Metric>
+                    <Metric label="Current principal">
                       {loan.currency} {loan.amount?.toLocaleString()}
                     </Metric>
                     <Metric label="Interest">
@@ -324,6 +361,32 @@ export default function ApprovalsPage() {
 
             <div className="space-y-5 p-6">
               <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Approved principal
+                  </label>
+                  <input
+                    type="number"
+                    min="500000"
+                    step="0.01"
+                    value={draft.approvedAmount}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        approvedAmount: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:border-slate-500"
+                  />
+                  <p className="mt-1 text-xs text-slate-400">
+                    Requested:{" "}
+                    {loans.find((l) => l.id === approvalId)?.currency}{" "}
+                    {(
+                      loans.find((l) => l.id === approvalId)?.requestedAmount ??
+                      loans.find((l) => l.id === approvalId)?.amount
+                    )?.toLocaleString()}
+                  </p>
+                </div>
                 <RateField
                   label="Interest rate"
                   suffix="% monthly"
