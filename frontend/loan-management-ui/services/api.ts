@@ -5,8 +5,6 @@ import axios, {
   AxiosRequestConfig,
 } from "axios";
 
-import { TENANT_SLUG } from "../lib/tenant";
-
 /**
  * ============================================================
  * API CONFIGURATION
@@ -25,82 +23,29 @@ const API: AxiosInstance = axios.create({
   },
 });
 
-/**
- * ============================================================
- * REQUEST INTERCEPTOR
- * ============================================================
- *
- * This frontend belongs exclusively to the Noble Loan Solutions
- * tenant.
- *
- * We therefore do NOT dynamically resolve tenants from the
- * browser hostname/domain.
- *
- * The configured tenant is:
- *
- *   NEXT_PUBLIC_TENANT_SLUG
- *
- * with fallback:
- *
- *   nobleloansolutions
- *
- * The tenant slug is sent on every request through:
- *
- *   X-Tenant-Slug
- *
- * The backend can therefore resolve the request directly to
- * Noble Loan Solutions.
- * ============================================================
- */
-
 API.interceptors.request.use(
   (config) => {
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("token");
 
-      const headers =
-        config.headers instanceof AxiosHeaders
-          ? config.headers
-          : new AxiosHeaders(config.headers);
-
       if (token) {
+        const headers =
+          config.headers instanceof AxiosHeaders
+            ? config.headers
+            : new AxiosHeaders(config.headers);
+
         headers.set("Authorization", `Bearer ${token}`);
+
+        config.headers = headers;
       }
-
-      /**
-       * Fixed tenant for this frontend.
-       */
-      headers.set("X-Tenant-Slug", TENANT_SLUG);
-
-      config.headers = headers;
-    } else {
-      /**
-       * Keep the tenant header available for server-side
-       * requests as well.
-       */
-      const headers =
-        config.headers instanceof AxiosHeaders
-          ? config.headers
-          : new AxiosHeaders(config.headers);
-
-      headers.set("X-Tenant-Slug", TENANT_SLUG);
-
-      config.headers = headers;
     }
 
     return config;
   },
-
   (error) => {
     return Promise.reject(error);
   },
 );
-
-/**
- * ============================================================
- * RESPONSE INTERCEPTOR
- * ============================================================
- */
 
 API.interceptors.response.use(
   (response) => {
@@ -113,19 +58,11 @@ API.interceptors.response.use(
     const responseData = error.response?.data;
 
     if (status === 401 && typeof window !== "undefined") {
-      const requestUrl = error.config?.url || "";
+      localStorage.removeItem("token");
 
-      /**
-       * Do not redirect the login request itself.
-       */
-      const isLoginRequest = requestUrl.includes("/auth/login");
+      localStorage.removeItem("user");
 
-      if (!isLoginRequest) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-
-        window.location.href = "/login";
-      }
+      window.location.href = "/login";
     }
 
     const message =
@@ -147,12 +84,6 @@ API.interceptors.response.use(
     return Promise.reject(enhancedError);
   },
 );
-
-/**
- * ============================================================
- * ERROR MESSAGE EXTRACTION
- * ============================================================
- */
 
 function getAxiosErrorMessage(data: unknown): string | null {
   if (!data) {
@@ -226,22 +157,13 @@ export const put = (
 export const del = (url: string, config?: AxiosRequestConfig): Promise<any> =>
   API.delete(url, config).then((response) => unwrap(response.data));
 
-/**
- * ============================================================
- * AUTH API
- * ============================================================
- */
-
 export const authApi = {
   login: (email: string, password: string, mfaCode?: string, otp?: string) =>
     post("/auth/login", {
-      email: email.trim().toLowerCase(),
-
+      email,
       password,
-
-      mfaCode: mfaCode?.trim() || undefined,
-
-      otp: otp?.trim() || undefined,
+      mfaCode,
+      otp,
     }),
 
   register: (data: unknown) => post("/auth/register", data),
@@ -256,33 +178,31 @@ export const authApi = {
  */
 
 export const loanApi = {
-  list: (page = 0, size = 20, status = "", type = "") => {
-    const params = new URLSearchParams();
-
-    params.set("page", String(page));
-
-    params.set("size", String(size));
-
-    if (status) {
-      params.set("status", status);
-    }
-
-    if (type) {
-      params.set("type", type);
-    }
-
-    return get(`/loans?${params.toString()}`);
-  },
+  list: (page = 0, size = 20, status = "", type = "") =>
+    get(
+      `/loans?page=${page}&size=${size}` +
+        `${status ? `&status=${encodeURIComponent(status)}` : ""}` +
+        `${type ? `&type=${encodeURIComponent(type)}` : ""}`,
+    ),
 
   get: (id: number) => get(`/loans/${id}`),
 
   create: (data: unknown) => post("/loans", data),
 
-  approve: (id: number, notes = "", interestRate?: number) =>
+  approve: (
+    id: number,
+    notes = "",
+    interestRate?: number,
+    processingFeeRate?: number,
+    approvedAmount?: number,
+  ) =>
     post(`/loans/${id}/approve`, {
       notes,
-
       interestRate: interestRate != null ? String(interestRate) : undefined,
+      processingFeeRate:
+        processingFeeRate != null ? String(processingFeeRate) : undefined,
+      approvedAmount:
+        approvedAmount != null ? String(approvedAmount) : undefined,
     }),
 
   reject: (id: number, reason: string) =>
@@ -295,26 +215,13 @@ export const loanApi = {
       disbursementMethod: method,
     }),
 
-  /**
-   * Extend an existing active/overdue/defaulted/restructured loan.
-   *
-   * The backend calculates the authoritative 10% extension fee from
-   * the outstanding principal. The frontend only sends the requested
-   * duration and business reason.
-   */
-  extend: (id: number, extensionMonths: number, reason: string) =>
-    post(`/loans/${id}/extend`, {
-      extensionMonths,
-      reason,
-    }),
-
   updateStatus: (id: number, status: string, notes?: string) =>
     post(`/loans/${id}/status`, {
       status,
       notes,
     }),
 
-  dashboard: () => get("/dashboard/stats"),
+  dashboard: () => get("/loans/dashboard"),
 
   schedule: (id: number) => get(`/loans/${id}/schedule`),
 
@@ -529,19 +436,11 @@ export const paymentApi = {
  */
 
 export const borrowerApi = {
-  list: (page = 0, size = 20, q = "") => {
-    const params = new URLSearchParams();
-
-    params.set("page", String(page));
-
-    params.set("size", String(size));
-
-    if (q) {
-      params.set("q", q);
-    }
-
-    return get(`/borrowers?${params.toString()}`);
-  },
+  list: (page = 0, size = 20, q = "") =>
+    get(
+      `/borrowers?page=${page}&size=${size}` +
+        `${q ? `&q=${encodeURIComponent(q)}` : ""}`,
+    ),
 
   get: (id: number) => get(`/borrowers/${id}`),
 
@@ -644,11 +543,7 @@ export const currencyApi = {
 
   convert: (from: string, to: string, amount: number) =>
     get(
-      `/currencies/convert?from=${encodeURIComponent(
-        from,
-      )}&to=${encodeURIComponent(to)}&amount=${encodeURIComponent(
-        String(amount),
-      )}`,
+      `/currencies/convert?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&amount=${amount}`,
     ),
 
   supported: () => get("/currencies/supported"),
@@ -733,8 +628,7 @@ export const accountingApi = {
   ) => put(`/accounting/chart-of-accounts/${id}`, data),
 
   journal: () => get("/accounting/journal"),
-
-  reconcileLegacyLoans: () => post("/accounting/legacy-loans/reconcile"),
+  journalEntry: (id: number) => get(`/accounting/journal/${id}`),
 
   reverseEntry: (id: number, reason?: string) =>
     post(`/accounting/journal/${id}/reverse`, {
@@ -834,44 +728,22 @@ export const contactMessageApi = {
  */
 
 export const publicApi = {
-  submitContact: (data: {
-    tenantSlug?: string;
-    name: string;
-    email?: string;
-    phone: string;
-    subject: string;
-    message: string;
-  }) =>
-    post("/public/contact", {
-      ...data,
-
-      /**
-       * Always use this frontend's configured tenant.
-       */
-      tenantSlug: TENANT_SLUG,
-    }),
-
-  getOrganization: () => get("/public/organization"),
-
-  getTenant: (slug: string = TENANT_SLUG) =>
+  getTenant: (slug: string) =>
     get(`/public/tenant/${encodeURIComponent(slug)}`),
 
-  getProducts: (slug: string = TENANT_SLUG) =>
+  getProducts: (slug: string) =>
     get(`/public/tenant/${encodeURIComponent(slug)}/products`),
 
   apply: (data: unknown) => post("/public/loan-application", data),
 
   trackApplication: (reference: string, phone: string) =>
     get(
-      `/public/applications/${encodeURIComponent(
-        reference.trim(),
-      )}/status?phone=${encodeURIComponent(phone.trim())}`,
+      `/public/applications/${encodeURIComponent(reference.trim())}/status?phone=${encodeURIComponent(phone.trim())}`,
     ),
 
   trackDashboard: (reference: string, phone: string) =>
     post("/public/dashboard", {
       reference: reference.trim(),
-
       phone: phone.trim(),
     }),
 
@@ -888,7 +760,6 @@ export const publicApi = {
 
       cardNumber?: string;
       cardCvv?: string;
-
       cardExpiryMonth?: string;
       cardExpiryYear?: string;
 
@@ -897,32 +768,20 @@ export const publicApi = {
 
       email?: string;
     },
-    idempotencyKey: string,
   ) =>
     post(
-      `/public/applications/${encodeURIComponent(
-        reference.trim(),
-      )}/payments/initiate?phone=${encodeURIComponent(phone.trim())}`,
+      `/public/applications/${encodeURIComponent(reference.trim())}/payments/initiate?phone=${encodeURIComponent(phone.trim())}`,
       data,
-      {
-        headers: {
-          "Idempotency-Key": idempotencyKey,
-        },
-      },
     ),
 
   trackComments: (reference: string, phone: string) =>
     get(
-      `/public/applications/${encodeURIComponent(
-        reference.trim(),
-      )}/comments?phone=${encodeURIComponent(phone.trim())}`,
+      `/public/applications/${encodeURIComponent(reference.trim())}/comments?phone=${encodeURIComponent(phone.trim())}`,
     ),
 
   listDocuments: (reference: string, phone: string) =>
     get(
-      `/public/applications/${encodeURIComponent(
-        reference.trim(),
-      )}/documents?phone=${encodeURIComponent(phone.trim())}`,
+      `/public/applications/${encodeURIComponent(reference.trim())}/documents?phone=${encodeURIComponent(phone.trim())}`,
     ),
 
   downloadDocument: (
@@ -931,12 +790,9 @@ export const publicApi = {
     doc: "agreement" | "schedule" | "receipt",
   ) =>
     API.get(
-      `/public/applications/${encodeURIComponent(
-        reference.trim(),
-      )}/documents/${doc}.pdf?phone=${encodeURIComponent(phone.trim())}`,
+      `/public/applications/${encodeURIComponent(reference.trim())}/documents/${doc}.pdf?phone=${encodeURIComponent(phone.trim())}`,
       {
         responseType: "blob",
-
         headers: {
           Accept: "application/pdf, */*",
         },
@@ -945,9 +801,7 @@ export const publicApi = {
 
   deleteDocument: (reference: string, phone: string, fileId: number) =>
     del(
-      `/public/applications/${encodeURIComponent(
-        reference.trim(),
-      )}/documents/${fileId}?phone=${encodeURIComponent(phone.trim())}`,
+      `/public/applications/${encodeURIComponent(reference.trim())}/documents/${fileId}?phone=${encodeURIComponent(phone.trim())}`,
     ),
 
   uploadDocument: (
@@ -1146,20 +1000,6 @@ function getExportAcceptHeader(format: string): string {
   }
 }
 
-export { getExportAcceptHeader };
-
-/**
- * ============================================================
- * DEFAULT EXPORT
- * ============================================================
- */
-
 export default API;
-
-/**
- * ============================================================
- * NAMED API EXPORT
- * ============================================================
- */
 
 export { API };

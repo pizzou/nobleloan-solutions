@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import {
@@ -8,7 +8,6 @@ import {
   paymentApi,
   creditBureauApi,
   esignatureApi,
-  borrowerApi,
 } from "@/services/api";
 
 import { Loan, Payment } from "@/types";
@@ -1069,21 +1068,11 @@ export default function LoanDetailPage() {
     rejectionReason: "",
     internalNotes: "",
     interestRate: "",
+    processingFeeRate: "",
+    approvedAmount: "",
   });
 
   const [stSaving, setStSaving] = useState(false);
-
-  // ==========================================================
-  // LOAN EXTENSION
-  // ==========================================================
-
-  const [extensionOpen, setExtensionOpen] = useState(false);
-
-  const [extensionMonths, setExtensionMonths] = useState("1");
-
-  const [extensionReason, setExtensionReason] = useState("");
-
-  const [extensionSaving, setExtensionSaving] = useState(false);
 
   // ==========================================================
   // E-SIGNATURE
@@ -1116,35 +1105,12 @@ export default function LoanDetailPage() {
         loanApi.schedule(loanId),
       ]);
 
-      let loanData = loanResponse as Loan;
-
-      /*
-       * Portfolio/dashboard APIs return the bank-safe flat LoanResponse DTO
-       * (borrowerId + borrowerName). The detail screen needs the full
-       * borrower profile, so hydrate it explicitly when necessary.
-       */
-      if (!loanData.borrower && loanData.borrowerId) {
-        try {
-          const borrower = await borrowerApi.get(loanData.borrowerId);
-          loanData = { ...loanData, borrower };
-        } catch (borrowerError) {
-          console.warn(
-            "Loan loaded but borrower profile could not be hydrated",
-            borrowerError,
-          );
-        }
-      }
-
-      const normalizedSchedule = Array.isArray(scheduleResponse)
-        ? scheduleResponse
-        : [];
-
-      setLoan(loanData);
-      setSchedule(normalizedSchedule);
+      setLoan(loanResponse as Loan);
+      setSchedule(Array.isArray(scheduleResponse) ? scheduleResponse : []);
 
       await cacheSet(`/loans/${loanId}`, {
-        loan: loanData,
-        schedule: normalizedSchedule,
+        loan: loanResponse,
+        schedule: scheduleResponse,
       });
     } catch (error) {
       console.error("Failed to load loan", error);
@@ -1156,10 +1122,8 @@ export default function LoanDetailPage() {
         }>(`/loans/${loanId}`);
 
         if (cached) {
-          setLoan(cached.data.loan);
-          setSchedule(
-            Array.isArray(cached.data.schedule) ? cached.data.schedule : [],
-          );
+          setLoan(cached.loan);
+          setSchedule(Array.isArray(cached.schedule) ? cached.schedule : []);
           setMsg({
             type: "error",
             text: "You're offline — showing the last saved version of this loan.",
@@ -1497,6 +1461,20 @@ export default function LoanDetailPage() {
     setPaying(false);
   };
 
+  const openStatusModal = () => {
+    setStForm({
+      status: "",
+      rejectionReason: "",
+      internalNotes: "",
+      interestRate:
+        loan?.interestRate != null ? String(loan.interestRate) : "5",
+      processingFeeRate:
+        loan?.processingFeeRate != null ? String(loan.processingFeeRate) : "2",
+      approvedAmount: loan?.amount != null ? String(loan.amount) : "",
+    });
+    setStOpen(true);
+  };
+
   const handleStatus = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -1514,10 +1492,44 @@ export default function LoanDetailPage() {
 
     try {
       if (stForm.status === "APPROVED") {
+        const approvedAmount = Number(stForm.approvedAmount);
+        const interestRate = Number(stForm.interestRate);
+        const processingFeeRate = Number(stForm.processingFeeRate);
+
+        if (!Number.isFinite(approvedAmount) || approvedAmount <= 0) {
+          throw new Error(
+            "Enter a valid approved principal greater than zero.",
+          );
+        }
+
+        if (approvedAmount > Number(originalRequestedAmount ?? 0)) {
+          throw new Error(
+            `Approved principal cannot exceed the original requested amount of ${fc(
+              originalRequestedAmount,
+            )}.`,
+          );
+        }
+
+        if (!Number.isFinite(interestRate) || interestRate < 0) {
+          throw new Error("Enter a valid monthly interest rate.");
+        }
+
+        if (
+          !Number.isFinite(processingFeeRate) ||
+          processingFeeRate < 0 ||
+          processingFeeRate > 100
+        ) {
+          throw new Error(
+            "Enter a valid processing fee rate between 0% and 100%.",
+          );
+        }
+
         await loanApi.approve(
           loanId,
           stForm.internalNotes,
-          stForm.interestRate ? Number(stForm.interestRate) : undefined,
+          interestRate,
+          processingFeeRate,
+          approvedAmount,
         );
       } else if (stForm.status === "REJECTED") {
         await loanApi.reject(loanId, stForm.rejectionReason);
@@ -1547,118 +1559,6 @@ export default function LoanDetailPage() {
     }
 
     setStSaving(false);
-  };
-
-  const handleDisburseLoan = async () => {
-    if (!hasValidLoanId) {
-      setMsg({
-        type: "error",
-        text: "This loan link is invalid. Disbursement cannot be initiated.",
-      });
-      return;
-    }
-
-    if (loan?.status !== "APPROVED") {
-      setMsg({
-        type: "error",
-        text: "Only an approved loan can be disbursed.",
-      });
-      return;
-    }
-
-    setStSaving(true);
-    setMsg(null);
-
-    try {
-      await loanApi.disburse(loanId, "BANK_TRANSFER");
-
-      setMsg({
-        type: "success",
-        text: "Loan disbursed successfully.",
-      });
-
-      await load();
-      await loadDocReq();
-    } catch (err: unknown) {
-      setMsg({
-        type: "error",
-        text: err instanceof Error ? err.message : "Loan disbursement failed.",
-      });
-    } finally {
-      setStSaving(false);
-    }
-  };
-
-  const handleRequestExtension = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!hasValidLoanId || !loan) {
-      setMsg({
-        type: "error",
-        text: "This loan link is invalid. Loan extension cannot be requested.",
-      });
-      return;
-    }
-
-    const months = Number(extensionMonths);
-    const maxAdditionalMonths = Math.max(0, 6 - (loan.durationMonths ?? 0));
-
-    if (!Number.isInteger(months) || months < 1) {
-      setMsg({
-        type: "error",
-        text: "Extension duration must be at least 1 month.",
-      });
-      return;
-    }
-
-    if (months > maxAdditionalMonths) {
-      setMsg({
-        type: "error",
-        text: `This loan can only be extended by ${maxAdditionalMonths} additional month(s).`,
-      });
-      return;
-    }
-
-    if (!extensionReason.trim()) {
-      setMsg({
-        type: "error",
-        text: "An extension reason is required.",
-      });
-      return;
-    }
-
-    if ((loan.outstandingBalance ?? 0) <= 0) {
-      setMsg({
-        type: "error",
-        text: "A fully paid loan cannot be extended.",
-      });
-      return;
-    }
-
-    setExtensionSaving(true);
-    setMsg(null);
-
-    try {
-      await loanApi.extend(loanId, months, extensionReason.trim());
-
-      setMsg({
-        type: "success",
-        text: `Loan extended by ${months} month(s). A 10% extension fee has been assessed on the outstanding principal.`,
-      });
-
-      setExtensionOpen(false);
-      setExtensionMonths("1");
-      setExtensionReason("");
-
-      await load();
-    } catch (err: any) {
-      setMsg({
-        type: "error",
-        text: err?.message ?? "Loan extension failed.",
-      });
-    } finally {
-      setExtensionSaving(false);
-    }
   };
 
   const handleSendForSignature = async () => {
@@ -1764,6 +1664,15 @@ export default function LoanDetailPage() {
     );
   }
 
+  const originalRequestedAmount =
+    (loan as Loan & { requestedAmount?: number }).requestedAmount ??
+    loan.amount;
+
+  const prog =
+    loan.totalRepayable && loan.totalPaid
+      ? Math.min(100, Math.round((loan.totalPaid / loan.totalRepayable) * 100))
+      : 0;
+
   const chartData = schedule
     .filter((p) => p.paid)
     .slice(-12)
@@ -1782,48 +1691,7 @@ export default function LoanDetailPage() {
     0,
   );
 
-  const scheduledInterestTotal = schedule.reduce(
-    (sum, p) => sum + Number(p.scheduledInterest ?? p.interestComponent ?? 0),
-    0,
-  );
-
-  const scheduledManagementFeeTotal = schedule.reduce(
-    (sum, p) =>
-      sum +
-      Number(
-        p.scheduledManagementFee ??
-          p.managementFeeComponent ??
-          getScheduleManagementFee(p),
-      ),
-    0,
-  );
-
-  // The repayment rows are the operational contractual schedule displayed
-  // to staff. Prefer their totals over potentially stale loan aggregate
-  // fields so the reconciliation card cannot report a different amount from
-  // the schedule itself.
-  const contractualInterest =
-    schedule.length > 0
-      ? scheduledInterestTotal
-      : Number(loan.totalInterest ?? 0);
-
-  const contractualManagementFee =
-    schedule.length > 0
-      ? scheduledManagementFeeTotal
-      : Number(loan.managementFee ?? 0);
-
-  const contractualTotalRepayable =
-    Number(loan.amount ?? 0) + contractualInterest + contractualManagementFee;
-
   const totalPenalty = loan.penaltiesAssessed ?? scheduledPenalty;
-
-  const prog =
-    contractualTotalRepayable > 0 && loan.totalPaid != null
-      ? Math.min(
-          100,
-          Math.round((loan.totalPaid / contractualTotalRepayable) * 100),
-        )
-      : 0;
 
   const managementFeeRate = loan.managementFeeRate ?? 5;
   const interestRate = loan.interestRate ?? 5;
@@ -1836,19 +1704,16 @@ export default function LoanDetailPage() {
     managementFeeRate,
   );
 
-  const currentOutstandingPrincipal =
-    loan.outstandingBalance ?? loan.amount ?? 0;
-
   const dailyInterestAmount = dailyAmountFromMonthlyRate(
-    currentOutstandingPrincipal,
+    loan.outstandingBalance ?? loan.amount ?? 0,
     interestRate,
   );
 
-  const currentMonthlyManagementAmount =
-    currentOutstandingPrincipal * (managementFeeRate / 100);
-
-  const currentMonthlyInterestAmount =
-    currentOutstandingPrincipal * (interestRate / 100);
+  const managementFeePaid = loan.managementFeePaid ?? 0;
+  const managementFeeScheduled = loan.managementFee ?? 0;
+  const managementFeeRemaining =
+    loan.managementFeeOutstanding ??
+    Math.max(0, managementFeeScheduled - managementFeePaid);
 
   const totalMonthlyChargeRate = interestRate + managementFeeRate;
 
@@ -1920,208 +1785,63 @@ export default function LoanDetailPage() {
             </div>
 
             <div className="flex gap-2 flex-wrap justify-end">
-              {/* ======================================================
-                  BANK-GRADE LOAN OPERATIONS
-                  Consequential actions are grouped, labelled and visually
-                  prioritized without changing any existing API behaviour.
-              ====================================================== */}
+              {isOfficer && loan.borrower && (
+                <Button
+                  variant="outline"
+                  onClick={handleCreditBureauCheck}
+                  disabled={cbBusy}
+                >
+                  <IconBank className="w-4 h-4" />
+
+                  {cbBusy ? "Checking…" : "Credit Bureau Check"}
+                </Button>
+              )}
+
+              {isOfficer &&
+                (loan.status === "APPROVED" ||
+                  loan.status === "DISBURSED" ||
+                  loan.status === "ACTIVE") && (
+                  <Button
+                    variant="outline"
+                    onClick={handleSendForSignature}
+                    disabled={esignBusy}
+                  >
+                    <IconSignature className="w-4 h-4" />
+
+                    {esignBusy ? "Sending…" : "Send for E-Signature"}
+                  </Button>
+                )}
+
               {isOfficer && (
-                <div className="w-full lg:w-auto lg:min-w-[760px] rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-sm">
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between px-2.5 pt-0.5">
-                      <div className="flex items-center gap-2">
-                        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-900 text-white">
-                          <IconBank className="h-3.5 w-3.5" />
-                        </div>
-                        <div>
-                          <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
-                            Loan Operations
-                          </div>
-                          <div className="text-[11px] text-slate-400">
-                            Controlled servicing actions
-                          </div>
-                        </div>
-                      </div>
-                      <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-bold text-slate-500">
-                        <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
-                        Authorized officer
-                      </span>
-                    </div>
+                <Button
+                  variant="outline"
+                  onClick={openStatusModal}
+                  aria-label={`Update status for loan ${loan.referenceNumber}`}
+                >
+                  Update Status
+                </Button>
+              )}
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2">
-                      {loan.borrower && (
-                        <button
-                          type="button"
-                          onClick={handleCreditBureauCheck}
-                          disabled={cbBusy}
-                          title="Retrieve the latest borrower credit information"
-                          className="group flex min-h-[72px] flex-col items-start justify-between rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
-                        >
-                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700 transition group-hover:bg-blue-600 group-hover:text-white">
-                            <IconBank className="h-4 w-4" />
-                          </span>
-                          <span>
-                            <span className="block text-xs font-extrabold text-slate-800">
-                              {cbBusy ? "Checking…" : "Credit Bureau"}
-                            </span>
-                            <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
-                              {cbBusy
-                                ? "Retrieving report"
-                                : "Run credit check"}
-                            </span>
-                          </span>
-                        </button>
-                      )}
+              {loan.status === "ACTIVE" && (
+                <Button
+                  onClick={() => {
+                    setPayForm((f) => ({
+                      ...f,
 
-                      {(loan.status === "APPROVED" ||
-                        loan.status === "DISBURSED" ||
-                        loan.status === "ACTIVE") && (
-                        <button
-                          type="button"
-                          onClick={handleSendForSignature}
-                          disabled={esignBusy}
-                          title="Send the loan documents for electronic signature"
-                          className="group flex min-h-[72px] flex-col items-start justify-between rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-violet-200 hover:bg-violet-50 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
-                        >
-                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700 transition group-hover:bg-violet-600 group-hover:text-white">
-                            <IconSignature className="h-4 w-4" />
-                          </span>
-                          <span>
-                            <span className="block text-xs font-extrabold text-slate-800">
-                              {esignBusy ? "Sending…" : "E-Signature"}
-                            </span>
-                            <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
-                              {esignBusy
-                                ? "Sending to borrower"
-                                : "Send for signing"}
-                            </span>
-                          </span>
-                        </button>
-                      )}
+                      amount: String(
+                        loan.nextInstallmentAmount ??
+                          loan.outstandingBalance ??
+                          loan.amount ??
+                          0,
+                      ),
+                    }));
 
-                      {loan.status === "APPROVED" && (
-                        <button
-                          type="button"
-                          onClick={handleDisburseLoan}
-                          disabled={stSaving}
-                          title="Release the approved loan amount by bank transfer"
-                          className="group relative flex min-h-[72px] flex-col items-start justify-between rounded-xl border border-teal-200 bg-teal-600 px-3 py-2.5 text-left text-white shadow-sm transition-all hover:-translate-y-0.5 hover:bg-teal-700 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
-                        >
-                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/20">
-                            <IconSend className="h-4 w-4" />
-                          </span>
-                          <span>
-                            <span className="block text-xs font-extrabold">
-                              {stSaving ? "Processing…" : "Disburse Loan"}
-                            </span>
-                            <span className="mt-0.5 block text-[10px] font-medium text-teal-100">
-                              {stSaving
-                                ? "Posting transaction"
-                                : "Release approved funds"}
-                            </span>
-                          </span>
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setStForm((current) => ({
-                            ...current,
-                            status: "",
-                            rejectionReason: "",
-                            internalNotes: "",
-                          }));
-                          setStOpen(true);
-                        }}
-                        title="Change the operational status of this loan"
-                        className="group flex min-h-[72px] flex-col items-start justify-between rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-sm"
-                      >
-                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-200 text-slate-700 transition group-hover:bg-slate-900 group-hover:text-white">
-                          <IconFileEdit className="h-4 w-4" />
-                        </span>
-                        <span>
-                          <span className="block text-xs font-extrabold text-slate-800">
-                            Status
-                          </span>
-                          <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
-                            Update loan status
-                          </span>
-                        </span>
-                      </button>
-
-                      {[
-                        "ACTIVE",
-                        "OVERDUE",
-                        "DEFAULTED",
-                        "RESTRUCTURED",
-                      ].includes(loan.status) &&
-                        (loan.durationMonths ?? 0) < 6 &&
-                        (loan.outstandingBalance ?? 0) > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const remainingTerm = Math.max(
-                                1,
-                                6 - (loan.durationMonths ?? 0),
-                              );
-                              setExtensionMonths(
-                                String(Math.min(1, remainingTerm)),
-                              );
-                              setExtensionReason("");
-                              setExtensionOpen(true);
-                            }}
-                            title="Request additional repayment time for an eligible loan"
-                            className="group flex min-h-[72px] flex-col items-start justify-between rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-amber-200 hover:bg-amber-50 hover:shadow-sm"
-                          >
-                            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-700 transition group-hover:bg-amber-500 group-hover:text-white">
-                              <IconCalendar className="h-4 w-4" />
-                            </span>
-                            <span>
-                              <span className="block text-xs font-extrabold text-slate-800">
-                                Extension
-                              </span>
-                              <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
-                                Request more time
-                              </span>
-                            </span>
-                          </button>
-                        )}
-
-                      {loan.status === "ACTIVE" && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPayForm((f) => ({
-                              ...f,
-                              amount: String(
-                                loan.nextInstallmentAmount ??
-                                  loan.outstandingBalance ??
-                                  loan.amount ??
-                                  0,
-                              ),
-                            }));
-                            setPayOpen(true);
-                          }}
-                          title="Record a borrower repayment against this loan"
-                          className="group flex min-h-[72px] flex-col items-start justify-between rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50 hover:shadow-sm"
-                        >
-                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 transition group-hover:bg-emerald-600 group-hover:text-white">
-                            <IconCard className="h-4 w-4" />
-                          </span>
-                          <span>
-                            <span className="block text-xs font-extrabold text-slate-800">
-                              Payment
-                            </span>
-                            <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
-                              Record repayment
-                            </span>
-                          </span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                    setPayOpen(true);
+                  }}
+                >
+                  <IconCard className="w-4 h-4" />
+                  Record Payment
+                </Button>
               )}
             </div>
           </div>
@@ -2183,8 +1903,8 @@ export default function LoanDetailPage() {
             },
 
             {
-              label: "Management Fee Rate",
-              value: `${managementFeeRate.toFixed(2)}%`,
+              label: "Management Fee",
+              value: fc(loan.managementFee),
               Icon: IconFileText,
               color: "#7C3AED",
             },
@@ -2222,7 +1942,7 @@ export default function LoanDetailPage() {
           <CardHeader title="Loan Charges" />
 
           <CardBody>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="rounded-xl border border-purple-100 bg-purple-50/60 p-4">
                 <div className="text-[10px] font-bold text-purple-500 uppercase tracking-wider">
                   Monthly Management Fee
@@ -2234,12 +1954,8 @@ export default function LoanDetailPage() {
                   {managementFeeDailyRate.toFixed(6)}% per day
                 </div>
                 <div className="text-xs text-purple-600 mt-1">
-                  {fc(currentMonthlyManagementAmount)} for a full calendar month
-                  if the outstanding principal remains unchanged
-                </div>
-                <div className="text-xs text-purple-500 mt-1">
-                  Approx. {fc(dailyManagementFeeAmount)} per day in the current
-                  calendar month
+                  Approx. {fc(dailyManagementFeeAmount)} per day on the current
+                  outstanding principal
                 </div>
               </div>
 
@@ -2254,25 +1970,33 @@ export default function LoanDetailPage() {
                   {interestDailyRate.toFixed(6)}% per day
                 </div>
                 <div className="text-xs text-blue-600 mt-1">
-                  {fc(currentMonthlyInterestAmount)} for a full calendar month
-                  if the outstanding principal remains unchanged
+                  Current daily interest basis: {fc(dailyInterestAmount)}
                 </div>
-                <div className="text-xs text-blue-500 mt-1">
-                  Approx. {fc(dailyInterestAmount)} per day in the current
+              </div>
+
+              <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
+                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                  Total Monthly Charge
+                </div>
+                <div className="text-xl font-extrabold text-gray-900 mt-1">
+                  {totalMonthlyChargeRate.toFixed(2)}%
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {totalDailyChargeRate.toFixed(6)}% per day using the current
                   calendar month
                 </div>
               </div>
 
-              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                  Current Outstanding Principal
+              <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
+                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                  Management Fee Balance
                 </div>
-                <div className="text-xl font-extrabold text-slate-900 mt-1">
-                  {fc(currentOutstandingPrincipal)}
+                <div className="text-xl font-extrabold text-gray-900 mt-1">
+                  {fc(managementFeeRemaining)}
                 </div>
-                <div className="text-xs text-slate-500 mt-1">
-                  Both recurring charges accrue daily against this outstanding
-                  principal.
+                <div className="text-xs text-gray-500 mt-1">
+                  {fc(managementFeePaid)} paid of {fc(managementFeeScheduled)}{" "}
+                  scheduled
                 </div>
               </div>
             </div>
@@ -2286,32 +2010,11 @@ export default function LoanDetailPage() {
                 label="Net Disbursed"
                 value={fc(loan.netDisbursedAmount)}
               />
-              <Field
-                label="Total Repayable"
-                value={fc(contractualTotalRepayable)}
-              />
+              <Field label="Total Repayable" value={fc(loan.totalRepayable)} />
               <Field label="Interest Paid" value={fc(loan.interestPaid)} />
             </div>
           </CardBody>
         </Card>
-
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              Combined recurring charge
-            </div>
-            <div className="mt-1 text-sm font-bold text-slate-800">
-              {interestRate.toFixed(2)}% interest +{" "}
-              {managementFeeRate.toFixed(2)}% management fee ={" "}
-              <span className="text-teal-700">
-                {totalMonthlyChargeRate.toFixed(2)}% monthly
-              </span>
-            </div>
-          </div>
-          <div className="text-xs font-medium text-slate-400">
-            {totalDailyChargeRate.toFixed(6)}% per calendar day basis
-          </div>
-        </div>
 
         {loan.imported && (
           <Card className="mb-5 border-amber-200 bg-amber-50/50 shadow-sm overflow-hidden">
@@ -2385,7 +2088,7 @@ export default function LoanDetailPage() {
                 <div className="mt-3 space-y-2 text-sm">
                   <div className="flex justify-between gap-4">
                     <span className="text-slate-500">Scheduled</span>
-                    <strong>{fc(contractualInterest)}</strong>
+                    <strong>{fc(loan.totalInterest)}</strong>
                   </div>
                   <div className="flex justify-between gap-4">
                     <span className="text-slate-500">Paid</span>
@@ -2397,10 +2100,12 @@ export default function LoanDetailPage() {
                     </span>
                     <strong className="text-purple-700">
                       {fc(
-                        Math.max(
-                          0,
-                          contractualInterest - (loan.interestPaid ?? 0),
-                        ),
+                        loan.interestOutstanding ??
+                          Math.max(
+                            0,
+                            (loan.totalInterest ?? 0) -
+                              (loan.interestPaid ?? 0),
+                          ),
                       )}
                     </strong>
                   </div>
@@ -2409,12 +2114,12 @@ export default function LoanDetailPage() {
 
               <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-4">
                 <div className="text-[10px] font-bold uppercase tracking-wider text-teal-600">
-                  Management Fee (Term Total)
+                  Management Fee
                 </div>
                 <div className="mt-3 space-y-2 text-sm">
                   <div className="flex justify-between gap-4">
-                    <span className="text-slate-500">Scheduled over term</span>
-                    <strong>{fc(contractualManagementFee)}</strong>
+                    <span className="text-slate-500">Scheduled</span>
+                    <strong>{fc(loan.managementFee)}</strong>
                   </div>
                   <div className="flex justify-between gap-4">
                     <span className="text-slate-500">Paid</span>
@@ -2426,11 +2131,12 @@ export default function LoanDetailPage() {
                     </span>
                     <strong className="text-teal-700">
                       {fc(
-                        Math.max(
-                          0,
-                          contractualManagementFee -
-                            (loan.managementFeePaid ?? 0),
-                        ),
+                        loan.managementFeeOutstanding ??
+                          Math.max(
+                            0,
+                            (loan.managementFee ?? 0) -
+                              (loan.managementFeePaid ?? 0),
+                          ),
                       )}
                     </strong>
                   </div>
@@ -2470,10 +2176,7 @@ export default function LoanDetailPage() {
 
             <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <Field label="Total Paid" value={fc(loan.totalPaid)} />
-              <Field
-                label="Total Repayable"
-                value={fc(contractualTotalRepayable)}
-              />
+              <Field label="Total Repayable" value={fc(loan.totalRepayable)} />
               <Field
                 label="Processing Fee Paid"
                 value={fc(loan.processingFeePaid)}
@@ -2514,7 +2217,7 @@ export default function LoanDetailPage() {
 
               <span>{fc(loan.outstandingBalance)} remaining</span>
 
-              <span>{fc(contractualTotalRepayable)} total</span>
+              <span>{fc(loan.totalRepayable)} total</span>
             </div>
             {loan.status === "PAID" && (
               <div className="mt-2 bg-teal-50 border border-teal-200 text-teal-700 text-xs rounded-lg px-3 py-2 flex items-center gap-1.5">
@@ -2630,12 +2333,12 @@ export default function LoanDetailPage() {
 
                 <Field
                   label="Total Repayable"
-                  value={fc(contractualTotalRepayable)}
+                  value={fc(loan.totalRepayable)}
                 />
 
                 <Field
-                  label="Management Fee — Term Total"
-                  value={fc(contractualManagementFee)}
+                  label="Management Fee Scheduled"
+                  value={fc(loan.managementFee)}
                 />
 
                 <Field
@@ -2644,8 +2347,8 @@ export default function LoanDetailPage() {
                 />
 
                 <Field
-                  label="Interest — Term Total"
-                  value={fc(contractualInterest)}
+                  label="Interest Scheduled"
+                  value={fc(loan.totalInterest)}
                 />
 
                 <Field label="Interest Paid" value={fc(loan.interestPaid)} />
@@ -2653,23 +2356,6 @@ export default function LoanDetailPage() {
                 <Field
                   label="Outstanding Balance"
                   value={fc(loan.outstandingBalance)}
-                />
-
-                <Field
-                  label="Extension Fee Assessed"
-                  value={fc(loan.extensionFeeAssessed)}
-                />
-
-                <Field
-                  label="Extension Fee Outstanding"
-                  value={fc(loan.extensionFeeOutstanding)}
-                />
-
-                <Field label="Extensions" value={loan.extensionCount ?? 0} />
-
-                <Field
-                  label="Last Extension"
-                  value={formatDate(loan.lastExtensionDate, locale)}
                 />
 
                 <Field
@@ -2972,20 +2658,6 @@ export default function LoanDetailPage() {
                 title={`Repayment Schedule (${schedule.length} installments)`}
               />
 
-              <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-3 text-xs text-slate-600 sm:px-5">
-                <strong className="text-slate-800">
-                  5.00% monthly interest
-                </strong>{" "}
-                and
-                <strong className="ml-1 text-slate-800">
-                  5.00% monthly management fee
-                </strong>
-                are accrued on a calendar-day basis against the outstanding
-                principal. As principal is repaid, future installments are
-                recalculated from the lower outstanding balance; the schedule is
-                not a fixed installment amount.
-              </div>
-
               <Table>
                 <Thead>
                   <tr>
@@ -3280,125 +2952,6 @@ export default function LoanDetailPage() {
         )}
 
         {/* ======================================================
-          LOAN EXTENSION MODAL
-      ====================================================== */}
-
-        <Modal
-          open={extensionOpen}
-          onClose={() => {
-            if (!extensionSaving) {
-              setExtensionOpen(false);
-            }
-          }}
-          title="Request Loan Extension"
-          footer={
-            <>
-              <Button
-                variant="secondary"
-                onClick={() => setExtensionOpen(false)}
-                disabled={extensionSaving}
-              >
-                Cancel
-              </Button>
-
-              <Button
-                loading={extensionSaving}
-                onClick={handleRequestExtension as any}
-                aria-label="Confirm loan extension"
-              >
-                Confirm Extension
-              </Button>
-            </>
-          }
-        >
-          <form onSubmit={handleRequestExtension}>
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 mb-5">
-              <div className="text-xs font-bold uppercase tracking-wider text-amber-700">
-                Extension pricing
-              </div>
-
-              <div className="mt-2 grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <div className="text-xs text-amber-700/70">
-                    Outstanding principal
-                  </div>
-                  <div className="font-black text-gray-900">
-                    {fc(loan.outstandingBalance)}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-xs text-amber-700/70">
-                    Extension fee rate
-                  </div>
-                  <div className="font-black text-gray-900">10%</div>
-                </div>
-
-                <div>
-                  <div className="text-xs text-amber-700/70">Estimated fee</div>
-                  <div className="font-black text-gray-900">
-                    {fc(((loan.outstandingBalance ?? 0) * 10) / 100)}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-xs text-amber-700/70">
-                    Current maturity
-                  </div>
-                  <div className="font-black text-gray-900">
-                    {formatDate(loan.maturityDate, locale)}
-                  </div>
-                </div>
-              </div>
-
-              <p className="mt-3 text-xs leading-5 text-amber-800">
-                The 10% fee is calculated by the backend from the outstanding
-                principal at the moment the extension is approved. It is a
-                separate receivable and does not increase loan principal.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormGroup label="Additional months" required>
-                <Select
-                  value={extensionMonths}
-                  onChange={(e) => setExtensionMonths(e.target.value)}
-                  required
-                >
-                  {Array.from(
-                    {
-                      length: Math.max(0, 6 - (loan.durationMonths ?? 0)),
-                    },
-                    (_, index) => index + 1,
-                  ).map((months) => (
-                    <option key={months} value={months}>
-                      {months} month{months === 1 ? "" : "s"}
-                    </option>
-                  ))}
-                </Select>
-              </FormGroup>
-
-              <FormGroup label="New total term">
-                <Input
-                  value={`${(loan.durationMonths ?? 0) + Number(extensionMonths || 0)} months`}
-                  readOnly
-                />
-              </FormGroup>
-            </div>
-
-            <FormGroup label="Reason for extension" required>
-              <Textarea
-                required
-                minLength={3}
-                placeholder="Explain why the borrower requires additional repayment time…"
-                value={extensionReason}
-                onChange={(e) => setExtensionReason(e.target.value)}
-              />
-            </FormGroup>
-          </form>
-        </Modal>
-
-        {/* ======================================================
           PAYMENT MODAL
       ====================================================== */}
 
@@ -3603,76 +3156,118 @@ export default function LoanDetailPage() {
               </Select>
             </FormGroup>
             {stForm.status === "APPROVED" && (
-              <FormGroup
-                label={`Interest Rate ${
-                  loan.interestRateType === "MONTHLY" ? "(monthly)" : "(annual)"
-                }`}
-              >
-                <p className="text-xs text-gray-400 mb-2">
-                  Applied on the website at{" "}
-                  <strong>{loan.interestRate}%</strong>. Loans are flexible —
-                  adjust it here if this borrower should get a different rate;
-                  leave it as-is to keep the original.
-                </p>
+              <div className="space-y-5">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                        Approval amendment
+                      </div>
+                      <p className="mt-1 text-sm leading-6 text-slate-600">
+                        The original borrower request is preserved for audit.
+                        The approved principal below becomes the contractual
+                        principal used for disbursement, repayment, accounting
+                        and regulatory reporting.
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-white px-3 py-1 text-[11px] font-bold text-slate-500 border border-slate-200">
+                      Maker-checker controlled
+                    </span>
+                  </div>
+                </div>
 
-                <div className="flex gap-2 flex-wrap">
-                  {["6", "8", "10"].map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() =>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormGroup label="Original requested amount">
+                    <Input
+                      value={fc(originalRequestedAmount)}
+                      disabled
+                      readOnly
+                    />
+                  </FormGroup>
+
+                  <FormGroup label="Approved principal" required>
+                    <Input
+                      type="number"
+                      min="1"
+                      max={String(originalRequestedAmount ?? "")}
+                      step="0.01"
+                      required
+                      value={stForm.approvedAmount}
+                      onChange={(e) =>
                         setStForm((f) => ({
                           ...f,
-                          interestRate: r,
+                          approvedAmount: e.target.value,
                         }))
                       }
-                      className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${
-                        stForm.interestRate === r
-                          ? "bg-teal-600 text-white border-teal-600"
-                          : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                      }`}
-                    >
-                      {r}%
-                    </button>
-                  ))}
+                    />
+                    <p className="mt-1.5 text-[11px] text-slate-500">
+                      "Manager/Admin may reduce the approved principal. The
+                      backend prevents unauthorized roles from changing it, and
+                      it cannot exceed the original request."
+                    </p>
+                  </FormGroup>
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setStForm((f) => ({
-                        ...f,
-                        interestRate: "",
-                      }))
-                    }
-                    className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${
-                      stForm.interestRate === ""
-                        ? "bg-teal-600 text-white border-teal-600"
-                        : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                    }`}
+                  <FormGroup
+                    label={`Interest Rate ${loan.interestRateType === "MONTHLY" ? "(monthly)" : "(annual)"}`}
                   >
-                    Keep {loan.interestRate}%
-                  </button>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    placeholder="Custom %"
-                    value={
-                      ["6", "8", "10", ""].includes(stForm.interestRate)
-                        ? ""
-                        : stForm.interestRate
-                    }
-                    onChange={(e) =>
-                      setStForm((f) => ({
-                        ...f,
-                        interestRate: e.target.value,
-                      }))
-                    }
-                    className="w-28 px-3 py-2 rounded-lg text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                  />
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={stForm.interestRate}
+                      onChange={(e) =>
+                        setStForm((f) => ({
+                          ...f,
+                          interestRate: e.target.value,
+                        }))
+                      }
+                    />
+                    <p className="mt-1.5 text-[11px] text-slate-500">
+                      Editable contractual interest rate. Noble's standard is 5%
+                      monthly, but an authorized approver may set the final rate
+                      for this loan.
+                    </p>
+                  </FormGroup>
+
+                  <FormGroup label="Management Fee (monthly)">
+                    <Input value="5.00%" disabled readOnly />
+                    <p className="mt-1.5 text-[11px] font-semibold text-purple-700">
+                      Locked institutional policy — cannot be changed during
+                      approval.
+                    </p>
+                  </FormGroup>
+
+                  <FormGroup label="Processing Fee (one-time)">
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={stForm.processingFeeRate}
+                      onChange={(e) =>
+                        setStForm((f) => ({
+                          ...f,
+                          processingFeeRate: e.target.value,
+                        }))
+                      }
+                    />
+                    <p className="mt-1.5 text-[11px] text-slate-500">
+                      "Manager/Admin may change the one-time processing fee
+                      rate. The backend enforces this role restriction."
+                    </p>
+                  </FormGroup>
                 </div>
-              </FormGroup>
+
+                <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-xs leading-5 text-blue-900">
+                  <strong>Financial control:</strong> changing the approved
+                  principal or pricing before approval rebuilds the provisional
+                  repayment schedule from the final contractual terms. The 5%
+                  monthly management fee remains locked.
+                </div>
+              </div>
             )}
+
             {stForm.status === "REJECTED" && (
               <FormGroup label="Rejection Reason" required>
                 <Textarea

@@ -997,6 +997,30 @@ public class LoanService {
                 // Noble Loan policy: management fee is fixed at 5% monthly.
                 managementFeeRate = MONTHLY_MANAGEMENT_FEE_RATE;
 
+                if (newApprovedAmount != null) {
+                        String role = approvedBy.getRole() != null
+                                        && approvedBy.getRole().getName() != null
+                                                        ? approvedBy.getRole().getName().trim().toUpperCase(Locale.ROOT)
+                                                        : "";
+
+                        if (role.startsWith("ROLE_")) {
+                                role = role.substring(5);
+                        }
+
+                        if (!"ADMIN".equals(role) && !"MANAGER".equals(role)) {
+                                throw new SecurityException(
+                                                "Only MANAGER or ADMIN may change the approved principal.");
+                        }
+
+                        // The approved principal may be reduced from the original request,
+                        // but it may never be increased beyond what the borrower requested.
+                        if (normalizePrincipal(newApprovedAmount).compareTo(requestedAmount) > 0) {
+                                throw new IllegalArgumentException(
+                                                "Approved loan amount cannot exceed the borrower's requested amount of "
+                                                                + requestedAmount + ".");
+                        }
+                }
+
                 if (newProcessingFeeRate != null) {
                         String role = approvedBy.getRole() != null
                                         && approvedBy.getRole().getName() != null

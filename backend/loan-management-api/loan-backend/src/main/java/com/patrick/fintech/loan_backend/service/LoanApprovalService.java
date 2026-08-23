@@ -434,9 +434,6 @@ public class LoanApprovalService {
                                         .findFirst()
                                         .orElse(null);
 
-                        // A legacy public loan may already contain an approved checker
-                        // step. Under the corrected one-checker public policy, that
-                        // approval is sufficient; never overwrite its approver/history.
                         if (decisionRecord != null) {
                                 loanService.approveLoan(
                                                 loanId,
@@ -527,16 +524,6 @@ public class LoanApprovalService {
                         requiredRole = requiredRole.substring(5);
                 }
 
-                /*
-                 * ADMIN is the highest authority and may perform any
-                 * lower-level approval step.
-                 *
-                 * MANAGER can perform MANAGER steps.
-                 *
-                 * LOAN_OFFICER can perform LOAN_OFFICER steps, although
-                 * maker-checker below still prevents the creator from
-                 * approving their own loan.
-                 */
                 boolean roleMatches = requiredRole.equals(deciderRole)
                                 || "ADMIN".equals(deciderRole)
                                 || ("MANAGER_OR_ADMIN".equals(requiredRole)
@@ -552,13 +539,6 @@ public class LoanApprovalService {
                                                         + ".");
                 }
 
-                /*
-                 * ========================================================
-                 * MAKER-CHECKER
-                 * ========================================================
-                 *
-                 * The creator can NEVER approve their own loan.
-                 */
                 User creator = loan.getCreatedBy();
 
                 if (creator != null
@@ -571,13 +551,6 @@ public class LoanApprovalService {
                                                         + "under the maker-checker policy.");
                 }
 
-                /*
-                 * Backward compatibility for old loans where created_by
-                 * may not yet exist.
-                 *
-                 * If loanOfficer is populated and matches the decider,
-                 * still prevent self-approval.
-                 */
                 if (creator == null
                                 && loan.getLoanOfficer() != null
                                 && loan.getLoanOfficer().getId() != null
