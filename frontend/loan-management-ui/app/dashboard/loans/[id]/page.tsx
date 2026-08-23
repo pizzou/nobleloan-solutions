@@ -3020,6 +3020,10 @@ export default function LoanDetailPage() {
           </Card>
         )}
 
+        {/* ======================================================
+          PAYMENT MODAL
+      ====================================================== */}
+
         <Modal
           open={payOpen}
           onClose={() => setPayOpen(false)}
@@ -3141,6 +3145,10 @@ export default function LoanDetailPage() {
             </FormGroup>
           </form>
         </Modal>
+
+        {/* ======================================================
+          STATUS MODAL
+      ====================================================== */}
 
         <Modal
           open={stOpen}
