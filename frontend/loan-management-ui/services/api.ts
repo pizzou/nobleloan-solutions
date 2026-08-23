@@ -667,6 +667,13 @@ export const accountingApi = {
           : ""
       }`,
     ),
+
+  /**
+   * Reconcile opening accounting journals for historical loans imported
+   * from the legacy portfolio. The backend operation is idempotent, so
+   * running it again does not duplicate an existing opening journal.
+   */
+  reconcileLegacyLoans: () => post("/accounting/legacy-loans/reconcile"),
 };
 
 /**
