@@ -39,6 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -245,23 +246,42 @@ public class LoanController {
                                 : null;
 
                 Double newInterestRate = null;
+                Double newProcessingFeeRate = null;
+                BigDecimal newApprovedAmount = null;
 
                 if (body != null) {
 
-                        String rawRate = body.get("interestRate");
+                        String rawInterestRate = body.get("interestRate");
+                        String rawProcessingFeeRate = body.get("processingFeeRate");
+                        String rawApprovedAmount = body.get("approvedAmount");
 
-                        if (rawRate != null
-                                        && !rawRate.isBlank()) {
-
+                        if (rawInterestRate != null
+                                        && !rawInterestRate.isBlank()) {
                                 try {
-
-                                        newInterestRate = Double.valueOf(
-                                                        rawRate.trim());
-
+                                        newInterestRate = Double.valueOf(rawInterestRate.trim());
                                 } catch (NumberFormatException e) {
-
                                         throw new IllegalArgumentException(
                                                         "interestRate must be a valid number.");
+                                }
+                        }
+
+                        if (rawProcessingFeeRate != null
+                                        && !rawProcessingFeeRate.isBlank()) {
+                                try {
+                                        newProcessingFeeRate = Double.valueOf(rawProcessingFeeRate.trim());
+                                } catch (NumberFormatException e) {
+                                        throw new IllegalArgumentException(
+                                                        "processingFeeRate must be a valid number.");
+                                }
+                        }
+
+                        if (rawApprovedAmount != null
+                                        && !rawApprovedAmount.isBlank()) {
+                                try {
+                                        newApprovedAmount = new BigDecimal(rawApprovedAmount.trim());
+                                } catch (NumberFormatException e) {
+                                        throw new IllegalArgumentException(
+                                                        "approvedAmount must be a valid number.");
                                 }
                         }
                 }
@@ -271,7 +291,9 @@ public class LoanController {
                                 user,
                                 "APPROVED",
                                 notes,
-                                newInterestRate);
+                                newInterestRate,
+                                newProcessingFeeRate,
+                                newApprovedAmount);
 
                 Loan loan = loanService.getLoanForOrg(
                                 id,

@@ -215,14 +215,6 @@ export const loanApi = {
       disbursementMethod: method,
     }),
 
-  extend: (
-    id: number,
-    data: {
-      extensionMonths: number;
-      reason: string;
-    },
-  ) => post(`/loans/${id}/extend`, data),
-
   updateStatus: (id: number, status: string, notes?: string) =>
     post(`/loans/${id}/status`, {
       status,
