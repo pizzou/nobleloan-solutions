@@ -15,8 +15,8 @@ import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.Font;
-import org.apache.poi.ss.usermodel.HorizontalAlignment;
 import org.apache.poi.ss.usermodel.IndexedColors;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.VerticalAlignment;
@@ -38,6 +38,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 
+/**
+ * Native CRB regulatory workbook generator.
+ *
+ * The workbook structure is defined in Java. No uploaded XLS/XLSX template is
+ * read at runtime and no business figures are hard-coded. Values come from
+ * Noble Loan entities/repositories.
+ *
+ * The seven worksheets intentionally mirror the supplied CRB workbook:
+ * Consumer, Corporate, Shareholders, Directors, Guarantors, Collateral and
+ * Bounced Cheques.
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -164,6 +175,11 @@ public class CreditBureauRegulatoryExportService {
             createHeader(collateral, COLLATERAL_HEADERS, styles);
             createHeader(bounced, BOUNCED_CHEQUE_HEADERS, styles);
 
+            // The supplied workbook is a seven-sheet submission structure.
+            // Noble Loan currently has individual Borrower records and does
+            // not have separate corporate/shareholder/director/bounced-cheque
+            // entities. Those sheets therefore remain structurally present but
+            // contain no fabricated rows.
             Map<Long, List<Payment>> paymentCache = new HashMap<>();
             Map<Long, List<Guarantor>> guarantorCache = new HashMap<>();
             Map<Long, List<Collateral>> collateralCache = new HashMap<>();
@@ -680,61 +696,35 @@ public class CreditBureauRegulatoryExportService {
     }
 
     private static final class Styles {
-
         private final CellStyle mandatory;
         private final CellStyle optional;
         private final CellStyle body;
         private final CellStyle number;
 
         private Styles(Workbook workbook) {
-
-            // ============================================================
-            // MANDATORY FIELD STYLE
-            // ============================================================
-
             Font mandatoryFont = workbook.createFont();
             mandatoryFont.setFontName("Verdana");
             mandatoryFont.setFontHeightInPoints((short) 9);
             mandatoryFont.setColor(IndexedColors.RED.getIndex());
-
-            // ============================================================
-            // OPTIONAL FIELD STYLE
-            // ============================================================
 
             Font optionalFont = workbook.createFont();
             optionalFont.setFontName("Verdana");
             optionalFont.setFontHeightInPoints((short) 9);
             optionalFont.setColor(IndexedColors.BLACK.getIndex());
 
-            // ============================================================
-            // BODY FONT
-            // ============================================================
-
             Font bodyFont = workbook.createFont();
             bodyFont.setFontName("Calibri");
             bodyFont.setFontHeightInPoints((short) 11);
-
-            // ============================================================
-            // MANDATORY
-            // ============================================================
 
             mandatory = workbook.createCellStyle();
             mandatory.setFont(mandatoryFont);
             mandatory.setVerticalAlignment(VerticalAlignment.TOP);
             mandatory.setWrapText(false);
 
-            // ============================================================
-            // OPTIONAL
-            // ============================================================
-
             optional = workbook.createCellStyle();
             optional.setFont(optionalFont);
             optional.setVerticalAlignment(VerticalAlignment.TOP);
             optional.setWrapText(false);
-
-            // ============================================================
-            // BODY
-            // ============================================================
 
             body = workbook.createCellStyle();
             body.setFont(bodyFont);
@@ -746,8 +736,7 @@ public class CreditBureauRegulatoryExportService {
             number.setFont(bodyFont);
             number.setVerticalAlignment(VerticalAlignment.TOP);
             number.setAlignment(HorizontalAlignment.RIGHT);
-            number.setDataFormat(
-                    workbook.createDataFormat().getFormat("#,##0.00"));
+            number.setDataFormat(workbook.createDataFormat().getFormat("0.00"));
         }
     }
 }

@@ -12,6 +12,7 @@ import com.patrick.fintech.loan_backend.repository.ChartOfAccountRepository;
 import com.patrick.fintech.loan_backend.repository.JournalEntryRepository;
 import com.patrick.fintech.loan_backend.repository.JournalLineRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
+import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashSet;
@@ -971,7 +973,7 @@ public class AccountingService {
                 // The processing fee is collected exactly once at disbursement.
                 // Keep the operational loan state synchronized with the journal:
                 // gross principal remains the receivable, while the borrower
-                // receives principal minus the one-time 2% fee.
+                // receives principal minus the one-time processing fee.
                 loan.setProcessingFee(processingFee);
                 loan.setProcessingFeePaid(processingFee);
                 loan.setNetDisbursedAmount(netCashDisbursed);
@@ -1255,223 +1257,147 @@ public class AccountingService {
         }
 
         // ============================================================
-        // INTEREST ACCRUAL
+        // LEGACY MONTHLY INTEREST / MANAGEMENT ACCRUAL COMPATIBILITY
         // ============================================================
 
+        /**
+         * Legacy compatibility entry point. The old parameter was named
+         * dailyInterestAmount and could carry a daily accrual such as RWF 8,065.
+         * That behavior is intentionally removed. The supplied amount is ignored
+         * and one contractual monthly charge is posted at most once per month.
+         * New code should use postScheduledInterestAccrual(Payment).
+         */
+        @Deprecated
         @Transactional
-        public void postInterestAccrual(
-                        Loan loan,
-                        double dailyInterestAmount) {
-
-                postInterestAccrual(
-                                loan,
-                                money(
-                                                dailyInterestAmount));
+        public JournalEntry postInterestAccrual(Loan loan, double ignoredAmount) {
+                return postContractualMonthlyInterestAccrual(loan);
         }
 
+        @Deprecated
         @Transactional
-        public void postInterestAccrual(
-                        Loan loan,
-                        BigDecimal dailyInterestAmount) {
+        public JournalEntry postInterestAccrual(Loan loan, BigDecimal ignoredAmount) {
+                return postContractualMonthlyInterestAccrual(loan);
+        }
 
-                if (loan == null) {
-
-                        throw new IllegalArgumentException(
-                                        "Loan is required");
-                }
-
-                if (loan.getId() == null) {
-
-                        throw new IllegalArgumentException(
-                                        "Loan ID is required");
+        private JournalEntry postContractualMonthlyInterestAccrual(Loan loan) {
+                if (loan == null || loan.getId() == null) {
+                        throw new IllegalArgumentException("Loan with ID is required");
                 }
 
                 Organization org = loan.getOrganization();
-
                 requireOrganization(org);
-
                 ensureChartOfAccounts(org);
 
-                BigDecimal interest = maxZero(
-                                dailyInterestAmount);
-
-                if (interest.compareTo(
-                                ZERO) <= 0) {
-
-                        return;
+                BigDecimal interest = FinancialPolicy.contractualMonthlyCharge(
+                                maxZero(loan.getOutstandingBalanceDecimal()),
+                                loan.getInterestRateDecimal() != null
+                                                ? loan.getInterestRateDecimal()
+                                                : FinancialPolicy.MONTHLY_INTEREST_RATE);
+                if (interest.compareTo(ZERO) <= 0) {
+                        return null;
                 }
 
-                LocalDate accrualDate = LocalDate.now();
-
-                String sourceId = loan.getId()
-                                + "-"
-                                + accrualDate;
-
+                YearMonth period = YearMonth.now();
+                String sourceId = loan.getId() + "-" + period;
                 JournalEntry existing = journalRepo
                                 .findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                                                org.getId(),
-                                                "INTEREST_ACCRUAL",
-                                                sourceId)
+                                                org.getId(), "CONTRACTUAL_MONTHLY_INTEREST_ACCRUAL", sourceId)
                                 .orElse(null);
-
                 if (existing != null) {
-
-                        log.info(
-                                        "Interest already accrued for loan {} on {}. Journal {}",
-                                        loan.getId(),
-                                        accrualDate,
-                                        existing.getId());
-
-                        return;
+                        return existing;
                 }
 
-                String reference = loan.getReferenceNumber() != null
-                                && !loan.getReferenceNumber().isBlank()
-                                                ? loan.getReferenceNumber().trim()
-                                                : "LOAN-" + loan.getId();
+                String reference = loan.getReferenceNumber() != null && !loan.getReferenceNumber().isBlank()
+                                ? loan.getReferenceNumber().trim()
+                                : "LOAN-" + loan.getId();
 
-                post(
+                return post(
                                 org,
                                 loan.getBranch(),
-                                "INTEREST_ACCRUAL",
+                                "CONTRACTUAL_MONTHLY_INTEREST_ACCRUAL",
                                 sourceId,
                                 reference,
-                                "Interest accrual for "
-                                                + reference
-                                                + " ("
-                                                + accrualDate
-                                                + ")",
-
+                                "Contractual monthly interest accrual for " + reference + " (" + period + ")",
                                 List.of(
-
                                                 JournalLine.builder()
-                                                                .account(
-                                                                                account(
-                                                                                                org,
-                                                                                                "1150"))
-                                                                .debit(
-                                                                                interest)
-                                                                .credit(
-                                                                                ZERO)
-                                                                .description(
-                                                                                "Interest receivable accrued — "
-                                                                                                + reference)
+                                                                .account(account(org, "1150"))
+                                                                .debit(interest)
+                                                                .credit(ZERO)
+                                                                .description("Contractual monthly interest receivable — "
+                                                                                + reference)
                                                                 .build(),
-
                                                 JournalLine.builder()
-                                                                .account(
-                                                                                account(
-                                                                                                org,
-                                                                                                "4000"))
-                                                                .debit(
-                                                                                ZERO)
-                                                                .credit(
-                                                                                interest)
-                                                                .description(
-                                                                                "Interest income accrued — "
-                                                                                                + reference)
+                                                                .account(account(org, "4000"))
+                                                                .debit(ZERO)
+                                                                .credit(interest)
+                                                                .description("Contractual monthly interest income — "
+                                                                                + reference)
                                                                 .build()));
         }
 
-        // ============================================================
-        // MANAGEMENT FEE ACCRUAL
-        // ============================================================
-
+        /**
+         * Legacy compatibility entry point. Management fee is contractual and
+         * monthly; no daily calendar-day conversion is performed.
+         */
+        @Deprecated
         @Transactional
-        public void postManagementFeeAccrual(
-                        Loan loan,
-                        BigDecimal managementFeeAmount) {
+        public JournalEntry postManagementFeeAccrual(Loan loan, BigDecimal ignoredAmount) {
+                return postContractualMonthlyManagementFeeAccrual(loan);
+        }
 
-                if (loan == null) {
-
-                        throw new IllegalArgumentException(
-                                        "Loan is required");
-                }
-
-                if (loan.getId() == null) {
-
-                        throw new IllegalArgumentException(
-                                        "Loan ID is required");
+        private JournalEntry postContractualMonthlyManagementFeeAccrual(Loan loan) {
+                if (loan == null || loan.getId() == null) {
+                        throw new IllegalArgumentException("Loan with ID is required");
                 }
 
                 Organization org = loan.getOrganization();
-
                 requireOrganization(org);
-
                 ensureChartOfAccounts(org);
 
-                BigDecimal fee = maxZero(
-                                managementFeeAmount);
-
-                if (fee.compareTo(
-                                ZERO) <= 0) {
-
-                        return;
+                BigDecimal fee = FinancialPolicy.contractualMonthlyCharge(
+                                maxZero(loan.getOutstandingBalanceDecimal()),
+                                loan.getManagementFeeRateDecimal() != null
+                                                ? loan.getManagementFeeRateDecimal()
+                                                : FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE);
+                if (fee.compareTo(ZERO) <= 0) {
+                        return null;
                 }
 
-                LocalDate accrualDate = LocalDate.now();
-
-                String sourceId = loan.getId()
-                                + "-"
-                                + accrualDate;
-
+                YearMonth period = YearMonth.now();
+                String sourceId = loan.getId() + "-" + period;
                 JournalEntry existing = journalRepo
                                 .findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                                                org.getId(),
-                                                "MANAGEMENT_FEE_ACCRUAL",
-                                                sourceId)
+                                                org.getId(), "CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL", sourceId)
                                 .orElse(null);
-
                 if (existing != null) {
-
-                        return;
+                        return existing;
                 }
 
-                String reference = loan.getReferenceNumber() != null
-                                && !loan.getReferenceNumber().isBlank()
-                                                ? loan.getReferenceNumber().trim()
-                                                : "LOAN-" + loan.getId();
+                String reference = loan.getReferenceNumber() != null && !loan.getReferenceNumber().isBlank()
+                                ? loan.getReferenceNumber().trim()
+                                : "LOAN-" + loan.getId();
 
-                post(
+                return post(
                                 org,
                                 loan.getBranch(),
-                                "MANAGEMENT_FEE_ACCRUAL",
+                                "CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL",
                                 sourceId,
                                 reference,
-                                "Management fee accrual for "
-                                                + reference
-                                                + " ("
-                                                + accrualDate
-                                                + ")",
-
+                                "Contractual monthly management fee accrual for " + reference + " (" + period + ")",
                                 List.of(
-
                                                 JournalLine.builder()
-                                                                .account(
-                                                                                account(
-                                                                                                org,
-                                                                                                "1160"))
-                                                                .debit(
-                                                                                fee)
-                                                                .credit(
-                                                                                ZERO)
-                                                                .description(
-                                                                                "Management fee receivable accrued — "
-                                                                                                + reference)
+                                                                .account(account(org, "1160"))
+                                                                .debit(fee)
+                                                                .credit(ZERO)
+                                                                .description("Contractual monthly management fee receivable — "
+                                                                                + reference)
                                                                 .build(),
-
                                                 JournalLine.builder()
-                                                                .account(
-                                                                                account(
-                                                                                                org,
-                                                                                                "4100"))
-                                                                .debit(
-                                                                                ZERO)
-                                                                .credit(
-                                                                                fee)
-                                                                .description(
-                                                                                "Management fee income accrued — "
-                                                                                                + reference)
+                                                                .account(account(org, "4100"))
+                                                                .debit(ZERO)
+                                                                .credit(fee)
+                                                                .description("Contractual monthly management fee income — "
+                                                                                + reference)
                                                                 .build()));
         }
 

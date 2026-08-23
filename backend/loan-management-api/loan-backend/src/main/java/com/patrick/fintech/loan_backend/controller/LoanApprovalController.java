@@ -86,7 +86,7 @@ public class LoanApprovalController {
          * This gives the dashboard a clean endpoint for approving.
          */
         @PostMapping("/approve")
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
         public ResponseEntity<ApiResponse<Object>> approve(
                         @PathVariable Long loanId,
                         @RequestBody(required = false) Map<String, String> body) {
@@ -100,13 +100,15 @@ public class LoanApprovalController {
                                 : null;
 
                 Double newInterestRate = parseInterestRate(body);
+                Double newProcessingFeeRate = parseProcessingFeeRate(body);
 
                 LoanApproval result = approvalService.decide(
                                 loanId,
                                 user,
                                 "APPROVED",
                                 comments,
-                                newInterestRate);
+                                newInterestRate,
+                                newProcessingFeeRate);
 
                 return ResponseEntity.ok(
                                 ApiResponse.safe(
@@ -172,6 +174,27 @@ public class LoanApprovalController {
 
                         throw new IllegalArgumentException(
                                         "interestRate must be a valid number.");
+                }
+        }
+
+        private Double parseProcessingFeeRate(
+                        Map<String, String> body) {
+
+                if (body == null) {
+                        return null;
+                }
+
+                String raw = body.get("processingFeeRate");
+
+                if (raw == null || raw.isBlank()) {
+                        return null;
+                }
+
+                try {
+                        return Double.valueOf(raw.trim());
+                } catch (NumberFormatException e) {
+                        throw new IllegalArgumentException(
+                                        "processingFeeRate must be a valid number.");
                 }
         }
 

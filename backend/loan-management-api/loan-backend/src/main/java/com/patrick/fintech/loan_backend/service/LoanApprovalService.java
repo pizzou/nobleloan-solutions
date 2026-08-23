@@ -254,11 +254,12 @@ public class LoanApprovalService {
                                 decider,
                                 decision,
                                 comments,
+                                null,
                                 null);
         }
 
         // ============================================================
-        // DECIDE WITH INTEREST RATE
+        // DECIDE WITH CONTRACTUAL PRICING OVERRIDES
         // ============================================================
 
         @Transactional
@@ -268,6 +269,24 @@ public class LoanApprovalService {
                         String decision,
                         String comments,
                         Double newInterestRate) {
+
+                return decide(
+                                loanId,
+                                decider,
+                                decision,
+                                comments,
+                                newInterestRate,
+                                null);
+        }
+
+        @Transactional
+        public LoanApproval decide(
+                        Long loanId,
+                        User decider,
+                        String decision,
+                        String comments,
+                        Double newInterestRate,
+                        Double newProcessingFeeRate) {
 
                 if (decider == null) {
                         throw new IllegalArgumentException(
@@ -422,7 +441,8 @@ public class LoanApprovalService {
                                                 comments != null && !comments.isBlank()
                                                                 ? comments
                                                                 : "Finalized from existing website approval.",
-                                                newInterestRate);
+                                                newInterestRate,
+                                                newProcessingFeeRate);
                                 return decisionRecord;
                         }
 
@@ -473,7 +493,8 @@ public class LoanApprovalService {
                                         comments != null && !comments.isBlank()
                                                         ? comments
                                                         : "Approved by " + publicRole + " for website-submitted loan.",
-                                        newInterestRate);
+                                        newInterestRate,
+                                        newProcessingFeeRate);
 
                         return decisionRecord;
                 }
@@ -666,7 +687,8 @@ public class LoanApprovalService {
                                         loanId,
                                         decider,
                                         approvalMessage,
-                                        newInterestRate);
+                                        newInterestRate,
+                                        newProcessingFeeRate);
                 }
 
                 return step;

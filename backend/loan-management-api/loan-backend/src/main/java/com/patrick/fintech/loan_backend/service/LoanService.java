@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -837,12 +838,33 @@ public class LoanService {
                                 null);
         }
 
-        @Transactional
         public Loan approveLoan(
                         Long loanId,
                         User approvedBy,
                         String notes,
                         Double newInterestRate) {
+                return approveLoan(
+                                loanId,
+                                approvedBy,
+                                notes,
+                                newInterestRate,
+                                null);
+        }
+
+        /**
+         * Final approval with a contractual pricing snapshot.
+         *
+         * Interest may be overridden by an authorized approver.
+         * Management fee is always 5% monthly.
+         * Processing fee may only be overridden by MANAGER or ADMIN.
+         */
+        @Transactional
+        public Loan approveLoan(
+                        Long loanId,
+                        User approvedBy,
+                        String notes,
+                        Double newInterestRate,
+                        Double newProcessingFeeRate) {
 
                 if (approvedBy == null
                                 || approvedBy.getOrganization() == null
@@ -930,11 +952,27 @@ public class LoanService {
                         interestRate = requestedRate;
                 }
 
+                // Noble Loan policy: management fee is fixed at 5% monthly.
+                managementFeeRate = MONTHLY_MANAGEMENT_FEE_RATE;
+
+                if (newProcessingFeeRate != null) {
+                        String role = approvedBy.getRole() != null
+                                        && approvedBy.getRole().getName() != null
+                                                        ? approvedBy.getRole().getName().trim().toUpperCase(Locale.ROOT)
+                                                        : "";
+
+                        if (!"ADMIN".equals(role) && !"MANAGER".equals(role)) {
+                                throw new SecurityException(
+                                                "Only MANAGER or ADMIN may change the processing fee rate.");
+                        }
+
+                        BigDecimal requestedProcessingFeeRate = bd(newProcessingFeeRate);
+                        validateInterestRate(requestedProcessingFeeRate);
+                        processingFeeRate = requestedProcessingFeeRate;
+                }
+
                 if (interestRate.compareTo(ZERO) <= 0) {
                         interestRate = MONTHLY_INTEREST_RATE;
-                }
-                if (managementFeeRate.compareTo(ZERO) < 0) {
-                        managementFeeRate = MONTHLY_MANAGEMENT_FEE_RATE;
                 }
                 if (processingFeeRate.compareTo(ZERO) < 0) {
                         processingFeeRate = PROCESSING_FEE_RATE;
@@ -986,14 +1024,12 @@ public class LoanService {
 
                 validateLoanDuration(durationMonths);
 
-                BigDecimal[] calc = calcLoan(
-                                principal,
-                                TOTAL_MONTHLY_CHARGE_RATE,
-                                durationMonths,
-                                "MONTHLY");
-
                 loan.setTotalRepayable(
-                                calc[1]);
+                                calculateContractualTotalRepayable(
+                                                principal,
+                                                interestRate,
+                                                managementFeeRate,
+                                                durationMonths));
 
                 loan.setAmount(principal);
 
@@ -2792,23 +2828,6 @@ public class LoanService {
                 loanRepo.save(loan);
         }
 
-        private BigDecimal accrueDaily(
-                        BigDecimal outstandingPrincipal,
-                        LocalDate startDate,
-                        LocalDate endDate,
-                        BigDecimal monthlyRatePercent) {
-
-                /*
-                 * ALL loan screens and services use FinancialPolicy.
-                 * Do not duplicate the monthly-to-calendar-day formula here.
-                 */
-                return FinancialPolicy.accrueDaily(
-                                outstandingPrincipal,
-                                startDate,
-                                endDate,
-                                monthlyRatePercent);
-        }
-
         // ================================================================
         // RISK SCORING
         // ================================================================
@@ -2849,6 +2868,41 @@ public class LoanService {
         // ================================================================
         // LOAN CALCULATION
         // ================================================================
+
+        /**
+         * Single source of truth for the approval-time contractual total.
+         *
+         * This mirrors FinancialPolicy.contractualScheduleLine(), including
+         * declining-balance principal, monthly interest and monthly management
+         * fee. It intentionally excludes the one-time processing fee.
+         */
+        private BigDecimal calculateContractualTotalRepayable(
+                        BigDecimal principal,
+                        BigDecimal monthlyInterestRate,
+                        BigDecimal monthlyManagementFeeRate,
+                        int months) {
+
+                BigDecimal balance = normalizePrincipal(principal);
+                BigDecimal totalInterest = ZERO;
+                BigDecimal totalManagementFee = ZERO;
+
+                for (int i = 1; i <= months; i++) {
+                        FinancialPolicy.ScheduleLine line = FinancialPolicy.contractualScheduleLine(
+                                        balance,
+                                        months - i + 1,
+                                        monthlyInterestRate,
+                                        monthlyManagementFeeRate);
+
+                        totalInterest = money(totalInterest.add(line.interest()));
+                        totalManagementFee = money(totalManagementFee.add(line.managementFee()));
+                        balance = money(line.remainingBalance());
+                }
+
+                return money(
+                                normalizePrincipal(principal)
+                                                .add(totalInterest)
+                                                .add(totalManagementFee));
+        }
 
         private BigDecimal[] calcLoan(
                         BigDecimal principal,

@@ -20,7 +20,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.List;
@@ -488,8 +487,6 @@ public class PublicPortalService {
 
                 LocalDate today = LocalDate.now();
 
-                LocalDateTime now = LocalDateTime.now();
-
                 // ============================================================
                 // EXISTING PAYMENT VALUES
                 // ============================================================
@@ -529,163 +526,57 @@ public class PublicPortalService {
                                 installment.getPenaltyPaidDecimal());
 
                 // ============================================================
-                // INTEREST START
+                // CONTRACTUAL MONTHLY CHARGES
                 // ============================================================
+                // There is NO daily accrual for contractual loan interest or
+                // management fees. The repayment schedule is authoritative.
+                BigDecimal contractualInterestRate = loan.getInterestRateDecimal() != null
+                                ? loan.getInterestRateDecimal()
+                                : FinancialPolicy.MONTHLY_INTEREST_RATE;
 
-                LocalDateTime interestStartDateTime = determineInterestStartDateTime(
-                                installment,
-                                loan,
-                                loanPayments,
-                                now);
+                BigDecimal contractualManagementRate = FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE;
 
-                if (interestStartDateTime.isAfter(
-                                now)) {
+                BigDecimal scheduledInterest = safe(
+                                installment.getScheduledInterestDecimal());
 
-                        interestStartDateTime = now;
+                if (scheduledInterest.compareTo(ZERO) <= 0) {
+                        scheduledInterest = safe(installment.getCycleInterestDueDecimal());
+
+                        if (scheduledInterest.compareTo(ZERO) <= 0) {
+                                scheduledInterest = FinancialPolicy.contractualMonthlyCharge(
+                                                currentBalance,
+                                                contractualInterestRate);
+                        }
                 }
 
-                // ============================================================
-                // ELAPSED DAYS
-                // ============================================================
+                BigDecimal scheduledManagementFee = safe(
+                                installment.getScheduledManagementFeeDecimal());
 
-                boolean firstInterestCalculation = installment.getInterestCalculationDate() == null
-                                && interestAlreadyPaidThisCycle.compareTo(
-                                                ZERO) <= 0
-                                && existingCycleInterestDue.compareTo(
-                                                ZERO) <= 0;
+                if (scheduledManagementFee.compareTo(ZERO) <= 0) {
+                        scheduledManagementFee = safe(installment.getCycleManagementFeeDueDecimal());
 
-                long elapsedDays;
-
-                if (firstInterestCalculation) {
-
-                        /*
-                         * Same rule as PaymentService:
-                         *
-                         * first payment after disbursement = 1 interest day.
-                         */
-                        elapsedDays = 1L;
-
-                } else {
-
-                        elapsedDays = Math.max(
-                                        0L,
-                                        ChronoUnit.DAYS.between(
-                                                        interestStartDateTime.toLocalDate(),
-                                                        now.toLocalDate()));
+                        if (scheduledManagementFee.compareTo(ZERO) <= 0) {
+                                scheduledManagementFee = FinancialPolicy.contractualMonthlyCharge(
+                                                currentBalance,
+                                                contractualManagementRate);
+                        }
                 }
 
-                // ============================================================
-                // DAILY INTEREST RATE
-                // ============================================================
+                BigDecimal interestPaidThisCycle = money(
+                                scheduledInterest
+                                                .subtract(safe(installment.getCycleInterestRemainingDecimal()))
+                                                .max(ZERO));
 
-                BigDecimal dailyInterestRate = calculateDailyInterestRate(
-                                loan);
-
-                // ============================================================
-                // DAILY MANAGEMENT RATE
-                // ============================================================
-
-                BigDecimal monthlyManagementRate = loan.getManagementFeeRateDecimal() != null
-                                ? loan.getManagementFeeRateDecimal()
-                                : FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE;
-
-                BigDecimal dailyManagementRate = FinancialPolicy.dailyRateFraction(
-                                monthlyManagementRate,
-                                now.toLocalDate());
-
-                // ============================================================
-                // NEW INTEREST
-                // ============================================================
-
-                BigDecimal newlyAccruedInterest = FinancialPolicy.accrueDaily(
-                                currentBalance,
-                                interestStartDateTime.toLocalDate(),
-                                now.toLocalDate(),
-                                loan.getInterestRateDecimal() != null
-                                                ? loan.getInterestRateDecimal()
-                                                : FinancialPolicy.MONTHLY_INTEREST_RATE);
-
-                if (firstInterestCalculation && newlyAccruedInterest.compareTo(ZERO) <= 0) {
-                        newlyAccruedInterest = FinancialPolicy.accrueDaily(
-                                        currentBalance,
-                                        now.toLocalDate(),
-                                        now.toLocalDate().plusDays(1),
-                                        loan.getInterestRateDecimal() != null
-                                                        ? loan.getInterestRateDecimal()
-                                                        : FinancialPolicy.MONTHLY_INTEREST_RATE);
-                }
-
-                // ============================================================
-                // NEW MANAGEMENT FEE
-                // ============================================================
-
-                BigDecimal newlyAccruedManagementFee = FinancialPolicy.accrueDaily(
-                                currentBalance,
-                                interestStartDateTime.toLocalDate(),
-                                now.toLocalDate(),
-                                monthlyManagementRate);
-
-                if (firstInterestCalculation && newlyAccruedManagementFee.compareTo(ZERO) <= 0) {
-                        newlyAccruedManagementFee = FinancialPolicy.accrueDaily(
-                                        currentBalance,
-                                        now.toLocalDate(),
-                                        now.toLocalDate().plusDays(1),
-                                        monthlyManagementRate);
-                }
-
-                // ============================================================
-                // TOTAL INTEREST DUE
-                // ============================================================
-
-                BigDecimal totalInterestDue = money(
-                                existingCycleInterestDue
-                                                .add(
-                                                                newlyAccruedInterest));
-
-                BigDecimal minimumInterestObligation = money(
-                                interestAlreadyPaidThisCycle
-                                                .add(
-                                                                existingCycleInterestRemaining));
-
-                if (totalInterestDue.compareTo(
-                                minimumInterestObligation) < 0) {
-
-                        totalInterestDue = minimumInterestObligation;
-                }
+                BigDecimal managementPaidThisCycle = money(
+                                scheduledManagementFee
+                                                .subtract(safe(installment.getCycleManagementFeeRemainingDecimal()))
+                                                .max(ZERO));
 
                 BigDecimal remainingInterest = money(
-                                totalInterestDue
-                                                .subtract(
-                                                                interestAlreadyPaidThisCycle)
-                                                .max(
-                                                                ZERO));
-
-                // ============================================================
-                // TOTAL MANAGEMENT FEE DUE
-                // ============================================================
-
-                BigDecimal totalManagementFeeDue = money(
-                                existingManagementFeeDue
-                                                .add(
-                                                                newlyAccruedManagementFee));
-
-                BigDecimal minimumManagementObligation = money(
-                                managementAlreadyPaidThisCycle
-                                                .add(
-                                                                existingManagementFeeRemaining));
-
-                if (totalManagementFeeDue.compareTo(
-                                minimumManagementObligation) < 0) {
-
-                        totalManagementFeeDue = minimumManagementObligation;
-                }
+                                scheduledInterest.subtract(interestPaidThisCycle).max(ZERO));
 
                 BigDecimal remainingManagementFee = money(
-                                totalManagementFeeDue
-                                                .subtract(
-                                                                managementAlreadyPaidThisCycle)
-                                                .max(
-                                                                ZERO));
+                                scheduledManagementFee.subtract(managementPaidThisCycle).max(ZERO));
 
                 // ============================================================
                 // LATE DAYS
@@ -765,24 +656,21 @@ public class PublicPortalService {
                                                                 currentBalance));
 
                 log.debug(
-                                "PUBLIC PORTAL PAYABLE CALCULATION: " +
+                                "PUBLIC PORTAL CONTRACTUAL PAYABLE CALCULATION: " +
                                                 "loanId={}, principal={}, " +
-                                                "interestDays={}, dailyInterestRate={}, " +
-                                                "newInterest={}, remainingInterest={}, " +
-                                                "dailyManagementRate={}, " +
-                                                "newManagementFee={}, " +
-                                                "remainingManagementFee={}, " +
+                                                "monthlyInterestRate={}, scheduledInterest={}, remainingInterest={}, " +
+                                                "monthlyManagementRate={}, scheduledManagementFee={}, remainingManagementFee={}, "
+                                                +
                                                 "daysLate={}, newPenaltyDays={}, " +
                                                 "dailyPenaltyRate={}, totalPenalty={}, " +
                                                 "unpaidPenalty={}, currentPayable={}",
                                 loan.getId(),
                                 currentBalance,
-                                elapsedDays,
-                                dailyInterestRate,
-                                newlyAccruedInterest,
+                                contractualInterestRate,
+                                scheduledInterest,
                                 remainingInterest,
-                                dailyManagementRate,
-                                newlyAccruedManagementFee,
+                                contractualManagementRate,
+                                scheduledManagementFee,
                                 remainingManagementFee,
                                 daysLate,
                                 newPenaltyDays,
@@ -792,126 +680,6 @@ public class PublicPortalService {
                                 currentPayable);
 
                 return currentPayable;
-        }
-
-        // ================================================================
-        // DETERMINE INTEREST START
-        // ================================================================
-
-        private LocalDateTime determineInterestStartDateTime(
-                        Payment installment,
-                        Loan loan,
-                        List<Payment> loanPayments,
-                        LocalDateTime now) {
-
-                if (installment != null
-                                && installment.getInterestCalculationDate() != null) {
-
-                        return installment
-                                        .getInterestCalculationDate();
-                }
-
-                LocalDateTime latestTimestamp = findLatestInterestCalculationTimestamp(
-                                loanPayments);
-
-                if (latestTimestamp != null) {
-                        return latestTimestamp;
-                }
-
-                /*
-                 * Loan.disbursedAt is LocalDateTime.
-                 */
-                if (loan.getDisbursedAt() != null) {
-                        return loan.getDisbursedAt();
-                }
-
-                if (installment != null
-                                && installment.getCreatedAt() != null) {
-
-                        return installment.getCreatedAt();
-                }
-
-                if (loan.getStartDate() != null) {
-
-                        return loan
-                                        .getStartDate()
-                                        .atStartOfDay();
-                }
-
-                return now;
-        }
-
-        // ================================================================
-        // FIND LATEST INTEREST TIMESTAMP
-        // ================================================================
-
-        private LocalDateTime findLatestInterestCalculationTimestamp(
-                        List<Payment> payments) {
-
-                if (payments == null
-                                || payments.isEmpty()) {
-
-                        return null;
-                }
-
-                return payments.stream()
-                                .filter(
-                                                payment -> payment != null)
-                                .map(
-                                                Payment::getInterestCalculationDate)
-                                .filter(
-                                                timestamp -> timestamp != null)
-                                .max(
-                                                LocalDateTime::compareTo)
-                                .orElse(null);
-        }
-
-        // ================================================================
-        // DAILY INTEREST RATE
-        // ================================================================
-
-        private BigDecimal calculateDailyInterestRate(
-                        Loan loan) {
-                BigDecimal monthlyRate = loan != null && loan.getInterestRateDecimal() != null
-                                ? loan.getInterestRateDecimal()
-                                : FinancialPolicy.MONTHLY_INTEREST_RATE;
-                return FinancialPolicy.dailyRateFraction(monthlyRate, LocalDate.now());
-        }
-
-        // ================================================================
-        // ACCRUED AMOUNT
-        // ================================================================
-
-        private BigDecimal calculateAccruedAmount(
-                        BigDecimal balance,
-                        BigDecimal dailyRate,
-                        long elapsedDays) {
-
-                if (balance == null
-                                || balance.compareTo(
-                                                ZERO) <= 0) {
-
-                        return ZERO;
-                }
-
-                if (dailyRate == null
-                                || dailyRate.compareTo(
-                                                ZERO) <= 0) {
-
-                        return ZERO;
-                }
-
-                if (elapsedDays <= 0) {
-                        return ZERO;
-                }
-
-                return money(
-                                balance
-                                                .multiply(
-                                                                dailyRate)
-                                                .multiply(
-                                                                BigDecimal.valueOf(
-                                                                                elapsedDays)));
         }
 
         // ================================================================

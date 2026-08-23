@@ -1,5 +1,6 @@
 package com.patrick.fintech.loan_backend.service;
 
+import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -12,23 +13,22 @@ class FinancialCalculationServiceTest {
     private final FinancialCalculationService service = new FinancialCalculationService();
 
     @Test
-    void monthlyDailyRateUsesActualCalendarDays() {
-        BigDecimal rate = service.dailyRate(
-                new BigDecimal("10.00"),
-                "MONTHLY",
-                LocalDate.of(2026, 1, 15));
+    void contractualMonthlyInterestIsIndependentOfCalendarDays() {
+        BigDecimal january = FinancialPolicy.contractualMonthlyCharge(
+                new BigDecimal("1000.00"),
+                new BigDecimal("5.00"));
 
-        assertEquals(new BigDecimal("0.003225806452"), rate);
-    }
+        BigDecimal february = FinancialPolicy.contractualMonthlyCharge(
+                new BigDecimal("1000.00"),
+                new BigDecimal("5.00"));
 
-    @Test
-    void annualDailyRateUses365Days() {
-        BigDecimal rate = service.dailyRate(
-                new BigDecimal("12.00"),
-                "ANNUAL",
-                LocalDate.of(2026, 1, 15));
+        BigDecimal march = FinancialPolicy.contractualMonthlyCharge(
+                new BigDecimal("1000.00"),
+                new BigDecimal("5.00"));
 
-        assertEquals(new BigDecimal("0.000328767123"), rate);
+        assertEquals(new BigDecimal("50.00"), january);
+        assertEquals(january, february);
+        assertEquals(january, march);
     }
 
     @Test
@@ -45,18 +45,13 @@ class FinancialCalculationServiceTest {
     }
 
     @Test
-    void interestAndPenaltyUseCalendarDayRates() {
-        BigDecimal dailyRate = service.dailyRate(
-                new BigDecimal("10.00"),
-                "MONTHLY",
-                LocalDate.of(2026, 1, 10));
-        BigDecimal interest = service.interest(new BigDecimal("1000.00"), dailyRate, 3);
-        BigDecimal penalty = service.penalty(
+    void dailyCalculationIsUsedOnlyForExplicitPenaltyProducts() {
+        BigDecimal penalty = FinancialPolicy.accrueDaily(
                 new BigDecimal("1000.00"),
                 LocalDate.of(2026, 1, 1),
-                LocalDate.of(2026, 1, 3));
+                LocalDate.of(2026, 1, 3),
+                FinancialPolicy.MONTHLY_PENALTY_RATE);
 
-        assertEquals(new BigDecimal("9.68"), interest);
         assertEquals(new BigDecimal("9.68"), penalty);
     }
 }

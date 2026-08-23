@@ -41,9 +41,12 @@ export const approveLoan = (
   id: number,
   interestRate?: number,
   notes?: string,
+  processingFeeRate?: number,
 ): Promise<Loan> =>
   post(`/loans/${id}/approve`, {
     interestRate: interestRate != null ? String(interestRate) : undefined,
+    processingFeeRate:
+      processingFeeRate != null ? String(processingFeeRate) : undefined,
     notes,
   }) as Promise<Loan>;
 export const rejectLoan = (id: number, reason: string): Promise<Loan> =>

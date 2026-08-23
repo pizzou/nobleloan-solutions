@@ -257,70 +257,14 @@ public class BulkDisbursementService {
                                 Loan saved = loanRepo.save(
                                                 loan);
 
-                                // ====================================================
-                                // GENERATE OPERATIONAL REPAYMENT SCHEDULE
-                                // ====================================================
-
-                                /*
-                                 * Approval can leave a provisional Payment schedule behind.
-                                 * Rebuild that operational schedule from the exact bulk
-                                 * disbursement date so daily interest and management fees are
-                                 * based on the correct outstanding principal timeline.
-                                 */
-                                loanService.regenerateRepaymentScheduleAfterDisbursement(
-                                                saved);
-
-                                // ====================================================
-                                // GENERATE PUBLIC/REGULATORY SCHEDULE
-                                // ====================================================
-
-                                /*
-                                 * PaymentScheduleService uses the GROSS principal.
-                                 *
-                                 * Therefore interest is calculated on:
-                                 *
-                                 * RWF 1,000,000
-                                 *
-                                 * not:
-                                 *
-                                 * RWF 980,000
-                                 *
-                                 * when the processing fee is RWF 20,000.
-                                 */
                                 paymentScheduleService.generateSchedule(
                                                 saved);
-
-                                // ====================================================
-                                // REFRESH LOAN AFTER SCHEDULE GENERATION
-                                // ====================================================
 
                                 saved = loanRepo.save(
                                                 saved);
 
-                                // ====================================================
-                                // ACCOUNTING
-                                // ====================================================
-
-                                /*
-                                 * AccountingService posts:
-                                 *
-                                 * DR Loans Receivable gross amount
-                                 * CR Cash gross amount
-                                 *
-                                 * and separately:
-                                 *
-                                 * DR Cash processing fee
-                                 * CR Fee Income processing fee
-                                 *
-                                 * Net cash movement =
-                                 * gross amount - processing fee
-                                 */
                                 accountingService.postDisbursement(
                                                 saved);
-
-                                // ====================================================
-                                // TOTALS
-                                // ====================================================
 
                                 totalGrossDisbursed = money(
                                                 totalGrossDisbursed
