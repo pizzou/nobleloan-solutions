@@ -122,6 +122,13 @@ public class DataSeeder implements CommandLineRunner {
                                         organization);
                 }
 
+                // Existing production databases do not enter the
+                // organizations.isEmpty() branch. Keep the configured
+                // bootstrap administrator's login phone synchronized on
+                // every startup so ADMIN email+SMS OTP works after a
+                // deployment without recreating or resetting the account.
+                ensureConfiguredAdminPhone();
+
                 log.info(
                                 "Loan SaaS bootstrap validation completed successfully.");
         }
@@ -278,31 +285,15 @@ public class DataSeeder implements CommandLineRunner {
                 String normalizedEmail = email.trim()
                                 .toLowerCase();
 
-                java.util.Optional<User> existingUser = userRepo.findByEmail(
-                                normalizedEmail);
-
-                if (existingUser.isPresent()) {
-                        User user = existingUser.get();
-
-                        if ((user.getPhone() == null || user.getPhone().isBlank())
-                                        && configuredPhone != null
-                                        && !configuredPhone.isBlank()) {
-
-                                user.setPhone(
-                                                configuredPhone.trim());
-
-                                userRepo.save(user);
-
-                                log.info(
-                                                "Bootstrap administrator {} had no mobile number; "
-                                                                + "registered BOOTSTRAP_ADMIN_PHONE for login OTP.",
-                                                normalizedEmail);
-                        } else {
-                                log.info(
-                                                "Bootstrap admin {} already exists — no account reset performed.",
-                                                normalizedEmail);
-                        }
-
+                if (userRepo.findByEmail(normalizedEmail).isPresent()) {
+                        // Never reset an existing production administrator.
+                        // Phone synchronization is deliberately handled by
+                        // ensureConfiguredAdminPhone(), which also runs when
+                        // organizations already exist.
+                        ensureConfiguredAdminPhone();
+                        log.info(
+                                        "Bootstrap admin {} already exists — no account reset performed.",
+                                        normalizedEmail);
                         return;
                 }
 
@@ -318,26 +309,60 @@ public class DataSeeder implements CommandLineRunner {
                                 adminRole,
                                 organization);
 
-                if (configuredPhone != null
-                                && !configuredPhone.isBlank()) {
-                        user.setPhone(
-                                        configuredPhone.trim());
+                if (configuredPhone != null && !configuredPhone.isBlank()) {
+                        user.setPhone(configuredPhone.trim());
                 }
 
-                userRepo.save(
-                                user);
-
-                if (user.getPhone() == null || user.getPhone().isBlank()) {
-                        log.warn(
-                                        "Bootstrap administrator {} was created without a mobile number. "
-                                                        + "ADMIN login OTP requires BOOTSTRAP_ADMIN_PHONE or "
-                                                        + "a phone number set on the user account.",
-                                        normalizedEmail);
-                }
+                userRepo.save(user);
 
                 log.info(
                                 "Bootstrap administrator created: {}",
                                 normalizedEmail);
+        }
+
+        private void ensureConfiguredAdminPhone() {
+
+                String email = System.getenv("BOOTSTRAP_ADMIN_EMAIL");
+                String phone = System.getenv("BOOTSTRAP_ADMIN_PHONE");
+
+                if (email == null || email.isBlank()) {
+                        log.warn(
+                                        "BOOTSTRAP_ADMIN_EMAIL is not configured; "
+                                                        + "cannot identify the bootstrap administrator for login-phone repair.");
+                        return;
+                }
+
+                if (phone == null || phone.isBlank()) {
+                        log.warn(
+                                        "BOOTSTRAP_ADMIN_PHONE is not configured. "
+                                                        + "ADMIN login will continue to require a registered mobile number.");
+                        return;
+                }
+
+                String normalizedEmail = email.trim().toLowerCase();
+                String normalizedPhone = phone.trim();
+
+                User user = userRepo.findByEmail(normalizedEmail).orElse(null);
+
+                if (user == null) {
+                        log.warn(
+                                        "Configured bootstrap administrator {} does not exist yet; "
+                                                        + "its phone will be assigned when the account is created.",
+                                        normalizedEmail);
+                        return;
+                }
+
+                if (user.getPhone() == null
+                                || user.getPhone().isBlank()
+                                || !user.getPhone().trim().equals(normalizedPhone)) {
+
+                        user.setPhone(normalizedPhone);
+                        userRepo.save(user);
+
+                        log.info(
+                                        "Registered login mobile number for bootstrap administrator {} was updated.",
+                                        normalizedEmail);
+                }
         }
 
         /*
