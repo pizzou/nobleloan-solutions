@@ -70,6 +70,7 @@ public class LoanService {
         private final BorrowerFileService fileService;
         private final HolidayService holidayService;
         private final CreditBureauService creditBureauService;
+        private final ComplianceService complianceService;
         private final PaymentScheduleService paymentScheduleService;
 
         private static final int MAX_LOAN_DURATION_MONTHS = 6;
@@ -1433,6 +1434,15 @@ public class LoanService {
                                                         + unverifiedDocs.stream()
                                                                         .map(DocumentType::name)
                                                                         .collect(Collectors.joining(", ")));
+                }
+
+                // ============================================================
+                // REAL KYC / AML GATE
+                // ============================================================
+
+                if (!complianceService.isKycCurrentlyClear(loan.getBorrower().getId())) {
+                        throw new IllegalStateException(
+                                        "Cannot disburse this loan — the borrower does not have a current, real provider-backed KYC/AML clearance.");
                 }
 
                 // ============================================================

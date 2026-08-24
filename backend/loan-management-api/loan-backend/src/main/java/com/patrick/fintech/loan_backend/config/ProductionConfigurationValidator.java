@@ -76,7 +76,7 @@ public class ProductionConfigurationValidator {
         @Value("${app.credit-bureau.api-key:}")
         private String creditBureauApiKey;
 
-        @Value("${app.credit-bureau.required-for-disbursement:false}")
+        @Value("${app.credit-bureau.required-for-disbursement:true}")
         private boolean creditBureauRequiredForDisbursement;
 
         @Value("${app.compliance.external-provider-enabled:false}")
@@ -90,6 +90,18 @@ public class ProductionConfigurationValidator {
 
         @Value("${app.compliance.api-key:}")
         private String complianceApiKey;
+
+        @Value("${app.compliance.kyc-enabled:false}")
+        private boolean complianceKycEnabled;
+
+        @Value("${app.compliance.kyc-provider:LTGS}")
+        private String complianceKycProvider;
+
+        @Value("${app.compliance.kyc-base-url:}")
+        private String complianceKycBaseUrl;
+
+        @Value("${app.compliance.kyc-api-key:}")
+        private String complianceKycApiKey;
 
         @Value("${app.import.staging-dir:}")
         private String importStagingDir;
@@ -152,15 +164,34 @@ public class ProductionConfigurationValidator {
                                         "CREDIT_BUREAU_REQUIRED_FOR_DISBURSEMENT=true requires CREDIT_BUREAU_ENABLED=true");
                 }
 
+                if (!creditBureauEnabled) {
+                        throw new IllegalStateException(
+                                        "Production lending requires a real Credit Bureau integration. Set CREDIT_BUREAU_ENABLED=true and complete provider onboarding.");
+                }
+
                 if (creditBureauEnabled) {
                         require(creditBureauBaseUrl, "CREDIT_BUREAU_BASE_URL");
                         require(creditBureauApiKey, "CREDIT_BUREAU_API_KEY");
+                }
+
+                if (!complianceExternalProviderEnabled) {
+                        throw new IllegalStateException(
+                                        "Production lending requires a real KYC/AML provider. Set COMPLIANCE_EXTERNAL_PROVIDER_ENABLED=true and complete provider onboarding.");
                 }
 
                 if (complianceExternalProviderEnabled) {
                         require(complianceProvider, "COMPLIANCE_PROVIDER");
                         require(complianceBaseUrl, "COMPLIANCE_BASE_URL");
                         require(complianceApiKey, "COMPLIANCE_API_KEY");
+
+                        if (!complianceKycEnabled) {
+                                throw new IllegalStateException(
+                                                "COMPLIANCE_EXTERNAL_PROVIDER_ENABLED=true requires COMPLIANCE_KYC_ENABLED=true");
+                        }
+
+                        require(complianceKycProvider, "COMPLIANCE_KYC_PROVIDER");
+                        require(complianceKycBaseUrl, "COMPLIANCE_KYC_BASE_URL");
+                        require(complianceKycApiKey, "COMPLIANCE_KYC_API_KEY");
                 }
 
                 require(importStagingDir, "IMPORT_STAGING_DIR");

@@ -1,3 +1,4 @@
+import { TENANT_SLUG } from "./tenant";
 import {
   bumpAttempt,
   getPendingActions,
@@ -9,6 +10,7 @@ import {
 const API_BASE = (
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api"
 ).replace(/\/+$/, "");
+const API_ORIGIN = API_BASE.replace(/\/api$/i, "");
 
 const MAX_RETRYABLE_ATTEMPTS = 12;
 const HEALTH_TIMEOUT_MS = 5000;
@@ -24,6 +26,43 @@ export interface SyncResult {
     status?: number;
     retryable: boolean;
   }[];
+}
+
+/**
+ * Only operations that are deterministic and idempotent are permitted to be
+ * captured while offline. Approval, rejection, disbursement and arbitrary
+ * status changes require current server state and therefore MUST remain
+ * online. This prevents an offline device from authorizing money movement
+ * against stale loan data.
+ */
+function assertOfflineSafeMutation(action: PendingAction): void {
+  const url = action.url.toLowerCase();
+
+  const forbiddenPatterns = [
+    "/approve",
+    "/reject",
+    "/disburse",
+    "/status",
+    "/restructure",
+    "/write-off",
+    "/moratorium",
+  ];
+
+  if (forbiddenPatterns.some((pattern) => url.includes(pattern))) {
+    throw new Error(
+      "This financial operation requires a live server connection and cannot be queued offline.",
+    );
+  }
+
+  if (
+    action.method !== "POST" &&
+    action.method !== "PUT" &&
+    action.method !== "PATCH"
+  ) {
+    throw new Error(
+      "This offline operation is not permitted by the production financial synchronization policy.",
+    );
+  }
 }
 
 function buildUrl(actionUrl: string): string {
@@ -93,8 +132,6 @@ function retryAtForAttempt(attempt: number): string {
 
 /**
  * Checks the actual Noble Loan API, not just navigator.onLine.
- * This closes the important gap where the browser has internet access
- * but Render/the backend is down.
  */
 export async function checkBackendHealth(): Promise<boolean> {
   if (!isBrowserOnline()) return false;
@@ -106,11 +143,14 @@ export async function checkBackendHealth(): Promise<boolean> {
   );
 
   try {
-    const response = await fetch(`${API_BASE}/actuator/health/readiness`, {
+    const response = await fetch(`${API_ORIGIN}/actuator/health/readiness`, {
       method: "GET",
       cache: "no-store",
       signal: controller.signal,
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        "X-Tenant-Slug": TENANT_SLUG,
+      },
     });
 
     return response.ok;
@@ -135,10 +175,7 @@ export async function drainOfflineQueue(
   const backendReady = await checkBackendHealth();
 
   if (!backendReady) {
-    return {
-      succeeded: [],
-      failed: [],
-    };
+    return { succeeded: [], failed: [] };
   }
 
   syncInProgress = true;
@@ -154,13 +191,30 @@ export async function drainOfflineQueue(
     for (const action of actions) {
       if (!isBrowserOnline()) break;
 
+      try {
+        assertOfflineSafeMutation(action);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Offline operation rejected.";
+        const failed = await markPendingActionFailed(action.id, message);
+        result.failed.push({
+          action: failed || action,
+          error: message,
+          retryable: false,
+        });
+        continue;
+      }
+
       const url = buildUrl(action.url);
 
       try {
         const headers: Record<string, string> = {
           Accept: "application/json",
-          ...authHeader(),
           ...(action.headers || {}),
+          ...authHeader(),
+          "X-Tenant-Slug": TENANT_SLUG,
         };
 
         if (action.body !== undefined && action.body !== null) {
@@ -184,8 +238,6 @@ export async function drainOfflineQueue(
           const retryable = isRetryableStatus(response.status);
 
           if (!retryable) {
-            // Keep a recoverable audit trail, but do not lie to the UI that
-            // the action is still automatically syncing.
             const failed = await markPendingActionFailed(action.id, error);
             result.failed.push({
               action: failed || action,
@@ -194,8 +246,6 @@ export async function drainOfflineQueue(
               retryable: false,
             });
 
-            // A 401/403 can affect every following action. Stop here and
-            // let the user authenticate/review before continuing.
             if (response.status === 401 || response.status === 403) break;
             continue;
           }
@@ -203,10 +253,13 @@ export async function drainOfflineQueue(
           const nextAttempt = action.attempts + 1;
 
           if (nextAttempt >= MAX_RETRYABLE_ATTEMPTS) {
-            const failed = await markPendingActionFailed(action.id, error);
+            const failed = await markPendingActionFailed(
+              action.id,
+              `${error} Automatic retries were exhausted; manual retry is required.`,
+            );
             result.failed.push({
               action: failed || action,
-              error: `${error} Automatic retries were exhausted; manual retry is required.`,
+              error,
               status: response.status,
               retryable: true,
             });
@@ -226,8 +279,6 @@ export async function drainOfflineQueue(
             retryable: true,
           });
 
-          // Do not execute later financial mutations while the API is
-          // returning server-side failures.
           break;
         }
 

@@ -1,3 +1,4 @@
+import { TENANT_SLUG } from "@/lib/tenant";
 import axios, {
   AxiosError,
   AxiosHeaders,
@@ -20,6 +21,7 @@ const API: AxiosInstance = axios.create({
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",
+    "X-Tenant-Slug": TENANT_SLUG,
   },
 });
 
@@ -35,6 +37,7 @@ API.interceptors.request.use(
             : new AxiosHeaders(config.headers);
 
         headers.set("Authorization", `Bearer ${token}`);
+        headers.set("X-Tenant-Slug", TENANT_SLUG);
 
         config.headers = headers;
       }

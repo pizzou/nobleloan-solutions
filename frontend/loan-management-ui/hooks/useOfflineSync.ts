@@ -17,7 +17,41 @@ export interface OfflineAction {
   retries: number;
 }
 
+function assertOfflineSafeUrl(url: string): void {
+  const normalized = url.toLowerCase();
+  const forbidden = [
+    "/approve",
+    "/reject",
+    "/disburse",
+    "/status",
+    "/restructure",
+    "/write-off",
+    "/moratorium",
+  ];
+
+  if (forbidden.some((pattern) => normalized.includes(pattern))) {
+    throw new Error(
+      "This financial operation requires a live server connection and cannot be queued offline.",
+    );
+  }
+}
+
 export async function queueAction(
+  action: Parameters<typeof queueDurableAction>[0],
+): Promise<void> {
+  assertOfflineSafeUrl(action.url);
+
+  await queueDurableAction(action);
+}
+
+/**
+ * Legacy compatibility helper.
+ *
+ * New financial mutations should use the canonical durable queue directly,
+ * because the legacy endpoint is intentionally not a valid production
+ * financial operation.
+ */
+export async function queueLegacyAction(
   type: OfflineActionType,
   payload: unknown,
 ): Promise<void> {
@@ -47,7 +81,5 @@ export async function markSynced(id: string): Promise<void> {
 }
 
 export async function clearSynced(): Promise<void> {
-  // Legacy callers used this to clear the old in-memory-style store.
-  // Successful canonical actions are removed at sync time, so there is
-  // intentionally nothing else to clear here.
+  // Successful canonical actions are removed during synchronization.
 }
