@@ -39,8 +39,38 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
   const [pendingAction, setPendingAction] = useState<ReviewAction | null>(null);
 
   const getMsg = useCallback((err: unknown) => {
+    if (!err || typeof err !== "object") {
+      return "Something went wrong. Please try again.";
+    }
+
+    const value = err as {
+      message?: unknown;
+      response?: { data?: unknown };
+    };
+
+    const responseData = value.response?.data;
+
+    if (
+      responseData &&
+      typeof responseData === "object" &&
+      !(responseData instanceof Blob)
+    ) {
+      const body = responseData as Record<string, unknown>;
+      const message = [body.message, body.error, body.detail].find(
+        (item) => typeof item === "string" && item.trim(),
+      );
+
+      if (typeof message === "string") {
+        return message.trim();
+      }
+    }
+
     if (err instanceof Error && err.message.trim()) {
       return err.message;
+    }
+
+    if (typeof value.message === "string" && value.message.trim()) {
+      return value.message.trim();
     }
 
     return "Something went wrong. Please try again.";
@@ -441,14 +471,16 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
                       Request Replacement
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => startVerifyAction(f.id, "REJECTED")}
-                      disabled={isBusy}
-                      className="text-red-500 hover:text-red-700 text-xs font-medium border border-red-100 bg-white hover:bg-red-50 px-3 py-1.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Reject
-                    </button>
+                    {!isVerified && (
+                      <button
+                        type="button"
+                        onClick={() => startVerifyAction(f.id, "REJECTED")}
+                        disabled={isBusy}
+                        className="text-red-500 hover:text-red-700 text-xs font-medium border border-red-100 bg-white hover:bg-red-50 px-3 py-1.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Reject
+                      </button>
+                    )}
 
                     <button
                       type="button"

@@ -8,84 +8,251 @@ const unwrap = (body: unknown): unknown => {
   return body;
 };
 
-export const getFilesByBorrower = (
-  borrowerId: number,
-): Promise<BorrowerFile[]> =>
-  API.get(`/files/borrower/${borrowerId}`).then(
-    (r) => unwrap(r.data) as BorrowerFile[],
-  );
+const normalizeFileId = (fileId: number): number => {
+  if (!Number.isSafeInteger(fileId) || fileId <= 0) {
+    throw new Error("Invalid document ID.");
+  }
+  return fileId;
+};
 
-export const uploadFile = (
+const getApiErrorMessage = (error: unknown): string | null => {
+  if (!error || typeof error !== "object") return null;
+
+  const candidate = error as {
+    response?: { data?: unknown };
+    message?: unknown;
+  };
+
+  const responseData = candidate.response?.data;
+
+  if (responseData instanceof Blob) {
+    return null;
+  }
+
+  if (responseData && typeof responseData === "object") {
+    const data = responseData as Record<string, unknown>;
+
+    const direct = [data.message, data.error, data.detail].find(
+      (value) => typeof value === "string" && value.trim(),
+    );
+
+    if (typeof direct === "string") return direct.trim();
+
+    if (data.data && typeof data.data === "object") {
+      const nested = data.data as Record<string, unknown>;
+      const nestedMessage = [nested.message, nested.error, nested.detail].find(
+        (value) => typeof value === "string" && value.trim(),
+      );
+      if (typeof nestedMessage === "string") return nestedMessage.trim();
+    }
+  }
+
+  if (typeof candidate.message === "string" && candidate.message.trim()) {
+    return candidate.message.trim();
+  }
+
+  return null;
+};
+
+const parseBlobError = async (error: unknown): Promise<Error | null> => {
+  if (!error || typeof error !== "object") return null;
+
+  const candidate = error as {
+    response?: { data?: unknown; status?: number };
+    message?: unknown;
+  };
+
+  const responseData = candidate.response?.data;
+
+  if (!(responseData instanceof Blob)) {
+    const message = getApiErrorMessage(error);
+    return message ? new Error(message) : null;
+  }
+
+  try {
+    const text = await responseData.text();
+    if (!text.trim()) return null;
+
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      const message = [parsed.message, parsed.error, parsed.detail].find(
+        (value) => typeof value === "string" && value.trim(),
+      );
+
+      if (typeof message === "string") {
+        return new Error(message.trim());
+      }
+
+      if (parsed.data && typeof parsed.data === "object") {
+        const nested = parsed.data as Record<string, unknown>;
+        const nestedMessage = [
+          nested.message,
+          nested.error,
+          nested.detail,
+        ].find((value) => typeof value === "string" && value.trim());
+        if (typeof nestedMessage === "string") {
+          return new Error(nestedMessage.trim());
+        }
+      }
+    } catch {
+      // The response was not JSON. Keep the original Axios error below.
+    }
+  } catch {
+    // Ignore blob parsing failures and preserve the original error.
+  }
+
+  return null;
+};
+
+const throwReadableApiError = async (error: unknown): Promise<never> => {
+  const blobError = await parseBlobError(error);
+  if (blobError) throw blobError;
+
+  const message = getApiErrorMessage(error);
+  throw new Error(message || "The document request could not be completed.");
+};
+
+export const getFilesByBorrower = async (
+  borrowerId: number,
+): Promise<BorrowerFile[]> => {
+  if (!Number.isSafeInteger(borrowerId) || borrowerId <= 0) {
+    throw new Error("Invalid borrower ID.");
+  }
+
+  try {
+    const response = await API.get(`/files/borrower/${borrowerId}`);
+    const data = unwrap(response.data);
+    return Array.isArray(data) ? (data as BorrowerFile[]) : [];
+  } catch (error) {
+    return await throwReadableApiError(error);
+  }
+};
+
+export const uploadFile = async (
   borrowerId: number,
   file: File,
   documentType = "OTHER",
 ): Promise<BorrowerFile> => {
+  if (!Number.isSafeInteger(borrowerId) || borrowerId <= 0) {
+    throw new Error("Invalid borrower ID.");
+  }
+
+  if (!file) {
+    throw new Error("Please select a document.");
+  }
+
   const form = new FormData();
   form.append("file", file);
   form.append("documentType", documentType);
-  return API.post(`/files/upload/${borrowerId}`, form, {
-    headers: { "Content-Type": "multipart/form-data" },
-  }).then((r) => unwrap(r.data) as BorrowerFile);
+
+  try {
+    // Do not manually set Content-Type here. The browser/Axios must add the
+    // multipart boundary itself; manually forcing it can produce malformed
+    // multipart requests in production browsers.
+    const response = await API.post(`/files/upload/${borrowerId}`, form);
+
+    return unwrap(response.data) as BorrowerFile;
+  } catch (error) {
+    return await throwReadableApiError(error);
+  }
 };
 
-export const deleteFile = (fileId: number): Promise<void> =>
-  API.delete(`/files/${fileId}`).then(() => undefined);
+export const deleteFile = async (fileId: number): Promise<void> => {
+  const id = normalizeFileId(fileId);
 
-export const verifyFile = (
+  try {
+    await API.delete(`/files/${id}`);
+  } catch (error) {
+    return await throwReadableApiError(error);
+  }
+};
+
+export const verifyFile = async (
   fileId: number,
   status: "VERIFIED" | "REJECTED" | "REPLACEMENT_REQUESTED",
   comment?: string,
   loanId?: number,
-): Promise<BorrowerFile> =>
-  API.patch(`/files/${fileId}/verify`, {
-    status,
-    comment,
-    ...(loanId ? { loanId: String(loanId) } : {}),
-  }).then((r) => unwrap(r.data) as BorrowerFile);
+): Promise<BorrowerFile> => {
+  const id = normalizeFileId(fileId);
 
-// `/api/files/**` requires a JWT. A normal window.open()/anchor cannot attach
-// the Authorization header, so document bytes must be fetched through the
-// authenticated axios instance first.
-async function fetchAsBlob(
-  path: string,
-): Promise<{ blob: Blob; filename?: string }> {
-  const res = await API.get(path, {
-    responseType: "blob",
-    validateStatus: (status) => status >= 200 && status < 300,
-  });
+  if (
+    (status === "REJECTED" || status === "REPLACEMENT_REQUESTED") &&
+    (!Number.isSafeInteger(loanId) || (loanId as number) <= 0)
+  ) {
+    throw new Error("A valid loan ID is required for this review action.");
+  }
 
-  const blob = res.data instanceof Blob ? res.data : new Blob([res.data]);
+  try {
+    const response = await API.patch(`/files/${id}/verify`, {
+      status,
+      ...(comment?.trim() ? { comment: comment.trim() } : {}),
+      ...(loanId ? { loanId: String(loanId) } : {}),
+    });
 
-  const disposition = res.headers?.["content-disposition"];
-  let filename: string | undefined;
+    return unwrap(response.data) as BorrowerFile;
+  } catch (error) {
+    return await throwReadableApiError(error);
+  }
+};
 
-  if (typeof disposition === "string") {
-    const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
-    const basicMatch = disposition.match(/filename="?([^";]+)"?/i);
+interface BlobFetchResult {
+  blob: Blob;
+  filename?: string;
+}
 
-    if (utf8Match?.[1]) {
-      try {
-        filename = decodeURIComponent(utf8Match[1]);
-      } catch {
-        filename = utf8Match[1];
-      }
-    } else if (basicMatch?.[1]) {
-      filename = basicMatch[1].trim();
+function parseContentDispositionFilename(
+  disposition: string | undefined,
+): string | undefined {
+  if (!disposition) return undefined;
+
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
     }
   }
 
-  return { blob, filename };
+  const basicMatch = disposition.match(/filename="?([^";]+)"?/i);
+  return basicMatch?.[1]?.trim() || undefined;
+}
+
+async function fetchAsBlob(path: string): Promise<BlobFetchResult> {
+  try {
+    const response = await API.get(path, {
+      responseType: "blob",
+      validateStatus: (status: number) => status >= 200 && status < 300,
+    });
+
+    const blob =
+      response.data instanceof Blob ? response.data : new Blob([response.data]);
+
+    if (blob.size === 0) {
+      throw new Error("The server returned an empty document.");
+    }
+
+    const disposition = response.headers?.["content-disposition"];
+    const filename = parseContentDispositionFilename(
+      typeof disposition === "string" ? disposition : undefined,
+    );
+
+    return { blob, filename };
+  } catch (error) {
+    return await throwReadableApiError(error);
+  }
 }
 
 /**
  * Opens the document inline in a new tab.
  *
- * The new window is deliberately opened synchronously from the click event.
- * Opening it only after the authenticated request completes is commonly
- * blocked by Chrome/Edge popup protection, which made the old Preview button
- * appear to do nothing.
+ * The window is opened synchronously from the click event so Chrome/Edge does
+ * not classify it as an unsolicited popup after the authenticated request
+ * completes.
  */
 export const previewFile = async (fileId: number): Promise<void> => {
+  const id = normalizeFileId(fileId);
+
   if (typeof window === "undefined") {
     throw new Error("Document preview is only available in a browser.");
   }
@@ -98,16 +265,16 @@ export const previewFile = async (fileId: number): Promise<void> => {
     );
   }
 
-  previewWindow.opener = null;
-  previewWindow.document.title = "Document Preview";
-  previewWindow.document.body.innerHTML =
-    '<div style="font-family:Arial,sans-serif;padding:32px;color:#475569">Loading document preview…</div>';
-
   try {
-    const { blob } = await fetchAsBlob(`/files/preview/${fileId}`);
+    previewWindow.opener = null;
+    previewWindow.document.title = "Document Preview";
+    previewWindow.document.body.innerHTML =
+      '<div style="font-family:Arial,sans-serif;padding:32px;color:#475569">Loading document preview…</div>';
+
+    const { blob } = await fetchAsBlob(`/files/preview/${id}`);
     const url = URL.createObjectURL(blob);
 
-    previewWindow.location.href = url;
+    previewWindow.location.replace(url);
 
     window.setTimeout(
       () => {
@@ -116,7 +283,11 @@ export const previewFile = async (fileId: number): Promise<void> => {
       5 * 60 * 1000,
     );
   } catch (error) {
-    previewWindow.close();
+    try {
+      previewWindow.close();
+    } catch {
+      // Ignore browser close failures.
+    }
     throw error;
   }
 };
@@ -126,11 +297,13 @@ export const downloadFile = async (
   fileId: number,
   fileName?: string,
 ): Promise<void> => {
+  const id = normalizeFileId(fileId);
+
   if (typeof document === "undefined") {
     throw new Error("Document download is only available in a browser.");
   }
 
-  const { blob, filename } = await fetchAsBlob(`/files/download/${fileId}`);
+  const { blob, filename } = await fetchAsBlob(`/files/download/${id}`);
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
 
@@ -150,7 +323,8 @@ export const downloadFile = async (
 
 /** Resolves to an object URL for authenticated inline rendering. */
 export const getInlineBlobUrl = async (fileId: number): Promise<string> => {
-  const { blob } = await fetchAsBlob(`/files/preview/${fileId}`);
+  const id = normalizeFileId(fileId);
+  const { blob } = await fetchAsBlob(`/files/preview/${id}`);
   return URL.createObjectURL(blob);
 };
 
@@ -194,8 +368,14 @@ export const VERIFICATION_STATUS_META: Record<
     label: "Pending Verification",
     className: "bg-gray-100 text-gray-600",
   },
-  VERIFIED: { label: "Verified", className: "bg-green-50 text-green-700" },
-  REJECTED: { label: "Rejected", className: "bg-red-50 text-red-700" },
+  VERIFIED: {
+    label: "Verified",
+    className: "bg-green-50 text-green-700",
+  },
+  REJECTED: {
+    label: "Rejected",
+    className: "bg-red-50 text-red-700",
+  },
   REPLACEMENT_REQUESTED: {
     label: "Replacement Requested",
     className: "bg-amber-50 text-amber-700",
