@@ -261,6 +261,9 @@ public class DataSeeder implements CommandLineRunner {
                 String configuredName = System.getenv(
                                 "BOOTSTRAP_ADMIN_NAME");
 
+                String configuredPhone = System.getenv(
+                                "BOOTSTRAP_ADMIN_PHONE");
+
                 if (email == null
                                 || email.isBlank()
                                 || password == null
@@ -275,12 +278,30 @@ public class DataSeeder implements CommandLineRunner {
                 String normalizedEmail = email.trim()
                                 .toLowerCase();
 
-                if (userRepo.findByEmail(
-                                normalizedEmail).isPresent()) {
+                java.util.Optional<User> existingUser = userRepo.findByEmail(
+                                normalizedEmail);
 
-                        log.info(
-                                        "Bootstrap admin {} already exists — skipping.",
-                                        normalizedEmail);
+                if (existingUser.isPresent()) {
+                        User user = existingUser.get();
+
+                        if ((user.getPhone() == null || user.getPhone().isBlank())
+                                        && configuredPhone != null
+                                        && !configuredPhone.isBlank()) {
+
+                                user.setPhone(
+                                                configuredPhone.trim());
+
+                                userRepo.save(user);
+
+                                log.info(
+                                                "Bootstrap administrator {} had no mobile number; "
+                                                                + "registered BOOTSTRAP_ADMIN_PHONE for login OTP.",
+                                                normalizedEmail);
+                        } else {
+                                log.info(
+                                                "Bootstrap admin {} already exists — no account reset performed.",
+                                                normalizedEmail);
+                        }
 
                         return;
                 }
@@ -297,8 +318,22 @@ public class DataSeeder implements CommandLineRunner {
                                 adminRole,
                                 organization);
 
+                if (configuredPhone != null
+                                && !configuredPhone.isBlank()) {
+                        user.setPhone(
+                                        configuredPhone.trim());
+                }
+
                 userRepo.save(
                                 user);
+
+                if (user.getPhone() == null || user.getPhone().isBlank()) {
+                        log.warn(
+                                        "Bootstrap administrator {} was created without a mobile number. "
+                                                        + "ADMIN login OTP requires BOOTSTRAP_ADMIN_PHONE or "
+                                                        + "a phone number set on the user account.",
+                                        normalizedEmail);
+                }
 
                 log.info(
                                 "Bootstrap administrator created: {}",

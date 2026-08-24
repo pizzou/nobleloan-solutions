@@ -84,10 +84,7 @@ function LoginInner() {
         setOtpRequired(true);
 
         setOtpMessage(
-          res.message ||
-            (res.otpDelivery === "EMAIL_AND_SMS"
-              ? "A 6-digit verification code has been sent to your registered email address and mobile phone."
-              : "A 6-digit verification code has been sent to your email address."),
+          res.message || "We sent a 6-digit verification code to your email.",
         );
 
         setLoading(false);
@@ -423,11 +420,11 @@ function LoginInner() {
                     backgroundColor: LIGHT_YELLOW,
                   }}
                 >
-                  <span className="text-xl">✉️📱</span>
+                  <span className="text-xl">✉️</span>
                 </div>
 
                 <div className="font-bold text-gray-900 mb-1">
-                  Check Your Email & Phone
+                  Check Your Email
                 </div>
 
                 <div className="text-gray-500 text-sm mb-4">{otpMessage}</div>
