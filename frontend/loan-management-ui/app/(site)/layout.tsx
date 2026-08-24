@@ -5,7 +5,6 @@ import { useState, useEffect, createContext, useContext } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { OfflineProvider } from "../../components/OfflineProvider";
 import { ToastContainer } from "../../components/ui/ToastContainer";
 import { TENANT_SLUG } from "../../lib/tenant";
 
@@ -439,8 +438,6 @@ export default function SiteLayout({
 
   return (
     <TenantCtx.Provider value={tenant}>
-      <OfflineProvider authHeader={() => ({})} />
-
       <ToastContainer />
 
       <div className="min-h-screen bg-white font-sans">

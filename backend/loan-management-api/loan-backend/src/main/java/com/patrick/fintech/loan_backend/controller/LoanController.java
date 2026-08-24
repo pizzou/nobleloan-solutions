@@ -14,7 +14,9 @@ import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.Payment;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.LoanCommentRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.patrick.fintech.loan_backend.service.AuditService;
+import com.patrick.fintech.loan_backend.service.IdempotencyService;
 import com.patrick.fintech.loan_backend.service.DashboardService;
 import com.patrick.fintech.loan_backend.service.LoanApprovalService;
 import com.patrick.fintech.loan_backend.service.LoanService;
@@ -42,6 +44,8 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
+import java.util.function.Supplier;
 
 @RestController
 @RequestMapping("/api/loans")
@@ -69,6 +73,10 @@ public class LoanController {
         private final AuditService auditService;
 
         private final LoanRestructuringService loanRestructuringService;
+
+        private final IdempotencyService idempotencyService;
+
+        private final ObjectMapper objectMapper;
 
         // ================================================================
         // CREATE LOAN
@@ -235,74 +243,119 @@ public class LoanController {
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
         public ResponseEntity<ApiResponse<LoanResponse>> approveLoan(
                         @PathVariable Long id,
-                        @RequestBody(required = false) Map<String, String> body) {
+                        @RequestBody(required = false) Map<String, String> body,
+                        @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
 
                 User user = currentUserUtil.getCurrentUser();
+                Map<String, String> request = body == null ? Map.of() : new TreeMap<>(body);
 
-                String notes = body != null
-                                ? firstNonBlank(
-                                                body.get("notes"),
-                                                body.get("comments"))
-                                : null;
+                return executeIdempotentLoanMutation(
+                                id,
+                                idempotencyKey,
+                                "POST /loans/" + id + "/approve",
+                                request,
+                                user,
+                                () -> {
+                                        String notes = firstNonBlank(request.get("notes"), request.get("comments"));
 
-                Double newInterestRate = null;
-                Double newProcessingFeeRate = null;
-                BigDecimal newApprovedAmount = null;
+                                        Double newInterestRate = parseOptionalDouble(request.get("interestRate"),
+                                                        "interestRate");
+                                        Double newProcessingFeeRate = parseOptionalDouble(
+                                                        request.get("processingFeeRate"), "processingFeeRate");
+                                        BigDecimal newApprovedAmount = parseOptionalBigDecimal(
+                                                        request.get("approvedAmount"), "approvedAmount");
 
-                if (body != null) {
+                                        loanApprovalService.decide(
+                                                        id,
+                                                        user,
+                                                        "APPROVED",
+                                                        notes,
+                                                        newInterestRate,
+                                                        newProcessingFeeRate,
+                                                        newApprovedAmount);
 
-                        String rawInterestRate = body.get("interestRate");
-                        String rawProcessingFeeRate = body.get("processingFeeRate");
-                        String rawApprovedAmount = body.get("approvedAmount");
+                                        return loanService.getLoanForOrg(
+                                                        id,
+                                                        user.getOrganization().getId());
+                                });
+        }
 
-                        if (rawInterestRate != null
-                                        && !rawInterestRate.isBlank()) {
-                                try {
-                                        newInterestRate = Double.valueOf(rawInterestRate.trim());
-                                } catch (NumberFormatException e) {
-                                        throw new IllegalArgumentException(
-                                                        "interestRate must be a valid number.");
-                                }
-                        }
+        private Double parseOptionalDouble(String raw, String field) {
+                if (raw == null || raw.isBlank())
+                        return null;
+                try {
+                        return Double.valueOf(raw.trim());
+                } catch (NumberFormatException e) {
+                        throw new IllegalArgumentException(field + " must be a valid number.");
+                }
+        }
 
-                        if (rawProcessingFeeRate != null
-                                        && !rawProcessingFeeRate.isBlank()) {
-                                try {
-                                        newProcessingFeeRate = Double.valueOf(rawProcessingFeeRate.trim());
-                                } catch (NumberFormatException e) {
-                                        throw new IllegalArgumentException(
-                                                        "processingFeeRate must be a valid number.");
-                                }
-                        }
+        private BigDecimal parseOptionalBigDecimal(String raw, String field) {
+                if (raw == null || raw.isBlank())
+                        return null;
+                try {
+                        return new BigDecimal(raw.trim());
+                } catch (NumberFormatException e) {
+                        throw new IllegalArgumentException(field + " must be a valid number.");
+                }
+        }
 
-                        if (rawApprovedAmount != null
-                                        && !rawApprovedAmount.isBlank()) {
-                                try {
-                                        newApprovedAmount = new BigDecimal(rawApprovedAmount.trim());
-                                } catch (NumberFormatException e) {
-                                        throw new IllegalArgumentException(
-                                                        "approvedAmount must be a valid number.");
-                                }
-                        }
+        private ResponseEntity<ApiResponse<LoanResponse>> executeIdempotentLoanMutation(
+                        Long loanId,
+                        String idempotencyKey,
+                        String endpoint,
+                        Map<String, String> request,
+                        User user,
+                        Supplier<Loan> mutation) {
+
+                if (idempotencyKey == null || idempotencyKey.isBlank()) {
+                        return ResponseEntity.ok(
+                                        ApiResponse.ok(
+                                                        "Loan mutation completed",
+                                                        ResponseDtoMapper.loan(mutation.get())));
                 }
 
-                loanApprovalService.decide(
-                                id,
-                                user,
-                                "APPROVED",
-                                notes,
-                                newInterestRate,
-                                newProcessingFeeRate,
-                                newApprovedAmount);
+                try {
+                        var outcome = idempotencyService.checkOrReserve(
+                                        idempotencyKey,
+                                        user.getOrganization(),
+                                        endpoint,
+                                        objectMapper.writeValueAsString(new TreeMap<>(request)));
 
-                Loan loan = loanService.getLoanForOrg(
-                                id,
-                                user.getOrganization().getId());
+                        if (outcome.isReplay()) {
+                                LoanResponse cached = outcome.cachedResponseBody() == null
+                                                ? null
+                                                : objectMapper.readValue(
+                                                                outcome.cachedResponseBody(),
+                                                                LoanResponse.class);
 
-                return ResponseEntity.ok(
-                                ApiResponse.ok(
-                                                "Loan approval decision recorded",
-                                                ResponseDtoMapper.loan(loan)));
+                                return ResponseEntity
+                                                .status(outcome.cachedStatusCode() == null ? 200
+                                                                : outcome.cachedStatusCode())
+                                                .body(ApiResponse.ok("Request already processed", cached));
+                        }
+
+                        try {
+                                Loan loan = mutation.get();
+                                LoanResponse response = ResponseDtoMapper.loan(loan);
+                                idempotencyService.recordSuccess(
+                                                idempotencyKey,
+                                                user.getOrganization(),
+                                                response,
+                                                HttpStatus.OK.value());
+
+                                return ResponseEntity.ok(
+                                                ApiResponse.ok("Loan mutation completed", response));
+                        } catch (RuntimeException ex) {
+                                idempotencyService.recordFailure(idempotencyKey, user.getOrganization());
+                                throw ex;
+                        }
+                } catch (RuntimeException ex) {
+                        throw ex;
+                } catch (Exception ex) {
+                        idempotencyService.recordFailure(idempotencyKey, user.getOrganization());
+                        throw new IllegalStateException("Unable to process idempotent loan mutation", ex);
+                }
         }
 
         private String firstNonBlank(
@@ -328,61 +381,56 @@ public class LoanController {
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
         public ResponseEntity<ApiResponse<LoanResponse>> rejectLoan(
                         @PathVariable Long id,
-                        @RequestBody(required = false) Map<String, String> body) {
+                        @RequestBody(required = false) Map<String, String> body,
+                        @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
 
                 User user = currentUserUtil.getCurrentUser();
+                Map<String, String> request = body == null ? Map.of() : new TreeMap<>(body);
 
-                String reason = body != null
-                                ? firstNonBlank(
-                                                body.get("reason"),
-                                                body.get("comments"),
-                                                body.get("notes"))
-                                : null;
-
-                if (reason == null) {
-                        reason = "Rejected by authorized approver.";
-                }
-
-                loanApprovalService.decide(
+                return executeIdempotentLoanMutation(
                                 id,
+                                idempotencyKey,
+                                "POST /loans/" + id + "/reject",
+                                request,
                                 user,
-                                "REJECTED",
-                                reason);
+                                () -> {
+                                        String reason = firstNonBlank(
+                                                        request.get("reason"),
+                                                        request.get("comments"),
+                                                        request.get("notes"));
 
-                Loan loan = loanService.getLoanForOrg(
-                                id,
-                                user.getOrganization().getId());
+                                        if (reason == null) {
+                                                reason = "Rejected by authorized approver.";
+                                        }
 
-                return ResponseEntity.ok(
-                                ApiResponse.ok(
-                                                "Loan rejection decision recorded",
-                                                ResponseDtoMapper.loan(loan)));
+                                        loanApprovalService.decide(id, user, "REJECTED", reason);
+
+                                        return loanService.getLoanForOrg(
+                                                        id,
+                                                        user.getOrganization().getId());
+                                });
         }
 
         @PostMapping("/{id}/disburse")
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
         public ResponseEntity<ApiResponse<LoanResponse>> disburseLoan(
                         @PathVariable Long id,
-
-                        @RequestBody(required = false) Map<String, String> body) {
+                        @RequestBody(required = false) Map<String, String> body,
+                        @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
 
                 User user = currentUserUtil.getCurrentUser();
+                Map<String, String> request = body == null ? Map.of() : new TreeMap<>(body);
 
-                String method = body != null
-                                ? body.getOrDefault(
-                                                "disbursementMethod",
-                                                "BANK_TRANSFER")
-                                : "BANK_TRANSFER";
-
-                Loan loan = loanService.disburseLoan(
+                return executeIdempotentLoanMutation(
                                 id,
+                                idempotencyKey,
+                                "POST /loans/" + id + "/disburse",
+                                request,
                                 user,
-                                method);
-
-                return ResponseEntity.ok(
-                                ApiResponse.ok(
-                                                "Loan disbursed",
-                                                ResponseDtoMapper.loan(loan)));
+                                () -> loanService.disburseLoan(
+                                                id,
+                                                user,
+                                                request.getOrDefault("disbursementMethod", "BANK_TRANSFER")));
         }
 
         // ================================================================
@@ -502,45 +550,38 @@ public class LoanController {
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
         public ResponseEntity<ApiResponse<LoanResponse>> updateStatus(
                         @PathVariable Long id,
+                        @RequestBody Map<String, String> body,
+                        @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
 
-                        @RequestBody Map<String, String> body) {
-
-                if (body == null
-                                || body.get("status") == null
-                                || body.get("status").isBlank()) {
-
-                        throw new IllegalArgumentException(
-                                        "status is required.");
+                if (body == null || body.get("status") == null || body.get("status").isBlank()) {
+                        throw new IllegalArgumentException("status is required.");
                 }
 
                 User user = currentUserUtil.getCurrentUser();
+                Map<String, String> request = new TreeMap<>(body);
 
-                LoanStatus newStatus;
-
-                try {
-
-                        newStatus = LoanStatus.valueOf(
-                                        body.get("status")
-                                                        .trim()
-                                                        .toUpperCase());
-
-                } catch (IllegalArgumentException e) {
-
-                        throw new IllegalArgumentException(
-                                        "Invalid loan status: "
-                                                        + body.get("status"));
-                }
-
-                Loan loan = loanService.updateStatus(
+                return executeIdempotentLoanMutation(
                                 id,
+                                idempotencyKey,
+                                "POST /loans/" + id + "/status",
+                                request,
                                 user,
-                                newStatus,
-                                body.get("notes"));
+                                () -> {
+                                        final LoanStatus newStatus;
+                                        try {
+                                                newStatus = LoanStatus.valueOf(
+                                                                request.get("status").trim().toUpperCase());
+                                        } catch (IllegalArgumentException e) {
+                                                throw new IllegalArgumentException(
+                                                                "Invalid loan status: " + request.get("status"));
+                                        }
 
-                return ResponseEntity.ok(
-                                ApiResponse.ok(
-                                                "Status updated",
-                                                ResponseDtoMapper.loan(loan)));
+                                        return loanService.updateStatus(
+                                                        id,
+                                                        user,
+                                                        newStatus,
+                                                        request.get("notes"));
+                                });
         }
 
         // ================================================================

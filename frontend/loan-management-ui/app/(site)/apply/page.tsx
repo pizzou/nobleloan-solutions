@@ -300,6 +300,8 @@ export default function ApplyPage() {
     // ONLINE SUBMISSION
     // ----------------------------------------------------------
 
+    let responseStatus: number | null = null;
+
     try {
       const API_BASE =
         process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
@@ -316,6 +318,7 @@ export default function ApplyPage() {
         }),
       });
 
+      responseStatus = res.status;
       const json = await res.json();
 
       if (!res.ok || json.success === false) {
@@ -336,7 +339,13 @@ export default function ApplyPage() {
       // NETWORK FAILURE
       // --------------------------------------------------------
 
-      if (e instanceof TypeError) {
+      if (
+        e instanceof TypeError ||
+        responseStatus === 408 ||
+        responseStatus === 425 ||
+        responseStatus === 429 ||
+        (responseStatus !== null && responseStatus >= 500)
+      ) {
         try {
           await queueAction({
             url: "/public/loan-application",

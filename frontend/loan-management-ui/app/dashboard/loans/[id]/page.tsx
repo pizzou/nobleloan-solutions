@@ -9,6 +9,7 @@ import {
   borrowerApi,
   creditBureauApi,
   esignatureApi,
+  isRetryableRequestError,
 } from "@/services/api";
 
 import { Loan, Payment } from "@/types";
@@ -53,7 +54,12 @@ import { useAuth } from "@/hooks/useAuth";
 
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
-import { queueAction, cacheGet, cacheSet } from "@/lib/offlineDb";
+import {
+  createIdempotencyKey,
+  queueAction,
+  cacheGet,
+  cacheSet,
+} from "@/lib/offlineDb";
 
 import {
   AreaChart,
@@ -1276,6 +1282,8 @@ export default function LoanDetailPage() {
 
   useEffect(() => {
     void load();
+    // load is an imperative loader defined for this page instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loanId, hasValidLoanId]);
 
   const loadCreditHistory = async (borrowerId?: number) => {
@@ -1431,6 +1439,8 @@ export default function LoanDetailPage() {
     if (hasValidLoanId) {
       void loadComments();
     }
+    // loadComments is an imperative loader defined for this page instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loanId, hasValidLoanId]);
 
   const handleAddComment = async () => {
@@ -1487,6 +1497,8 @@ export default function LoanDetailPage() {
     if (hasValidLoanId) {
       void loadDocReq();
     }
+    // loadDocReq is an imperative loader defined for this page instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loanId, hasValidLoanId]);
 
   // ==========================================================
@@ -1521,49 +1533,49 @@ export default function LoanDetailPage() {
     }
 
     setPaying(true);
-
     setMsg(null);
+
+    const idempotencyKey = createIdempotencyKey();
+    const body = { ...payForm, amount };
+    const label = `Payment — ${loan?.borrower?.firstName ?? "Loan"} ${
+      loan?.referenceNumber ?? ""
+    } (${payForm.amount})`;
+
+    const saveForLater = async () => {
+      await queueAction({
+        url: `/loans/${loanId}/payments`,
+        method: "POST",
+        body,
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        label,
+      });
+
+      setMsg({
+        type: "success",
+        text: "Payment securely saved on this device. It will be submitted automatically when the Noble Loan server is available again.",
+      });
+      setPayOpen(false);
+    };
 
     if (!online) {
       try {
-        await queueAction({
-          url: `/loans/${loanId}/payments`,
-
-          method: "POST",
-
-          body: {
-            ...payForm,
-            amount,
-          },
-
-          label: `Payment — ${loan?.borrower?.firstName ?? "Loan"} ${
-            loan?.referenceNumber ?? ""
-          } (${payForm.amount})`,
-        });
-
-        setMsg({
-          type: "success",
-          text: "Saved offline — you're not connected. This payment will submit automatically once you're back online.",
-        });
-
-        setPayOpen(false);
+        await saveForLater();
       } catch (err: any) {
         setMsg({
           type: "error",
-          text: "Could not save offline: " + err.message,
+          text: "Could not save offline: " + (err?.message ?? "Unknown error"),
         });
+      } finally {
+        setPaying(false);
       }
-
-      setPaying(false);
-
       return;
     }
 
     try {
-      await paymentApi.record(loanId, {
-        ...payForm,
-        amount,
-      });
+      await paymentApi.record(loanId, body, idempotencyKey);
 
       setMsg({
         type: "success",
@@ -1571,16 +1583,28 @@ export default function LoanDetailPage() {
       });
 
       setPayOpen(false);
-
-      load();
+      await load();
     } catch (err: any) {
-      setMsg({
-        type: "error",
-        text: err.message,
-      });
+      if (isRetryableRequestError(err)) {
+        try {
+          await saveForLater();
+        } catch (queueError: any) {
+          setMsg({
+            type: "error",
+            text:
+              "The server is unavailable and the payment could not be saved locally: " +
+              (queueError?.message ?? "Unknown error"),
+          });
+        }
+      } else {
+        setMsg({
+          type: "error",
+          text: err?.message ?? "Unable to record payment.",
+        });
+      }
+    } finally {
+      setPaying(false);
     }
-
-    setPaying(false);
   };
 
   const openStatusModal = () => {
@@ -1609,10 +1633,15 @@ export default function LoanDetailPage() {
     }
 
     setStSaving(true);
-
     setMsg(null);
 
+    const idempotencyKey = createIdempotencyKey();
+
     try {
+      let url = "";
+      let body: Record<string, string> = {};
+      let label = "Loan status update";
+
       if (stForm.status === "APPROVED") {
         const approvedAmount = Number(stForm.approvedAmount);
         const interestRate = Number(stForm.interestRate);
@@ -1646,41 +1675,104 @@ export default function LoanDetailPage() {
           );
         }
 
-        await loanApi.approve(
-          loanId,
-          stForm.internalNotes,
-          interestRate,
-          processingFeeRate,
-          approvedAmount,
-        );
+        url = `/loans/${loanId}/approve`;
+        body = {
+          notes: stForm.internalNotes || "",
+          interestRate: String(interestRate),
+          processingFeeRate: String(processingFeeRate),
+          approvedAmount: String(approvedAmount),
+        };
+        label = `Loan approval — ${loan?.referenceNumber ?? loanId}`;
       } else if (stForm.status === "REJECTED") {
-        await loanApi.reject(loanId, stForm.rejectionReason);
+        url = `/loans/${loanId}/reject`;
+        body = {
+          reason: stForm.rejectionReason || "Rejected by authorized approver.",
+        };
+        label = `Loan rejection — ${loan?.referenceNumber ?? loanId}`;
       } else if (stForm.status === "DISBURSED") {
-        await loanApi.disburse(loanId, "BANK_TRANSFER");
+        url = `/loans/${loanId}/disburse`;
+        body = { disbursementMethod: "BANK_TRANSFER" };
+        label = `Loan disbursement — ${loan?.referenceNumber ?? loanId}`;
       } else if (stForm.status) {
-        await loanApi.updateStatus(loanId, stForm.status, stForm.internalNotes);
+        url = `/loans/${loanId}/status`;
+        body = {
+          status: stForm.status,
+          notes: stForm.internalNotes || "",
+        };
+        label = `Loan status ${stForm.status} — ${loan?.referenceNumber ?? loanId}`;
       } else {
         throw new Error("Select a status first");
       }
 
-      setMsg({
-        type: "success",
-        text: "Status updated!",
-      });
+      const queueMutation = async () => {
+        await queueAction({
+          url,
+          method: "POST",
+          body,
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          label,
+        });
 
-      setStOpen(false);
+        setMsg({
+          type: "success",
+          text: "This action has been securely saved on the device and will synchronize automatically when the Noble Loan server is available.",
+        });
+        setStOpen(false);
+      };
 
-      load();
+      if (!online) {
+        await queueMutation();
+      } else {
+        try {
+          if (stForm.status === "APPROVED") {
+            await loanApi.approve(
+              loanId,
+              stForm.internalNotes,
+              Number(stForm.interestRate),
+              Number(stForm.processingFeeRate),
+              Number(stForm.approvedAmount),
+              idempotencyKey,
+            );
+          } else if (stForm.status === "REJECTED") {
+            await loanApi.reject(
+              loanId,
+              stForm.rejectionReason,
+              idempotencyKey,
+            );
+          } else if (stForm.status === "DISBURSED") {
+            await loanApi.disburse(loanId, "BANK_TRANSFER", idempotencyKey);
+          } else {
+            await loanApi.updateStatus(
+              loanId,
+              stForm.status,
+              stForm.internalNotes,
+              idempotencyKey,
+            );
+          }
 
-      loadDocReq();
+          setMsg({ type: "success", text: "Status updated!" });
+          setStOpen(false);
+          await load();
+          await loadDocReq();
+        } catch (error) {
+          if (isRetryableRequestError(error)) {
+            await queueMutation();
+          } else {
+            throw error;
+          }
+        }
+      }
     } catch (err: any) {
       setMsg({
         type: "error",
-        text: err.message,
+        text: err?.message ?? "Unable to update loan status.",
       });
+    } finally {
+      setStSaving(false);
     }
-
-    setStSaving(false);
   };
 
   const handleSendForSignature = async () => {

@@ -1,417 +1,209 @@
-
 "use client";
 
-import {
-    useCallback,
-    useEffect,
-    useRef,
-    useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { drainOfflineQueue } from "./offlineSync";
-import { pendingCount } from "./offlineDb";
+import { checkBackendHealth, drainOfflineQueue } from "./offlineSync";
+import { failedCount, pendingCount, retryAllFailedActions } from "./offlineDb";
 
 /**
- * LoanSaaS Pro — Offline Synchronization Provider
+ * Single canonical synchronization provider for the whole application.
  *
- * Responsibilities:
- *
- * 1. Detect when the browser comes back online.
- * 2. Synchronize queued POST / PUT / PATCH / DELETE requests.
- * 3. Retry synchronization periodically only when requests are pending.
- * 4. Prevent multiple sync processes from running simultaneously.
- * 5. Keep the pending-change indicator updated.
- *
- * IMPORTANT:
- *
- * This provider synchronizes MUTATIONS only.
- *
- * Offline GET/read caching is handled by api.ts + offlineDb.ts.
+ * It deliberately separates:
+ *   1. browser connectivity;
+ *   2. Noble Loan API availability;
+ *   3. durable queued mutations;
+ *   4. actions requiring manual attention.
  */
 export default function SyncProvider() {
-    const [pending, setPending] = useState<number>(0);
-    const [syncing, setSyncing] = useState<boolean>(false);
+  const [pending, setPending] = useState(0);
+  const [failed, setFailed] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+  const [backendOnline, setBackendOnline] = useState(true);
+  const mounted = useRef(false);
+  const running = useRef(false);
 
-    /**
-     * Prevent overlapping synchronization runs.
-     *
-     * Without this, these can all fire at almost the same time:
-     *
-     * - initial syncNow()
-     * - online event
-     * - periodic retry
-     *
-     * That could cause the same queued request to be
-     * submitted more than once.
-     */
-    const syncRunning = useRef<boolean>(false);
+  const refreshState = useCallback(async () => {
+    try {
+      const [pendingCountValue, failedCountValue] = await Promise.all([
+        pendingCount(),
+        failedCount(),
+      ]);
 
-    /**
-     * Prevent state updates after component unmount.
-     */
-    const mounted = useRef<boolean>(false);
+      if (mounted.current) {
+        setPending(pendingCountValue);
+        setFailed(failedCountValue);
+      }
+    } catch (error) {
+      console.error("Failed to read offline synchronization state", error);
+    }
+  }, []);
 
-    /**
-     * ------------------------------------------------------------
-     * REFRESH PENDING COUNT
-     * ------------------------------------------------------------
-     */
-    const refreshPending = useCallback(async (): Promise<number> => {
-        try {
-            const count = await pendingCount();
+  const getAuthHeader = useCallback((): Record<string, string> => {
+    if (typeof window === "undefined") return {};
+    const token = localStorage.getItem("token");
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }, []);
 
-            if (mounted.current) {
-                setPending(count);
-            }
-
-            return count;
-        } catch (error) {
-            console.error(
-                "Failed to read offline queue:",
-                error
-            );
-
-            return 0;
-        }
-    }, []);
-
-    /**
-     * ------------------------------------------------------------
-     * AUTH HEADER
-     * ------------------------------------------------------------
-     */
-    const getAuthHeader = useCallback(
-        (): Record<string, string> => {
-            if (typeof window === "undefined") {
-                return {};
-            }
-
-            const token = localStorage.getItem("token");
-
-            if (!token) {
-                return {};
-            }
-
-            return {
-                Authorization: `Bearer ${token}`,
-            };
-        },
-        []
-    );
-
-    /**
-     * ------------------------------------------------------------
-     * SYNCHRONIZE OFFLINE QUEUE
-     * ------------------------------------------------------------
-     */
-    const syncNow = useCallback(async () => {
-        /**
-         * Never attempt synchronization while offline.
-         */
-        if (
-            typeof navigator !== "undefined" &&
-            !navigator.onLine
-        ) {
-            return;
-        }
-
-        /**
-         * Prevent overlapping sync operations.
-         */
-        if (syncRunning.current) {
-            console.log(
-                "Offline sync already running."
-            );
-
-            return;
-        }
-
-        /**
-         * IMPORTANT:
-         *
-         * Check the queue before starting synchronization.
-         *
-         * This prevents:
-         *
-         * "Starting offline synchronization..."
-         *
-         * from being printed every 30 seconds when there
-         * are no pending offline requests.
-         */
-        const count = await refreshPending();
-
-        if (count <= 0) {
-            return;
-        }
-
-        syncRunning.current = true;
-
-        if (mounted.current) {
-            setSyncing(true);
-        }
-
-        try {
-            console.log(
-                `Starting offline synchronization for ${count} pending request(s)...`
-            );
-
-            const result = await drainOfflineQueue(
-                getAuthHeader
-            );
-
-            /**
-             * Successfully synchronized requests.
-             */
-            if (
-                result.succeeded.length > 0
-            ) {
-                console.log(
-                    `Successfully synced ${result.succeeded.length} offline request(s).`
-                );
-
-                for (
-                    const action of result.succeeded
-                ) {
-                    console.log(
-                        "Synced offline action:",
-                        {
-                            id: action.id,
-                            method: action.method,
-                            url: action.url,
-                            label: action.label,
-                        }
-                    );
-                }
-            }
-
-            /**
-             * Failed requests remain in IndexedDB.
-             */
-            if (
-                result.failed.length > 0
-            ) {
-                console.warn(
-                    `Failed to sync ${result.failed.length} offline request(s).`
-                );
-
-                for (
-                    const failure of result.failed
-                ) {
-                    console.warn(
-                        "Offline sync failure:",
-                        {
-                            id: failure.action.id,
-                            method: failure.action.method,
-                            url: failure.action.url,
-                            error: failure.error,
-                        }
-                    );
-                }
-            }
-
-            /**
-             * Always refresh the queue count after synchronization.
-             */
-            await refreshPending();
-        } catch (error) {
-            console.error(
-                "Offline synchronization failed:",
-                error
-            );
-
-            await refreshPending();
-        } finally {
-            syncRunning.current = false;
-
-            if (mounted.current) {
-                setSyncing(false);
-            }
-        }
-    }, [
-        getAuthHeader,
-        refreshPending,
-    ]);
-
-    /**
-     * ------------------------------------------------------------
-     * ONLINE EVENT
-     * ------------------------------------------------------------
-     *
-     * Browser fires this when network connectivity returns.
-     */
-    const handleOnline = useCallback(() => {
-        console.log(
-            "Internet connection restored."
-        );
-
-        /**
-         * Small delay gives the browser/network
-         * a moment to stabilize before sending
-         * queued requests.
-         */
-        window.setTimeout(() => {
-            void syncNow();
-        }, 1000);
-    }, [syncNow]);
-
-    /**
-     * ------------------------------------------------------------
-     * OFFLINE EVENT
-     * ------------------------------------------------------------
-     */
-    const handleOffline = useCallback(() => {
-        console.warn(
-            "Internet connection lost. Offline mode active."
-        );
-    }, []);
-
-    /**
-     * ------------------------------------------------------------
-     * INITIALIZATION
-     * ------------------------------------------------------------
-     */
-    useEffect(() => {
-        mounted.current = true;
-
-        /**
-         * Load current pending count and synchronize
-         * only if there are pending requests.
-         */
-        void syncNow();
-
-        /**
-         * Register connectivity listeners.
-         */
-        window.addEventListener(
-            "online",
-            handleOnline
-        );
-
-        window.addEventListener(
-            "offline",
-            handleOffline
-        );
-
-        /**
-         * Periodic retry.
-         *
-         * IMPORTANT:
-         *
-         * syncNow() now checks IndexedDB first.
-         * Therefore this interval does NOT repeatedly
-         * drain an empty queue.
-         *
-         * It is still useful when:
-         *
-         * - the online event is missed;
-         * - Wi-Fi reconnects strangely;
-         * - the backend was temporarily unavailable;
-         * - Render backend was temporarily waking up.
-         */
-        const interval = window.setInterval(() => {
-            if (navigator.onLine) {
-                void syncNow();
-            }
-        }, 30_000);
-
-        /**
-         * Cleanup.
-         */
-        return () => {
-            mounted.current = false;
-
-            window.removeEventListener(
-                "online",
-                handleOnline
-            );
-
-            window.removeEventListener(
-                "offline",
-                handleOffline
-            );
-
-            window.clearInterval(interval);
-        };
-    }, [
-        handleOnline,
-        handleOffline,
-        syncNow,
-    ]);
-
-    /**
-     * ------------------------------------------------------------
-     * UI
-     * ------------------------------------------------------------
-     */
-
-    /**
-     * Nothing pending and not syncing.
-     */
+  const syncNow = useCallback(async () => {
     if (
-        pending === 0 &&
-        !syncing
+      running.current ||
+      typeof navigator === "undefined" ||
+      !navigator.onLine
     ) {
-        return null;
+      return;
     }
 
-    /**
-     * Currently synchronizing.
-     */
-    if (syncing) {
-        return (
-            <div
-                style={{
-                    position: "fixed",
-                    top: 0,
-                    left: 0,
-                    right: 0,
+    const count = await pendingCount();
+    if (count <= 0) {
+      await refreshState();
+      return;
+    }
 
-                    background: "#2563EB",
-                    color: "#FFFFFF",
+    running.current = true;
+    setSyncing(true);
 
-                    padding: "8px 12px",
+    try {
+      const healthy = await checkBackendHealth();
+      if (mounted.current) setBackendOnline(healthy);
 
-                    textAlign: "center",
+      if (!healthy) return;
 
-                    fontWeight: 600,
-                    fontSize: "14px",
+      const result = await drainOfflineQueue(getAuthHeader);
 
-                    zIndex: 9999,
-                }}
-            >
-                🔄 Synchronizing offline changes...
-            </div>
+      if (result.succeeded.length > 0) {
+        console.info(
+          `[OfflineSync] ${result.succeeded.length} queued mutation(s) synchronized successfully.`,
         );
+      }
+
+      if (result.failed.length > 0) {
+        console.warn(
+          "[OfflineSync] queued mutation(s) require retry/attention",
+          result.failed,
+        );
+      }
+
+      await refreshState();
+    } catch (error) {
+      console.error("Offline synchronization failed", error);
+      if (mounted.current) setBackendOnline(false);
+      await refreshState();
+    } finally {
+      running.current = false;
+      if (mounted.current) setSyncing(false);
+    }
+  }, [getAuthHeader, refreshState]);
+
+  const probeAndSync = useCallback(async () => {
+    const queued = await pendingCount();
+
+    if (queued <= 0) {
+      await refreshState();
+      return;
     }
 
-    /**
-     * Pending actions remain.
-     */
-    return (
-        <div
-            style={{
-                position: "fixed",
+    if (typeof navigator === "undefined" || !navigator.onLine) {
+      if (mounted.current) setBackendOnline(false);
+      await refreshState();
+      return;
+    }
 
-                top: 0,
-                left: 0,
-                right: 0,
+    const healthy = await checkBackendHealth();
+    if (mounted.current) setBackendOnline(healthy);
 
-                background: "#0D9488",
-                color: "#FFFFFF",
+    if (healthy) {
+      await syncNow();
+    } else {
+      await refreshState();
+    }
+  }, [refreshState, syncNow]);
 
-                padding: "8px 12px",
+  useEffect(() => {
+    mounted.current = true;
 
-                textAlign: "center",
+    const handleOnline = () => {
+      window.setTimeout(() => void probeAndSync(), 500);
+    };
 
-                fontWeight: 600,
-                fontSize: "14px",
+    const handleOffline = () => {
+      if (mounted.current) setBackendOnline(false);
+    };
 
-                zIndex: 9999,
-            }}
-        >
-            ⏳ {pending} change
-            {pending > 1 ? "s" : ""}
-            {" "}waiting to sync...
-        </div>
-    );
+    void probeAndSync();
+    void refreshState();
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    // A backend outage does not fire the browser "offline" event. This
+    // lightweight readiness probe therefore runs while queued work exists.
+    const interval = window.setInterval(() => {
+      void probeAndSync();
+    }, 10_000);
+
+    return () => {
+      mounted.current = false;
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+      window.clearInterval(interval);
+    };
+  }, [probeAndSync, refreshState]);
+
+  const handleRetryFailed = async () => {
+    await retryAllFailedActions();
+    await refreshState();
+    await probeAndSync();
+  };
+
+  if (pending === 0 && failed === 0 && backendOnline) return null;
+
+  const offline = typeof navigator !== "undefined" && !navigator.onLine;
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed inset-x-0 top-0 z-[9999] border-b border-slate-200/80 bg-white/95 px-4 py-2.5 shadow-sm backdrop-blur-xl"
+    >
+      <div className="mx-auto flex max-w-7xl items-center justify-center gap-3 text-xs font-semibold text-slate-700 sm:text-sm">
+        <span
+          className={`h-2.5 w-2.5 rounded-full ${
+            offline || !backendOnline
+              ? "bg-amber-500"
+              : syncing
+                ? "animate-pulse bg-blue-600"
+                : "bg-emerald-500"
+          }`}
+        />
+
+        {offline ? (
+          <span>
+            Offline mode — {pending} saved change{pending === 1 ? "" : "s"} will
+            synchronize automatically when connectivity returns.
+          </span>
+        ) : !backendOnline && pending > 0 ? (
+          <span>
+            Noble Loan server unavailable — {pending} saved change
+            {pending === 1 ? "" : "s"} are securely queued on this device.
+          </span>
+        ) : syncing ? (
+          <span>
+            Synchronizing {pending} saved change{pending === 1 ? "" : "s"}…
+          </span>
+        ) : (
+          <span>Synchronization complete.</span>
+        )}
+
+        {failed > 0 && (
+          <button
+            type="button"
+            onClick={handleRetryFailed}
+            className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-bold text-slate-700 transition hover:bg-slate-50"
+          >
+            {failed} attention item{failed === 1 ? "" : "s"} · Retry
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }

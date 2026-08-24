@@ -1,4 +1,4 @@
-version: '3.9'
+version: "3.9"
 
 # ================================================================
 # Single-tenant deployment — Noble Loan Solutions Ltd.
@@ -16,7 +16,6 @@ version: '3.9'
 # ================================================================
 
 services:
-
   # ================================================================
   # PostgreSQL — single database for this institution
   # ================================================================
@@ -34,7 +33,8 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U loansaas -d loansaas_nobleloansolutions"]
+      test:
+        ["CMD-SHELL", "pg_isready -U loansaas -d loansaas_nobleloansolutions"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -74,6 +74,7 @@ services:
       BOOTSTRAP_ORG_NAME: ${BOOTSTRAP_ORG_NAME:-}
       BOOTSTRAP_ORG_COUNTRY: ${BOOTSTRAP_ORG_COUNTRY:-}
       BOOTSTRAP_ORG_CURRENCY: ${BOOTSTRAP_ORG_CURRENCY:-}
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
       CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
@@ -83,9 +84,34 @@ services:
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-noreply@nobleloansolutions.rw}
+      FLUTTERWAVE_ENABLED: ${FLUTTERWAVE_ENABLED:-false}
       FLUTTERWAVE_SECRET_KEY: ${FLUTTERWAVE_SECRET_KEY:-}
       FLUTTERWAVE_PUBLIC_KEY: ${FLUTTERWAVE_PUBLIC_KEY:-}
       FLUTTERWAVE_WEBHOOK_SECRET: ${FLUTTERWAVE_WEBHOOK_SECRET:-}
+      MTN_MOMO_ENABLED: ${MTN_MOMO_ENABLED:-false}
+      MTN_MOMO_SANDBOX: ${MTN_MOMO_SANDBOX:-false}
+      MTN_MOMO_BASE_URL: ${MTN_MOMO_BASE_URL:-}
+      MTN_MOMO_SUBSCRIPTION_KEY: ${MTN_MOMO_SUBSCRIPTION_KEY:-}
+      MTN_MOMO_API_USER: ${MTN_MOMO_API_USER:-}
+      MTN_MOMO_API_KEY: ${MTN_MOMO_API_KEY:-}
+      MTN_MOMO_CALLBACK_URL: ${MTN_MOMO_CALLBACK_URL:-}
+      MTN_MOMO_WEBHOOK_SECRET: ${MTN_MOMO_WEBHOOK_SECRET:-}
+      AIRTEL_MONEY_ENABLED: ${AIRTEL_MONEY_ENABLED:-false}
+      AIRTEL_MONEY_BASE_URL: ${AIRTEL_MONEY_BASE_URL:-}
+      AIRTEL_MONEY_CLIENT_ID: ${AIRTEL_MONEY_CLIENT_ID:-}
+      AIRTEL_MONEY_CLIENT_SECRET: ${AIRTEL_MONEY_CLIENT_SECRET:-}
+      AIRTEL_MONEY_API_KEY: ${AIRTEL_MONEY_API_KEY:-}
+      AIRTEL_MONEY_CALLBACK_URL: ${AIRTEL_MONEY_CALLBACK_URL:-}
+      AIRTEL_MONEY_WEBHOOK_SECRET: ${AIRTEL_MONEY_WEBHOOK_SECRET:-}
+      CREDIT_BUREAU_ENABLED: ${CREDIT_BUREAU_ENABLED:-false}
+      CREDIT_BUREAU_BASE_URL: ${CREDIT_BUREAU_BASE_URL:-}
+      CREDIT_BUREAU_API_KEY: ${CREDIT_BUREAU_API_KEY:-}
+      CREDIT_BUREAU_REQUIRED_FOR_DISBURSEMENT: ${CREDIT_BUREAU_REQUIRED_FOR_DISBURSEMENT:-false}
+      COMPLIANCE_EXTERNAL_PROVIDER_ENABLED: ${COMPLIANCE_EXTERNAL_PROVIDER_ENABLED:-false}
+      COMPLIANCE_PROVIDER: ${COMPLIANCE_PROVIDER:-}
+      COMPLIANCE_BASE_URL: ${COMPLIANCE_BASE_URL:-}
+      COMPLIANCE_API_KEY: ${COMPLIANCE_API_KEY:-}
+      COMPLIANCE_WEBHOOK_SECRET: ${COMPLIANCE_WEBHOOK_SECRET:-}
       APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?APP_ENCRYPTION_KEY is required}
       APP_INDEX_KEY: ${APP_INDEX_KEY:?APP_INDEX_KEY is required}
       OXR_APP_ID: ${OXR_APP_ID:-}
@@ -95,7 +121,13 @@ services:
     networks:
       - loansaas-network
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health/liveness"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "-qO-",
+          "http://localhost:8080/actuator/health/liveness",
+        ]
       interval: 30s
       timeout: 10s
       retries: 5

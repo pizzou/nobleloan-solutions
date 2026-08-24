@@ -33,10 +33,7 @@ type FilterType =
   | "ALERT";
 
 function getOrganizationId(): number {
-  if (
-    typeof window ===
-    "undefined"
-  ) {
+  if (typeof window === "undefined") {
     return 1;
   }
 
@@ -48,21 +45,12 @@ function getOrganizationId(): number {
   ];
 
   for (const key of keys) {
-    const value =
-      window.localStorage.getItem(
-        key
-      );
+    const value = window.localStorage.getItem(key);
 
     if (value) {
-      const parsed =
-        Number(value);
+      const parsed = Number(value);
 
-      if (
-        Number.isFinite(
-          parsed
-        ) &&
-        parsed > 0
-      ) {
+      if (Number.isFinite(parsed) && parsed > 0) {
         return parsed;
       }
     }
@@ -71,111 +59,62 @@ function getOrganizationId(): number {
   return 1;
 }
 
-function toNumber(
-  value:
-    | number
-    | string
-    | undefined
-    | null
-): number {
-  if (
-    value === undefined ||
-    value === null ||
-    value === ""
-  ) {
+function toNumber(value: number | string | undefined | null): number {
+  if (value === undefined || value === null || value === "") {
     return 0;
   }
 
-  const number =
-    typeof value ===
-    "number"
-      ? value
-      : Number(value);
+  const number = typeof value === "number" ? value : Number(value);
 
-  return Number.isFinite(
-    number
-  )
-    ? number
-    : 0;
+  return Number.isFinite(number) ? number : 0;
 }
 
 function formatCurrency(
-  value:
-    | number
-    | string
-    | undefined
-    | null,
-  currency = "RWF"
+  value: number | string | undefined | null,
+  currency = "RWF",
 ): string {
-  const amount =
-    toNumber(value);
+  const amount = toNumber(value);
 
   try {
-    return new Intl.NumberFormat(
-      "en-RW",
-      {
-        style: "currency",
-        currency:
-          currency || "RWF",
-        maximumFractionDigits: 0,
-      }
-    ).format(amount);
+    return new Intl.NumberFormat("en-RW", {
+      style: "currency",
+      currency: currency || "RWF",
+      maximumFractionDigits: 0,
+    }).format(amount);
   } catch {
     return `${currency || "RWF"} ${amount.toLocaleString()}`;
   }
 }
 
-function formatDate(
-  value?: string
-): string {
+function formatDate(value?: string): string {
   if (!value) {
     return "—";
   }
 
-  const date =
-    new Date(value);
+  const date = new Date(value);
 
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
+  if (Number.isNaN(date.getTime())) {
     return value;
   }
 
-  return new Intl.DateTimeFormat(
-    "en-RW",
-    {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }
-  ).format(date);
+  return new Intl.DateTimeFormat("en-RW", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
 }
 
-function relativeTime(
-  value?: string
-): string {
+function relativeTime(value?: string): string {
   if (!value) {
     return "";
   }
 
-  const date =
-    new Date(value);
+  const date = new Date(value);
 
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
+  if (Number.isNaN(date.getTime())) {
     return "";
   }
 
-  const seconds =
-    Math.floor(
-      (Date.now() -
-        date.getTime()) /
-        1000
-    );
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
 
   if (seconds < 10) {
     return "Just now";
@@ -185,28 +124,19 @@ function relativeTime(
     return `${seconds}s ago`;
   }
 
-  const minutes =
-    Math.floor(
-      seconds / 60
-    );
+  const minutes = Math.floor(seconds / 60);
 
   if (minutes < 60) {
     return `${minutes}m ago`;
   }
 
-  const hours =
-    Math.floor(
-      minutes / 60
-    );
+  const hours = Math.floor(minutes / 60);
 
   if (hours < 24) {
     return `${hours}h ago`;
   }
 
-  const days =
-    Math.floor(
-      hours / 24
-    );
+  const days = Math.floor(hours / 24);
 
   if (days < 30) {
     return `${days}d ago`;
@@ -215,41 +145,26 @@ function relativeTime(
   return formatDate(value);
 }
 
-function getType(
-  notification: DisplayNotification
-): string {
-  const type =
-    notification.type?.toUpperCase();
+function getType(notification: DisplayNotification): string {
+  const type = notification.type?.toUpperCase();
 
-  if (
-    type ===
-      "PAYMENT_RECEIVED" ||
-    type === "PAYMENT"
-  ) {
+  if (type === "PAYMENT_RECEIVED" || type === "PAYMENT") {
     return "PAYMENT";
   }
 
-  if (
-    type?.includes("APPROV")
-  ) {
+  if (type?.includes("APPROV")) {
     return "APPROVAL";
   }
 
-  if (
-    type?.includes("REMINDER")
-  ) {
+  if (type?.includes("REMINDER")) {
     return "REMINDER";
   }
 
-  if (
-    type?.includes("OVERDUE")
-  ) {
+  if (type?.includes("OVERDUE")) {
     return "OVERDUE";
   }
 
-  if (
-    type?.includes("LOAN")
-  ) {
+  if (type?.includes("LOAN")) {
     return "LOAN";
   }
 
@@ -264,9 +179,7 @@ function getType(
   return type || "INFO";
 }
 
-function getIcon(
-  type: string
-): string {
+function getIcon(type: string): string {
   switch (type) {
     case "PAYMENT":
       return "💳";
@@ -291,40 +204,24 @@ function getIcon(
   }
 }
 
-function getSeverity(
-  notification: DisplayNotification
-): string {
-  const explicit =
-    notification.severity?.toLowerCase();
+function getSeverity(notification: DisplayNotification): string {
+  const explicit = notification.severity?.toLowerCase();
 
-  if (
-    explicit
-  ) {
+  if (explicit) {
     return explicit;
   }
 
-  const type =
-    getType(
-      notification
-    );
+  const type = getType(notification);
 
-  if (
-    type === "OVERDUE" ||
-    type === "ALERT"
-  ) {
+  if (type === "OVERDUE" || type === "ALERT") {
     return "danger";
   }
 
-  if (
-    type === "REMINDER"
-  ) {
+  if (type === "REMINDER") {
     return "warning";
   }
 
-  if (
-    type === "PAYMENT" ||
-    type === "APPROVAL"
-  ) {
+  if (type === "PAYMENT" || type === "APPROVAL") {
     return "success";
   }
 
@@ -332,151 +229,101 @@ function getSeverity(
 }
 
 function paymentToNotification(
-  payment: PaymentNotification
+  payment: PaymentNotification,
 ): DisplayNotification {
   const timestamp =
-    payment.paymentTimestamp ||
-    payment.paymentDate ||
-    new Date().toISOString();
+    payment.paymentTimestamp || payment.paymentDate || new Date().toISOString();
 
   const borrower =
     payment.borrowerName ||
-    (payment.borrowerId
-      ? `Borrower #${payment.borrowerId}`
-      : "Borrower");
+    (payment.borrowerId ? `Borrower #${payment.borrowerId}` : "Borrower");
 
-  const loan =
-    payment.loanReference ||
-    `Loan #${payment.loanId}`;
+  const loan = payment.loanReference || `Loan #${payment.loanId}`;
 
-  const amount =
-    formatCurrency(
-      payment.amount,
-      payment.currency
-    );
+  const amount = formatCurrency(payment.amount, payment.currency);
 
   return {
-  id: `realtime-payment-${payment.paymentId}-${payment.transactionId || timestamp}`,
+    id: `realtime-payment-${payment.paymentId}-${payment.transactionId || timestamp}`,
 
-  type: "PAYMENT",
+    type: "PAYMENT",
 
-  title:
-    payment.title ||
-    "Payment Received",
+    title: payment.title || "Payment Received",
 
-  message:
-    payment.message ||
-    `${borrower} paid ${amount} for ${loan}.`,
+    message: payment.message || `${borrower} paid ${amount} for ${loan}.`,
 
-  organizationId:
-    Number(payment.organizationId),
+    organizationId: Number(payment.organizationId),
 
-  loanId:
-    Number(payment.loanId),
+    loanId: Number(payment.loanId),
 
-  paymentId:
-    Number(payment.paymentId),
+    paymentId: Number(payment.paymentId),
 
-  loanReference:
-    payment.loanReference,
+    loanReference: payment.loanReference,
 
-  borrowerId:
-    payment.borrowerId !== undefined &&
-    payment.borrowerId !== null
-      ? Number(payment.borrowerId)
-      : undefined,
+    borrowerId:
+      payment.borrowerId !== undefined && payment.borrowerId !== null
+        ? Number(payment.borrowerId)
+        : undefined,
 
-  borrowerName:
-    payment.borrowerName,
+    borrowerName: payment.borrowerName,
 
-  amount:
-    payment.amount,
+    amount: payment.amount,
 
-  principalPaid:
-    payment.principalPaid,
+    principalPaid: payment.principalPaid,
 
-  interestPaid:
-    payment.interestPaid,
+    interestPaid: payment.interestPaid,
 
-  penaltyPaid:
-    payment.penaltyPaid,
+    penaltyPaid: payment.penaltyPaid,
 
-  outstandingBalance:
-    payment.outstandingBalance,
+    outstandingBalance: payment.outstandingBalance,
 
-  currency:
-    payment.currency || "RWF",
+    currency: payment.currency || "RWF",
 
-  paymentMethod:
-    payment.paymentMethod,
+    paymentMethod: payment.paymentMethod,
 
-  channel:
-    payment.channel,
+    channel: payment.channel,
 
-  transactionId:
-    payment.transactionId,
+    transactionId: payment.transactionId,
 
-  paymentReference:
-    payment.paymentReference,
+    paymentReference: payment.paymentReference,
 
-  paymentStatus:
-    payment.paymentStatus,
+    paymentStatus: payment.paymentStatus,
 
-  loanStatus:
-    payment.loanStatus,
+    loanStatus: payment.loanStatus,
 
-  paymentDate:
-    payment.paymentDate,
+    paymentDate: payment.paymentDate,
 
-  paymentTimestamp:
-    payment.paymentTimestamp || timestamp,
+    paymentTimestamp: payment.paymentTimestamp || timestamp,
 
-  createdAt:
-    payment.paymentTimestamp || timestamp,
+    createdAt: payment.paymentTimestamp || timestamp,
 
-  receivedAt:
-    timestamp,
+    receivedAt: timestamp,
 
-  severity:
-    "SUCCESS",
+    severity: "SUCCESS",
 
-  priority:
-    "HIGH",
+    priority: "HIGH",
 
-  read:
-    false,
+    read: false,
 
-  realtime:
-    true,
-};
+    realtime: true,
+  };
 }
 
 function sameNotification(
   a: DisplayNotification,
-  b: DisplayNotification
+  b: DisplayNotification,
 ): boolean {
-  if (
-    a.paymentId &&
-    b.paymentId &&
-    a.paymentId ===
-      b.paymentId
-  ) {
+  if (a.paymentId && b.paymentId && a.paymentId === b.paymentId) {
     return true;
   }
 
-  if (
-    a.id &&
-    b.id &&
-    a.id === b.id
-  ) {
+  if (a.id && b.id && a.id === b.id) {
     return true;
   }
 
   if (
     a.transactionId &&
     b.transactionId &&
-    a.transactionId ===
-      b.transactionId
+    a.transactionId === b.transactionId
   ) {
     return true;
   }
@@ -485,717 +332,382 @@ function sameNotification(
 }
 
 export default function Page() {
-  const organizationId =
-    useMemo(
-      () =>
-        getOrganizationId(),
-      []
-    );
+  const organizationId = useMemo(() => getOrganizationId(), []);
 
-  const [
-    notifications,
-    setNotifications,
-  ] = useState<
-    DisplayNotification[]
-  >([]);
+  const [notifications, setNotifications] = useState<DisplayNotification[]>([]);
 
-  const [
-    loading,
-    setLoading,
-  ] = useState(true);
+  const [loading, setLoading] = useState(true);
 
-  const [
-    refreshing,
-    setRefreshing,
-  ] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const [
-    loadError,
-    setLoadError,
-  ] = useState<
-    string | null
-  >(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [
-    realtimeConnected,
-    setRealtimeConnected,
-  ] = useState(false);
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
 
-  const [
-    realtimeError,
-    setRealtimeError,
-  ] = useState<
-    string | null
-  >(null);
+  const [realtimeError, setRealtimeError] = useState<string | null>(null);
 
-  const [
-    filter,
-    setFilter,
-  ] = useState<FilterType>(
-    "ALL"
-  );
+  const [filter, setFilter] = useState<FilterType>("ALL");
 
-  const [
-    search,
-    setSearch,
-  ] = useState("");
+  const [search, setSearch] = useState("");
 
-  const [
-    selected,
-    setSelected,
-  ] =
-    useState<
-      DisplayNotification | null
-    >(null);
+  const [selected, setSelected] = useState<DisplayNotification | null>(null);
 
-  const [
-    markingAll,
-    setMarkingAll,
-  ] = useState(false);
+  const [markingAll, setMarkingAll] = useState(false);
 
-  const mounted =
-    useRef(true);
+  const mounted = useRef(true);
 
-  const reconnectTimer =
-    useRef<
-      ReturnType<
-        typeof setTimeout
-      > | null
-    >(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const connectGeneration =
-    useRef(0);
+  const connectGeneration = useRef(0);
 
-  const loadNotifications =
-    useCallback(
-      async (
-        silent = false
-      ) => {
-        try {
-          if (!silent) {
-            setLoading(true);
-          } else {
-            setRefreshing(
-              true
-            );
-          }
-
-          setLoadError(
-            null
-          );
-
-          const data =
-            await getMyNotifications(
-              organizationId
-            );
-
-          if (
-            !mounted.current
-          ) {
-            return;
-          }
-
-          setNotifications(
-            (current) => {
-              const realtime =
-                current.filter(
-                  (
-                    notification
-                  ) =>
-                    notification.realtime
-                );
-
-              const merged =
-                [
-                  ...data,
-                  ...realtime,
-                ];
-
-              const unique =
-                merged.filter(
-                  (
-                    notification,
-                    index,
-                    array
-                  ) =>
-                    array.findIndex(
-                      (
-                        candidate
-                      ) =>
-                        sameNotification(
-                          candidate,
-                          notification
-                        )
-                    ) === index
-                );
-
-              return unique
-                .sort(
-                  (
-                    a,
-                    b
-                  ) =>
-                    new Date(
-                      b.createdAt ||
-                        b.paymentTimestamp ||
-                        0
-                    ).getTime() -
-                    new Date(
-                      a.createdAt ||
-                        a.paymentTimestamp ||
-                        0
-                    ).getTime()
-                );
-            }
-          );
-        } catch (error) {
-          console.error(
-            "[NOTIFICATIONS] Failed to load notifications:",
-            error
-          );
-
-          if (
-            mounted.current
-          ) {
-            setLoadError(
-              error instanceof
-                Error
-                ? error.message
-                : "Unable to load notifications."
-            );
-          }
-        } finally {
-          if (
-            mounted.current
-          ) {
-            setLoading(
-              false
-            );
-
-            setRefreshing(
-              false
-            );
-          }
+  const loadNotifications = useCallback(
+    async (silent = false) => {
+      try {
+        if (!silent) {
+          setLoading(true);
+        } else {
+          setRefreshing(true);
         }
-      },
-      [organizationId]
-    );
 
-  const handlePaymentReceived =
-    useCallback(
-      (
-        payment: PaymentNotification
-      ) => {
-        if (
-          Number(
-            payment.organizationId
-          ) !==
-          organizationId
-        ) {
+        setLoadError(null);
+
+        const data = await getMyNotifications(organizationId);
+
+        if (!mounted.current) {
           return;
         }
 
-        const notification =
-          paymentToNotification(
-            payment
+        setNotifications((current) => {
+          const realtime = current.filter(
+            (notification) => notification.realtime,
           );
 
-        setNotifications(
-          (current) => {
-            const exists =
-              current.some(
-                (
-                  item
-                ) =>
-                  sameNotification(
-                    item,
-                    notification
-                  )
-              );
+          const merged = [...data, ...realtime];
 
-            if (exists) {
-              return current;
-            }
+          const unique = merged.filter(
+            (notification, index, array) =>
+              array.findIndex((candidate) =>
+                sameNotification(candidate, notification),
+              ) === index,
+          );
 
-            return [
-              notification,
-              ...current,
-            ];
-          }
-        );
-      },
-      [organizationId]
-    );
-
-  const connectRealtime =
-    useCallback(() => {
-      const generation =
-        ++connectGeneration.current;
-
-      try {
-        disconnectFromPaymentNotifications();
-
-        setRealtimeError(
-          null
-        );
-
-        connectToPaymentNotifications(
-          organizationId,
-          {
-            onPaymentReceived:
-              handlePaymentReceived,
-
-            onConnected:
-              () => {
-                if (
-                  !mounted.current ||
-                  generation !==
-                    connectGeneration.current
-                ) {
-                  return;
-                }
-
-                setRealtimeConnected(
-                  true
-                );
-
-                setRealtimeError(
-                  null
-                );
-              },
-
-            onDisconnected:
-              () => {
-                if (
-                  !mounted.current ||
-                  generation !==
-                    connectGeneration.current
-                ) {
-                  return;
-                }
-
-                setRealtimeConnected(
-                  false
-                );
-              },
-
-            onError:
-              (
-                error
-              ) => {
-                if (
-                  !mounted.current ||
-                  generation !==
-                    connectGeneration.current
-                ) {
-                  return;
-                }
-
-                console.error(
-                  "[REALTIME] Notification error:",
-                  error
-                );
-
-                setRealtimeConnected(
-                  false
-                );
-
-                setRealtimeError(
-                  "Realtime connection unavailable."
-                );
-              },
-          }
-        );
+          return unique.sort(
+            (a, b) =>
+              new Date(b.createdAt || b.paymentTimestamp || 0).getTime() -
+              new Date(a.createdAt || a.paymentTimestamp || 0).getTime(),
+          );
+        });
       } catch (error) {
-        console.error(
-          "[REALTIME] Failed to connect:",
-          error
-        );
+        console.error("[NOTIFICATIONS] Failed to load notifications:", error);
 
-        setRealtimeConnected(
-          false
-        );
+        if (mounted.current) {
+          setLoadError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load notifications.",
+          );
+        }
+      } finally {
+        if (mounted.current) {
+          setLoading(false);
 
-        setRealtimeError(
-          error instanceof
-            Error
-            ? error.message
-            : "Unable to connect to realtime notifications."
-        );
+          setRefreshing(false);
+        }
       }
-    }, [
-      organizationId,
-      handlePaymentReceived,
-    ]);
+    },
+    [organizationId],
+  );
+
+  const handlePaymentReceived = useCallback(
+    (payment: PaymentNotification) => {
+      if (Number(payment.organizationId) !== organizationId) {
+        return;
+      }
+
+      const notification = paymentToNotification(payment);
+
+      setNotifications((current) => {
+        const exists = current.some((item) =>
+          sameNotification(item, notification),
+        );
+
+        if (exists) {
+          return current;
+        }
+
+        return [notification, ...current];
+      });
+    },
+    [organizationId],
+  );
+
+  const connectRealtime = useCallback(() => {
+    const generation = ++connectGeneration.current;
+
+    try {
+      disconnectFromPaymentNotifications();
+
+      setRealtimeError(null);
+
+      connectToPaymentNotifications(organizationId, {
+        onPaymentReceived: handlePaymentReceived,
+
+        onConnected: () => {
+          if (!mounted.current || generation !== connectGeneration.current) {
+            return;
+          }
+
+          setRealtimeConnected(true);
+
+          setRealtimeError(null);
+        },
+
+        onDisconnected: () => {
+          if (!mounted.current || generation !== connectGeneration.current) {
+            return;
+          }
+
+          setRealtimeConnected(false);
+        },
+
+        onError: (error) => {
+          if (!mounted.current || generation !== connectGeneration.current) {
+            return;
+          }
+
+          console.error("[REALTIME] Notification error:", error);
+
+          setRealtimeConnected(false);
+
+          setRealtimeError("Realtime connection unavailable.");
+        },
+      });
+    } catch (error) {
+      console.error("[REALTIME] Failed to connect:", error);
+
+      setRealtimeConnected(false);
+
+      setRealtimeError(
+        error instanceof Error
+          ? error.message
+          : "Unable to connect to realtime notifications.",
+      );
+    }
+  }, [organizationId, handlePaymentReceived]);
 
   useEffect(() => {
-    mounted.current =
-      true;
+    mounted.current = true;
+    const generationAtMount = connectGeneration.current;
 
     void loadNotifications();
 
     connectRealtime();
 
     return () => {
-      mounted.current =
-        false;
+      mounted.current = false;
 
-      connectGeneration.current++;
+      connectGeneration.current = generationAtMount + 1;
 
-      if (
-        reconnectTimer.current
-      ) {
-        clearTimeout(
-          reconnectTimer.current
-        );
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current);
 
-        reconnectTimer.current =
-          null;
+        reconnectTimer.current = null;
       }
 
       disconnectFromPaymentNotifications();
     };
-  }, [
-    loadNotifications,
-    connectRealtime,
-  ]);
+  }, [loadNotifications, connectRealtime]);
 
   useEffect(() => {
-    if (
-      realtimeConnected
-    ) {
+    if (realtimeConnected) {
       return;
     }
 
-    if (
-      reconnectTimer.current
-    ) {
+    if (reconnectTimer.current) {
       return;
     }
 
-    reconnectTimer.current =
-      setTimeout(() => {
-        reconnectTimer.current =
-          null;
+    reconnectTimer.current = setTimeout(() => {
+      reconnectTimer.current = null;
 
-        if (
-          mounted.current
-        ) {
-          connectRealtime();
-        }
-      }, 10000);
+      if (mounted.current) {
+        connectRealtime();
+      }
+    }, 10000);
 
     return () => {
-      if (
-        reconnectTimer.current
-      ) {
-        clearTimeout(
-          reconnectTimer.current
-        );
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current);
 
-        reconnectTimer.current =
-          null;
+        reconnectTimer.current = null;
       }
     };
-  }, [
-    realtimeConnected,
-    connectRealtime,
-  ]);
+  }, [realtimeConnected, connectRealtime]);
 
-  const unreadCount =
-    useMemo(
-      () =>
-        notifications.filter(
-          (
-            notification
-          ) =>
-            !notification.read
-        ).length,
-      [notifications]
-    );
+  const unreadCount = useMemo(
+    () => notifications.filter((notification) => !notification.read).length,
+    [notifications],
+  );
 
-  const urgentCount =
-    useMemo(
-      () =>
-        notifications.filter(
-          (
-            notification
-          ) => {
-            const severity =
-              getSeverity(
-                notification
-              );
+  const urgentCount = useMemo(
+    () =>
+      notifications.filter((notification) => {
+        const severity = getSeverity(notification);
 
-            return (
-              severity ===
-                "danger" ||
-              severity ===
-                "critical"
-            );
-          }
-        ).length,
-      [notifications]
-    );
+        return severity === "danger" || severity === "critical";
+      }).length,
+    [notifications],
+  );
 
-  const todayCount =
-    useMemo(
-      () => {
-        const now =
-          new Date();
+  const todayCount = useMemo(() => {
+    const now = new Date();
 
-        return notifications.filter(
-          (
-            notification
-          ) => {
-            const date =
-              new Date(
-                notification.createdAt ||
-                  notification.paymentTimestamp ||
-                  ""
-              );
-
-            return (
-              date.toDateString() ===
-              now.toDateString()
-            );
-          }
-        ).length;
-      },
-      [notifications]
-    );
-
-  const paymentCount =
-    useMemo(
-      () =>
-        notifications.filter(
-          (
-            notification
-          ) =>
-            getType(
-              notification
-            ) ===
-            "PAYMENT"
-        ).length,
-      [notifications]
-    );
-
-  const filteredNotifications =
-    useMemo(() => {
-      const normalizedSearch =
-        search
-          .trim()
-          .toLowerCase();
-
-      return notifications.filter(
-        (
-          notification
-        ) => {
-          const type =
-            getType(
-              notification
-            );
-
-          let matchesFilter =
-            true;
-
-          switch (filter) {
-            case "UNREAD":
-              matchesFilter =
-                !notification.read;
-              break;
-
-            case "PAYMENT":
-              matchesFilter =
-                type ===
-                "PAYMENT";
-              break;
-
-            case "LOAN":
-              matchesFilter =
-                type ===
-                "LOAN";
-              break;
-
-            case "APPROVAL":
-              matchesFilter =
-                type ===
-                "APPROVAL";
-              break;
-
-            case "REMINDER":
-              matchesFilter =
-                type ===
-                "REMINDER";
-              break;
-
-            case "OVERDUE":
-              matchesFilter =
-                type ===
-                "OVERDUE";
-              break;
-
-            case "ALERT":
-              matchesFilter =
-                type ===
-                  "ALERT" ||
-                getSeverity(
-                  notification
-                ) === "danger";
-              break;
-
-            default:
-              matchesFilter =
-                true;
-          }
-
-          if (
-            !matchesFilter
-          ) {
-            return false;
-          }
-
-          if (
-            !normalizedSearch
-          ) {
-            return true;
-          }
-
-          const haystack =
-            [
-              notification.title,
-              notification.message,
-              notification.type,
-              notification.loanReference,
-              notification.borrowerName,
-              notification.transactionId,
-              notification.paymentReference,
-              notification.paymentStatus,
-              notification.loanStatus,
-            ]
-              .filter(Boolean)
-              .join(" ")
-              .toLowerCase();
-
-          return haystack.includes(
-            normalizedSearch
-          );
-        }
-      );
-    }, [
-      notifications,
-      filter,
-      search,
-    ]);
-
-  const markRead =
-    useCallback(
-      async (
-        notification: DisplayNotification
-      ) => {
-        if (
-          notification.read
-        ) {
-          return;
-        }
-
-        setNotifications(
-          (
-            current
-          ) =>
-            current.map(
-              (
-                item
-              ) =>
-                sameNotification(
-                  item,
-                  notification
-                )
-                  ? {
-                      ...item,
-                      read: true,
-                    }
-                  : item
-            )
-        );
-
-        if (
-          notification.realtime
-        ) {
-          return;
-        }
-
-        try {
-          await markNotificationAsRead(
-            notification.id
-          );
-        } catch (error) {
-          console.error(
-            "[NOTIFICATIONS] Failed to mark notification as read:",
-            error
-          );
-        }
-      },
-      []
-    );
-
-  const markAllRead =
-    useCallback(
-      async () => {
-        if (
-          unreadCount ===
-          0
-        ) {
-          return;
-        }
-
-        setMarkingAll(
-          true
-        );
-
-        setNotifications(
-          (
-            current
-          ) =>
-            current.map(
-              (
-                item
-              ) => ({
-                ...item,
-                read: true,
-              })
-            )
-        );
-
-        try {
-          await markAllNotificationsAsRead();
-        } catch (error) {
-          console.error(
-            "[NOTIFICATIONS] Failed to mark all as read:",
-            error
-          );
-        } finally {
-          if (
-            mounted.current
-          ) {
-            setMarkingAll(
-              false
-            );
-          }
-        }
-      },
-      [unreadCount]
-    );
-
-  const clearLocal =
-    useCallback(() => {
-      setNotifications(
-        []
+    return notifications.filter((notification) => {
+      const date = new Date(
+        notification.createdAt || notification.paymentTimestamp || "",
       );
 
-      setSelected(
-        null
+      return date.toDateString() === now.toDateString();
+    }).length;
+  }, [notifications]);
+
+  const paymentCount = useMemo(
+    () =>
+      notifications.filter(
+        (notification) => getType(notification) === "PAYMENT",
+      ).length,
+    [notifications],
+  );
+
+  const filteredNotifications = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    return notifications.filter((notification) => {
+      const type = getType(notification);
+
+      let matchesFilter = true;
+
+      switch (filter) {
+        case "UNREAD":
+          matchesFilter = !notification.read;
+          break;
+
+        case "PAYMENT":
+          matchesFilter = type === "PAYMENT";
+          break;
+
+        case "LOAN":
+          matchesFilter = type === "LOAN";
+          break;
+
+        case "APPROVAL":
+          matchesFilter = type === "APPROVAL";
+          break;
+
+        case "REMINDER":
+          matchesFilter = type === "REMINDER";
+          break;
+
+        case "OVERDUE":
+          matchesFilter = type === "OVERDUE";
+          break;
+
+        case "ALERT":
+          matchesFilter =
+            type === "ALERT" || getSeverity(notification) === "danger";
+          break;
+
+        default:
+          matchesFilter = true;
+      }
+
+      if (!matchesFilter) {
+        return false;
+      }
+
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      const haystack = [
+        notification.title,
+        notification.message,
+        notification.type,
+        notification.loanReference,
+        notification.borrowerName,
+        notification.transactionId,
+        notification.paymentReference,
+        notification.paymentStatus,
+        notification.loanStatus,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(normalizedSearch);
+    });
+  }, [notifications, filter, search]);
+
+  const markRead = useCallback(async (notification: DisplayNotification) => {
+    if (notification.read) {
+      return;
+    }
+
+    setNotifications((current) =>
+      current.map((item) =>
+        sameNotification(item, notification)
+          ? {
+              ...item,
+              read: true,
+            }
+          : item,
+      ),
+    );
+
+    if (notification.realtime) {
+      return;
+    }
+
+    try {
+      await markNotificationAsRead(notification.id);
+    } catch (error) {
+      console.error(
+        "[NOTIFICATIONS] Failed to mark notification as read:",
+        error,
       );
-    }, []);
+    }
+  }, []);
+
+  const markAllRead = useCallback(async () => {
+    if (unreadCount === 0) {
+      return;
+    }
+
+    setMarkingAll(true);
+
+    setNotifications((current) =>
+      current.map((item) => ({
+        ...item,
+        read: true,
+      })),
+    );
+
+    try {
+      await markAllNotificationsAsRead();
+    } catch (error) {
+      console.error("[NOTIFICATIONS] Failed to mark all as read:", error);
+    } finally {
+      if (mounted.current) {
+        setMarkingAll(false);
+      }
+    }
+  }, [unreadCount]);
+
+  const clearLocal = useCallback(() => {
+    setNotifications([]);
+
+    setSelected(null);
+  }, []);
 
   return (
     <main className="notification-shell">
@@ -1271,8 +783,8 @@ export default function Page() {
           padding: 11px 15px;
           border: 1px solid #e1e7f0;
           border-radius: 12px;
-          background: rgba(255,255,255,.88);
-          box-shadow: 0 5px 20px rgba(24, 39, 75, .05);
+          background: rgba(255, 255, 255, 0.88);
+          box-shadow: 0 5px 20px rgba(24, 39, 75, 0.05);
           font-size: 13px;
           font-weight: 700;
         }
@@ -1286,7 +798,7 @@ export default function Page() {
 
         .connection-dot.live {
           background: #1fa463;
-          box-shadow: 0 0 0 5px rgba(31,164,99,.12);
+          box-shadow: 0 0 0 5px rgba(31, 164, 99, 0.12);
         }
 
         .connection-dot.error {
@@ -1306,7 +818,7 @@ export default function Page() {
           border: 1px solid #e4e9f1;
           border-radius: 15px;
           background: white;
-          box-shadow: 0 4px 18px rgba(26, 42, 73, .045);
+          box-shadow: 0 4px 18px rgba(26, 42, 73, 0.045);
         }
 
         .stat-top {
@@ -1363,12 +875,12 @@ export default function Page() {
           background: white;
           color: #1c2940;
           font-size: 14px;
-          box-shadow: 0 3px 12px rgba(22, 35, 60, .035);
+          box-shadow: 0 3px 12px rgba(22, 35, 60, 0.035);
         }
 
         .search input:focus {
           border-color: #6c9bf1;
-          box-shadow: 0 0 0 3px rgba(52, 112, 225, .10);
+          box-shadow: 0 0 0 3px rgba(52, 112, 225, 0.1);
         }
 
         .search-icon {
@@ -1457,23 +969,19 @@ export default function Page() {
           border-radius: 15px;
           background: white;
           cursor: pointer;
-          transition: .18s ease;
-          box-shadow: 0 3px 15px rgba(26, 41, 69, .035);
+          transition: 0.18s ease;
+          box-shadow: 0 3px 15px rgba(26, 41, 69, 0.035);
         }
 
         .notification-card:hover {
           border-color: #cbd5e4;
-          box-shadow: 0 9px 28px rgba(26, 41, 69, .075);
+          box-shadow: 0 9px 28px rgba(26, 41, 69, 0.075);
           transform: translateY(-1px);
         }
 
         .notification-card.unread {
           border-left: 4px solid #3178ed;
-          background: linear-gradient(
-            90deg,
-            #f9fbff,
-            white
-          );
+          background: linear-gradient(90deg, #f9fbff, white);
         }
 
         .notification-card.danger {
@@ -1564,7 +1072,7 @@ export default function Page() {
           font-size: 10px;
           font-weight: 800;
           text-transform: uppercase;
-          letter-spacing: .045em;
+          letter-spacing: 0.045em;
         }
 
         .payment-item-value {
@@ -1647,13 +1155,12 @@ export default function Page() {
           height: 145px;
           margin-bottom: 11px;
           border-radius: 15px;
-          background:
-            linear-gradient(
-              90deg,
-              #eef1f5 25%,
-              #f7f8fa 37%,
-              #eef1f5 63%
-            );
+          background: linear-gradient(
+            90deg,
+            #eef1f5 25%,
+            #f7f8fa 37%,
+            #eef1f5 63%
+          );
           background-size: 400% 100%;
           animation: shimmer 1.3s infinite;
         }
@@ -1686,7 +1193,7 @@ export default function Page() {
           align-items: center;
           justify-content: center;
           padding: 20px;
-          background: rgba(12, 19, 32, .58);
+          background: rgba(12, 19, 32, 0.58);
           backdrop-filter: blur(5px);
         }
 
@@ -1696,7 +1203,7 @@ export default function Page() {
           overflow-y: auto;
           border-radius: 18px;
           background: white;
-          box-shadow: 0 30px 100px rgba(0,0,0,.25);
+          box-shadow: 0 30px 100px rgba(0, 0, 0, 0.25);
         }
 
         .modal-header {
@@ -1742,7 +1249,7 @@ export default function Page() {
           color: #6c778a;
           font-size: 11px;
           text-transform: uppercase;
-          letter-spacing: .06em;
+          letter-spacing: 0.06em;
         }
 
         .modal-grid {
@@ -1850,125 +1357,84 @@ export default function Page() {
               Notification Center
             </div>
 
-            <h1>
-              Stay on top of your portfolio
-            </h1>
+            <h1>Stay on top of your portfolio</h1>
 
             <p>
-              Real-time activity, loan
-              alerts, payments and
-              important system updates.
+              Real-time activity, loan alerts, payments and important system
+              updates.
             </p>
           </div>
 
           <div className="connection-card">
             <span
               className={`connection-dot ${
-                realtimeConnected
-                  ? "live"
-                  : realtimeError
-                  ? "error"
-                  : ""
+                realtimeConnected ? "live" : realtimeError ? "error" : ""
               }`}
             />
 
             {realtimeConnected
               ? "Realtime Connected"
               : realtimeError
-              ? "Realtime Offline"
-              : "Connecting"}
+                ? "Realtime Offline"
+                : "Connecting"}
           </div>
         </header>
 
         <section className="stats">
           <div className="stat">
             <div className="stat-top">
-              <span className="stat-label">
-                Total Notifications
-              </span>
+              <span className="stat-label">Total Notifications</span>
 
-              <span className="stat-icon">
-                🔔
-              </span>
+              <span className="stat-icon">🔔</span>
             </div>
 
-            <div className="stat-value">
-              {notifications.length}
-            </div>
+            <div className="stat-value">{notifications.length}</div>
           </div>
 
           <div className="stat">
             <div className="stat-top">
-              <span className="stat-label">
-                Unread
-              </span>
+              <span className="stat-label">Unread</span>
 
-              <span className="stat-icon">
-                ✉
-              </span>
+              <span className="stat-icon">✉</span>
             </div>
 
-            <div className="stat-value">
-              {unreadCount}
-            </div>
+            <div className="stat-value">{unreadCount}</div>
           </div>
 
           <div className="stat">
             <div className="stat-top">
-              <span className="stat-label">
-                Urgent
-              </span>
+              <span className="stat-label">Urgent</span>
 
-              <span className="stat-icon">
-                ⚠
-              </span>
+              <span className="stat-icon">⚠</span>
             </div>
 
-            <div className="stat-value">
-              {urgentCount}
-            </div>
+            <div className="stat-value">{urgentCount}</div>
           </div>
 
           <div className="stat">
             <div className="stat-top">
-              <span className="stat-label">
-                Today
-              </span>
+              <span className="stat-label">Today</span>
 
-              <span className="stat-icon">
-                ◷
-              </span>
+              <span className="stat-icon">◷</span>
             </div>
 
-            <div className="stat-value">
-              {todayCount}
-            </div>
+            <div className="stat-value">{todayCount}</div>
           </div>
         </section>
 
         {loadError && (
           <div className="error">
-            <strong>
-              Could not load saved
-              notifications.
-            </strong>{" "}
-            {loadError}
+            <strong>Could not load saved notifications.</strong> {loadError}
           </div>
         )}
 
         <div className="toolbar">
           <div className="search">
-            <span className="search-icon">
-              🔍
-            </span>
+            <span className="search-icon">🔍</span>
 
             <input
               value={search}
-              onChange={(event) =>
-                setSearch(
-                  event.target.value
-                )
-              }
+              onChange={(event) => setSearch(event.target.value)}
               placeholder="Search notifications, borrowers, loans, transactions..."
             />
           </div>
@@ -1976,45 +1442,24 @@ export default function Page() {
           <div className="actions">
             <button
               className="button"
-              onClick={() =>
-                void loadNotifications(
-                  true
-                )
-              }
-              disabled={
-                refreshing
-              }
+              onClick={() => void loadNotifications(true)}
+              disabled={refreshing}
             >
-              {refreshing
-                ? "Refreshing..."
-                : "Refresh"}
+              {refreshing ? "Refreshing..." : "Refresh"}
             </button>
 
-            {unreadCount >
-              0 && (
+            {unreadCount > 0 && (
               <button
                 className="button"
-                onClick={() =>
-                  void markAllRead()
-                }
-                disabled={
-                  markingAll
-                }
+                onClick={() => void markAllRead()}
+                disabled={markingAll}
               >
-                {markingAll
-                  ? "Updating..."
-                  : "Mark all read"}
+                {markingAll ? "Updating..." : "Mark all read"}
               </button>
             )}
 
-            {notifications.length >
-              0 && (
-              <button
-                className="button danger"
-                onClick={
-                  clearLocal
-                }
-              >
+            {notifications.length > 0 && (
+              <button className="button danger" onClick={clearLocal}>
                 Clear view
               </button>
             )}
@@ -2024,65 +1469,24 @@ export default function Page() {
         <nav className="tabs">
           {(
             [
-              [
-                "ALL",
-                "All",
-              ],
-              [
-                "UNREAD",
-                `Unread ${unreadCount}`,
-              ],
-              [
-                "PAYMENT",
-                `Payments ${paymentCount}`,
-              ],
-              [
-                "LOAN",
-                "Loans",
-              ],
-              [
-                "APPROVAL",
-                "Approvals",
-              ],
-              [
-                "REMINDER",
-                "Reminders",
-              ],
-              [
-                "OVERDUE",
-                "Overdue",
-              ],
-              [
-                "ALERT",
-                "Alerts",
-              ],
-            ] as [
-              FilterType,
-              string
-            ][]
-          ).map(
-            ([
-              value,
-              label,
-            ]) => (
-              <button
-                key={value}
-                className={`tab ${
-                  filter ===
-                  value
-                    ? "active"
-                    : ""
-                }`}
-                onClick={() =>
-                  setFilter(
-                    value
-                  )
-                }
-              >
-                {label}
-              </button>
-            )
-          )}
+              ["ALL", "All"],
+              ["UNREAD", `Unread ${unreadCount}`],
+              ["PAYMENT", `Payments ${paymentCount}`],
+              ["LOAN", "Loans"],
+              ["APPROVAL", "Approvals"],
+              ["REMINDER", "Reminders"],
+              ["OVERDUE", "Overdue"],
+              ["ALERT", "Alerts"],
+            ] as [FilterType, string][]
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              className={`tab ${filter === value ? "active" : ""}`}
+              onClick={() => setFilter(value)}
+            >
+              {label}
+            </button>
+          ))}
         </nav>
 
         <section className="content">
@@ -2092,263 +1496,177 @@ export default function Page() {
               <div className="loading-card" />
               <div className="loading-card" />
             </>
-          ) : filteredNotifications.length ===
-            0 ? (
+          ) : filteredNotifications.length === 0 ? (
             <div className="empty">
-              <div className="empty-icon">
-                🔔
-              </div>
+              <div className="empty-icon">🔔</div>
 
-              <h2>
-                No notifications
-              </h2>
+              <h2>No notifications</h2>
 
               <p>
                 {search
                   ? "No notifications match your search."
-                  : filter ===
-                    "UNREAD"
-                  ? "You have no unread notifications."
-                  : "New activity will appear here automatically."}
+                  : filter === "UNREAD"
+                    ? "You have no unread notifications."
+                    : "New activity will appear here automatically."}
               </p>
             </div>
           ) : (
-            filteredNotifications.map(
-              (
-                notification
-              ) => {
-                const type =
-                  getType(
-                    notification
-                  );
+            filteredNotifications.map((notification) => {
+              const type = getType(notification);
 
-                const severity =
-                  getSeverity(
-                    notification
-                  );
+              const severity = getSeverity(notification);
 
-                const payment =
-                  type ===
-                  "PAYMENT";
+              const payment = type === "PAYMENT";
 
-                return (
-                  <article
-                    key={
-                      notification.id
-                    }
-                    className={`notification-card ${
-                      notification.read
-                        ? ""
-                        : "unread"
-                    } ${severity}`}
-                    onClick={() => {
-                      void markRead(
-                        notification
-                      );
+              return (
+                <article
+                  key={notification.id}
+                  className={`notification-card ${
+                    notification.read ? "" : "unread"
+                  } ${severity}`}
+                  onClick={() => {
+                    void markRead(notification);
 
-                      setSelected(
-                        notification
-                      );
-                    }}
-                  >
-                    <div className="notification-header">
-                      <div className="notification-main">
-                        <div className="notification-icon">
-                          {getIcon(
-                            type
-                          )}
-                        </div>
+                    setSelected(notification);
+                  }}
+                >
+                  <div className="notification-header">
+                    <div className="notification-main">
+                      <div className="notification-icon">{getIcon(type)}</div>
 
-                        <div>
-                          <h2 className="notification-title">
-                            {
-                              notification.title
-                            }
-                          </h2>
+                      <div>
+                        <h2 className="notification-title">
+                          {notification.title}
+                        </h2>
 
-                          <p className="notification-message">
-                            {notification.message ||
-                              "You have a new notification."}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="notification-time">
-                        {relativeTime(
-                          notification.createdAt ||
-                            notification.paymentTimestamp
-                        )}
+                        <p className="notification-message">
+                          {notification.message ||
+                            "You have a new notification."}
+                        </p>
                       </div>
                     </div>
 
-                    {payment && (
-                      <div className="payment-highlight">
-                        <div className="payment-item">
-                          <div className="payment-item-label">
-                            Borrower
-                          </div>
+                    <div className="notification-time">
+                      {relativeTime(
+                        notification.createdAt || notification.paymentTimestamp,
+                      )}
+                    </div>
+                  </div>
 
-                          <div className="payment-item-value">
-                            {notification.borrowerName ||
-                              (notification.borrowerId
-                                ? `#${notification.borrowerId}`
-                                : "Borrower")}
-                          </div>
-                        </div>
+                  {payment && (
+                    <div className="payment-highlight">
+                      <div className="payment-item">
+                        <div className="payment-item-label">Borrower</div>
 
-                        <div className="payment-item">
-                          <div className="payment-item-label">
-                            Amount Paid
-                          </div>
-
-                          <div className="payment-item-value">
-                            {formatCurrency(
-                              notification.amount,
-                              notification.currency
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="payment-item">
-                          <div className="payment-item-label">
-                            Principal
-                          </div>
-
-                          <div className="payment-item-value">
-                            {formatCurrency(
-                              notification.principalPaid,
-                              notification.currency
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="payment-item">
-                          <div className="payment-item-label">
-                            Outstanding
-                          </div>
-
-                          <div className="payment-item-value">
-                            {formatCurrency(
-                              notification.outstandingBalance,
-                              notification.currency
-                            )}
-                          </div>
+                        <div className="payment-item-value">
+                          {notification.borrowerName ||
+                            (notification.borrowerId
+                              ? `#${notification.borrowerId}`
+                              : "Borrower")}
                         </div>
                       </div>
-                    )}
 
-                    <div className="notification-footer">
-                      <div className="metadata">
+                      <div className="payment-item">
+                        <div className="payment-item-label">Amount Paid</div>
+
+                        <div className="payment-item-value">
+                          {formatCurrency(
+                            notification.amount,
+                            notification.currency,
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="payment-item">
+                        <div className="payment-item-label">Principal</div>
+
+                        <div className="payment-item-value">
+                          {formatCurrency(
+                            notification.principalPaid,
+                            notification.currency,
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="payment-item">
+                        <div className="payment-item-label">Outstanding</div>
+
+                        <div className="payment-item-value">
+                          {formatCurrency(
+                            notification.outstandingBalance,
+                            notification.currency,
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="notification-footer">
+                    <div className="metadata">
+                      <span className="badge">{type}</span>
+
+                      {notification.loanReference && (
                         <span className="badge">
-                          {type}
+                          {notification.loanReference}
                         </span>
+                      )}
 
-                        {notification.loanReference && (
-                          <span className="badge">
-                            {
-                              notification.loanReference
-                            }
-                          </span>
-                        )}
+                      {notification.realtime && (
+                        <span className="badge realtime">● LIVE</span>
+                      )}
 
-                        {notification.realtime && (
-                          <span className="badge realtime">
-                            ● LIVE
-                          </span>
-                        )}
-
-                        {notification.paymentStatus && (
-                          <span className="badge">
-                            {
-                              notification.paymentStatus
-                            }
-                          </span>
-                        )}
-                      </div>
-
-                      {!notification.read && (
-                        <span className="unread-label">
-                          NEW
+                      {notification.paymentStatus && (
+                        <span className="badge">
+                          {notification.paymentStatus}
                         </span>
                       )}
                     </div>
-                  </article>
-                );
-              }
-            )
+
+                    {!notification.read && (
+                      <span className="unread-label">NEW</span>
+                    )}
+                  </div>
+                </article>
+              );
+            })
           )}
         </section>
       </div>
 
       {selected && (
-        <div
-          className="modal-backdrop"
-          onClick={() =>
-            setSelected(
-              null
-            )
-          }
-        >
-          <div
-            className="modal"
-            onClick={(
-              event
-            ) =>
-              event.stopPropagation()
-            }
-          >
+        <div className="modal-backdrop" onClick={() => setSelected(null)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <div>
-                <h2>
-                  {
-                    selected.title
-                  }
-                </h2>
+                <h2>{selected.title}</h2>
 
                 <p>
-                  {formatDate(
-                    selected.createdAt ||
-                      selected.paymentTimestamp
-                  )}
+                  {formatDate(selected.createdAt || selected.paymentTimestamp)}
                 </p>
               </div>
 
-              <button
-                className="close"
-                onClick={() =>
-                  setSelected(
-                    null
-                  )
-                }
-              >
+              <button className="close" onClick={() => setSelected(null)}>
                 ×
               </button>
             </div>
 
             <div className="modal-body">
               <div className="modal-section">
-                <h3>
-                  Notification
-                </h3>
+                <h3>Notification</h3>
 
                 <div className="modal-item">
                   <strong>
-                    {selected.message ||
-                      "No additional message."}
+                    {selected.message || "No additional message."}
                   </strong>
                 </div>
               </div>
 
               <div className="modal-section">
-                <h3>
-                  Borrower & Loan
-                </h3>
+                <h3>Borrower & Loan</h3>
 
                 <div className="modal-grid">
                   <div className="modal-item">
-                    <span>
-                      Borrower
-                    </span>
+                    <span>Borrower</span>
 
                     <strong>
                       {selected.borrowerName ||
@@ -2359,179 +1677,120 @@ export default function Page() {
                   </div>
 
                   <div className="modal-item">
-                    <span>
-                      Borrower ID
-                    </span>
+                    <span>Borrower ID</span>
 
-                    <strong>
-                      {selected.borrowerId ||
-                        "—"}
-                    </strong>
+                    <strong>{selected.borrowerId || "—"}</strong>
                   </div>
 
                   <div className="modal-item">
-                    <span>
-                      Loan
-                    </span>
+                    <span>Loan</span>
 
                     <strong>
                       {selected.loanReference ||
-                        (selected.loanId
-                          ? `Loan #${selected.loanId}`
-                          : "—")}
+                        (selected.loanId ? `Loan #${selected.loanId}` : "—")}
                     </strong>
                   </div>
 
                   <div className="modal-item">
-                    <span>
-                      Loan Status
-                    </span>
+                    <span>Loan Status</span>
 
-                    <strong>
-                      {selected.loanStatus ||
-                        "—"}
-                    </strong>
+                    <strong>{selected.loanStatus || "—"}</strong>
                   </div>
                 </div>
               </div>
 
-              {getType(
-                selected
-              ) ===
-                "PAYMENT" && (
+              {getType(selected) === "PAYMENT" && (
                 <>
                   <div className="modal-section">
-                    <h3>
-                      Payment
-                    </h3>
+                    <h3>Payment</h3>
 
                     <div className="modal-grid">
                       <div className="modal-item">
-                        <span>
-                          Amount Paid
-                        </span>
+                        <span>Amount Paid</span>
 
                         <strong>
-                          {formatCurrency(
-                            selected.amount,
-                            selected.currency
-                          )}
+                          {formatCurrency(selected.amount, selected.currency)}
                         </strong>
                       </div>
 
                       <div className="modal-item">
-                        <span>
-                          Principal Paid
-                        </span>
+                        <span>Principal Paid</span>
 
                         <strong>
                           {formatCurrency(
                             selected.principalPaid,
-                            selected.currency
+                            selected.currency,
                           )}
                         </strong>
                       </div>
 
                       <div className="modal-item">
-                        <span>
-                          Interest Paid
-                        </span>
+                        <span>Interest Paid</span>
 
                         <strong>
                           {formatCurrency(
                             selected.interestPaid,
-                            selected.currency
+                            selected.currency,
                           )}
                         </strong>
                       </div>
 
                       <div className="modal-item">
-                        <span>
-                          Penalty Paid
-                        </span>
+                        <span>Penalty Paid</span>
 
                         <strong>
                           {formatCurrency(
                             selected.penaltyPaid,
-                            selected.currency
+                            selected.currency,
                           )}
                         </strong>
                       </div>
 
                       <div className="modal-item">
-                        <span>
-                          Outstanding Balance
-                        </span>
+                        <span>Outstanding Balance</span>
 
                         <strong>
                           {formatCurrency(
                             selected.outstandingBalance,
-                            selected.currency
+                            selected.currency,
                           )}
                         </strong>
                       </div>
 
                       <div className="modal-item">
-                        <span>
-                          Payment Status
-                        </span>
+                        <span>Payment Status</span>
 
-                        <strong>
-                          {selected.paymentStatus ||
-                            "—"}
-                        </strong>
+                        <strong>{selected.paymentStatus || "—"}</strong>
                       </div>
                     </div>
                   </div>
 
                   <div className="modal-section">
-                    <h3>
-                      Transaction
-                    </h3>
+                    <h3>Transaction</h3>
 
                     <div className="modal-grid">
                       <div className="modal-item">
-                        <span>
-                          Payment Method
-                        </span>
+                        <span>Payment Method</span>
 
-                        <strong>
-                          {selected.paymentMethod ||
-                            "—"}
-                        </strong>
+                        <strong>{selected.paymentMethod || "—"}</strong>
                       </div>
 
                       <div className="modal-item">
-                        <span>
-                          Channel
-                        </span>
+                        <span>Channel</span>
 
-                        <strong>
-                          {selected.channel ||
-                            "—"}
-                        </strong>
+                        <strong>{selected.channel || "—"}</strong>
                       </div>
 
                       <div className="modal-item">
-                        <span>
-                          Transaction ID
-                        </span>
+                        <span>Transaction ID</span>
 
-                        <strong>
-                          {selected.transactionId ||
-                            "—"}
-                        </strong>
+                        <strong>{selected.transactionId || "—"}</strong>
                       </div>
 
                       <div className="modal-item">
-                        <span>
-                          Payment Reference
-                        </span>
+                        <span>Payment Reference</span>
 
-                        <strong>
-                          {selected.paymentReference ||
-                            "—"}
-                        </strong>
+                        <strong>{selected.paymentReference || "—"}</strong>
                       </div>
                     </div>
                   </div>

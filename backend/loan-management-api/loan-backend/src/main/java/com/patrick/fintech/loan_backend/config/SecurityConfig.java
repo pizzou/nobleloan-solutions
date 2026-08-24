@@ -147,11 +147,10 @@ public class SecurityConfig {
                                 // ============================================================
 
                                 .headers(headers -> headers
-
                                                 .frameOptions(frame -> frame.sameOrigin())
-
-                                                .contentTypeOptions(
-                                                                contentType -> contentType.disable()))
+                                                .httpStrictTransportSecurity(hsts -> hsts
+                                                                .includeSubDomains(true)
+                                                                .maxAgeInSeconds(31536000)))
 
                                 // ============================================================
                                 // RATE LIMIT

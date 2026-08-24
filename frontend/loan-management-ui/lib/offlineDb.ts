@@ -1,90 +1,40 @@
 const DB_NAME = "loansaas-offline";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const STORE_QUEUE = "pendingActions";
 const STORE_CACHE = "cache";
 
+export type PendingActionStatus = "PENDING" | "FAILED";
+
 /**
- * ============================================================
- * PENDING ACTION
- * ============================================================
+ * Durable client-side mutation.
  *
- * Canonical offline mutation structure.
- *
- * Financial POST/PUT/PATCH/DELETE operations can be persisted
- * here while the browser is offline and replayed later.
- *
- * Headers are intentionally persisted because operations may
- * require:
- *
- * - Idempotency-Key
- * - Content-Type
- * - tenant headers
- * - other request-specific headers
+ * IMPORTANT FOR FINANCIAL OPERATIONS:
+ * - the id is generated once and never changes;
+ * - Idempotency-Key, when present, is persisted with the action;
+ * - retryAt prevents aggressive retry loops;
+ * - FAILED actions are retained for manual recovery but are no longer
+ *   reported as silently "waiting to sync".
  */
 export interface PendingAction {
   id: string;
-
   url: string;
-
   method: "POST" | "PUT" | "PATCH" | "DELETE";
-
   body?: unknown;
-
-  /**
-   * HTTP headers required when replaying the request.
-   */
   headers?: Record<string, string>;
-
-  /**
-   * Human-readable queue description.
-   */
   label: string;
-
   createdAt: string;
-
-  /**
-   * Number of replay attempts.
-   */
   attempts: number;
-
-  /**
-   * Last replay error, if any.
-   */
   lastError?: string;
+  status?: PendingActionStatus;
+  retryAt?: string;
 }
 
-/**
- * ============================================================
- * CACHED RESPONSE
- * ============================================================
- *
- * GET responses are stored under:
- *
- * {
- *   url,
- *   data,
- *   cachedAt
- * }
- *
- * IMPORTANT:
- * Consumers must access the actual response through:
- *
- * cached.data
- */
 export interface CachedResponse<T = unknown> {
   url: string;
-
   data: T;
-
   cachedAt: string;
 }
-
-/**
- * ============================================================
- * OPEN DATABASE
- * ============================================================
- */
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -105,42 +55,18 @@ function openDb(): Promise<IDBDatabase> {
     request.onupgradeneeded = () => {
       const db = request.result;
 
-      /**
-       * --------------------------------------------------------
-       * Pending financial mutations
-       * --------------------------------------------------------
-       */
-
       if (!db.objectStoreNames.contains(STORE_QUEUE)) {
-        db.createObjectStore(STORE_QUEUE, {
-          keyPath: "id",
-        });
+        db.createObjectStore(STORE_QUEUE, { keyPath: "id" });
       }
 
-      /**
-       * --------------------------------------------------------
-       * Cached GET responses
-       * --------------------------------------------------------
-       */
-
       if (!db.objectStoreNames.contains(STORE_CACHE)) {
-        db.createObjectStore(STORE_CACHE, {
-          keyPath: "url",
-        });
+        db.createObjectStore(STORE_CACHE, { keyPath: "url" });
       }
     };
 
     request.onsuccess = () => {
       const db = request.result;
-
-      /**
-       * If another tab upgrades the database, close this
-       * connection so the upgrade is not permanently blocked.
-       */
-      db.onversionchange = () => {
-        db.close();
-      };
-
+      db.onversionchange = () => db.close();
       resolve(db);
     };
 
@@ -158,12 +84,6 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-/**
- * ============================================================
- * GENERIC OBJECT STORE HELPER
- * ============================================================
- */
-
 function withStore<T>(
   storeName: string,
   mode: IDBTransactionMode,
@@ -174,11 +94,8 @@ function withStore<T>(
 
     try {
       db = await openDb();
-
       const transaction = db.transaction(storeName, mode);
-
       const store = transaction.objectStore(storeName);
-
       let request: IDBRequest | void;
 
       try {
@@ -195,14 +112,8 @@ function withStore<T>(
         request.onsuccess = () => {
           result = request.result;
         };
-
         request.onerror = () => {
-          /**
-           * Let the transaction error handler also handle
-           * transaction-level failures. Rejecting here makes
-           * request failures immediately visible.
-           */
-          reject(request?.error || new Error("IndexedDB operation failed."));
+          reject(request.error || new Error("IndexedDB operation failed."));
         };
       }
 
@@ -214,7 +125,6 @@ function withStore<T>(
       transaction.onerror = () => {
         const error =
           transaction.error || new Error("IndexedDB transaction failed.");
-
         db?.close();
         reject(error);
       };
@@ -222,7 +132,6 @@ function withStore<T>(
       transaction.onabort = () => {
         const error =
           transaction.error || new Error("IndexedDB transaction was aborted.");
-
         db?.close();
         reject(error);
       };
@@ -233,50 +142,33 @@ function withStore<T>(
   });
 }
 
-/**
- * ============================================================
- * QUEUE ACTION
- * ============================================================
- *
- * Adds an offline mutation.
- *
- * The caller may provide headers such as:
- *
- * {
- *   "Content-Type": "application/json",
- *   "Idempotency-Key": "..."
- * }
- *
- * Those headers are persisted and replayed later.
- */
+export function createIdempotencyKey(): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+}
+
 export async function queueAction(
   action: Omit<PendingAction, "id" | "createdAt" | "attempts">,
 ): Promise<PendingAction> {
-  const id =
-    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
   const fullAction: PendingAction = {
     ...action,
-
-    id,
-
+    id: createIdempotencyKey(),
     createdAt: new Date().toISOString(),
-
     attempts: 0,
+    status: action.status ?? "PENDING",
   };
 
   await withStore(STORE_QUEUE, "readwrite", (store) => store.put(fullAction));
-
   return fullAction;
 }
-
-/**
- * ============================================================
- * GET PENDING ACTIONS
- * ============================================================
- */
 
 export async function getPendingActions(): Promise<PendingAction[]> {
   const actions = await withStore<PendingAction[]>(
@@ -285,48 +177,56 @@ export async function getPendingActions(): Promise<PendingAction[]> {
     (store) => store.getAll(),
   );
 
-  return (actions || []).sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-  );
+  const now = Date.now();
+
+  return (actions || [])
+    .map((action) => ({
+      ...action,
+      status: action.status ?? "PENDING",
+    }))
+    .filter((action) => {
+      if (action.status !== "PENDING") return false;
+      if (!action.retryAt) return true;
+      return new Date(action.retryAt).getTime() <= now;
+    })
+    .sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
 }
 
-/**
- * ============================================================
- * PENDING COUNT
- * ============================================================
- *
- * Used by:
- *
- * - SyncProvider
- * - OfflineProvider
- * - dashboard offline indicators
- *
- * Returns the number of financial mutations currently
- * waiting in IndexedDB.
- */
+export async function getAllPendingActions(): Promise<PendingAction[]> {
+  const actions = await withStore<PendingAction[]>(
+    STORE_QUEUE,
+    "readonly",
+    (store) => store.getAll(),
+  );
+
+  return (actions || [])
+    .map((action) => ({
+      ...action,
+      status: action.status ?? "PENDING",
+    }))
+    .sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+}
+
 export async function pendingCount(): Promise<number> {
-  const count = await withStore<number>(STORE_QUEUE, "readonly", (store) =>
-    store.count(),
-  );
-
-  return count || 0;
+  const actions = await getAllPendingActions();
+  return actions.filter((action) => (action.status ?? "PENDING") === "PENDING")
+    .length;
 }
 
-/**
- * ============================================================
- * REMOVE PENDING ACTION
- * ============================================================
- */
+export async function failedCount(): Promise<number> {
+  const actions = await getAllPendingActions();
+  return actions.filter((action) => action.status === "FAILED").length;
+}
 
 export async function removePendingAction(id: string): Promise<void> {
   await withStore(STORE_QUEUE, "readwrite", (store) => store.delete(id));
 }
-
-/**
- * ============================================================
- * UPDATE PENDING ACTION
- * ============================================================
- */
 
 export async function updatePendingAction(
   action: PendingAction,
@@ -334,24 +234,10 @@ export async function updatePendingAction(
   await withStore(STORE_QUEUE, "readwrite", (store) => store.put(action));
 }
 
-/**
- * ============================================================
- * BUMP ATTEMPT
- * ============================================================
- *
- * Increments the replay-attempt counter for a queued action.
- *
- * This is intentionally implemented against the existing
- * PendingAction structure so offlineSync.ts does not need to
- * change architecture.
- *
- * Returns the updated action.
- *
- * Returns null if the action no longer exists.
- */
 export async function bumpAttempt(
   id: string,
   lastError?: string,
+  retryAt?: string,
 ): Promise<PendingAction | null> {
   const action = await withStore<PendingAction | undefined>(
     STORE_QUEUE,
@@ -359,50 +245,85 @@ export async function bumpAttempt(
     (store) => store.get(id),
   );
 
-  if (!action) {
-    return null;
-  }
+  if (!action) return null;
 
   const updated: PendingAction = {
     ...action,
-
     attempts: Number.isFinite(action.attempts) ? action.attempts + 1 : 1,
-
-    ...(lastError
-      ? {
-          lastError,
-        }
-      : {}),
+    status: "PENDING",
+    ...(lastError ? { lastError } : {}),
+    ...(retryAt ? { retryAt } : {}),
   };
 
-  await withStore(STORE_QUEUE, "readwrite", (store) => store.put(updated));
-
+  await updatePendingAction(updated);
   return updated;
 }
 
-/**
- * ============================================================
- * CACHE RESPONSE
- * ============================================================
- */
+export async function markPendingActionFailed(
+  id: string,
+  lastError: string,
+): Promise<PendingAction | null> {
+  const action = await withStore<PendingAction | undefined>(
+    STORE_QUEUE,
+    "readonly",
+    (store) => store.get(id),
+  );
+
+  if (!action) return null;
+
+  const updated: PendingAction = {
+    ...action,
+    status: "FAILED",
+    lastError,
+    retryAt: undefined,
+  };
+
+  await updatePendingAction(updated);
+  return updated;
+}
+
+export async function retryFailedAction(
+  id: string,
+): Promise<PendingAction | null> {
+  const action = await withStore<PendingAction | undefined>(
+    STORE_QUEUE,
+    "readonly",
+    (store) => store.get(id),
+  );
+
+  if (!action) return null;
+
+  const updated: PendingAction = {
+    ...action,
+    status: "PENDING",
+    retryAt: new Date().toISOString(),
+    lastError: undefined,
+  };
+
+  await updatePendingAction(updated);
+  return updated;
+}
+
+export async function retryAllFailedActions(): Promise<number> {
+  const actions = await getAllPendingActions();
+  const failed = actions.filter((action) => action.status === "FAILED");
+
+  for (const action of failed) {
+    await retryFailedAction(action.id);
+  }
+
+  return failed.length;
+}
 
 export async function cacheSet<T>(url: string, data: T): Promise<void> {
   const cached: CachedResponse<T> = {
     url,
-
     data,
-
     cachedAt: new Date().toISOString(),
   };
 
   await withStore(STORE_CACHE, "readwrite", (store) => store.put(cached));
 }
-
-/**
- * ============================================================
- * GET CACHED RESPONSE
- * ============================================================
- */
 
 export async function cacheGet<T>(
   url: string,
@@ -416,21 +337,9 @@ export async function cacheGet<T>(
   return result || null;
 }
 
-/**
- * ============================================================
- * DELETE CACHE
- * ============================================================
- */
-
 export async function cacheDelete(url: string): Promise<void> {
   await withStore(STORE_CACHE, "readwrite", (store) => store.delete(url));
 }
-
-/**
- * ============================================================
- * CLEAR CACHE
- * ============================================================
- */
 
 export async function cacheClear(): Promise<void> {
   await withStore(STORE_CACHE, "readwrite", (store) => store.clear());

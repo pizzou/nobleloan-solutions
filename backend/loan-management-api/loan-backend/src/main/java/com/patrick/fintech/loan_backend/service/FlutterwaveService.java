@@ -14,36 +14,14 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * ============================================================
- * FLUTTERWAVE PAYMENT SERVICE
- * ============================================================
- *
- * Supports:
- *
- * - Card
- * - Mobile Money
- * - Bank Transfer
- *
- * Rwanda:
- * - RWF
- * - MTN Mobile Money
- * - Airtel Money
- *
- * Real payments are used when:
- *
- * FLUTTERWAVE_SECRET_KEY
- *
- * is configured.
- *
- * If the secret key is empty, the service runs in simulation
- * mode. Simulation mode must NEVER be used in production.
- */
 @Slf4j
 @Service
 public class FlutterwaveService {
 
         private static final String FLW_BASE = "https://api.flutterwave.com/v3";
+
+        @Value("${flutterwave.enabled:false}")
+        private boolean enabled;
 
         @Value("${flutterwave.secret-key:}")
         private String secretKey;
@@ -79,7 +57,8 @@ public class FlutterwaveService {
          */
         public boolean isConfigured() {
 
-                return secretKey != null
+                return enabled
+                                && secretKey != null
                                 && !secretKey.isBlank()
                                 && webhookSecret != null
                                 && !webhookSecret.isBlank();

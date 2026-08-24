@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 @Service
@@ -34,8 +35,19 @@ public class IdempotencyService {
 
         String hash = sha256(requestBody == null ? "" : requestBody);
         Optional<IdempotencyKey> existing = repo.findByKeyAndOrganization(key.trim(), org);
-        if (existing.isPresent())
-            return existingOutcome(existing.get(), hash);
+        if (existing.isPresent()) {
+            IdempotencyKey record = existing.get();
+
+            // Idempotency records are deliberately bounded in time. Once the
+            // retention window has expired, the same business operation may
+            // legitimately use a newly generated key.
+            if (record.getExpiresAt() != null && record.getExpiresAt().isBefore(LocalDateTime.now())) {
+                repo.delete(record);
+                repo.flush();
+            } else {
+                return existingOutcome(record, hash);
+            }
+        }
 
         try {
             repo.saveAndFlush(IdempotencyKey.builder()

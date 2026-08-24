@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "lint:ci": "next lint --max-warnings=0",
+    "verify": "npm run typecheck && npm run lint:ci && npm run build"
   },
   "dependencies": {
     "@stomp/stompjs": "^7.3.0",

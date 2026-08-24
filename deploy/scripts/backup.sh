@@ -1,24 +1,16 @@
-#!/bin/bash
-# ================================================================
-# PostgreSQL Backup Script
-# Usage: ./deploy/scripts/backup.sh
-# Add to cron: 0 2 * * * /path/to/backup.sh
-#
-# CHANGED: dumps are now encrypted at rest (BACKUP_ENCRYPTION_KEY) and there's an
-# off-site-shipping hook (BACKUP_REMOTE_CMD). A backup living on the same disk/host as the
-# database it's backing up is not disaster recovery — if that host is lost, the backup is
-# lost with it. Set BACKUP_REMOTE_CMD to whatever actually gets the file off this host: an
-# `aws s3 cp`, `rclone copy`, `scp` to a different host, etc.
-#
-# See ../../DISASTER_RECOVERY.md for the restore procedure and the test you should actually
-# run periodically — an untested backup is not a backup.
-# ================================================================
+
 set -euo pipefail
 
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 RAW_FILE="$BACKUP_DIR/loansaas_$TIMESTAMP.sql.gz"
 RETENTION_DAYS=${RETENTION_DAYS:-30}
+BACKUP_ENVIRONMENT=${BACKUP_ENVIRONMENT:-development}
+
+if [[ "$BACKUP_ENVIRONMENT" == "production" ]]; then
+    : "${BACKUP_ENCRYPTION_KEY:?BACKUP_ENCRYPTION_KEY is required for production backups}"
+    : "${BACKUP_REMOTE_CMD:?BACKUP_REMOTE_CMD is required for production backups}"
+fi
 
 mkdir -p "$BACKUP_DIR"
 
