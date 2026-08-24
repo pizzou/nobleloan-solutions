@@ -9,8 +9,8 @@ import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ApiBoundaryArchitectureTest {
-    private static final Pattern FORBIDDEN = Pattern.compile(
-            "(?:ApiResponse|ResponseEntity|Page|List)<[^\\n]*(?:com\\.patrick\\.fintech\\.loan_backend\\.model\\.|\\b(?:Loan|Borrower|Payment|User|Organization|Role|Branch|BorrowerFile|CollectionCase|CollectionAction|ChartOfAccount|JournalEntry|AuditLog|BankAccount|KycCheck|Expense|LoanApproval|LoanProduct|Notification|ContactMessage|CurrencyRate|ESignatureRequest|Guarantor|InternalDocument|ImportBatch|WebhookEndpoint|Collateral)\\b)",
+    private static final Pattern FORBIDDEN_RETURN_TYPE = Pattern.compile(
+            "\\b(?:public|protected)\\s+[^\\n{;]*?(?:ResponseEntity|ApiResponse|Page|List|Optional)<[^\\n]*(?:com\\.patrick\\.fintech\\.loan_backend\\.model\\.|\\b(?:Loan|Borrower|Payment|User|Organization|Role|Branch|BorrowerFile|CollectionCase|CollectionAction|ChartOfAccount|JournalEntry|AuditLog|BankAccount|KycCheck|Expense|LoanApproval|LoanProduct|Notification|ContactMessage|CurrencyRate|ESignatureRequest|Guarantor|InternalDocument|ImportBatch|WebhookEndpoint|Collateral)\\b)",
             Pattern.MULTILINE);
 
     @Test
@@ -22,7 +22,7 @@ class ApiBoundaryArchitectureTest {
             files.filter(p -> p.toString().endsWith("Controller.java")).forEach(p -> {
                 try {
                     String source = Files.readString(p);
-                    var m = FORBIDDEN.matcher(source);
+                    var m = FORBIDDEN_RETURN_TYPE.matcher(source);
                     if (m.find())
                         violations.add(p.getFileName() + ": " + m.group());
                 } catch (Exception e) {
@@ -30,6 +30,7 @@ class ApiBoundaryArchitectureTest {
                 }
             });
         }
-        assertTrue(violations.isEmpty(), "JPA entity response boundary violations:\n" + String.join("\n", violations));
+        assertTrue(violations.isEmpty(), "JPA entity response boundary violations in controller method return types:\n"
+                + String.join("\n", violations));
     }
 }

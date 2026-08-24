@@ -158,9 +158,15 @@ export function createIdempotencyKey(): string {
 export async function queueAction(
   action: Omit<PendingAction, "id" | "createdAt" | "attempts">,
 ): Promise<PendingAction> {
+  const actionId = createIdempotencyKey();
+
   const fullAction: PendingAction = {
     ...action,
-    id: createIdempotencyKey(),
+    id: actionId,
+    headers: {
+      ...(action.headers || {}),
+      "Idempotency-Key": action.headers?.["Idempotency-Key"] || actionId,
+    },
     createdAt: new Date().toISOString(),
     attempts: 0,
     status: action.status ?? "PENDING",

@@ -1,17 +1,4 @@
-#!/usr/bin/env bash
-# ================================================================
-# Noble Loan Solutions — Final Production Acceptance Test
-#
-# This test is intentionally safe: it does not create a real loan,
-# disburse funds or initiate a real payment.
-#
-# Required:
-#   BASE_URL=https://nobleloan-solutions.onrender.com
-#   ORIGIN=https://nobleloan-solutions.vercel.app
-#
-# Optional authenticated checks:
-#   ACCEPTANCE_JWT=<short-lived test/admin token>
-# ================================================================
+
 set -euo pipefail
 
 BASE_URL="${BASE_URL:?BASE_URL is required}"

@@ -1,22 +1,4 @@
-#!/usr/bin/env bash
-# ================================================================
-# Noble Loan Solutions — Disaster Recovery Restore Test
-#
-# This script NEVER restores over production. It creates a temporary
-# PostgreSQL database, restores the supplied backup into it, verifies
-# the financial schema and basic accounting invariants, then drops the
-# temporary database.
-#
-# Usage:
-#   ./deploy/scripts/test-restore.sh ./backups/loansaas_YYYYMMDD_HHMMSS.sql.gz.enc
-#
-# Required for encrypted backups:
-#   BACKUP_ENCRYPTION_KEY
-#
-# Optional:
-#   PGHOST, PGPORT, PGUSER, PGPASSWORD
-#   DR_TEST_DB (default: loansaas_restore_test_<timestamp>)
-# ================================================================
+
 set -euo pipefail
 
 BACKUP_FILE="${1:?Usage: $0 <backup.sql.gz[.enc]>}"

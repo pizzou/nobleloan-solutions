@@ -193,6 +193,15 @@ export async function drainOfflineQueue(
 
       try {
         assertOfflineSafeMutation(action);
+
+        const persistedIdempotencyKey =
+          action.headers?.["Idempotency-Key"] || action.id;
+
+        if (!persistedIdempotencyKey || persistedIdempotencyKey.length > 128) {
+          throw new Error(
+            "Offline financial synchronization requires a valid persisted Idempotency-Key.",
+          );
+        }
       } catch (error) {
         const message =
           error instanceof Error
@@ -210,11 +219,14 @@ export async function drainOfflineQueue(
       const url = buildUrl(action.url);
 
       try {
+        const idempotencyKey = action.headers?.["Idempotency-Key"] || action.id;
+
         const headers: Record<string, string> = {
           Accept: "application/json",
           ...(action.headers || {}),
           ...authHeader(),
           "X-Tenant-Slug": TENANT_SLUG,
+          "Idempotency-Key": idempotencyKey,
         };
 
         if (action.body !== undefined && action.body !== null) {

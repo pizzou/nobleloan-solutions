@@ -30,15 +30,15 @@ import java.util.function.Function;
  * reverses the originating transaction.
  *
  * The engine checks:
- *  - every journal entry balances;
- *  - every journal line is financially valid;
- *  - the organization trial balance balances;
- *  - active source events are not duplicated;
- *  - the loan principal sub-ledger agrees with GL 1100;
- *  - interest receivable agrees with GL 1150;
- *  - management-fee receivable agrees with GL 1160;
- *  - extension-fee receivable agrees with GL 1170;
- *  - penalty receivable agrees with GL 1175.
+ * - every journal entry balances;
+ * - every journal line is financially valid;
+ * - the organization trial balance balances;
+ * - active source events are not duplicated;
+ * - the loan principal sub-ledger agrees with GL 1100;
+ * - interest receivable agrees with GL 1150;
+ * - management-fee receivable agrees with GL 1160;
+ * - extension-fee receivable agrees with GL 1170;
+ * - penalty receivable agrees with GL 1175.
  */
 @Service
 @RequiredArgsConstructor
@@ -154,7 +154,7 @@ public class FinancialReconciliationService {
                 if (line.getAccount() != null && line.getAccount().getId() != null) {
                     BigDecimal[] totals = accountTotals.computeIfAbsent(
                             line.getAccount().getId(),
-                            ignored -> new BigDecimal[]{ZERO, ZERO});
+                            ignored -> new BigDecimal[] { ZERO, ZERO });
                     totals[0] = totals[0].add(debit);
                     totals[1] = totals[1].add(credit);
                 }
@@ -249,7 +249,7 @@ public class FinancialReconciliationService {
                     ? ZERO
                     : accountBalance(account, accountTotals.get(account.getId()));
 
-            BigDecimal difference = normalize(operational.subtract(glBalance));
+            BigDecimal difference = normalize(glBalance.subtract(operational));
             boolean reconciles = difference.abs().compareTo(TOLERANCE) < 0;
 
             ReconciliationLine line = new ReconciliationLine(
@@ -265,7 +265,7 @@ public class FinancialReconciliationService {
                 issues.add(issue(
                         "SUBLEDGER_MISMATCH",
                         "Operational sub-ledger does not reconcile with GL " + code
-                                + ". Difference=" + difference.abs().toPlainString(),
+                                + ". GL minus operational difference=" + difference.abs().toPlainString(),
                         difference.abs()));
             }
         }
