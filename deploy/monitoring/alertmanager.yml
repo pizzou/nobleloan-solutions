@@ -1,0 +1,14 @@
+global:
+  resolve_timeout: 5m
+route:
+  receiver: noble-loan-webhook
+  group_by: [alertname, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 2h
+receivers:
+  - name: noble-loan-webhook
+    webhook_configs:
+      # Replace this with your PagerDuty/Slack/Teams-compatible webhook endpoint.
+      - url: 'https://example.invalid/replace-with-production-alert-webhook'
+        send_resolved: true

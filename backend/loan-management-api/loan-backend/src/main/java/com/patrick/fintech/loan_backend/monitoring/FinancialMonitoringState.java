@@ -13,8 +13,8 @@ public class FinancialMonitoringState {
     private final AtomicReference<Instant> lastRunAt = new AtomicReference<>();
     private final AtomicReference<Instant> lastSuccessAt = new AtomicReference<>();
     private final AtomicReference<String> lastFailure = new AtomicReference<>();
-    private final AtomicReference<BigDecimal> lastMaximumDifference =
-            new AtomicReference<>(BigDecimal.ZERO.setScale(2));
+    private final AtomicReference<BigDecimal> lastMaximumDifference = new AtomicReference<>(
+            BigDecimal.ZERO.setScale(2));
     private final AtomicInteger failedOrganizations = new AtomicInteger();
 
     public void recordSuccess(Instant timestamp) {
@@ -53,6 +53,16 @@ public class FinancialMonitoringState {
 
     public BigDecimal getLastMaximumDifference() {
         return lastMaximumDifference.get();
+    }
+
+    public double getLastSuccessEpochSeconds() {
+        Instant value = lastSuccessAt.get();
+        return value == null ? 0.0 : value.getEpochSecond();
+    }
+
+    public double getLastRunEpochSeconds() {
+        Instant value = lastRunAt.get();
+        return value == null ? 0.0 : value.getEpochSecond();
     }
 
     public int getFailedOrganizations() {

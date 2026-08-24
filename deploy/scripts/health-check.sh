@@ -34,11 +34,11 @@ done
 # PostgreSQL connectivity
 echo ""
 echo "--- Database ---"
-if docker-compose exec -T postgres pg_isready -U loansaas -d loansaas &>/dev/null; then
+if docker-compose exec -T postgres pg_isready -U loansaas -d loansaas_nobleloansolutions &>/dev/null; then
     ok "PostgreSQL: accepting connections"
-    SIZE=$(docker-compose exec -T postgres psql -U loansaas -d loansaas -tAc "SELECT pg_size_pretty(pg_database_size('loansaas'));" 2>/dev/null | tr -d '[:space:]')
+    SIZE=$(docker-compose exec -T postgres psql -U loansaas -d loansaas_nobleloansolutions -tAc "SELECT pg_size_pretty(pg_database_size('loansaas_nobleloansolutions'));" 2>/dev/null | tr -d '[:space:]')
     ok "Database size: $SIZE"
-    TABLES=$(docker-compose exec -T postgres psql -U loansaas -d loansaas -tAc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null | tr -d '[:space:]')
+    TABLES=$(docker-compose exec -T postgres psql -U loansaas -d loansaas_nobleloansolutions -tAc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null | tr -d '[:space:]')
     ok "Tables: $TABLES"
 else
     fail "PostgreSQL: cannot connect"

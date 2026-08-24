@@ -12,7 +12,7 @@ command -v gzip >/dev/null 2>&1 || { echo "[DR] gzip is required." >&2; exit 1; 
 PGHOST="${PGHOST:-localhost}"
 PGPORT="${PGPORT:-5432}"
 PGUSER="${PGUSER:-postgres}"
-DR_TEST_DB="${DR_TEST_DB:-loansaas_restore_test_$(date +%Y%m%d_%H%M%S)_$$}"
+DR_TEST_DB="${DR_TEST_DB:-loansaas_nobleloansolutions_restore_test_$(date +%Y%m%d_%H%M%S)_$$}"
 
 WORKDIR="$(mktemp -d)"
 cleanup() {

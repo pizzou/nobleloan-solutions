@@ -47,7 +47,7 @@ docker-compose build --no-cache
 log "Starting database..."
 docker-compose up -d postgres
 log "Waiting for PostgreSQL to be ready..."
-until docker-compose exec -T postgres pg_isready -U loansaas -d loansaas 2>/dev/null; do
+until docker-compose exec -T postgres pg_isready -U loansaas -d loansaas_nobleloansolutions 2>/dev/null; do
     echo -n "."; sleep 2
 done
 echo ""

@@ -63,6 +63,7 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/loansaas_nobleloansolutions
       DB_USERNAME: loansaas
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_NAME: loansaas_nobleloansolutions
       SEED_ORG: nobleloansolutions
       # PRODUCTION GO-LIVE: set these three to skip demo-data seeding entirely and get one real
       # organization + one real admin account instead (see DataSeeder.bootstrapProductionOrg).
@@ -115,6 +116,7 @@ services:
       APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?APP_ENCRYPTION_KEY is required}
       APP_INDEX_KEY: ${APP_INDEX_KEY:?APP_INDEX_KEY is required}
       OXR_APP_ID: ${OXR_APP_ID:-}
+      FINANCIAL_RECONCILIATION_LOCK_DURATION_MS: ${FINANCIAL_RECONCILIATION_LOCK_DURATION_MS:-900000}
       LOG_FILE: /var/log/loansaas/nobleloansolutions.log
     volumes:
       - backend_logs:/var/log/loansaas

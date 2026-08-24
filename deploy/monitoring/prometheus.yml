@@ -2,6 +2,11 @@ global:
   scrape_interval: 30s
   evaluation_interval: 30s
 
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 rule_files:
   - /etc/prometheus/loan-saas-alerts.yml
 
@@ -9,6 +14,19 @@ scrape_configs:
   - job_name: noble-loan-backend
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets:
-          - nobleloan-solutions.onrender.com
+      - targets: ["nobleloan-solutions.onrender.com"]
     scheme: https
+
+  - job_name: noble-loan-https
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets: ["https://nobleloan-solutions.onrender.com/actuator/health/readiness"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
