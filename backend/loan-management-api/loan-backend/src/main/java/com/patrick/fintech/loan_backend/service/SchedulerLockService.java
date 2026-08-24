@@ -4,8 +4,8 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -14,179 +14,270 @@ import java.time.LocalDateTime;
 @Slf4j
 public class SchedulerLockService {
 
-    @PersistenceContext
-    private EntityManager em;
+        @PersistenceContext
+        private EntityManager em;
 
-    /**
-     * Attempts to acquire a distributed scheduler lock.
-     *
-     * PostgreSQL performs this atomically:
-     *
-     * 1. If the job does not exist -> INSERT the lock.
-     * 2. If the job exists but has expired -> UPDATE the lock.
-     * 3. If the job exists and is still locked -> do nothing.
-     *
-     * This avoids catching a duplicate-key exception from an INSERT,
-     * which can otherwise poison the current database transaction.
-     */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean tryAcquire(
-            String jobName,
-            Duration lockFor) {
+        private final TransactionTemplate transactionTemplate;
 
-        if (jobName == null || jobName.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Scheduler job name is required"
-            );
+        public SchedulerLockService(
+                        PlatformTransactionManager transactionManager) {
+
+                this.transactionTemplate = new TransactionTemplate(transactionManager);
+
+                this.transactionTemplate.setReadOnly(false);
         }
 
-        if (lockFor == null || lockFor.isNegative()
-                || lockFor.isZero()) {
-
-            throw new IllegalArgumentException(
-                    "Scheduler lock duration must be greater than zero"
-            );
-        }
-
-        LocalDateTime now =
-                LocalDateTime.now();
-
-        LocalDateTime lockedUntil =
-                now.plus(lockFor);
-
-        /*
-         * PostgreSQL UPSERT.
+        /**
+         * Attempts to acquire a distributed scheduler lock.
          *
-         * The important part is:
+         * The database operation is ALWAYS executed inside an explicit
+         * transaction.
          *
-         * WHERE scheduler_locks.locked_until < :now
+         * This deliberately uses TransactionTemplate instead of relying
+         * on @Transactional self-invocation. That prevents the production
+         * TransactionRequiredException that occurs when runExclusively()
+         * calls tryAcquire() from inside this same bean.
          *
-         * If the existing lock has not expired,
-         * PostgreSQL performs no update.
+         * PostgreSQL performs the acquisition atomically:
+         *
+         * 1. Missing lock -> INSERT.
+         * 2. Expired lock -> UPDATE.
+         * 3. Active lock -> no change.
          */
-        String sql = """
-                INSERT INTO scheduler_locks (
-                    job_name,
-                    locked_until
-                )
-                VALUES (
-                    :jobName,
-                    :lockedUntil
-                )
-                ON CONFLICT (job_name)
-                DO UPDATE SET
-                    locked_until = EXCLUDED.locked_until
-                WHERE scheduler_locks.locked_until < :now
-                """;
+        public boolean tryAcquire(
+                        String jobName,
+                        Duration lockFor) {
 
-        int affected =
-                em.createNativeQuery(sql)
-                        .setParameter(
-                                "jobName",
-                                jobName
-                        )
-                        .setParameter(
-                                "lockedUntil",
-                                lockedUntil
-                        )
-                        .setParameter(
-                                "now",
-                                now
-                        )
-                        .executeUpdate();
+                validate(jobName, lockFor);
 
-        boolean acquired =
-                affected == 1;
+                Boolean acquired = transactionTemplate.execute(status -> {
 
-        if (acquired) {
+                        LocalDateTime now = LocalDateTime.now();
 
-            log.debug(
-                    "[SchedulerLock] Acquired lock '{}' until {}",
-                    jobName,
-                    lockedUntil
-            );
+                        LocalDateTime lockedUntil = now.plus(lockFor);
 
-        } else {
+                        return tryAcquireInTransaction(
+                                        jobName,
+                                        now,
+                                        lockedUntil);
+                });
 
-            log.info(
-                    "[SchedulerLock] Lock '{}' is already held by another instance — skipping",
-                    jobName
-            );
+                boolean result = Boolean.TRUE.equals(acquired);
+
+                if (result) {
+
+                        log.debug(
+                                        "[SchedulerLock] Acquired lock '{}' for {}",
+                                        jobName,
+                                        lockFor);
+
+                } else {
+
+                        log.info(
+                                        "[SchedulerLock] Lock '{}' is already held by another instance - skipping",
+                                        jobName);
+                }
+
+                return result;
         }
 
-        return acquired;
-    }
+        /**
+         * Releases a scheduler lock.
+         *
+         * The DELETE/UPDATE is executed inside its own transaction.
+         */
+        public void release(
+                        String jobName) {
 
+                if (jobName == null || jobName.isBlank()) {
+                        return;
+                }
 
-    /**
-     * Releases a scheduler lock immediately.
-     */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void release(
-            String jobName) {
+                transactionTemplate.executeWithoutResult(status -> {
 
-        if (jobName == null || jobName.isBlank()) {
-            return;
+                        LocalDateTime now = LocalDateTime.now();
+
+                        int affected = em.createNativeQuery("""
+                                        UPDATE scheduler_locks
+                                        SET locked_until = :now
+                                        WHERE job_name = :jobName
+                                        """)
+                                        .setParameter(
+                                                        "now",
+                                                        now)
+                                        .setParameter(
+                                                        "jobName",
+                                                        jobName)
+                                        .executeUpdate();
+
+                        if (affected == 1) {
+
+                                log.debug(
+                                                "[SchedulerLock] Released lock '{}'",
+                                                jobName);
+
+                        } else {
+
+                                log.debug(
+                                                "[SchedulerLock] Lock '{}' did not exist during release",
+                                                jobName);
+                        }
+                });
         }
 
-        int affected =
-                em.createNativeQuery("""
-                        UPDATE scheduler_locks
-                        SET locked_until = :now
-                        WHERE job_name = :jobName
-                        """)
-                        .setParameter(
-                                "now",
-                                LocalDateTime.now()
-                        )
-                        .setParameter(
-                                "jobName",
-                                jobName
-                        )
-                        .executeUpdate();
+        /**
+         * Executes a scheduled job exclusively across all application
+         * instances sharing the same PostgreSQL database.
+         *
+         * The lock transaction is deliberately completed BEFORE the
+         * business job starts.
+         *
+         * This is important:
+         *
+         * - no long-running reconciliation transaction
+         * - no database transaction held while sending notifications
+         * - no database transaction held while iterating organizations
+         * - no transaction held for the entire scheduled job
+         */
+        public void runExclusively(
+                        String jobName,
+                        Duration lockFor,
+                        Runnable job) {
 
-        if (affected == 1) {
+                if (job == null) {
+                        throw new IllegalArgumentException(
+                                        "Scheduled job must not be null");
+                }
 
-            log.debug(
-                    "[SchedulerLock] Released lock '{}'",
-                    jobName
-            );
+                boolean acquired;
 
-        } else {
+                try {
 
-            log.debug(
-                    "[SchedulerLock] Lock '{}' did not exist during release",
-                    jobName
-            );
+                        acquired = tryAcquire(
+                                        jobName,
+                                        lockFor);
+
+                } catch (Exception acquisitionError) {
+
+                        log.error(
+                                        "[SchedulerLock] Failed to acquire lock '{}'. Scheduled job will not execute.",
+                                        jobName,
+                                        acquisitionError);
+
+                        return;
+                }
+
+                if (!acquired) {
+
+                        log.info(
+                                        "[Scheduler] '{}' is already running on another instance - skipping",
+                                        jobName);
+
+                        return;
+                }
+
+                try {
+
+                        job.run();
+
+                } catch (Throwable jobError) {
+
+                        /*
+                         * Never allow a scheduler exception to escape into
+                         * Spring's ScheduledMethodRunnable and become an
+                         * "Unexpected error occurred in scheduled task".
+                         *
+                         * The actual exception is still logged in full.
+                         */
+                        log.error(
+                                        "[Scheduler] Job '{}' failed.",
+                                        jobName,
+                                        jobError);
+
+                } finally {
+
+                        try {
+
+                                release(jobName);
+
+                        } catch (Exception releaseError) {
+
+                                /*
+                                 * Lock release failure is operationally important,
+                                 * but must not crash the scheduler thread.
+                                 *
+                                 * The lock has a finite expiration time, so the
+                                 * next execution can recover automatically after
+                                 * expiry.
+                                 */
+                                log.error(
+                                                "[SchedulerLock] Failed to release lock '{}'. The lock will expire automatically after its configured duration.",
+                                                jobName,
+                                                releaseError);
+                        }
+                }
         }
-    }
 
+        /**
+         * Performs the PostgreSQL UPSERT while a transaction is active.
+         */
+        private boolean tryAcquireInTransaction(
+                        String jobName,
+                        LocalDateTime now,
+                        LocalDateTime lockedUntil) {
 
-    /**
-     * Convenience method for executing a job exclusively.
-     */
-    public void runExclusively(
-            String jobName,
-            Duration lockFor,
-            Runnable job) {
+                String sql = """
+                                INSERT INTO scheduler_locks (
+                                    job_name,
+                                    locked_until
+                                )
+                                VALUES (
+                                    :jobName,
+                                    :lockedUntil
+                                )
+                                ON CONFLICT (job_name)
+                                DO UPDATE SET
+                                    locked_until = EXCLUDED.locked_until
+                                WHERE scheduler_locks.locked_until < :now
+                                """;
 
-        if (!tryAcquire(jobName, lockFor)) {
+                int affected = em.createNativeQuery(sql)
+                                .setParameter(
+                                                "jobName",
+                                                jobName)
+                                .setParameter(
+                                                "lockedUntil",
+                                                lockedUntil)
+                                .setParameter(
+                                                "now",
+                                                now)
+                                .executeUpdate();
 
-            log.info(
-                    "[Scheduler] '{}' is already running on another instance — skipping",
-                    jobName
-            );
-
-            return;
+                return affected == 1;
         }
 
-        try {
+        private void validate(
+                        String jobName,
+                        Duration lockFor) {
 
-            job.run();
+                if (jobName == null || jobName.isBlank()) {
 
-        } finally {
+                        throw new IllegalArgumentException(
+                                        "Scheduler job name is required");
+                }
 
-            release(jobName);
+                if (jobName.length() > 100) {
+
+                        throw new IllegalArgumentException(
+                                        "Scheduler job name must not exceed 100 characters");
+                }
+
+                if (lockFor == null
+                                || lockFor.isNegative()
+                                || lockFor.isZero()) {
+
+                        throw new IllegalArgumentException(
+                                        "Scheduler lock duration must be greater than zero");
+                }
         }
-    }
 }
