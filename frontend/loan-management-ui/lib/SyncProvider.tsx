@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { checkBackendHealth, drainOfflineQueue } from "./offlineSync";
-import { failedCount, pendingCount, retryAllFailedActions } from "./offlineDb";
+import {
+  failedCount,
+  pendingCount,
+  releasePendingActionsForImmediateSync,
+  retryAllFailedActions,
+} from "./offlineDb";
 
 /**
  * Single canonical synchronization provider for the whole application.
@@ -21,6 +26,7 @@ export default function SyncProvider() {
   const [backendOnline, setBackendOnline] = useState(true);
   const mounted = useRef(false);
   const running = useRef(false);
+  const backendHealthyRef = useRef(true);
 
   const refreshState = useCallback(async () => {
     try {
@@ -64,9 +70,17 @@ export default function SyncProvider() {
 
     try {
       const healthy = await checkBackendHealth();
+      const recovered = healthy && !backendHealthyRef.current;
+
+      backendHealthyRef.current = healthy;
+
       if (mounted.current) setBackendOnline(healthy);
 
       if (!healthy) return;
+
+      if (recovered) {
+        await releasePendingActionsForImmediateSync();
+      }
 
       const result = await drainOfflineQueue(getAuthHeader);
 
@@ -109,6 +123,13 @@ export default function SyncProvider() {
     }
 
     const healthy = await checkBackendHealth();
+
+    if (healthy && !backendHealthyRef.current) {
+      await releasePendingActionsForImmediateSync();
+    }
+
+    backendHealthyRef.current = healthy;
+
     if (mounted.current) setBackendOnline(healthy);
 
     if (healthy) {
@@ -126,6 +147,7 @@ export default function SyncProvider() {
     };
 
     const handleOffline = () => {
+      backendHealthyRef.current = false;
       if (mounted.current) setBackendOnline(false);
     };
 
@@ -139,7 +161,7 @@ export default function SyncProvider() {
     // lightweight readiness probe therefore runs while queued work exists.
     const interval = window.setInterval(() => {
       void probeAndSync();
-    }, 10_000);
+    }, 3_000);
 
     return () => {
       mounted.current = false;

@@ -282,6 +282,30 @@ export async function markPendingActionFailed(
   return updated;
 }
 
+/**
+ * Makes every pending action immediately eligible for synchronization.
+ *
+ * This is intentionally used when the backend transitions from unavailable
+ * to healthy. A previous exponential backoff must not delay a financial
+ * mutation after connectivity has genuinely returned. The action id and
+ * idempotency key remain unchanged.
+ */
+export async function releasePendingActionsForImmediateSync(): Promise<number> {
+  const actions = await getAllPendingActions();
+  const pending = actions.filter(
+    (action) => (action.status ?? "PENDING") === "PENDING",
+  );
+
+  for (const action of pending) {
+    await updatePendingAction({
+      ...action,
+      retryAt: undefined,
+    });
+  }
+
+  return pending.length;
+}
+
 export async function retryFailedAction(
   id: string,
 ): Promise<PendingAction | null> {
