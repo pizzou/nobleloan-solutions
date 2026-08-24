@@ -3,14 +3,19 @@ package com.patrick.fintech.loan_backend.controller;
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
 import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.BorrowerFile;
+import com.patrick.fintech.loan_backend.model.Loan;
+import com.patrick.fintech.loan_backend.model.LoanComment;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.BorrowerRepository;
+import com.patrick.fintech.loan_backend.repository.LoanCommentRepository;
+import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.service.AuditService;
 import com.patrick.fintech.loan_backend.service.BorrowerFileService;
 import com.patrick.fintech.loan_backend.service.MailService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.*;
+import org.springframework.http.ContentDisposition;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -18,6 +23,7 @@ import com.patrick.fintech.loan_backend.model.VerificationStatus;
 import com.patrick.fintech.loan_backend.model.DocumentType;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Staff-side KYC document endpoints. Every read/write here is scoped to the
@@ -34,6 +40,8 @@ public class BorrowerFileController {
 
     private final BorrowerFileService fileService;
     private final BorrowerRepository borrowerRepository;
+    private final LoanRepository loanRepository;
+    private final LoanCommentRepository loanCommentRepository;
     private final AuditService auditService;
     private final MailService mailService;
     private final CurrentUserUtil currentUserUtil;
@@ -121,11 +129,37 @@ public class BorrowerFileController {
                 action, "BORROWER_FILE", String.valueOf(fileId),
                 verb + " " + file.getDocumentType() + " (" + file.getFileName() + ")",
                 null, null, "Documents & KYC");
+        String contentType = file.getFileType() == null
+                ? MediaType.APPLICATION_OCTET_STREAM_VALUE
+                : file.getFileType().trim().toLowerCase(java.util.Locale.ROOT);
+
+        if (!Set.of(
+                MediaType.APPLICATION_PDF_VALUE,
+                MediaType.IMAGE_JPEG_VALUE,
+                MediaType.IMAGE_PNG_VALUE,
+                "image/webp").contains(contentType)) {
+            contentType = MediaType.APPLICATION_OCTET_STREAM_VALUE;
+        }
+
+        if (file.getData() == null || file.getData().length == 0) {
+            throw new IllegalStateException("The requested document has no stored file content.");
+        }
+
+        ContentDisposition contentDisposition = "attachment".equalsIgnoreCase(disposition)
+                ? ContentDisposition.attachment()
+                        .filename(file.getFileName(), java.nio.charset.StandardCharsets.UTF_8)
+                        .build()
+                : ContentDisposition.inline()
+                        .filename(file.getFileName(), java.nio.charset.StandardCharsets.UTF_8)
+                        .build();
+
         return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType(
-                        file.getFileType() != null ? file.getFileType() : "application/octet-stream"))
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        disposition + "; filename=\"" + file.getFileName() + "\"")
+                .contentType(MediaType.parseMediaType(contentType))
+                .contentLength(file.getData().length)
+                .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition.toString())
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store, max-age=0")
+                .header(HttpHeaders.PRAGMA, "no-cache")
+                .header("X-Content-Type-Options", "nosniff")
                 .body(file.getData());
     }
 
@@ -142,23 +176,95 @@ public class BorrowerFileController {
 
         User user = currentUserUtil.getCurrentUser();
 
-        String statusValue = body.get("status");
-        String comment = body.get("comment");
+        String statusValue = body != null ? body.get("status") : null;
+        String comment = body != null ? body.get("comment") : null;
+        String loanIdValue = body != null ? body.get("loanId") : null;
+
+        if (statusValue == null || statusValue.isBlank()) {
+            throw new IllegalArgumentException("Verification status is required.");
+        }
 
         VerificationStatus status;
 
         try {
-            status = VerificationStatus.valueOf(statusValue.toUpperCase());
-        } catch (Exception ex) {
-            throw new RuntimeException("Invalid verification status: " + statusValue);
+            status = VerificationStatus.valueOf(statusValue.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("Invalid verification status: " + statusValue);
+        }
+
+        String normalizedComment = comment == null ? "" : comment.trim();
+
+        if ((status == VerificationStatus.REJECTED
+                || status == VerificationStatus.REPLACEMENT_REQUESTED)
+                && normalizedComment.isBlank()) {
+            throw new IllegalArgumentException(
+                    status == VerificationStatus.REJECTED
+                            ? "A rejection reason is required."
+                            : "A replacement reason is required.");
+        }
+
+        if (normalizedComment.length() > 2000) {
+            throw new IllegalArgumentException("Document review comment must not exceed 2000 characters.");
         }
 
         BorrowerFile updated = fileService.verify(
                 fileId,
                 user.getOrganization().getId(),
                 status,
-                comment,
+                normalizedComment.isBlank() ? null : normalizedComment,
                 user.getName());
+
+        /*
+         * A document review decision must be visible to the borrower through the
+         * existing public application/track comments channel. The document record
+         * remains the source of truth for its status; the loan comment is the
+         * applicant-facing communication/audit trail. Both are written in this
+         * transaction so the portal cannot show a replacement request that was
+         * never actually committed.
+         */
+        if (status == VerificationStatus.REJECTED
+                || status == VerificationStatus.REPLACEMENT_REQUESTED) {
+
+            if (loanIdValue == null || loanIdValue.isBlank()) {
+                throw new IllegalArgumentException(
+                        "loanId is required when rejecting a document or requesting a replacement.");
+            }
+
+            final Long loanId;
+            try {
+                loanId = Long.valueOf(loanIdValue.trim());
+            } catch (NumberFormatException ex) {
+                throw new IllegalArgumentException("Invalid loanId.");
+            }
+
+            Loan loan = loanRepository.findById(loanId)
+                    .orElseThrow(() -> new IllegalArgumentException("Loan not found."));
+
+            if (loan.getOrganization() == null
+                    || !user.getOrganization().getId().equals(loan.getOrganization().getId())
+                    || loan.getBorrower() == null
+                    || updated.getBorrower() == null
+                    || !loan.getBorrower().getId().equals(updated.getBorrower().getId())) {
+                throw new org.springframework.security.access.AccessDeniedException(
+                        "The selected loan does not belong to this organization and document.");
+            }
+
+            String documentLabel = updated.getDocumentType() == null
+                    ? "document"
+                    : updated.getDocumentType().name().replace('_', ' ');
+
+            String applicantMessage = status == VerificationStatus.REPLACEMENT_REQUESTED
+                    ? "Document replacement requested for " + documentLabel + ". Reason: " + normalizedComment
+                    : "Document rejected for " + documentLabel + ". Reason: " + normalizedComment;
+
+            loanCommentRepository.save(
+                    LoanComment.builder()
+                            .loan(loan)
+                            .author(user)
+                            .message(applicantMessage)
+                            .visibleToApplicant(true)
+                            .build());
+        }
 
         auditService.log(
                 updated.getBorrower().getOrganization(),
@@ -168,8 +274,8 @@ public class BorrowerFileController {
                 String.valueOf(fileId),
                 updated.getDocumentType().name() + " (" + updated.getFileName() + ") marked "
                         + status.name()
-                        + (comment != null && !comment.isBlank()
-                                ? ": " + comment
+                        + (!normalizedComment.isBlank()
+                                ? ": " + normalizedComment
                                 : ""),
                 null,
                 null,
@@ -191,13 +297,13 @@ public class BorrowerFileController {
                         mailService.sendDocumentRejected(
                                 updated.getBorrower(),
                                 updated.getDocumentType().name(),
-                                comment);
+                                normalizedComment);
 
                     case REPLACEMENT_REQUESTED ->
                         mailService.sendDocumentReplacementRequested(
                                 updated.getBorrower(),
                                 updated.getDocumentType().name(),
-                                comment);
+                                normalizedComment);
 
                     default -> {
                     }
@@ -214,10 +320,16 @@ public class BorrowerFileController {
     }
 
     @DeleteMapping("/{fileId}")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
     @org.springframework.transaction.annotation.Transactional
     public ResponseEntity<Void> delete(@PathVariable Long fileId) {
         User user = currentUserUtil.getCurrentUser();
         BorrowerFile file = fileService.getByIdForOrg(fileId, user.getOrganization().getId());
+        if (file.getVerificationStatus() == VerificationStatus.VERIFIED) {
+            throw new IllegalStateException(
+                    "Verified documents cannot be deleted. Request a controlled replacement instead.");
+        }
+
         auditService.log(file.getBorrower().getOrganization(), user,
                 "DOCUMENT_DELETED", "BORROWER_FILE", String.valueOf(fileId),
                 "Deleted " + file.getDocumentType() + " (" + file.getFileName() + ") for borrower #"

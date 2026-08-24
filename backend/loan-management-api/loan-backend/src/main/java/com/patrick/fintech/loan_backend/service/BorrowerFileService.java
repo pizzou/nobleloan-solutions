@@ -168,11 +168,36 @@ public class BorrowerFileService {
             String comment,
             String officerName) {
 
+        if (status == null) {
+            throw new IllegalArgumentException("Verification status is required.");
+        }
+
+        if (status != VerificationStatus.VERIFIED
+                && status != VerificationStatus.REJECTED
+                && status != VerificationStatus.REPLACEMENT_REQUESTED) {
+            throw new IllegalArgumentException("Unsupported document verification status: " + status);
+        }
+
         BorrowerFile file = getByIdForOrg(fileId, orgId);
 
+        String normalizedComment = comment == null ? null : comment.trim();
+
+        if ((status == VerificationStatus.REJECTED
+                || status == VerificationStatus.REPLACEMENT_REQUESTED)
+                && (normalizedComment == null || normalizedComment.isBlank())) {
+            throw new IllegalArgumentException(
+                    status == VerificationStatus.REJECTED
+                            ? "A rejection reason is required."
+                            : "A replacement reason is required.");
+        }
+
+        if (normalizedComment != null && normalizedComment.length() > 2000) {
+            throw new IllegalArgumentException("Document review comment must not exceed 2000 characters.");
+        }
+
         file.setVerificationStatus(status);
-        file.setOfficerComment(comment);
-        file.setVerifiedByName(officerName);
+        file.setOfficerComment(normalizedComment);
+        file.setVerifiedByName(officerName == null ? null : officerName.trim());
         file.setVerifiedAt(LocalDateTime.now());
 
         return fileRepository.save(file);
