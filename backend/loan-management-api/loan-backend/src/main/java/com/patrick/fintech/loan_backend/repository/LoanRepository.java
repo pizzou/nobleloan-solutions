@@ -42,9 +42,9 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     /**
      * Find a loan by ID using a pessimistic write lock.
      *
-     * This is important for payment concurrency so that two
-     * simultaneous payment transactions cannot modify the same
-     * loan balance at the same time.
+     * Important for payment concurrency so simultaneous payment
+     * transactions cannot modify the same loan balance at the
+     * same time.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @EntityGraph(attributePaths = {
@@ -61,7 +61,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("id") Long id);
 
     /**
-     * Find loan by public reference number.
+     * Find a loan by public reference number.
      */
     Optional<Loan> findByReferenceNumber(
             String referenceNumber);
@@ -139,25 +139,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
      * Find loans whose status is one of the supplied statuses OR
      * whose number of overdue days is greater than or equal to
      * the supplied value.
-     *
-     * This method is required by CollectionService.
-     *
-     * Example:
-     *
-     * findByStatusInOrDaysOverdueGreaterThanEqual(
-     * List.of(
-     * LoanStatus.ACTIVE,
-     * LoanStatus.OVERDUE
-     * ),
-     * 1
-     * );
-     *
-     * IMPORTANT:
-     * The Loan entity must contain a field named:
-     *
-     * daysOverdue
-     *
-     * with a numeric type compatible with the int parameter.
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -195,9 +176,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     /**
      * Find organization loans whose status matches or whose overdue
      * days reach the specified threshold.
-     *
-     * This is the organization-scoped version and is preferable for
-     * tenant-aware collection processing.
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -252,6 +230,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
      * Single aggregate query for dashboard loan KPIs.
      *
      * Result order:
+     *
      * 0 total loan records
      * 1 pending/review loans
      * 2 active loans
@@ -259,68 +238,100 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
      * 4 defaulted loans
      * 5 gross principal actually recorded as disbursed
      * 6 current outstanding principal
-     * 7 outstanding principal at risk (days overdue > 0)
-     * 8 overdue loans (days overdue > 0 and outstanding > 0)
+     * 7 outstanding principal at risk
+     * 8 overdue loans
      *
-     * IMPORTANT:
-     * - amount = contractual/original principal and is NOT used for
-     * "total disbursed".
-     * - disbursedAmount = actual recorded system disbursement. Imported
-     * legacy loans intentionally leave this null because historical cash
-     * movements are not replayed into the current-period cash ledger.
-     * - outstandingBalance is the canonical current principal balance.
-     * - PAR and overdue use the same days-overdue + outstanding rule used
-     * by regulatory reporting.
+     * Imported historical loans are deliberately excluded from
+     * current-period gross disbursement totals.
      */
     @Query("""
             SELECT
                 COUNT(l),
-                SUM(CASE
+
+                SUM(
+                    CASE
                         WHEN l.status IN ('PENDING', 'UNDER_REVIEW')
-                        THEN 1 ELSE 0
-                    END),
-                SUM(CASE
+                        THEN 1
+                        ELSE 0
+                    END
+                ),
+
+                SUM(
+                    CASE
                         WHEN l.status IN (
                             'ACTIVE',
                             'DISBURSED',
                             'OVERDUE',
                             'RESTRUCTURED'
                         )
-                        THEN 1 ELSE 0
-                    END),
-                SUM(CASE WHEN l.status IN ('PAID', 'CLOSED') THEN 1 ELSE 0 END),
-                SUM(CASE WHEN l.status IN ('DEFAULTED', 'WRITTEN_OFF') THEN 1 ELSE 0 END),
-                COALESCE(SUM(
-                    CASE
-                        WHEN (l.imported = false OR l.imported IS NULL)
-                         AND l.disbursedAmount IS NOT NULL
-                        THEN l.disbursedAmount
-                        ELSE 0
-                    END
-                ), 0),
-                COALESCE(SUM(
-                    CASE
-                        WHEN l.outstandingBalance > 0
-                        THEN l.outstandingBalance
-                        ELSE 0
-                    END
-                ), 0),
-                COALESCE(SUM(
-                    CASE
-                        WHEN l.outstandingBalance > 0
-                         AND l.daysOverdue > 0
-                        THEN l.outstandingBalance
-                        ELSE 0
-                    END
-                ), 0),
-                COALESCE(SUM(
-                    CASE
-                        WHEN l.outstandingBalance > 0
-                         AND l.daysOverdue > 0
                         THEN 1
                         ELSE 0
                     END
-                ), 0)
+                ),
+
+                SUM(
+                    CASE
+                        WHEN l.status IN ('PAID', 'CLOSED')
+                        THEN 1
+                        ELSE 0
+                    END
+                ),
+
+                SUM(
+                    CASE
+                        WHEN l.status IN ('DEFAULTED', 'WRITTEN_OFF')
+                        THEN 1
+                        ELSE 0
+                    END
+                ),
+
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN (l.imported = false OR l.imported IS NULL)
+                             AND l.disbursedAmount IS NOT NULL
+                            THEN l.disbursedAmount
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ),
+
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN l.outstandingBalance > 0
+                            THEN l.outstandingBalance
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ),
+
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN l.outstandingBalance > 0
+                             AND l.daysOverdue > 0
+                            THEN l.outstandingBalance
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ),
+
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN l.outstandingBalance > 0
+                             AND l.daysOverdue > 0
+                            THEN 1
+                            ELSE 0
+                        END
+                    ),
+                    0
+                )
+
             FROM Loan l
             WHERE l.organization.id = :organizationId
             """)
@@ -388,11 +399,9 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("org") Organization org);
 
     /**
-     * Sum the gross amount actually disbursed for an organization.
+     * Sum gross amount actually disbursed.
      *
-     * Uses the persisted disbursedAmount rather than the requested
-     * loan amount so reporting reflects the amount that was actually
-     * released to borrowers.
+     * Uses persisted disbursedAmount rather than requested amount.
      */
     @Query("""
             SELECT COALESCE(SUM(l.disbursedAmount), 0)
@@ -472,9 +481,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     /**
      * Find loans disbursed during a date/time period.
      *
-     * disbursedAt is LocalDateTime, therefore both from and to
-     * are LocalDateTime.
-     *
      * The upper bound is exclusive.
      */
     @EntityGraph(attributePaths = {
@@ -499,10 +505,9 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("to") LocalDateTime to);
 
     /**
-     * Compatibility overload for regulatory reporting code that also
-     * passes the original inclusive LocalDate boundaries. The query
-     * is driven by the LocalDateTime boundaries because disbursedAt
-     * is a LocalDateTime field.
+     * Compatibility overload for regulatory reporting code.
+     *
+     * The LocalDateTime boundaries remain authoritative.
      */
     default List<Loan> findLoansDisbursedDuringPeriod(
             Long orgId,
@@ -511,29 +516,45 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             LocalDateTime to,
             java.time.LocalDate fromDate,
             java.time.LocalDate toDate) {
-        return findLoansDisbursedDuringPeriod(orgId, branchId, from, to);
+
+        return findLoansDisbursedDuringPeriod(
+                orgId,
+                branchId,
+                from,
+                to);
     }
 
     /**
      * Find portfolio as of a particular date/time.
      *
-     * The asOf parameter is exclusive.
+     * Imported historical loans are included in the point-in-time
+     * regulatory portfolio even where their original disbursement
+     * timestamp is unavailable.
      *
-     * Example:
+     * Imported loans are NOT treated as current-period cash
+     * disbursements. Current-period disbursements remain controlled
+     * by findLoansDisbursedDuringPeriod().
      *
-     * asOfDate = 2026-08-31
+     * IMPORTANT:
      *
-     * asOfDateTime = 2026-09-01T00:00:00
+     * The query uses DISTINCT because payments is loaded through
+     * EntityGraph.
      *
-     * This includes every loan disbursed on 2026-08-31,
-     * regardless of the exact disbursement time. Historical loans imported
-     * from the legacy portfolio are also included even when their source
-     * record does not contain a usable disbursement timestamp, because their
-     * opening balances are part of the institution's regulatory portfolio.
+     * Do not use a CASE expression in ORDER BY here.
      *
-     * IMPORTANT: this affects the point-in-time portfolio only. It does NOT
-     * turn historical imported loans into current-period cash disbursements;
-     * those remain controlled by findLoansDisbursedDuringPeriod().
+     * PostgreSQL rejects:
+     *
+     * SELECT DISTINCT ...
+     * ORDER BY CASE ...
+     *
+     * when the CASE expression is not in the select list.
+     *
+     * PostgreSQL's normal ASC ordering places NULL values after
+     * non-NULL values, which gives us the required ordering:
+     *
+     * 1. loans with a known disbursement date
+     * 2. oldest disbursement first
+     * 3. imported loans with NULL disbursement date last
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -548,11 +569,12 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
               AND (:branchId IS NULL OR l.branch.id = :branchId)
               AND (
                   l.imported = true
-                  OR (l.disbursedAt IS NOT NULL AND l.disbursedAt < :asOf)
+                  OR (
+                      l.disbursedAt IS NOT NULL
+                      AND l.disbursedAt < :asOf
+                  )
               )
-            ORDER BY
-              CASE WHEN l.disbursedAt IS NULL THEN 1 ELSE 0 END,
-              l.disbursedAt ASC
+            ORDER BY l.disbursedAt ASC
             """)
     List<Loan> findPortfolioAsOf(
             @Param("orgId") Long orgId,
@@ -560,17 +582,18 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("asOf") LocalDateTime asOf);
 
     /**
-     * Compatibility overload for regulatory reporting callers that
-     * also provide the reporting LocalDate. The LocalDateTime value
-     * remains authoritative because disbursedAt contains the exact
-     * timestamp.
+     * Compatibility overload for regulatory reporting callers.
      */
     default List<Loan> findPortfolioAsOf(
             Long orgId,
             Long branchId,
             LocalDateTime asOf,
             java.time.LocalDate asOfDate) {
-        return findPortfolioAsOf(orgId, branchId, asOf);
+
+        return findPortfolioAsOf(
+                orgId,
+                branchId,
+                asOf);
     }
 
     /**
