@@ -1180,8 +1180,16 @@ export default function BnrReportPage() {
                 />
 
                 <Kpi
-                  title="Total Collected"
+                  title="Period Collected"
                   value={formatMoney(summary.totalAmountCollected, currency)}
+                />
+
+                <Kpi
+                  title="Legacy Collections"
+                  value={formatMoney(
+                    summary.historicalAmountCollected,
+                    currency,
+                  )}
                 />
 
                 <Kpi
@@ -1196,62 +1204,6 @@ export default function BnrReportPage() {
                 />
               </div>
             </section>
-
-            {safeNumber(summary.legacyImportedLoanCount) > 0 && (
-              <Section
-                title="Legacy Portfolio Migration"
-                description="Historical cumulative values imported from the legacy ledger. These are shown separately from current-period cash flows because the legacy source has no individual historical payment dates."
-              >
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  <Metric
-                    label="Imported Loans"
-                    value={formatNumber(summary.legacyImportedLoanCount)}
-                  />
-                  <Metric
-                    label="Historical Principal Disbursed"
-                    value={formatMoney(
-                      summary.legacyHistoricalPrincipalDisbursed,
-                      currency,
-                    )}
-                  />
-                  <Metric
-                    label="Historical Principal Collected"
-                    value={formatMoney(
-                      summary.legacyHistoricalPrincipalCollected,
-                      currency,
-                    )}
-                  />
-                  <Metric
-                    label="Historical Interest Collected"
-                    value={formatMoney(
-                      summary.legacyHistoricalInterestCollected,
-                      currency,
-                    )}
-                  />
-                  <Metric
-                    label="Historical Fees Collected"
-                    value={formatMoney(
-                      summary.legacyHistoricalFeesCollected,
-                      currency,
-                    )}
-                  />
-                  <Metric
-                    label="Historical Penalties Collected"
-                    value={formatMoney(
-                      summary.legacyHistoricalPenaltiesCollected,
-                      currency,
-                    )}
-                  />
-                  <Metric
-                    label="Historical Total Collected"
-                    value={formatMoney(
-                      summary.legacyHistoricalTotalCollected,
-                      currency,
-                    )}
-                  />
-                </div>
-              </Section>
-            )}
 
             {/* Portfolio quality */}
             <Section
@@ -1366,7 +1318,7 @@ export default function BnrReportPage() {
             {/* Repayment */}
             <Section
               title="Repayment Performance"
-              description="Collections and repayment obligations recorded during the reporting period."
+              description="Period collections are kept separate from historical collections carried forward by the legacy migration."
             >
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Metric
@@ -1385,8 +1337,16 @@ export default function BnrReportPage() {
                 />
 
                 <Metric
-                  label="Total Collected"
+                  label="Period Collected"
                   value={formatMoney(summary.totalAmountCollected, currency)}
+                />
+
+                <Metric
+                  label="Legacy Collections Brought Forward"
+                  value={formatMoney(
+                    summary.historicalAmountCollected,
+                    currency,
+                  )}
                 />
 
                 <Metric

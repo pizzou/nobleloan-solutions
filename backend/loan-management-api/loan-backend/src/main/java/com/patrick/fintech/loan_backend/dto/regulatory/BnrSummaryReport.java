@@ -45,14 +45,6 @@ public class BnrSummaryReport {
     private long totalLoans;
     private long loansDisbursedDuringPeriod;
 
-    private long legacyImportedLoanCount;
-    private BigDecimal legacyHistoricalPrincipalDisbursed;
-    private BigDecimal legacyHistoricalPrincipalCollected;
-    private BigDecimal legacyHistoricalInterestCollected;
-    private BigDecimal legacyHistoricalFeesCollected;
-    private BigDecimal legacyHistoricalPenaltiesCollected;
-    private BigDecimal legacyHistoricalTotalCollected;
-
     private long activeLoans;
     private long closedLoans;
     private long paidLoans;
@@ -103,6 +95,19 @@ public class BnrSummaryReport {
 
     @JsonProperty("totalAmountCollected")
     private BigDecimal totalAmountCollected;
+
+    /** Historical collections carried into the platform by legacy migration. */
+    @JsonProperty("historicalPrincipalCollected")
+    private BigDecimal historicalPrincipalCollected;
+
+    @JsonProperty("historicalInterestCollected")
+    private BigDecimal historicalInterestCollected;
+
+    @JsonProperty("historicalFeesCollected")
+    private BigDecimal historicalFeesCollected;
+
+    @JsonProperty("historicalAmountCollected")
+    private BigDecimal historicalAmountCollected;
 
     @JsonProperty("interestAccruedUnpaid")
     private BigDecimal interestAccruedUnpaid;

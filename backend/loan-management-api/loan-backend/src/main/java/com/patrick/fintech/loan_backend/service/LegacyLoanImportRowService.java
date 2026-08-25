@@ -387,7 +387,30 @@ public class LegacyLoanImportRowService {
                         validateOptionalMoney(penaltiesAssessedGiven, "penalties_assessed");
                         validateOptionalMoney(penaltiesPaidGiven, "penalties_paid");
 
-                        if (totalPaid == null) {
+                        boolean totalPaidProvided = totalPaid != null;
+
+                        if (totalPaid == null && outstandingGiven != null) {
+                                /*
+                                 * A legacy ledger often supplies the current
+                                 * outstanding principal but omits total_paid.
+                                 * In that case the already-repaid principal is
+                                 * objectively amount - outstanding_balance.
+                                 * Add any supplied paid interest/management/penalty
+                                 * components so the migrated collection control
+                                 * does not incorrectly become zero.
+                                 */
+                                BigDecimal inferredPrincipalPaid = money(
+                                                amount.subtract(outstandingGiven).max(ZERO));
+                                totalPaid = money(
+                                                inferredPrincipalPaid
+                                                                .add(interestPaidGiven != null ? interestPaidGiven
+                                                                                : ZERO)
+                                                                .add(managementFeePaidGiven != null
+                                                                                ? managementFeePaidGiven
+                                                                                : ZERO)
+                                                                .add(penaltiesPaidGiven != null ? penaltiesPaidGiven
+                                                                                : ZERO));
+                        } else if (totalPaid == null) {
                                 totalPaid = ZERO;
                         } else {
                                 totalPaid = money(totalPaid);
@@ -517,6 +540,22 @@ public class LegacyLoanImportRowService {
 
                         BigDecimal principalReconciled = money(
                                         principalPaidHistorical.add(outstandingBalance));
+
+                        if (totalPaidProvided) {
+                                BigDecimal minimumKnownCollected = money(
+                                                principalPaidHistorical
+                                                                .add(interestPaidHistorical)
+                                                                .add(managementFeePaidHistorical)
+                                                                .add(penaltiesPaid));
+                                if (totalPaid.compareTo(minimumKnownCollected) < 0) {
+                                        return fail(
+                                                        rowNumber,
+                                                        "total_paid is below the supplied paid components. "
+                                                                        + "total_paid=" + totalPaid
+                                                                        + ", minimumKnownCollected="
+                                                                        + minimumKnownCollected);
+                                }
+                        }
 
                         if (principalReconciled.subtract(amount).abs().compareTo(new BigDecimal("0.01")) > 0) {
                                 return fail(
@@ -832,17 +871,6 @@ public class LegacyLoanImportRowService {
                                         .amount(
                                                         amount)
 
-                                        // Historical imports represent loans that were already disbursed.
-                                        // Persist the disbursed amount so dashboard/BNR/portfolio
-                                        // reporting includes the migrated principal.
-                                        .disbursedAmount(
-                                                        historicalLoan ? amount : null)
-
-                                        .netDisbursedAmount(
-                                                        historicalLoan
-                                                                        ? money(amount.subtract(processingFee))
-                                                                        : null)
-
                                         // ------------------------------------------------
                                         // FIXED PLATFORM INTEREST
                                         // ------------------------------------------------
@@ -1065,9 +1093,11 @@ public class LegacyLoanImportRowService {
                         // ACCOUNTING OPENING BALANCE
                         // --------------------------------------------------------
                         // Historical loans are already disbursed. Record only the
-                        // remaining receivable position as an opening journal so
-                        // accounting does not replay historical cash movements.
-                        accountingService.postHistoricalLoanOpening(loan);
+                        // remaining receivable position as an opening journal and
+                        // immediately reconcile any pre-existing accounting rows.
+                        // Historical cash movements are never replayed.
+                        accountingService.reconcileLegacyLoanOpeningBalances(
+                                        List.of(loan));
 
                         // ========================================================
                         // SUCCESS LOG
@@ -1178,21 +1208,16 @@ public class LegacyLoanImportRowService {
                         BigDecimal principal,
                         int months) {
 
-                BigDecimal normalizedPrincipal = money(
-                                principal);
+                BigDecimal normalizedPrincipal = money(principal);
 
-                if (normalizedPrincipal.compareTo(
-                                MIN_LOAN_AMOUNT) < 0) {
-
+                if (normalizedPrincipal.compareTo(MIN_LOAN_AMOUNT) < 0) {
                         throw new IllegalArgumentException(
                                         "Loan principal must be at least "
-                                                        + formatMoney(
-                                                                        MIN_LOAN_AMOUNT));
+                                                        + formatMoney(MIN_LOAN_AMOUNT));
                 }
 
                 if (months < MIN_DURATION_MONTHS
                                 || months > MAX_DURATION_MONTHS) {
-
                         throw new IllegalArgumentException(
                                         "Loan duration must be between "
                                                         + MIN_DURATION_MONTHS
@@ -1201,71 +1226,47 @@ public class LegacyLoanImportRowService {
                                                         + " months");
                 }
 
-                BigDecimal monthlyRate = TOTAL_MONTHLY_CHARGE_RATE
-                                .divide(
-                                                ONE_HUNDRED,
-                                                CALCULATION_SCALE,
-                                                RoundingMode.HALF_UP);
+                /*
+                 * Use exactly the same contractual schedule formula as
+                 * system-originated loans. The legacy importer previously used
+                 * an EMI/annuity calculation on the combined 10% monthly rate.
+                 * Noble Loan instead uses equal principal amortisation with 5%
+                 * monthly interest and 5% monthly management fee calculated on
+                 * each month's opening principal.
+                 *
+                 * This is only the fallback when the legacy file does not supply
+                 * an authoritative outstanding/repayment total.
+                 */
+                BigDecimal balance = normalizedPrincipal;
+                BigDecimal totalInterest = ZERO;
+                BigDecimal totalManagementFee = ZERO;
+                BigDecimal firstInstallment = ZERO;
 
-                if (monthlyRate.compareTo(
-                                ZERO) == 0) {
+                for (int installmentNumber = 1; installmentNumber <= months; installmentNumber++) {
+                        FinancialPolicy.ScheduleLine line = FinancialPolicy.contractualScheduleLine(
+                                        balance,
+                                        months - installmentNumber + 1,
+                                        MONTHLY_INTEREST_RATE,
+                                        MONTHLY_MANAGEMENT_FEE_RATE);
 
-                        BigDecimal monthlyPayment = money(
-                                        normalizedPrincipal
-                                                        .divide(
-                                                                        BigDecimal.valueOf(
-                                                                                        months),
-                                                                        CALCULATION_SCALE,
-                                                                        RoundingMode.HALF_UP));
+                        BigDecimal installment = money(line.installment());
 
-                        BigDecimal totalRepayable = money(
-                                        monthlyPayment
-                                                        .multiply(
-                                                                        BigDecimal.valueOf(
-                                                                                        months)));
+                        if (installmentNumber == 1) {
+                                firstInstallment = installment;
+                        }
 
-                        return new BigDecimal[] {
-                                        monthlyPayment,
-                                        totalRepayable
-                        };
+                        totalInterest = money(totalInterest.add(line.interest()));
+                        totalManagementFee = money(totalManagementFee.add(line.managementFee()));
+                        balance = money(line.remainingBalance());
                 }
-
-                BigDecimal onePlusRate = BigDecimal.ONE.add(
-                                monthlyRate);
-
-                BigDecimal factor = onePlusRate.pow(
-                                months,
-                                MathContext.DECIMAL128);
-
-                BigDecimal numerator = normalizedPrincipal
-                                .multiply(
-                                                monthlyRate)
-                                .multiply(
-                                                factor);
-
-                BigDecimal denominator = factor.subtract(
-                                BigDecimal.ONE);
-
-                if (denominator.compareTo(
-                                ZERO) == 0) {
-
-                        throw new IllegalStateException(
-                                        "Invalid monthly loan calculation.");
-                }
-
-                BigDecimal monthlyPayment = money(
-                                numerator.divide(
-                                                denominator,
-                                                CALCULATION_SCALE,
-                                                RoundingMode.HALF_UP));
 
                 BigDecimal totalRepayable = money(
-                                monthlyPayment.multiply(
-                                                BigDecimal.valueOf(
-                                                                months)));
+                                normalizedPrincipal
+                                                .add(totalInterest)
+                                                .add(totalManagementFee));
 
                 return new BigDecimal[] {
-                                monthlyPayment,
+                                firstInstallment,
                                 totalRepayable
                 };
         }

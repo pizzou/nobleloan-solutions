@@ -550,15 +550,50 @@ public class FinancialReconciliationService {
     }
 
     private BigDecimal accountBalance(ChartOfAccount account, BigDecimal[] totals) {
-        if (account == null || totals == null) {
+        if (account == null || totals == null || totals.length < 2) {
             return ZERO;
         }
+
         BigDecimal debit = money(totals[0]);
         BigDecimal credit = money(totals[1]);
+
+        /*
+         * Loan receivable accounts are debit-balance assets.
+         *
+         * Do not derive their reconciliation value from the configured
+         * normalBalance flag. That flag is a chart-of-accounts presentation
+         * attribute and a legacy/misconfigured row must never be allowed to
+         * invert the operational sub-ledger reconciliation.
+         *
+         * For 1100/1150/1160/1170/1175 the authoritative GL balance is:
+         *
+         * total debits - total credits
+         *
+         * This is also the sign convention used by AccountingService for the
+         * receivable ledger. Keeping the reconciliation engine on the same
+         * convention prevents false failures where a valid receivable balance
+         * is reported as a negative credit balance.
+         */
+        if (isLoanReceivableAccount(account.getCode())) {
+            return normalize(debit.subtract(credit));
+        }
+
         if (account.getNormalBalance() == ChartOfAccount.NormalBalance.CREDIT) {
             return normalize(credit.subtract(debit));
         }
+
         return normalize(debit.subtract(credit));
+    }
+
+    private boolean isLoanReceivableAccount(String code) {
+        if (code == null) {
+            return false;
+        }
+
+        return switch (code.trim()) {
+            case "1100", "1150", "1160", "1170", "1175" -> true;
+            default -> false;
+        };
     }
 
     private BigDecimal sum(List<Loan> loans, Function<Loan, BigDecimal> extractor) {

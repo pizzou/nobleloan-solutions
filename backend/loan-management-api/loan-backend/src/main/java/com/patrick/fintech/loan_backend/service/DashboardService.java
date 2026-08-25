@@ -157,15 +157,47 @@ public class DashboardService {
                                 firstOfMonth,
                                 today);
 
-                BigDecimal totalCollected = money(
-                                loanRepository.sumTotalCollected(
-                                                organizationRepository.findById(orgId)
-                                                                .orElseThrow(() -> new IllegalArgumentException(
-                                                                                "Organization not found: " + orgId))));
+                BigDecimal paymentRowsCollected = money(valueAt(paymentAggregate, 0));
 
                 BigDecimal collectedThisMonth = money(valueAt(paymentAggregate, 1));
 
                 long latePaymentsCount = asLong(valueAt(paymentAggregate, 2));
+
+                /*
+                 * Legacy imports preserve cumulative paid-to-date values on Loan
+                 * rather than creating fake Payment rows. If an imported loan
+                 * receives a genuine platform payment after migration, that
+                 * payment is present in both Loan.totalPaid and the Payment table,
+                 * so remove the payment-row portion before adding the historical
+                 * brought-forward collection balance.
+                 */
+                var organization = organizationRepository.findById(orgId).orElse(null);
+                BigDecimal historicalLoanPaid = ZERO;
+                BigDecimal importedPaymentRows = ZERO;
+                BigDecimal processingFeesCollected = ZERO;
+                BigDecimal importedProcessingFeesCollected = ZERO;
+
+                if (organization != null) {
+                        historicalLoanPaid = money(
+                                        loanRepository.sumImportedHistoricalTotalPaid(organization));
+                        importedPaymentRows = money(
+                                        loanRepository.sumImportedPaymentRows(organization));
+                        processingFeesCollected = money(
+                                        loanRepository.sumProcessingFeesCollected(organization));
+                        importedProcessingFeesCollected = money(
+                                        loanRepository.sumImportedProcessingFeesCollected(organization));
+                }
+
+                BigDecimal historicalCollected = money(
+                                historicalLoanPaid
+                                                .subtract(importedPaymentRows)
+                                                .max(ZERO)
+                                                .add(importedProcessingFeesCollected));
+
+                BigDecimal totalCollected = money(
+                                paymentRowsCollected
+                                                .add(historicalLoanPaid.subtract(importedPaymentRows).max(ZERO))
+                                                .add(processingFeesCollected));
 
                 /*
                  * ------------------------------------------------------------
@@ -308,6 +340,8 @@ public class DashboardService {
                                 .totalBorrowers(totalBorrowers)
                                 .totalDisbursed(totalDisbursed)
                                 .totalCollected(totalCollected)
+                                .historicalCollected(historicalCollected)
+                                .processingFeesCollected(processingFeesCollected)
                                 .outstandingBalance(totalOutstanding)
                                 .collectedThisMonth(collectedThisMonth)
                                 .latePaymentsCount(latePaymentsCount)

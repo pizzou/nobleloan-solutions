@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { paymentApi, loanApi } from "@/services/api";
 import { PageSpinner } from "@/components/ui/Skeleton";
+import type { DashboardStats } from "@/types";
 import {
   IconAlertTriangle,
   IconCheckCircle,
@@ -255,7 +256,29 @@ export default function PaymentsPage() {
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [portfolioStats, setPortfolioStats] = useState<DashboardStats | null>(
+    null,
+  );
   const [confirming, setConfirming] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    void loanApi
+      .dashboard()
+      .then((stats) => {
+        if (mounted) {
+          setPortfolioStats(stats);
+        }
+      })
+      .catch((err) => {
+        console.warn("Unable to load portfolio collection controls", err);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const loadLoan = useCallback(async (id: number) => {
     setLoadingLoan(true);
@@ -478,6 +501,40 @@ export default function PaymentsPage() {
               {loadingLoan ? "Loading loan…" : "Load loan"}
             </button>
           </div>
+        </section>
+
+        <section className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <MetricCard
+            label="Portfolio collected"
+            value={money(portfolioStats?.totalCollected, currency)}
+            description="Cumulative collections, including legacy history"
+            tone="teal"
+            icon={<IconCoins className="h-5 w-5" />}
+          />
+
+          <MetricCard
+            label="Legacy collections"
+            value={money(portfolioStats?.historicalCollected, currency)}
+            description="Historical collections brought forward"
+            tone="blue"
+            icon={<IconClock className="h-5 w-5" />}
+          />
+
+          <MetricCard
+            label="Collected this month"
+            value={money(portfolioStats?.collectedThisMonth, currency)}
+            description="Posted payment transactions in the current month"
+            tone="blue"
+            icon={<IconCheckCircle className="h-5 w-5" />}
+          />
+
+          <MetricCard
+            label="Processing fees"
+            value={money(portfolioStats?.processingFeesCollected, currency)}
+            description="One-time fees collected at disbursement"
+            tone="amber"
+            icon={<IconSend className="h-5 w-5" />}
+          />
         </section>
 
         {!loan ? (

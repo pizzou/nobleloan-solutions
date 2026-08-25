@@ -87,6 +87,7 @@ type LoanPageResponse = {
 type LoanDashboardResponse = {
   totalDisbursed?: number | string;
   totalCollected?: number | string;
+  historicalCollected?: number | string;
   outstandingBalance?: number | string;
 
   activeLoans?: number | string;
@@ -102,6 +103,8 @@ type Summary = {
   overdue: number;
   pending: number;
   disbursed: number;
+  collected: number;
+  historicalCollected: number;
   outstanding: number;
 };
 
@@ -772,6 +775,8 @@ export default function LoanListPage() {
 
         acc.disbursed += toNumber(loan.disbursedAmount);
 
+        acc.collected += toNumber(loan.totalPaid);
+
         acc.outstanding += toNumber(loan.outstandingBalance);
 
         if (loan.status === "ACTIVE" || loan.status === "RESTRUCTURED") {
@@ -794,6 +799,8 @@ export default function LoanListPage() {
         overdue: 0,
         pending: 0,
         disbursed: 0,
+        collected: 0,
+        historicalCollected: 0,
         outstanding: 0,
       },
     );
@@ -823,6 +830,16 @@ export default function LoanListPage() {
         dashboard?.totalDisbursed != null
           ? toNumber(dashboard.totalDisbursed)
           : fallback.disbursed,
+
+      collected:
+        dashboard?.totalCollected != null
+          ? toNumber(dashboard.totalCollected)
+          : fallback.collected,
+
+      historicalCollected:
+        dashboard?.historicalCollected != null
+          ? toNumber(dashboard.historicalCollected)
+          : 0,
 
       outstanding:
         dashboard?.outstandingBalance != null
@@ -999,7 +1016,7 @@ export default function LoanListPage() {
 
             {/* Header financial summary */}
 
-            <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4">
                 <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
                   Total loans
@@ -1025,6 +1042,26 @@ export default function LoanListPage() {
 
                 <div className="mt-1 text-xs text-slate-500">
                   Cash released to borrowers
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4">
+                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                  Collected
+                </div>
+
+                <div className="mt-2 text-2xl font-black">
+                  {formatCurrency(summary.collected, currency, locale)}
+                </div>
+
+                <div className="mt-1 text-xs text-slate-500">
+                  Includes{" "}
+                  {formatCurrency(
+                    summary.historicalCollected,
+                    currency,
+                    locale,
+                  )}{" "}
+                  legacy collections
                 </div>
               </div>
 

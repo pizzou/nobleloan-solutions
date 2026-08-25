@@ -26,6 +26,12 @@ public class DashboardStats {
     @JsonProperty("totalCollected")
     private BigDecimal totalCollected;
 
+    @JsonProperty("historicalCollected")
+    private BigDecimal historicalCollected;
+
+    @JsonProperty("processingFeesCollected")
+    private BigDecimal processingFeesCollected;
+
     @JsonProperty("outstandingBalance")
     private BigDecimal outstandingBalance;
 

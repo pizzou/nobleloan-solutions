@@ -2604,9 +2604,16 @@ public class LoanService {
                                 loanRepo.sumGrossDisbursedPrincipal(org))
                                 .orElse(ZERO);
 
-                BigDecimal totalCollected = Optional.ofNullable(
+                BigDecimal repaymentCollections = Optional.ofNullable(
                                 loanRepo.sumTotalCollected(org))
                                 .orElse(ZERO);
+
+                BigDecimal processingFeesCollected = Optional.ofNullable(
+                                loanRepo.sumProcessingFeesCollected(org))
+                                .orElse(ZERO);
+
+                BigDecimal totalCollected = money(
+                                repaymentCollections.add(processingFeesCollected));
 
                 BigDecimal outstandingBalance = Optional.ofNullable(
                                 loanRepo.sumOutstandingBalance(org))
@@ -2625,6 +2632,24 @@ public class LoanService {
                                 .defaultedLoans(loanRepo.countByOrganizationAndStatus(org, LoanStatus.DEFAULTED))
                                 .totalDisbursed(totalDisbursed)
                                 .totalCollected(totalCollected)
+                                .historicalCollected(
+                                                money(
+                                                                Optional.ofNullable(
+                                                                                loanRepo.sumImportedHistoricalTotalPaid(
+                                                                                                org))
+                                                                                .orElse(ZERO)
+                                                                                .subtract(
+                                                                                                Optional.ofNullable(
+                                                                                                                loanRepo.sumImportedPaymentRows(
+                                                                                                                                org))
+                                                                                                                .orElse(ZERO))
+                                                                                .max(ZERO)
+                                                                                .add(
+                                                                                                Optional.ofNullable(
+                                                                                                                loanRepo.sumImportedProcessingFeesCollected(
+                                                                                                                                org))
+                                                                                                                .orElse(ZERO))))
+                                .processingFeesCollected(processingFeesCollected)
                                 .outstandingBalance(outstandingBalance)
                                 .collectedThisMonth(collectedThisMonth)
                                 .totalBorrowers(borrowerRepo.countByOrganization(org))

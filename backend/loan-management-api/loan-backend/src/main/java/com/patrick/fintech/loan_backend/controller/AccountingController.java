@@ -12,6 +12,7 @@ import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.service.AccountingService;
 import com.patrick.fintech.loan_backend.service.AuditService;
 import com.patrick.fintech.loan_backend.service.ReportExportService;
+import com.patrick.fintech.loan_backend.service.FinancialReconciliationService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 
 import lombok.RequiredArgsConstructor;
@@ -46,6 +47,7 @@ public class AccountingController {
         private final CurrentUserUtil currentUserUtil;
         private final AuditService auditService;
         private final ReportExportService exportService;
+        private final FinancialReconciliationService financialReconciliationService;
 
         // ============================================================
         // ORGANIZATION / SECURITY
@@ -366,9 +368,26 @@ public class AccountingController {
                                 .findByOrganization_IdAndImportedTrue(
                                                 organization.getId());
 
-                AccountingService.LegacyAccountingRepairResult repair = accountingService.repairLegacyAccounting(
-                                organization.getId(),
+                FinancialReconciliationService.ReconciliationReport before = financialReconciliationService
+                                .reconcile(organization.getId());
+
+                int repaired = accountingService.reconcileLegacyLoanOpeningBalances(
                                 importedLoans);
+
+                /*
+                 * Reconciliation is an accounting-control operation. It must not
+                 * silently rewrite operational loan balances from the GL.
+                 * Internal loan state is changed only by its originating business
+                 * transaction (disbursement, accrual, payment, extension, etc.).
+                 */
+                AccountingService.OperationalReceivableSyncResult operationalSync = new AccountingService.OperationalReceivableSyncResult(
+                                0,
+                                0,
+                                List.of("Operational synchronization is disabled during reconciliation; " +
+                                                "financial differences must be corrected at the originating transaction or by an authorized journal."));
+
+                FinancialReconciliationService.ReconciliationReport after = financialReconciliationService
+                                .reconcile(organization.getId());
 
                 auditService.log(
                                 organization,
@@ -376,22 +395,25 @@ public class AccountingController {
                                 "LEGACY_LOAN_ACCOUNTING_RECONCILED",
                                 "ACCOUNTING",
                                 String.valueOf(organization.getId()),
-                                "Repaired historical loan accounting. " +
-                                                "processed=" + repair.importedLoansProcessed() +
-                                                ", obsoleteReconciliationReversed="
-                                                + repair.obsoleteReconciliationEntriesReversed() +
-                                                ", openingJournalEntriesRepaired="
-                                                + repair.openingJournalEntriesRepaired(),
+                                "Reconciled historical loan opening accounting balances. " +
+                                                "processed=" + importedLoans.size() +
+                                                ", created=" + repaired,
                                 null,
                                 null,
                                 "Accounting");
 
                 Map<String, Object> result = new LinkedHashMap<>();
 
-                result.put("processed", repair.importedLoansProcessed());
-                result.put("created", repair.openingJournalEntriesRepaired());
-                result.put("obsoleteReconciliationReversed", repair.obsoleteReconciliationEntriesReversed());
-                result.put("openingJournalEntriesRepaired", repair.openingJournalEntriesRepaired());
+                result.put("processed", importedLoans.size());
+                result.put("created", repaired);
+                result.put("beforeBalanced", before.balanced());
+                result.put("afterBalanced", after.balanced());
+                result.put("beforeMaximumDifference", before.maximumDifference());
+                result.put("afterMaximumDifference", after.maximumDifference());
+                result.put("operationalUpdatedLoans", operationalSync.updatedLoans());
+                result.put("operationalUpdatedComponents", operationalSync.updatedComponents());
+                result.put("unresolvedOperationalDifferences", operationalSync.unresolved());
+                result.put("afterReconciliation", after);
 
                 return ResponseEntity.ok(
                                 ApiResponse.safe(

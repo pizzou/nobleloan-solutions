@@ -3,6 +3,7 @@ package com.patrick.fintech.loan_backend.repository;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.LoanStatus;
 import com.patrick.fintech.loan_backend.model.Organization;
+import com.patrick.fintech.loan_backend.model.Payment;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -288,7 +289,8 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                             COALESCE(
                                 SUM(
                                     CASE
-                                        WHEN l.disbursedAmount IS NOT NULL
+                                        WHEN (l.imported = false OR l.imported IS NULL)
+                                         AND l.disbursedAmount IS NOT NULL
                                         THEN l.disbursedAmount
                                         ELSE 0
                                     END
@@ -382,6 +384,53 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                         WHERE l.organization = :org
                         """)
         BigDecimal sumTotalCollected(
+                        @Param("org") Organization org);
+
+        /** Cumulative paid-to-date amount stored on migrated historical loans. */
+        @Query("""
+                        SELECT COALESCE(SUM(l.totalPaid), 0)
+                        FROM Loan l
+                        WHERE l.organization = :org
+                          AND l.imported = true
+                        """)
+        BigDecimal sumImportedHistoricalTotalPaid(
+                        @Param("org") Organization org);
+
+        /**
+         * Processing fees collected at disbursement; not represented by Payment rows.
+         */
+        @Query("""
+                        SELECT COALESCE(SUM(l.processingFeePaid), 0)
+                        FROM Loan l
+                        WHERE l.organization = :org
+                          AND COALESCE(l.processingFeePaid, 0) > 0
+                        """)
+        BigDecimal sumProcessingFeesCollected(
+                        @Param("org") Organization org);
+
+        @Query("""
+                        SELECT COALESCE(SUM(l.processingFeePaid), 0)
+                        FROM Loan l
+                        WHERE l.organization = :org
+                          AND l.imported = true
+                          AND COALESCE(l.processingFeePaid, 0) > 0
+                        """)
+        BigDecimal sumImportedProcessingFeesCollected(
+                        @Param("org") Organization org);
+
+        /**
+         * Post-migration payment rows belonging to imported loans, used to avoid
+         * double-counting.
+         */
+        @Query("""
+                        SELECT COALESCE(SUM(p.amountPaid), 0)
+                        FROM Payment p
+                        JOIN p.loan l
+                        WHERE l.organization = :org
+                          AND l.imported = true
+                          AND p.paid = true
+                        """)
+        BigDecimal sumImportedPaymentRows(
                         @Param("org") Organization org);
 
         @Query("""

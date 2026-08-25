@@ -715,6 +715,10 @@ export interface DashboardStats {
 
   totalCollected: number;
 
+  historicalCollected?: number;
+
+  processingFeesCollected?: number;
+
   outstandingBalance: number;
 
   collectedThisMonth: number;

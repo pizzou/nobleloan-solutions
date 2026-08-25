@@ -488,22 +488,6 @@ public class RegulatoryReportingService {
                 List<String> warnings = new ArrayList<>();
 
                 // ========================================================
-                // LEGACY PORTFOLIO MIGRATION TOTALS
-                // ========================================================
-                // These values come from the cumulative state stored on imported
-                // Loan records. They must be declared before the portfolio loop
-                // because the loop populates them. They are reported separately
-                // from current-period Payment rows because imported historical
-                // payments do not have individual historical payment dates.
-                long legacyImportedLoanCount = 0L;
-                BigDecimal legacyHistoricalPrincipalDisbursed = BigDecimal.ZERO;
-                BigDecimal legacyHistoricalPrincipalCollected = BigDecimal.ZERO;
-                BigDecimal legacyHistoricalInterestCollected = BigDecimal.ZERO;
-                BigDecimal legacyHistoricalFeesCollected = BigDecimal.ZERO;
-                BigDecimal legacyHistoricalPenaltiesCollected = BigDecimal.ZERO;
-                BigDecimal legacyHistoricalTotalCollected = BigDecimal.ZERO;
-
-                // ========================================================
                 // PROCESS PORTFOLIO
                 // ========================================================
 
@@ -511,25 +495,6 @@ public class RegulatoryReportingService {
 
                         if (loan == null) {
                                 continue;
-                        }
-
-                        if (Boolean.TRUE.equals(loan.getImported())) {
-                                legacyImportedLoanCount++;
-                                legacyHistoricalPrincipalDisbursed = legacyHistoricalPrincipalDisbursed
-                                                .add(money(loan.getDisbursedAmountDecimal()));
-                                legacyHistoricalPrincipalCollected = legacyHistoricalPrincipalCollected
-                                                .add(money(loan.getPrincipalPaidDecimal()));
-                                legacyHistoricalInterestCollected = legacyHistoricalInterestCollected
-                                                .add(money(loan.getInterestPaidDecimal()));
-                                legacyHistoricalFeesCollected = legacyHistoricalFeesCollected.add(
-                                                money(loan.getManagementFeePaidDecimal())
-                                                                .add(money(loan.getExtensionFeePaidDecimal()))
-                                                                .add(money(loan.getProcessingFeePaidDecimal())));
-                                legacyHistoricalPenaltiesCollected = legacyHistoricalPenaltiesCollected
-                                                .add(money(loan.getPenaltiesPaidDecimal()));
-                                legacyHistoricalTotalCollected = legacyHistoricalTotalCollected.add(
-                                                money(loan.getTotalPaidDecimal())
-                                                                .add(money(loan.getProcessingFeePaidDecimal())));
                         }
 
                         LoanStatus status = loan.getStatus();
@@ -958,6 +923,60 @@ public class RegulatoryReportingService {
                 feesAccruedUnpaid = outstandingFees;
 
                 // ========================================================
+                // HISTORICAL COLLECTIONS BROUGHT FORWARD
+                // ========================================================
+                //
+                // Legacy imports intentionally preserve cumulative paid-to-date
+                // balances on Loan rather than manufacturing historical Payment
+                // rows. Those amounts must be visible in regulatory reporting,
+                // but must NOT be presented as cash collected during the selected
+                // period because the historical transaction dates are unavailable.
+                double historicalPrincipalCollected = 0.0;
+                double historicalInterestCollected = 0.0;
+                double historicalFeesCollected = 0.0;
+                double historicalAmountCollected = 0.0;
+
+                for (Loan loan : portfolioLoans) {
+                        if (loan == null || !Boolean.TRUE.equals(loan.getImported())) {
+                                continue;
+                        }
+
+                        historicalPrincipalCollected += number(loan.getPrincipalPaidDecimal());
+                        historicalInterestCollected += number(loan.getInterestPaidDecimal());
+                        historicalFeesCollected += number(loan.getManagementFeePaidDecimal())
+                                        + number(loan.getExtensionFeePaidDecimal())
+                                        + number(loan.getPenaltiesPaidDecimal())
+                                        + number(loan.getProcessingFeePaid());
+                        historicalAmountCollected += number(loan.getTotalPaidDecimal())
+                                        + number(loan.getProcessingFeePaid());
+                }
+
+                Object[] importedPaymentHistory = paymentRepository
+                                .getImportedPaymentComponentAggregateAsOf(
+                                                organizationId,
+                                                branchId,
+                                                periodEnd);
+
+                historicalPrincipalCollected = Math.max(
+                                0.0,
+                                historicalPrincipalCollected
+                                                - number(valueAt(importedPaymentHistory, 1)));
+                historicalInterestCollected = Math.max(
+                                0.0,
+                                historicalInterestCollected
+                                                - number(valueAt(importedPaymentHistory, 2)));
+                historicalFeesCollected = Math.max(
+                                0.0,
+                                historicalFeesCollected
+                                                - number(valueAt(importedPaymentHistory, 3))
+                                                - number(valueAt(importedPaymentHistory, 4))
+                                                - number(valueAt(importedPaymentHistory, 5)));
+                historicalAmountCollected = Math.max(
+                                0.0,
+                                historicalAmountCollected
+                                                - number(valueAt(importedPaymentHistory, 0)));
+
+                // ========================================================
                 // RATIOS
                 // ========================================================
 
@@ -1144,14 +1163,8 @@ public class RegulatoryReportingService {
                                 .totalLoans(
                                                 portfolioLoans.size())
 
-                                .loansDisbursedDuringPeriod(actualDisbursementCount)
-                                .legacyImportedLoanCount(legacyImportedLoanCount)
-                                .legacyHistoricalPrincipalDisbursed(money(legacyHistoricalPrincipalDisbursed))
-                                .legacyHistoricalPrincipalCollected(money(legacyHistoricalPrincipalCollected))
-                                .legacyHistoricalInterestCollected(money(legacyHistoricalInterestCollected))
-                                .legacyHistoricalFeesCollected(money(legacyHistoricalFeesCollected))
-                                .legacyHistoricalPenaltiesCollected(money(legacyHistoricalPenaltiesCollected))
-                                .legacyHistoricalTotalCollected(money(legacyHistoricalTotalCollected))
+                                .loansDisbursedDuringPeriod(
+                                                actualDisbursementCount)
 
                                 .activeLoans(
                                                 activeLoans)
@@ -1224,6 +1237,22 @@ public class RegulatoryReportingService {
 
                                 .totalAmountCollected(
                                                 totalAmountCollected)
+
+                                .historicalPrincipalCollected(
+                                                BigDecimal.valueOf(
+                                                                historicalPrincipalCollected))
+
+                                .historicalInterestCollected(
+                                                BigDecimal.valueOf(
+                                                                historicalInterestCollected))
+
+                                .historicalFeesCollected(
+                                                BigDecimal.valueOf(
+                                                                historicalFeesCollected))
+
+                                .historicalAmountCollected(
+                                                BigDecimal.valueOf(
+                                                                historicalAmountCollected))
 
                                 .interestAccruedUnpaid(
                                                 interestAccruedUnpaid)
@@ -2376,6 +2405,17 @@ public class RegulatoryReportingService {
         }
 
         // ============================================================
+        // AGGREGATE VALUE
+        // ============================================================
+
+        private Object valueAt(Object[] values, int index) {
+                if (values == null || index < 0 || index >= values.length) {
+                        return null;
+                }
+                return values[index];
+        }
+
+        // ============================================================
         // NUMBER
         // ============================================================
 
@@ -2387,6 +2427,24 @@ public class RegulatoryReportingService {
                 }
 
                 return value.doubleValue();
+        }
+
+        private double number(
+                        Object value) {
+
+                if (value == null) {
+                        return 0.0;
+                }
+
+                if (value instanceof Number numeric) {
+                        return numeric.doubleValue();
+                }
+
+                try {
+                        return Double.parseDouble(value.toString());
+                } catch (NumberFormatException ignored) {
+                        return 0.0;
+                }
         }
 
         // ============================================================
@@ -2409,16 +2467,6 @@ public class RegulatoryReportingService {
 
                 return number(
                                 loan.getAmount());
-        }
-
-        // ============================================================
-        // MONEY
-        // ============================================================
-
-        private BigDecimal money(BigDecimal value) {
-                if (value == null)
-                        return BigDecimal.ZERO.setScale(2, java.math.RoundingMode.HALF_UP);
-                return value.setScale(2, java.math.RoundingMode.HALF_UP);
         }
 
         // ============================================================

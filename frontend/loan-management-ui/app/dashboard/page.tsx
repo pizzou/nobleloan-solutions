@@ -256,6 +256,8 @@ export default function DashboardPage() {
         totalDisbursed: 0,
         outstandingBalance: 0,
         totalCollected: 0,
+        historicalCollected: 0,
+        processingFeesCollected: 0,
         collectedThisMonth: 0,
         latePaymentsCount: 0,
         portfolioAtRiskAmount: 0,
@@ -299,6 +301,10 @@ export default function DashboardPage() {
       outstandingBalance: safeNumber(stats.outstandingBalance),
 
       totalCollected: safeNumber(stats.totalCollected),
+
+      historicalCollected: safeNumber(stats.historicalCollected),
+
+      processingFeesCollected: safeNumber(stats.processingFeesCollected),
 
       collectedThisMonth: safeNumber(stats.collectedThisMonth),
 
@@ -650,7 +656,7 @@ export default function DashboardPage() {
               icon="✓"
               label="Total Collected"
               value={fc(portfolio.totalCollected)}
-              sub={`${fc(portfolio.collectedThisMonth)} this month`}
+              sub={`${fc(portfolio.collectedThisMonth)} this month · ${fc(portfolio.historicalCollected)} legacy`}
               color={BRAND.green}
             />
 
