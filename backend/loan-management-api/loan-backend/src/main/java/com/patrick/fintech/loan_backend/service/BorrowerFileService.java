@@ -120,7 +120,11 @@ public class BorrowerFileService {
         }
 
         List<BorrowerFile> files = fileRepository.findByBorrowerId(borrowerId);
-        files.forEach(file -> file.setData(null));
+        files.forEach(file -> {
+            file.setContentAvailable(hasStoredContent(file));
+            // Never expose raw document bytes from metadata/list endpoints.
+            file.setData(null);
+        });
         return files;
     }
 

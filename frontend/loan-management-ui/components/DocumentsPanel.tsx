@@ -371,6 +371,7 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
 
             const isVerified = normalizedKey === "VERIFIED";
             const isBusy = busyFileId === f.id;
+            const contentAvailable = f.contentAvailable !== false;
             const isReviewOpen = verifyingId === f.id;
             const isSelfie =
               f.documentType === "SELFIE" ||
@@ -434,20 +435,43 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
                     <button
                       type="button"
                       onClick={() => void handlePreview(f.id)}
-                      disabled={isBusy}
+                      disabled={isBusy || !contentAvailable}
+                      title={
+                        contentAvailable
+                          ? "Preview document"
+                          : "The document record exists, but its stored file content is unavailable."
+                      }
                       className="text-gray-600 hover:text-gray-800 text-xs font-medium border border-gray-200 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {isBusy ? "Working..." : "Preview"}
+                      {isBusy
+                        ? "Working..."
+                        : contentAvailable
+                          ? "Preview"
+                          : "Unavailable"}
                     </button>
 
                     <button
                       type="button"
                       onClick={() => void handleDownload(f.id, f.fileName)}
-                      disabled={isBusy}
+                      disabled={isBusy || !contentAvailable}
+                      title={
+                        contentAvailable
+                          ? "Download document"
+                          : "The document record exists, but its stored file content is unavailable."
+                      }
                       className="text-blue-600 hover:text-blue-800 text-xs font-medium border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Download
                     </button>
+
+                    {!contentAvailable && (
+                      <span
+                        className="text-amber-700 text-xs font-medium border border-amber-200 bg-amber-50 px-3 py-1.5 rounded-lg"
+                        title="The document record exists, but its stored file content is missing."
+                      >
+                        File content unavailable
+                      </span>
+                    )}
 
                     {!isVerified && (
                       <button

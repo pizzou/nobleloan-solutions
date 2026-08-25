@@ -859,6 +859,9 @@ export interface BorrowerFile {
 
   fileSize: number;
 
+  /** False when metadata exists but the stored document bytes are missing. */
+  contentAvailable?: boolean;
+
   documentType?: string;
 
   uploadedByApplicant?: boolean;

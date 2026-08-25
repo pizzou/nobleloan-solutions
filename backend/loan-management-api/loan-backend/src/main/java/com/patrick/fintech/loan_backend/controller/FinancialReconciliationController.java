@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/accounting/reconciliation")
@@ -21,6 +22,21 @@ public class FinancialReconciliationController {
 
     private final FinancialReconciliationService reconciliationService;
     private final CurrentUserUtil currentUserUtil;
+
+    /**
+     * Read-only loan-level diagnostic. No accounting data is modified.
+     */
+    @GetMapping("/loans")
+    public ResponseEntity<ApiResponse<List<FinancialReconciliationService.LoanReconciliationDiagnostic>>> diagnoseLoans() {
+
+        Long organizationId = currentUserUtil.getCurrentOrganizationId();
+        if (organizationId == null || organizationId <= 0) {
+            throw new IllegalStateException("No organization is associated with the current user.");
+        }
+
+        return ResponseEntity.ok(
+                ApiResponse.safe(reconciliationService.diagnoseLoanSubledger(organizationId)));
+    }
 
     @GetMapping
     public ResponseEntity<ApiResponse<FinancialReconciliationService.ReconciliationReport>> reconcile(
@@ -35,8 +51,8 @@ public class FinancialReconciliationController {
                 ? LocalDate.now()
                 : LocalDate.parse(asOf.trim());
 
-        FinancialReconciliationService.ReconciliationReport report =
-                reconciliationService.reconcile(organizationId, date);
+        FinancialReconciliationService.ReconciliationReport report = reconciliationService.reconcile(organizationId,
+                date);
 
         return ResponseEntity.ok(ApiResponse.safe(report));
     }

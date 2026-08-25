@@ -167,7 +167,8 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
               'HISTORICAL_LOAN_OPENING',
               'LEGACY_LOAN_OPENING',
               'LEGACY_LOAN_RECONCILIATION',
-              'PAYMENT_RECEIVED'
+              'PAYMENT_RECEIVED',
+              'LOAN_DISBURSEMENT'
         )
         AND (
               l.description LIKE CONCAT('%', :loanReference, '%')

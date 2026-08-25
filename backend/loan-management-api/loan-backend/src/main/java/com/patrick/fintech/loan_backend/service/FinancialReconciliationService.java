@@ -67,7 +67,7 @@ public class FinancialReconciliationService {
         }
 
         List<JournalEntry> entries = journalEntryRepository
-                .findByOrganization_IdAndEntryDateBetweenAndReversedFalseOrderByEntryDateAsc(
+                .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAscIdAsc(
                         organizationId,
                         LocalDate.of(1900, 1, 1),
                         asOf);
@@ -307,6 +307,185 @@ public class FinancialReconciliationService {
                 issues);
     }
 
+    /**
+     * Read-only loan-level diagnostic.
+     *
+     * This method never creates, changes, reverses, or deletes accounting
+     * entries. It identifies the individual loans contributing to the
+     * organization-level receivable reconciliation differences.
+     */
+    @Transactional(readOnly = true)
+    public List<LoanReconciliationDiagnostic> diagnoseLoanSubledger(
+            Long organizationId) {
+
+        requireOrganizationId(organizationId);
+
+        List<JournalEntry> entries = journalEntryRepository
+                .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAscIdAsc(
+                        organizationId,
+                        LocalDate.of(1900, 1, 1),
+                        LocalDate.now());
+
+        if (entries == null) {
+            entries = List.of();
+        }
+
+        List<ChartOfAccount> accounts = chartOfAccountRepository
+                .findByOrganization_IdOrderByCodeAsc(organizationId);
+
+        if (accounts == null) {
+            accounts = List.of();
+        }
+
+        Map<String, ChartOfAccount> accountByCode = new LinkedHashMap<>();
+        for (ChartOfAccount account : accounts) {
+            if (account != null && account.getCode() != null) {
+                accountByCode.put(account.getCode(), account);
+            }
+        }
+
+        List<Loan> loans = loanRepository.findByOrganization_Id(organizationId);
+        if (loans == null || loans.isEmpty()) {
+            return List.of();
+        }
+
+        List<LoanReconciliationDiagnostic> result = new ArrayList<>();
+
+        for (Loan loan : loans) {
+            if (loan == null || loan.getId() == null) {
+                continue;
+            }
+
+            String reference = loan.getReferenceNumber() == null
+                    ? ""
+                    : loan.getReferenceNumber().trim();
+
+            if (reference.isBlank()) {
+                continue;
+            }
+
+            Map<String, BigDecimal> operational = new LinkedHashMap<>();
+            operational.put("1100", money(loan.getOutstandingBalanceDecimal()));
+            operational.put("1150", money(loan.getInterestOutstandingDecimal()));
+            operational.put("1160", money(loan.getManagementFeeOutstandingDecimal()));
+            operational.put("1170", money(loan.getExtensionFeeOutstandingDecimal()));
+
+            BigDecimal penalties = money(loan.getPenaltiesAssessedDecimal())
+                    .subtract(money(loan.getPenaltiesPaidDecimal()))
+                    .max(ZERO);
+            operational.put("1175", money(penalties));
+
+            Map<String, BigDecimal> gl = new LinkedHashMap<>();
+            for (String code : operational.keySet()) {
+                ChartOfAccount account = accountByCode.get(code);
+                gl.put(code, account == null
+                        ? ZERO
+                        : loanReceivableBalance(entries, account, reference));
+            }
+
+            BigDecimal principalDifference = normalize(gl.get("1100").subtract(operational.get("1100")));
+            BigDecimal interestDifference = normalize(gl.get("1150").subtract(operational.get("1150")));
+            BigDecimal managementDifference = normalize(gl.get("1160").subtract(operational.get("1160")));
+            BigDecimal extensionDifference = normalize(gl.get("1170").subtract(operational.get("1170")));
+            BigDecimal penaltyDifference = normalize(gl.get("1175").subtract(operational.get("1175")));
+
+            boolean reconciles = principalDifference.abs().compareTo(TOLERANCE) < 0
+                    && interestDifference.abs().compareTo(TOLERANCE) < 0
+                    && managementDifference.abs().compareTo(TOLERANCE) < 0
+                    && extensionDifference.abs().compareTo(TOLERANCE) < 0
+                    && penaltyDifference.abs().compareTo(TOLERANCE) < 0;
+
+            if (!reconciles) {
+                result.add(new LoanReconciliationDiagnostic(
+                        loan.getId(),
+                        reference,
+                        Boolean.TRUE.equals(loan.getImported()),
+                        operational.get("1100"),
+                        gl.get("1100"),
+                        principalDifference,
+                        operational.get("1150"),
+                        gl.get("1150"),
+                        interestDifference,
+                        operational.get("1160"),
+                        gl.get("1160"),
+                        managementDifference,
+                        operational.get("1170"),
+                        gl.get("1170"),
+                        extensionDifference,
+                        operational.get("1175"),
+                        gl.get("1175"),
+                        penaltyDifference));
+            }
+        }
+
+        return result;
+    }
+
+    private BigDecimal loanReceivableBalance(
+            List<JournalEntry> entries,
+            ChartOfAccount account,
+            String loanReference) {
+
+        BigDecimal balance = ZERO;
+        String token = loanReference.toLowerCase(java.util.Locale.ROOT);
+
+        for (JournalEntry entry : entries) {
+            if (entry == null
+                    || Boolean.TRUE.equals(entry.getReversed())
+                    || entry.getLines() == null
+                    || entry.getLines().isEmpty()) {
+                continue;
+            }
+
+            String entryReference = entry.getReference() == null
+                    ? ""
+                    : entry.getReference().toLowerCase(java.util.Locale.ROOT);
+
+            boolean entryMatches = entryReference.contains(token);
+
+            String sourceType = entry.getSourceType() == null
+                    ? ""
+                    : entry.getSourceType().trim();
+
+            boolean relevantSource = "INTEREST_ACCRUAL".equals(sourceType)
+                    || "MANAGEMENT_FEE_ACCRUAL".equals(sourceType)
+                    || "PENALTY_ACCRUAL".equals(sourceType)
+                    || "LOAN_EXTENSION_FEE".equals(sourceType)
+                    || "HISTORICAL_LOAN_OPENING".equals(sourceType)
+                    || "LEGACY_LOAN_OPENING".equals(sourceType)
+                    || "LEGACY_LOAN_RECONCILIATION".equals(sourceType)
+                    || "PAYMENT_RECEIVED".equals(sourceType)
+                    || "LOAN_DISBURSEMENT".equals(sourceType);
+
+            if (!relevantSource) {
+                continue;
+            }
+
+            for (JournalLine line : entry.getLines()) {
+                if (line == null
+                        || line.getAccount() == null
+                        || line.getAccount().getId() == null
+                        || !account.getId().equals(line.getAccount().getId())) {
+                    continue;
+                }
+
+                String description = line.getDescription() == null
+                        ? ""
+                        : line.getDescription().toLowerCase(java.util.Locale.ROOT);
+
+                if (!entryMatches && !description.contains(token)) {
+                    continue;
+                }
+
+                balance = balance
+                        .add(money(line.getDebitDecimal()))
+                        .subtract(money(line.getCreditDecimal()));
+            }
+        }
+
+        return normalize(balance);
+    }
+
     private BigDecimal accountBalance(ChartOfAccount account, BigDecimal[] totals) {
         if (account == null || totals == null) {
             return ZERO;
@@ -349,6 +528,27 @@ public class FinancialReconciliationService {
         if (organizationId == null || organizationId <= 0) {
             throw new IllegalArgumentException("Organization ID must be positive.");
         }
+    }
+
+    public record LoanReconciliationDiagnostic(
+            Long loanId,
+            String loanReference,
+            boolean imported,
+            BigDecimal operationalPrincipal,
+            BigDecimal glPrincipal,
+            BigDecimal principalDifference,
+            BigDecimal operationalInterest,
+            BigDecimal glInterest,
+            BigDecimal interestDifference,
+            BigDecimal operationalManagementFee,
+            BigDecimal glManagementFee,
+            BigDecimal managementFeeDifference,
+            BigDecimal operationalExtensionFee,
+            BigDecimal glExtensionFee,
+            BigDecimal extensionFeeDifference,
+            BigDecimal operationalPenalty,
+            BigDecimal glPenalty,
+            BigDecimal penaltyDifference) {
     }
 
     public record ReconciliationLine(
