@@ -79,14 +79,6 @@ public class BorrowerFile {
     @Column(columnDefinition = "bytea")
     private byte[] data;
 
-    /**
-     * Metadata-only indicator. It is not persisted and is never serialized
-     * with the raw file bytes. It tells document-list consumers whether the
-     * stored file content is actually available for preview/download.
-     */
-    @Transient
-    private boolean contentAvailable;
-
     private LocalDateTime uploadedAt;
 
     @PrePersist
