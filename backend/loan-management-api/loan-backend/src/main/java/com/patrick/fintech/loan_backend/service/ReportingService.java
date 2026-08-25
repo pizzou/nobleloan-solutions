@@ -124,11 +124,27 @@ public class ReportingService {
                                                 .findByLoan_Organization_Id(
                                                                 organizationId));
 
+                List<Loan> allLoans = safeLoans(
+                                loanRepository.findByOrganization_Id(organizationId));
+
                 BigDecimal totalPaid = ZERO;
+                for (Loan loan : allLoans) {
+                        if (loan != null) {
+                                totalPaid = add(totalPaid, normalizeMoney(loan.getTotalPaidDecimal()));
+                        }
+                }
 
                 BigDecimal totalPending = ZERO;
 
                 BigDecimal totalPenalties = ZERO;
+
+                BigDecimal legacyTotalPaid = ZERO;
+                BigDecimal legacyPrincipalPaid = ZERO;
+                BigDecimal legacyInterestPaid = ZERO;
+                BigDecimal legacyFeesPaid = ZERO;
+                BigDecimal legacyPenaltiesPaid = ZERO;
+                BigDecimal legacyCashCollectedIncludingProcessingFees = ZERO;
+                long legacyLoanCount = 0L;
 
                 for (Payment payment : payments) {
 
@@ -145,9 +161,8 @@ public class ReportingService {
                                         payment.getPenaltyDecimal());
 
                         if (Boolean.TRUE.equals(payment.getPaid())) {
-                                // Collected cash must always come from amountPaid,
-                                // never from the scheduled installment amount.
-                                totalPaid = add(totalPaid, amountPaid);
+                                // Loan.totalPaid is authoritative for lifetime collection totals.
+                                // Do not add Payment rows again or live payments would be double-counted.
                         } else {
                                 BigDecimal remaining = scheduledAmount
                                                 .subtract(amountPaid)
@@ -160,11 +175,35 @@ public class ReportingService {
                                         penalty);
                 }
 
+                List<Loan> importedLoans = safeLoans(
+                                loanRepository.findByOrganization_IdAndImportedTrue(organizationId));
+                for (Loan loan : importedLoans) {
+                        if (loan == null)
+                                continue;
+                        legacyLoanCount++;
+                        legacyTotalPaid = add(legacyTotalPaid, normalizeMoney(loan.getTotalPaidDecimal()));
+                        legacyPrincipalPaid = add(legacyPrincipalPaid, normalizeMoney(loan.getPrincipalPaidDecimal()));
+                        legacyInterestPaid = add(legacyInterestPaid, normalizeMoney(loan.getInterestPaidDecimal()));
+                        legacyFeesPaid = add(legacyFeesPaid, normalizeMoney(loan.getManagementFeePaidDecimal())
+                                        .add(normalizeMoney(loan.getExtensionFeePaidDecimal()))
+                                        .add(normalizeMoney(loan.getProcessingFeePaidDecimal())));
+                        legacyPenaltiesPaid = add(legacyPenaltiesPaid, normalizeMoney(loan.getPenaltiesPaidDecimal()));
+                        legacyCashCollectedIncludingProcessingFees = add(
+                                        legacyCashCollectedIncludingProcessingFees,
+                                        normalizeMoney(loan.getTotalPaidDecimal())
+                                                        .add(normalizeMoney(loan.getProcessingFeePaidDecimal())));
+                }
+
                 Map<String, BigDecimal> result = new LinkedHashMap<>();
 
-                result.put(
-                                "totalPaid",
-                                totalPaid);
+                result.put("totalPaid", totalPaid);
+                result.put("legacyTotalPaid", legacyTotalPaid);
+                result.put("legacyPrincipalPaid", legacyPrincipalPaid);
+                result.put("legacyInterestPaid", legacyInterestPaid);
+                result.put("legacyFeesPaid", legacyFeesPaid);
+                result.put("legacyPenaltiesPaid", legacyPenaltiesPaid);
+                result.put("legacyCashCollectedIncludingProcessingFees", legacyCashCollectedIncludingProcessingFees);
+                result.put("legacyLoanCount", BigDecimal.valueOf(legacyLoanCount));
 
                 result.put(
                                 "totalPending",
@@ -1039,16 +1078,45 @@ public class ReportingService {
                                                 bodyStyle);
                         }
 
-                        sheet.createFreezePane(
-                                        0,
-                                        1);
+                        sheet.createFreezePane(0, 1);
+                        autoSizeColumns(sheet, headers.length);
 
-                        autoSizeColumns(
-                                        sheet,
-                                        headers.length);
+                        Sheet legacySheet = workbook.createSheet("Legacy Collections");
+                        String[] legacyHeaders = {
+                                        "Loan Reference", "Borrower", "Original Principal",
+                                        "Principal Paid", "Interest Paid", "Fees Paid",
+                                        "Penalties Paid", "Total Paid", "Cash Collected Including Processing Fee",
+                                        "Outstanding Principal", "Source"
+                        };
+                        setHeader(legacySheet.createRow(0), legacyHeaders, headerStyle);
+                        List<Loan> importedLoansForExcel = safeLoans(
+                                        loanRepository.findByOrganization_IdAndImportedTrue(organizationId));
+                        int legacyRowNumber = 1;
+                        for (Loan loan : importedLoansForExcel) {
+                                if (loan == null)
+                                        continue;
+                                Row row = legacySheet.createRow(legacyRowNumber++);
+                                setCell(row, 0, loan.getReferenceNumber(), bodyStyle);
+                                setCell(row, 1, borrowerName(loan), bodyStyle);
+                                setCell(row, 2, normalizeMoney(loan.getAmountDecimal()), currencyStyle);
+                                setCell(row, 3, normalizeMoney(loan.getPrincipalPaidDecimal()), currencyStyle);
+                                setCell(row, 4, normalizeMoney(loan.getInterestPaidDecimal()), currencyStyle);
+                                setCell(row, 5, normalizeMoney(loan.getManagementFeePaidDecimal())
+                                                .add(normalizeMoney(loan.getExtensionFeePaidDecimal()))
+                                                .add(normalizeMoney(loan.getProcessingFeePaidDecimal())),
+                                                currencyStyle);
+                                setCell(row, 6, normalizeMoney(loan.getPenaltiesPaidDecimal()), currencyStyle);
+                                setCell(row, 7, normalizeMoney(loan.getTotalPaidDecimal()), currencyStyle);
+                                setCell(row, 8, normalizeMoney(loan.getTotalPaidDecimal())
+                                                .add(normalizeMoney(loan.getProcessingFeePaidDecimal())),
+                                                currencyStyle);
+                                setCell(row, 9, normalizeMoney(loan.getOutstandingBalanceDecimal()), currencyStyle);
+                                setCell(row, 10, "Imported legacy cumulative balance", bodyStyle);
+                        }
+                        legacySheet.createFreezePane(0, 1);
+                        autoSizeColumns(legacySheet, legacyHeaders.length);
 
-                        return workbookToBytes(
-                                        workbook);
+                        return workbookToBytes(workbook);
 
                 } catch (IOException exception) {
 

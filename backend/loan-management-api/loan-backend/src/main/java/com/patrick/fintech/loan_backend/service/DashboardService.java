@@ -157,7 +157,11 @@ public class DashboardService {
                                 firstOfMonth,
                                 today);
 
-                BigDecimal totalCollected = money(valueAt(paymentAggregate, 0));
+                BigDecimal totalCollected = money(
+                                loanRepository.sumTotalCollected(
+                                                organizationRepository.findById(orgId)
+                                                                .orElseThrow(() -> new IllegalArgumentException(
+                                                                                "Organization not found: " + orgId))));
 
                 BigDecimal collectedThisMonth = money(valueAt(paymentAggregate, 1));
 

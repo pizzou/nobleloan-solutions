@@ -76,6 +76,14 @@ export interface BnrSummary {
   totalLoans?: number;
   loansDisbursedDuringPeriod?: number;
 
+  legacyImportedLoanCount?: number;
+  legacyHistoricalPrincipalDisbursed?: number;
+  legacyHistoricalPrincipalCollected?: number;
+  legacyHistoricalInterestCollected?: number;
+  legacyHistoricalFeesCollected?: number;
+  legacyHistoricalPenaltiesCollected?: number;
+  legacyHistoricalTotalCollected?: number;
+
   activeLoans?: number;
   closedLoans?: number;
   paidLoans?: number;

@@ -45,6 +45,14 @@ public class BnrSummaryReport {
     private long totalLoans;
     private long loansDisbursedDuringPeriod;
 
+    private long legacyImportedLoanCount;
+    private BigDecimal legacyHistoricalPrincipalDisbursed;
+    private BigDecimal legacyHistoricalPrincipalCollected;
+    private BigDecimal legacyHistoricalInterestCollected;
+    private BigDecimal legacyHistoricalFeesCollected;
+    private BigDecimal legacyHistoricalPenaltiesCollected;
+    private BigDecimal legacyHistoricalTotalCollected;
+
     private long activeLoans;
     private long closedLoans;
     private long paidLoans;
@@ -57,112 +65,96 @@ public class BnrSummaryReport {
     private long writtenOffLoans;
     private long restructuredLoans;
 
-    
-
     @JsonProperty("totalPrincipalDisbursed")
-private BigDecimal totalPrincipalDisbursed;
-    
-    @JsonProperty("totalApprovedAmount")
-private BigDecimal totalApprovedAmount;
-    
-    @JsonProperty("averageLoanSize")
-private BigDecimal averageLoanSize;
-    
-    @JsonProperty("largestLoanAmount")
-private BigDecimal largestLoanAmount;
-    
-    @JsonProperty("smallestLoanAmount")
-private BigDecimal smallestLoanAmount;
+    private BigDecimal totalPrincipalDisbursed;
 
-    
+    @JsonProperty("totalApprovedAmount")
+    private BigDecimal totalApprovedAmount;
+
+    @JsonProperty("averageLoanSize")
+    private BigDecimal averageLoanSize;
+
+    @JsonProperty("largestLoanAmount")
+    private BigDecimal largestLoanAmount;
+
+    @JsonProperty("smallestLoanAmount")
+    private BigDecimal smallestLoanAmount;
 
     @JsonProperty("outstandingPrincipal")
-private BigDecimal outstandingPrincipal;
-    
-    @JsonProperty("outstandingInterest")
-private BigDecimal outstandingInterest;
-    
-    @JsonProperty("outstandingFees")
-private BigDecimal outstandingFees;
-    
-    @JsonProperty("totalOutstanding")
-private BigDecimal totalOutstanding;
+    private BigDecimal outstandingPrincipal;
 
-    
+    @JsonProperty("outstandingInterest")
+    private BigDecimal outstandingInterest;
+
+    @JsonProperty("outstandingFees")
+    private BigDecimal outstandingFees;
+
+    @JsonProperty("totalOutstanding")
+    private BigDecimal totalOutstanding;
 
     @JsonProperty("totalPrincipalCollected")
-private BigDecimal totalPrincipalCollected;
-    
-    @JsonProperty("totalInterestCollected")
-private BigDecimal totalInterestCollected;
-    
-    @JsonProperty("totalFeesCollected")
-private BigDecimal totalFeesCollected;
-    
-    @JsonProperty("totalAmountCollected")
-private BigDecimal totalAmountCollected;
+    private BigDecimal totalPrincipalCollected;
 
-    
+    @JsonProperty("totalInterestCollected")
+    private BigDecimal totalInterestCollected;
+
+    @JsonProperty("totalFeesCollected")
+    private BigDecimal totalFeesCollected;
+
+    @JsonProperty("totalAmountCollected")
+    private BigDecimal totalAmountCollected;
 
     @JsonProperty("interestAccruedUnpaid")
-private BigDecimal interestAccruedUnpaid;
-    
+    private BigDecimal interestAccruedUnpaid;
+
     @JsonProperty("feesAccruedUnpaid")
-private BigDecimal feesAccruedUnpaid;
+    private BigDecimal feesAccruedUnpaid;
 
     private long totalPayments;
     private long missedPayments;
     private long overduePayments;
 
-    
-
     @JsonProperty("parAmount")
-private BigDecimal parAmount;
-    
-    @JsonProperty("parRatio")
-private BigDecimal parRatio;
+    private BigDecimal parAmount;
 
-    
+    @JsonProperty("parRatio")
+    private BigDecimal parRatio;
 
     @JsonProperty("par1Ratio")
-private BigDecimal par1Ratio;
-    
-    @JsonProperty("par30Ratio")
-private BigDecimal par30Ratio;
-    
-    @JsonProperty("par60Ratio")
-private BigDecimal par60Ratio;
-    
-    @JsonProperty("par90Ratio")
-private BigDecimal par90Ratio;
+    private BigDecimal par1Ratio;
 
-    
+    @JsonProperty("par30Ratio")
+    private BigDecimal par30Ratio;
+
+    @JsonProperty("par60Ratio")
+    private BigDecimal par60Ratio;
+
+    @JsonProperty("par90Ratio")
+    private BigDecimal par90Ratio;
 
     @JsonProperty("par1To30Amount")
-private BigDecimal par1To30Amount;
-    
-    @JsonProperty("par31To60Amount")
-private BigDecimal par31To60Amount;
-    
-    @JsonProperty("par61To90Amount")
-private BigDecimal par61To90Amount;
-    
-    @JsonProperty("par91To180Amount")
-private BigDecimal par91To180Amount;
-    
-    @JsonProperty("par181To365Amount")
-private BigDecimal par181To365Amount;
-    
-    @JsonProperty("parOver365Amount")
-private BigDecimal parOver365Amount;
+    private BigDecimal par1To30Amount;
 
-    
+    @JsonProperty("par31To60Amount")
+    private BigDecimal par31To60Amount;
+
+    @JsonProperty("par61To90Amount")
+    private BigDecimal par61To90Amount;
+
+    @JsonProperty("par91To180Amount")
+    private BigDecimal par91To180Amount;
+
+    @JsonProperty("par181To365Amount")
+    private BigDecimal par181To365Amount;
+
+    @JsonProperty("parOver365Amount")
+    private BigDecimal parOver365Amount;
 
     @JsonProperty("nplAmount")
-private BigDecimal nplAmount;
-    
+    private BigDecimal nplAmount;
+
     @JsonProperty("nplRatio")
-private BigDecimal nplRatio;
+    private BigDecimal nplRatio;
     private long nplLoanCount;
 
     private long loansOver30Days;
@@ -171,27 +163,23 @@ private BigDecimal nplRatio;
     private long loansOver180Days;
     private long loansOver365Days;
 
-    
-
     @JsonProperty("defaultedAmount")
-private BigDecimal defaultedAmount;
-    
-    @JsonProperty("writtenOffAmount")
-private BigDecimal writtenOffAmount;
-    
-    @JsonProperty("recoveriesAfterWriteOff")
-private BigDecimal recoveriesAfterWriteOff;
+    private BigDecimal defaultedAmount;
 
-    
+    @JsonProperty("writtenOffAmount")
+    private BigDecimal writtenOffAmount;
+
+    @JsonProperty("recoveriesAfterWriteOff")
+    private BigDecimal recoveriesAfterWriteOff;
 
     @JsonProperty("requiredProvision")
-private BigDecimal requiredProvision;
-    
+    private BigDecimal requiredProvision;
+
     @JsonProperty("existingProvision")
-private BigDecimal existingProvision;
-    
+    private BigDecimal existingProvision;
+
     @JsonProperty("provisionShortfall")
-private BigDecimal provisionShortfall;
+    private BigDecimal provisionShortfall;
 
     private long totalBorrowers;
     private long activeBorrowers;
@@ -210,22 +198,17 @@ private BigDecimal provisionShortfall;
     private long borrowersWithActiveListing;
     private long borrowersWithMultipleFacilities;
 
-    
-
     @JsonProperty("totalExternalDebt")
-private BigDecimal totalExternalDebt;
+    private BigDecimal totalExternalDebt;
 
     @Builder.Default
-    private List<BnrBreakdownRow> loanTypeBreakdown =
-            new ArrayList<>();
+    private List<BnrBreakdownRow> loanTypeBreakdown = new ArrayList<>();
 
     @Builder.Default
-    private List<BnrBreakdownRow> branchBreakdown =
-            new ArrayList<>();
+    private List<BnrBreakdownRow> branchBreakdown = new ArrayList<>();
 
     @Builder.Default
-    private List<BnrBreakdownRow> genderBreakdown =
-            new ArrayList<>();
+    private List<BnrBreakdownRow> genderBreakdown = new ArrayList<>();
 
     private long loansMissingBorrower;
     private long borrowersMissingNationalId;
@@ -234,8 +217,7 @@ private BigDecimal totalExternalDebt;
     private long loansMissingRepaymentSchedule;
 
     @Builder.Default
-    private List<String> dataQualityWarnings =
-            new ArrayList<>();
+    private List<String> dataQualityWarnings = new ArrayList<>();
 
     private String reportStatus;
 
@@ -1004,286 +986,357 @@ private BigDecimal totalExternalDebt;
             this.totalPrincipalDisbursed = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder totalPrincipalDisbursed(BigDecimal value) {
             this.totalPrincipalDisbursed = value;
             return this;
         }
+
         public BnrSummaryReportBuilder totalApprovedAmount(Double value) {
             this.totalApprovedAmount = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder totalApprovedAmount(BigDecimal value) {
             this.totalApprovedAmount = value;
             return this;
         }
+
         public BnrSummaryReportBuilder averageLoanSize(Double value) {
             this.averageLoanSize = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder averageLoanSize(BigDecimal value) {
             this.averageLoanSize = value;
             return this;
         }
+
         public BnrSummaryReportBuilder largestLoanAmount(Double value) {
             this.largestLoanAmount = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder largestLoanAmount(BigDecimal value) {
             this.largestLoanAmount = value;
             return this;
         }
+
         public BnrSummaryReportBuilder smallestLoanAmount(Double value) {
             this.smallestLoanAmount = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder smallestLoanAmount(BigDecimal value) {
             this.smallestLoanAmount = value;
             return this;
         }
+
         public BnrSummaryReportBuilder outstandingPrincipal(Double value) {
             this.outstandingPrincipal = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder outstandingPrincipal(BigDecimal value) {
             this.outstandingPrincipal = value;
             return this;
         }
+
         public BnrSummaryReportBuilder outstandingInterest(Double value) {
             this.outstandingInterest = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder outstandingInterest(BigDecimal value) {
             this.outstandingInterest = value;
             return this;
         }
+
         public BnrSummaryReportBuilder outstandingFees(Double value) {
             this.outstandingFees = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder outstandingFees(BigDecimal value) {
             this.outstandingFees = value;
             return this;
         }
+
         public BnrSummaryReportBuilder totalOutstanding(Double value) {
             this.totalOutstanding = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder totalOutstanding(BigDecimal value) {
             this.totalOutstanding = value;
             return this;
         }
+
         public BnrSummaryReportBuilder totalPrincipalCollected(Double value) {
             this.totalPrincipalCollected = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder totalPrincipalCollected(BigDecimal value) {
             this.totalPrincipalCollected = value;
             return this;
         }
+
         public BnrSummaryReportBuilder totalInterestCollected(Double value) {
             this.totalInterestCollected = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder totalInterestCollected(BigDecimal value) {
             this.totalInterestCollected = value;
             return this;
         }
+
         public BnrSummaryReportBuilder totalFeesCollected(Double value) {
             this.totalFeesCollected = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder totalFeesCollected(BigDecimal value) {
             this.totalFeesCollected = value;
             return this;
         }
+
         public BnrSummaryReportBuilder totalAmountCollected(Double value) {
             this.totalAmountCollected = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder totalAmountCollected(BigDecimal value) {
             this.totalAmountCollected = value;
             return this;
         }
+
         public BnrSummaryReportBuilder interestAccruedUnpaid(Double value) {
             this.interestAccruedUnpaid = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder interestAccruedUnpaid(BigDecimal value) {
             this.interestAccruedUnpaid = value;
             return this;
         }
+
         public BnrSummaryReportBuilder feesAccruedUnpaid(Double value) {
             this.feesAccruedUnpaid = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder feesAccruedUnpaid(BigDecimal value) {
             this.feesAccruedUnpaid = value;
             return this;
         }
+
         public BnrSummaryReportBuilder parAmount(Double value) {
             this.parAmount = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder parAmount(BigDecimal value) {
             this.parAmount = value;
             return this;
         }
+
         public BnrSummaryReportBuilder parRatio(Double value) {
             this.parRatio = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder parRatio(BigDecimal value) {
             this.parRatio = value;
             return this;
         }
+
         public BnrSummaryReportBuilder par1Ratio(Double value) {
             this.par1Ratio = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder par1Ratio(BigDecimal value) {
             this.par1Ratio = value;
             return this;
         }
+
         public BnrSummaryReportBuilder par30Ratio(Double value) {
             this.par30Ratio = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder par30Ratio(BigDecimal value) {
             this.par30Ratio = value;
             return this;
         }
+
         public BnrSummaryReportBuilder par60Ratio(Double value) {
             this.par60Ratio = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder par60Ratio(BigDecimal value) {
             this.par60Ratio = value;
             return this;
         }
+
         public BnrSummaryReportBuilder par90Ratio(Double value) {
             this.par90Ratio = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder par90Ratio(BigDecimal value) {
             this.par90Ratio = value;
             return this;
         }
+
         public BnrSummaryReportBuilder par1To30Amount(Double value) {
             this.par1To30Amount = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder par1To30Amount(BigDecimal value) {
             this.par1To30Amount = value;
             return this;
         }
+
         public BnrSummaryReportBuilder par31To60Amount(Double value) {
             this.par31To60Amount = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder par31To60Amount(BigDecimal value) {
             this.par31To60Amount = value;
             return this;
         }
+
         public BnrSummaryReportBuilder par61To90Amount(Double value) {
             this.par61To90Amount = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder par61To90Amount(BigDecimal value) {
             this.par61To90Amount = value;
             return this;
         }
+
         public BnrSummaryReportBuilder par91To180Amount(Double value) {
             this.par91To180Amount = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder par91To180Amount(BigDecimal value) {
             this.par91To180Amount = value;
             return this;
         }
+
         public BnrSummaryReportBuilder par181To365Amount(Double value) {
             this.par181To365Amount = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder par181To365Amount(BigDecimal value) {
             this.par181To365Amount = value;
             return this;
         }
+
         public BnrSummaryReportBuilder parOver365Amount(Double value) {
             this.parOver365Amount = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder parOver365Amount(BigDecimal value) {
             this.parOver365Amount = value;
             return this;
         }
+
         public BnrSummaryReportBuilder nplAmount(Double value) {
             this.nplAmount = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder nplAmount(BigDecimal value) {
             this.nplAmount = value;
             return this;
         }
+
         public BnrSummaryReportBuilder nplRatio(Double value) {
             this.nplRatio = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder nplRatio(BigDecimal value) {
             this.nplRatio = value;
             return this;
         }
+
         public BnrSummaryReportBuilder defaultedAmount(Double value) {
             this.defaultedAmount = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder defaultedAmount(BigDecimal value) {
             this.defaultedAmount = value;
             return this;
         }
+
         public BnrSummaryReportBuilder writtenOffAmount(Double value) {
             this.writtenOffAmount = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder writtenOffAmount(BigDecimal value) {
             this.writtenOffAmount = value;
             return this;
         }
+
         public BnrSummaryReportBuilder recoveriesAfterWriteOff(Double value) {
             this.recoveriesAfterWriteOff = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder recoveriesAfterWriteOff(BigDecimal value) {
             this.recoveriesAfterWriteOff = value;
             return this;
         }
+
         public BnrSummaryReportBuilder requiredProvision(Double value) {
             this.requiredProvision = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder requiredProvision(BigDecimal value) {
             this.requiredProvision = value;
             return this;
         }
+
         public BnrSummaryReportBuilder existingProvision(Double value) {
             this.existingProvision = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder existingProvision(BigDecimal value) {
             this.existingProvision = value;
             return this;
         }
+
         public BnrSummaryReportBuilder provisionShortfall(Double value) {
             this.provisionShortfall = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder provisionShortfall(BigDecimal value) {
             this.provisionShortfall = value;
             return this;
         }
+
         public BnrSummaryReportBuilder totalExternalDebt(Double value) {
             this.totalExternalDebt = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BnrSummaryReportBuilder totalExternalDebt(BigDecimal value) {
             this.totalExternalDebt = value;
             return this;

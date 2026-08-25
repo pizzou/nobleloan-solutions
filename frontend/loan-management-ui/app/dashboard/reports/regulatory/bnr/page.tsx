@@ -1197,6 +1197,62 @@ export default function BnrReportPage() {
               </div>
             </section>
 
+            {safeNumber(summary.legacyImportedLoanCount) > 0 && (
+              <Section
+                title="Legacy Portfolio Migration"
+                description="Historical cumulative values imported from the legacy ledger. These are shown separately from current-period cash flows because the legacy source has no individual historical payment dates."
+              >
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <Metric
+                    label="Imported Loans"
+                    value={formatNumber(summary.legacyImportedLoanCount)}
+                  />
+                  <Metric
+                    label="Historical Principal Disbursed"
+                    value={formatMoney(
+                      summary.legacyHistoricalPrincipalDisbursed,
+                      currency,
+                    )}
+                  />
+                  <Metric
+                    label="Historical Principal Collected"
+                    value={formatMoney(
+                      summary.legacyHistoricalPrincipalCollected,
+                      currency,
+                    )}
+                  />
+                  <Metric
+                    label="Historical Interest Collected"
+                    value={formatMoney(
+                      summary.legacyHistoricalInterestCollected,
+                      currency,
+                    )}
+                  />
+                  <Metric
+                    label="Historical Fees Collected"
+                    value={formatMoney(
+                      summary.legacyHistoricalFeesCollected,
+                      currency,
+                    )}
+                  />
+                  <Metric
+                    label="Historical Penalties Collected"
+                    value={formatMoney(
+                      summary.legacyHistoricalPenaltiesCollected,
+                      currency,
+                    )}
+                  />
+                  <Metric
+                    label="Historical Total Collected"
+                    value={formatMoney(
+                      summary.legacyHistoricalTotalCollected,
+                      currency,
+                    )}
+                  />
+                </div>
+              </Section>
+            )}
+
             {/* Portfolio quality */}
             <Section
               title="Portfolio Quality"

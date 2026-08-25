@@ -18,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -487,6 +488,22 @@ public class RegulatoryReportingService {
                 List<String> warnings = new ArrayList<>();
 
                 // ========================================================
+                // LEGACY PORTFOLIO MIGRATION TOTALS
+                // ========================================================
+                // These values come from the cumulative state stored on imported
+                // Loan records. They must be declared before the portfolio loop
+                // because the loop populates them. They are reported separately
+                // from current-period Payment rows because imported historical
+                // payments do not have individual historical payment dates.
+                long legacyImportedLoanCount = 0L;
+                BigDecimal legacyHistoricalPrincipalDisbursed = BigDecimal.ZERO;
+                BigDecimal legacyHistoricalPrincipalCollected = BigDecimal.ZERO;
+                BigDecimal legacyHistoricalInterestCollected = BigDecimal.ZERO;
+                BigDecimal legacyHistoricalFeesCollected = BigDecimal.ZERO;
+                BigDecimal legacyHistoricalPenaltiesCollected = BigDecimal.ZERO;
+                BigDecimal legacyHistoricalTotalCollected = BigDecimal.ZERO;
+
+                // ========================================================
                 // PROCESS PORTFOLIO
                 // ========================================================
 
@@ -494,6 +511,25 @@ public class RegulatoryReportingService {
 
                         if (loan == null) {
                                 continue;
+                        }
+
+                        if (Boolean.TRUE.equals(loan.getImported())) {
+                                legacyImportedLoanCount++;
+                                legacyHistoricalPrincipalDisbursed = legacyHistoricalPrincipalDisbursed
+                                                .add(money(loan.getDisbursedAmountDecimal()));
+                                legacyHistoricalPrincipalCollected = legacyHistoricalPrincipalCollected
+                                                .add(money(loan.getPrincipalPaidDecimal()));
+                                legacyHistoricalInterestCollected = legacyHistoricalInterestCollected
+                                                .add(money(loan.getInterestPaidDecimal()));
+                                legacyHistoricalFeesCollected = legacyHistoricalFeesCollected.add(
+                                                money(loan.getManagementFeePaidDecimal())
+                                                                .add(money(loan.getExtensionFeePaidDecimal()))
+                                                                .add(money(loan.getProcessingFeePaidDecimal())));
+                                legacyHistoricalPenaltiesCollected = legacyHistoricalPenaltiesCollected
+                                                .add(money(loan.getPenaltiesPaidDecimal()));
+                                legacyHistoricalTotalCollected = legacyHistoricalTotalCollected.add(
+                                                money(loan.getTotalPaidDecimal())
+                                                                .add(money(loan.getProcessingFeePaidDecimal())));
                         }
 
                         LoanStatus status = loan.getStatus();
@@ -1108,8 +1144,14 @@ public class RegulatoryReportingService {
                                 .totalLoans(
                                                 portfolioLoans.size())
 
-                                .loansDisbursedDuringPeriod(
-                                                actualDisbursementCount)
+                                .loansDisbursedDuringPeriod(actualDisbursementCount)
+                                .legacyImportedLoanCount(legacyImportedLoanCount)
+                                .legacyHistoricalPrincipalDisbursed(money(legacyHistoricalPrincipalDisbursed))
+                                .legacyHistoricalPrincipalCollected(money(legacyHistoricalPrincipalCollected))
+                                .legacyHistoricalInterestCollected(money(legacyHistoricalInterestCollected))
+                                .legacyHistoricalFeesCollected(money(legacyHistoricalFeesCollected))
+                                .legacyHistoricalPenaltiesCollected(money(legacyHistoricalPenaltiesCollected))
+                                .legacyHistoricalTotalCollected(money(legacyHistoricalTotalCollected))
 
                                 .activeLoans(
                                                 activeLoans)
@@ -2367,6 +2409,16 @@ public class RegulatoryReportingService {
 
                 return number(
                                 loan.getAmount());
+        }
+
+        // ============================================================
+        // MONEY
+        // ============================================================
+
+        private BigDecimal money(BigDecimal value) {
+                if (value == null)
+                        return BigDecimal.ZERO.setScale(2, java.math.RoundingMode.HALF_UP);
+                return value.setScale(2, java.math.RoundingMode.HALF_UP);
         }
 
         // ============================================================
