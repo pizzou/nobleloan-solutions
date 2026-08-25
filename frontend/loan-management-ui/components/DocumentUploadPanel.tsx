@@ -9,6 +9,8 @@ interface DocItem {
   fileName: string;
   fileSize: number;
   verificationStatus?: string;
+  uploadedByApplicant?: boolean;
+  officerComment?: string;
 }
 
 interface RequiredDoc {
@@ -88,6 +90,7 @@ export default function DocumentUploadPanel({
   const [uploadingType, setUploadingType] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [cameraFor, setCameraFor] = useState<string | null>(null);
+  const [cameraReplaceId, setCameraReplaceId] = useState<number | null>(null);
 
   const required = requiredDocsFor(maritalStatus);
 
@@ -121,6 +124,19 @@ export default function DocumentUploadPanel({
     }
   };
 
+  const doReplace = async (doc: DocItem, file: File | Blob) => {
+    setError("");
+    setUploadingType(doc.documentType);
+    try {
+      await publicApi.replaceDocument(reference, phone, doc.id, file);
+      refresh();
+    } catch (err: any) {
+      setError(err.message || "Replacement failed. Please try again.");
+    } finally {
+      setUploadingType(null);
+    }
+  };
+
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const handleDelete = async (doc: DocItem) => {
@@ -149,6 +165,18 @@ export default function DocumentUploadPanel({
       if (file) doUpload(type, file);
       e.target.value = "";
     };
+
+  const handleReplaceFileInput =
+    (doc: DocItem) => (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) doReplace(doc, file);
+      e.target.value = "";
+    };
+
+  const openCameraForDocument = (type: string, replaceId?: number) => {
+    setCameraFor(type);
+    setCameraReplaceId(replaceId ?? null);
+  };
 
   const allComplete = required.every((d) => countFor(d.type) >= d.count);
 
@@ -215,7 +243,17 @@ export default function DocumentUploadPanel({
 
               {doc.camera ? (
                 <button
-                  onClick={() => setCameraFor(doc.type)}
+                  onClick={() => {
+                    const latest = filesFor(doc.type).sort(
+                      (a, b) => b.id - a.id,
+                    )[0];
+                    openCameraForDocument(
+                      doc.type,
+                      complete && latest?.verificationStatus === "VERIFIED"
+                        ? latest.id
+                        : undefined,
+                    );
+                  }}
                   disabled={busy}
                   className="text-xs font-bold px-3 py-2 rounded-md border shrink-0 disabled:opacity-50"
                   style={{ borderColor: primary, color: primary }}
@@ -266,20 +304,41 @@ export default function DocumentUploadPanel({
                     <span className="truncate">
                       📄 {f.fileName}{" "}
                       <span className="text-gray-400">({doc.label})</span>
+                      {f.officerComment &&
+                      f.verificationStatus !== "VERIFIED" ? (
+                        <span className="block text-red-600 mt-0.5">
+                          {f.officerComment}
+                        </span>
+                      ) : null}
                     </span>
-                    {f.verificationStatus === "VERIFIED" ? (
-                      <span className="text-green-600 font-semibold shrink-0">
-                        Verified
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => handleDelete(f)}
-                        disabled={deletingId === f.id}
-                        className="text-red-500 hover:text-red-700 font-semibold shrink-0 disabled:opacity-50"
-                      >
-                        {deletingId === f.id ? "Removing…" : "✕ Remove"}
-                      </button>
-                    )}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {f.verificationStatus === "VERIFIED" && (
+                        <span className="text-green-600 font-semibold">
+                          Verified
+                        </span>
+                      )}
+                      {f.uploadedByApplicant !== false && (
+                        <label className="text-slate-700 hover:text-slate-950 font-semibold cursor-pointer">
+                          Replace
+                          <input
+                            type="file"
+                            accept="image/*,application/pdf"
+                            className="hidden"
+                            disabled={uploadingType === f.documentType}
+                            onChange={handleReplaceFileInput(f)}
+                          />
+                        </label>
+                      )}
+                      {f.verificationStatus !== "VERIFIED" && (
+                        <button
+                          onClick={() => handleDelete(f)}
+                          disabled={deletingId === f.id}
+                          className="text-red-500 hover:text-red-700 font-semibold disabled:opacity-50"
+                        >
+                          {deletingId === f.id ? "Removing…" : "✕ Remove"}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -290,11 +349,21 @@ export default function DocumentUploadPanel({
       {cameraFor && (
         <CameraCapture
           primary={primary}
-          onClose={() => setCameraFor(null)}
+          onClose={() => {
+            setCameraFor(null);
+            setCameraReplaceId(null);
+          }}
           onCapture={(blob) => {
             const type = cameraFor;
+            const replaceId = cameraReplaceId;
             setCameraFor(null);
-            doUpload(type, blob);
+            setCameraReplaceId(null);
+            if (replaceId != null) {
+              const existing = uploaded.find((doc) => doc.id === replaceId);
+              if (existing) doReplace(existing, blob);
+            } else {
+              doUpload(type, blob);
+            }
           }}
         />
       )}
@@ -349,20 +418,43 @@ export default function DocumentUploadPanel({
                     key={f.id}
                     className="flex items-center justify-between gap-3 text-xs text-gray-500 pt-1.5 mt-1.5 border-t border-gray-50"
                   >
-                    <span className="truncate">📄 {f.fileName}</span>
-                    {f.verificationStatus === "VERIFIED" ? (
-                      <span className="text-green-600 font-semibold shrink-0">
-                        Verified
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => handleDelete(f)}
-                        disabled={deletingId === f.id}
-                        className="text-red-500 hover:text-red-700 font-semibold shrink-0 disabled:opacity-50"
-                      >
-                        {deletingId === f.id ? "Removing…" : "✕ Remove"}
-                      </button>
-                    )}
+                    <span className="truncate">
+                      📄 {f.fileName}
+                      {f.officerComment &&
+                      f.verificationStatus !== "VERIFIED" ? (
+                        <span className="block text-red-600 mt-0.5">
+                          {f.officerComment}
+                        </span>
+                      ) : null}
+                    </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {f.verificationStatus === "VERIFIED" && (
+                        <span className="text-green-600 font-semibold">
+                          Verified
+                        </span>
+                      )}
+                      {f.uploadedByApplicant !== false && (
+                        <label className="text-slate-700 hover:text-slate-950 font-semibold cursor-pointer">
+                          Replace
+                          <input
+                            type="file"
+                            accept="image/*,application/pdf"
+                            className="hidden"
+                            disabled={uploadingType === f.documentType}
+                            onChange={handleReplaceFileInput(f)}
+                          />
+                        </label>
+                      )}
+                      {f.verificationStatus !== "VERIFIED" && (
+                        <button
+                          onClick={() => handleDelete(f)}
+                          disabled={deletingId === f.id}
+                          className="text-red-500 hover:text-red-700 font-semibold disabled:opacity-50"
+                        >
+                          {deletingId === f.id ? "Removing…" : "✕ Remove"}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

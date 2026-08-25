@@ -475,6 +475,14 @@ public class PublicController {
                                                                         "verificationStatus",
                                                                         f.getVerificationStatus());
 
+                                                        m.put(
+                                                                        "uploadedByApplicant",
+                                                                        f.isUploadedByApplicant());
+
+                                                        m.put(
+                                                                        "officerComment",
+                                                                        f.getOfficerComment());
+
                                                         return m;
                                                 })
                                 .toList();
@@ -482,6 +490,100 @@ public class PublicController {
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
                                                 docs));
+        }
+
+        @PostMapping("/applications/{reference}/documents/{fileId}/replace")
+        @Transactional
+        public ResponseEntity<ApiResponse<Map<String, Object>>> replaceApplicationDocument(
+                        @PathVariable String reference,
+                        @PathVariable Long fileId,
+                        @RequestParam String phone,
+                        @RequestPart("file") MultipartFile file) throws Exception {
+
+                Loan loan = verifyOwnership(reference, phone);
+
+                if (loan.getBorrower() == null) {
+                        throw new RuntimeException(
+                                        "This application has no borrower associated with it.");
+                }
+
+                if (file == null || file.isEmpty()) {
+                        throw new RuntimeException(
+                                        "Please select a replacement document to upload.");
+                }
+
+                BorrowerFile existing = fileService.getById(fileId);
+
+                if (existing.getBorrower() == null
+                                || existing.getBorrower().getId() == null
+                                || !existing.getBorrower().getId().equals(loan.getBorrower().getId())) {
+                        throw new RuntimeException("Document not found.");
+                }
+
+                if (!existing.isUploadedByApplicant()) {
+                        throw new RuntimeException(
+                                        "This document was added by our staff and cannot be replaced by the applicant.");
+                }
+
+                DocumentType documentType = existing.getDocumentType() != null
+                                ? existing.getDocumentType()
+                                : DocumentType.OTHER;
+
+                BorrowerFile replacement = fileService.replaceApplicantDocument(
+                                loan.getBorrower().getId(),
+                                fileId,
+                                file,
+                                documentType);
+
+                auditService.log(
+                                loan.getBorrower().getOrganization(),
+                                null,
+                                "APPLICANT_DOCUMENT_REPLACED",
+                                "BORROWER_FILE",
+                                replacement.getId().toString(),
+                                documentType
+                                                + " replacement submitted by applicant for application "
+                                                + loan.getReferenceNumber()
+                                                + "; previous file #"
+                                                + fileId
+                                                + " retained for audit history.");
+
+                List<User> staff = userRepo.findByOrganization(loan.getBorrower().getOrganization())
+                                .stream()
+                                .filter(user -> user.getRole() != null
+                                                && user.getRole().getName() != null
+                                                && Set.of("ADMIN", "MANAGER", "LOAN_OFFICER")
+                                                                .contains(user.getRole().getName()))
+                                .toList();
+
+                if (!staff.isEmpty()) {
+                        notificationService.notifyUsers(
+                                        staff,
+                                        "Document replacement submitted",
+                                        loan.getBorrower().getFullName()
+                                                        + " submitted a replacement "
+                                                        + documentType
+                                                        + " for application "
+                                                        + loan.getReferenceNumber()
+                                                        + ". The new document is awaiting verification.",
+                                        "info",
+                                        "/dashboard/loans/" + loan.getId());
+                }
+
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("id", replacement.getId());
+                result.put("previousFileId", fileId);
+                result.put("documentType", replacement.getDocumentType());
+                result.put("fileName", replacement.getFileName());
+                result.put("fileSize", replacement.getFileSize());
+                result.put("verificationStatus", replacement.getVerificationStatus());
+                result.put("uploadedByApplicant", true);
+                result.put("message", "Replacement submitted and is awaiting verification.");
+
+                return ResponseEntity.ok(
+                                ApiResponse.ok(
+                                                "Document replacement submitted",
+                                                result));
         }
 
         // ============================================================

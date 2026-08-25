@@ -6,9 +6,8 @@ import com.patrick.fintech.loan_backend.model.DocumentType;
 import com.patrick.fintech.loan_backend.model.VerificationStatus;
 import com.patrick.fintech.loan_backend.repository.BorrowerFileRepository;
 import com.patrick.fintech.loan_backend.repository.BorrowerRepository;
-import org.springframework.stereotype.Service;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
+import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -23,16 +22,16 @@ public class BorrowerFileService {
     private final BorrowerFileRepository fileRepository;
     private final BorrowerRepository borrowerRepository;
     private final SecureFileUploadValidator secureFileUploadValidator;
-
-    @PersistenceContext
-    private EntityManager entityManager;
+    private final EntityManager entityManager;
 
     public BorrowerFileService(BorrowerFileRepository fileRepository,
             BorrowerRepository borrowerRepository,
-            SecureFileUploadValidator secureFileUploadValidator) {
+            SecureFileUploadValidator secureFileUploadValidator,
+            EntityManager entityManager) {
         this.fileRepository = fileRepository;
         this.borrowerRepository = borrowerRepository;
         this.secureFileUploadValidator = secureFileUploadValidator;
+        this.entityManager = entityManager;
     }
 
     private static final Set<String> ALLOWED_TYPES = Set.of(
@@ -88,13 +87,7 @@ public class BorrowerFileService {
         borrowerFile.setFileName(file.getOriginalFilename());
         borrowerFile.setFileType(file.getContentType());
         borrowerFile.setFileSize(file.getSize());
-        byte[] content = file.getBytes();
-
-        if (content.length == 0) {
-            throw new IllegalStateException("The uploaded document contains no file content.");
-        }
-
-        borrowerFile.setData(content);
+        borrowerFile.setData(file.getBytes());
 
         borrowerFile.setDocumentType(
                 documentType != null
@@ -105,15 +98,7 @@ public class BorrowerFileService {
 
         borrowerFile.setVerificationStatus(VerificationStatus.PENDING);
 
-        BorrowerFile saved = fileRepository.save(borrowerFile);
-
-        if (saved.getData() == null || saved.getData().length == 0) {
-            throw new IllegalStateException(
-                    "The document was accepted but its binary content was not persisted. "
-                            + "Please retry the upload.");
-        }
-
-        return saved;
+        return fileRepository.save(borrowerFile);
     }
 
     /**
@@ -145,20 +130,14 @@ public class BorrowerFileService {
         List<BorrowerFile> files = fileRepository.findByBorrowerId(borrowerId);
 
         /*
-         * IMPORTANT: do not clear data on managed JPA entities.
+         * borrower_files.data is the authoritative binary content. This method
+         * exists only to build metadata responses, so never mutate a managed
+         * BorrowerFile entity to hide the bytes. Doing f.setData(null) while
+         * Hibernate is tracking the entity can dirty the row and persist NULL
+         * back to PostgreSQL. That was capable of turning a valid uploaded
+         * document into a metadata-only record after a normal list request.
          *
-         * The previous implementation did:
-         * f.setData(null);
-         *
-         * When called from a @Transactional controller, those entities are
-         * managed by Hibernate. Dirty checking could therefore persist the
-         * null byte[] back into borrower_files.data. A borrower could upload a
-         * perfectly valid PDF/JPG and the subsequent document-list request
-         * could erase its stored content.
-         *
-         * We detach each entity first, then remove the binary only from the
-         * detached response object. This preserves the metadata-only contract
-         * without ever writing null back to PostgreSQL.
+         * Detach first, then remove the bytes only from the response object.
          */
         for (BorrowerFile file : files) {
             entityManager.detach(file);
@@ -214,6 +193,63 @@ public class BorrowerFileService {
         file.setVerifiedAt(LocalDateTime.now());
 
         return fileRepository.save(file);
+    }
+
+    /**
+     * Replace an applicant-owned document without destroying its audit history.
+     *
+     * The previous row is retained and moved to REPLACEMENT_REQUESTED. A new
+     * row receives the new binary and starts at PENDING so staff must make a
+     * fresh verification decision.
+     */
+    public BorrowerFile replaceApplicantDocument(Long borrowerId,
+            Long fileId,
+            MultipartFile replacement,
+            DocumentType documentType) throws IOException {
+
+        secureFileUploadValidator.validateDocument(replacement, MAX_FILE_BYTES);
+
+        Borrower borrower = borrowerRepository.findById(borrowerId)
+                .orElseThrow(() -> new RuntimeException("Borrower not found: " + borrowerId));
+
+        BorrowerFile existing = fileRepository.findById(fileId)
+                .orElseThrow(() -> new RuntimeException("Document not found."));
+
+        if (existing.getBorrower() == null
+                || existing.getBorrower().getId() == null
+                || !existing.getBorrower().getId().equals(borrowerId)) {
+            throw new RuntimeException("Document not found.");
+        }
+
+        if (!existing.isUploadedByApplicant()) {
+            throw new RuntimeException(
+                    "This document was added by our staff and cannot be replaced by the applicant.");
+        }
+
+        DocumentType effectiveType = documentType != null
+                ? documentType
+                : existing.getDocumentType();
+
+        if (effectiveType == null) {
+            effectiveType = DocumentType.OTHER;
+        }
+
+        existing.setVerificationStatus(VerificationStatus.REPLACEMENT_REQUESTED);
+        existing.setOfficerComment(
+                "Applicant submitted a replacement document. Previous document retained for audit history.");
+        fileRepository.save(existing);
+
+        BorrowerFile replacementFile = new BorrowerFile();
+        replacementFile.setBorrower(borrower);
+        replacementFile.setFileName(replacement.getOriginalFilename());
+        replacementFile.setFileType(replacement.getContentType());
+        replacementFile.setFileSize(replacement.getSize());
+        replacementFile.setData(replacement.getBytes());
+        replacementFile.setDocumentType(effectiveType);
+        replacementFile.setUploadedByApplicant(true);
+        replacementFile.setVerificationStatus(VerificationStatus.PENDING);
+
+        return fileRepository.save(replacementFile);
     }
 
     /**

@@ -1,4 +1,3 @@
-import { TENANT_SLUG } from "@/lib/tenant";
 import axios, {
   AxiosError,
   AxiosHeaders,
@@ -21,7 +20,6 @@ const API: AxiosInstance = axios.create({
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",
-    "X-Tenant-Slug": TENANT_SLUG,
   },
 });
 
@@ -37,7 +35,6 @@ API.interceptors.request.use(
             : new AxiosHeaders(config.headers);
 
         headers.set("Authorization", `Bearer ${token}`);
-        headers.set("X-Tenant-Slug", TENANT_SLUG);
 
         config.headers = headers;
       }
@@ -877,6 +874,36 @@ export const publicApi = {
     del(
       `/public/applications/${encodeURIComponent(reference.trim())}/documents/${fileId}?phone=${encodeURIComponent(phone.trim())}`,
     ),
+
+  replaceDocument: (
+    reference: string,
+    phone: string,
+    fileId: number,
+    file: File | Blob,
+    fileName?: string,
+  ) => {
+    const form = new FormData();
+
+    form.append("phone", phone.trim());
+
+    const resolvedFileName =
+      fileName ||
+      ("name" in file && typeof file.name === "string"
+        ? file.name
+        : "replacement.jpg");
+
+    form.append("file", file, resolvedFileName);
+
+    return API.post(
+      `/public/applications/${encodeURIComponent(reference.trim())}/documents/${fileId}/replace`,
+      form,
+      {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      },
+    ).then((response) => unwrap(response.data));
+  },
 
   uploadDocument: (
     reference: string,
