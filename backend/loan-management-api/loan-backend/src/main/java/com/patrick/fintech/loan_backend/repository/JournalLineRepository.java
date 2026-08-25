@@ -1,4 +1,3 @@
-
 package com.patrick.fintech.loan_backend.repository;
 
 import com.patrick.fintech.loan_backend.model.JournalLine;
@@ -164,11 +163,15 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
               'MANAGEMENT_FEE_ACCRUAL',
               'PENALTY_ACCRUAL',
               'LOAN_EXTENSION_FEE',
+              'LOAN_DISBURSEMENT',
+              'SCHEDULED_INTEREST_ACCRUAL',
+              'SCHEDULED_MANAGEMENT_FEE_ACCRUAL',
+              'CONTRACTUAL_MONTHLY_INTEREST_ACCRUAL',
+              'CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL',
               'HISTORICAL_LOAN_OPENING',
               'LEGACY_LOAN_OPENING',
               'LEGACY_LOAN_RECONCILIATION',
-              'PAYMENT_RECEIVED',
-              'LOAN_DISBURSEMENT'
+              'PAYMENT_RECEIVED'
         )
         AND (
               l.description LIKE CONCAT('%', :loanReference, '%')

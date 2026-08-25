@@ -169,6 +169,18 @@ export default function AccountingPage() {
 
   const [reconcilingLegacy, setReconcilingLegacy] = useState(false);
 
+  const [reconciliationSummary, setReconciliationSummary] = useState<{
+    processed: number;
+    created: number;
+    beforeBalanced: boolean;
+    afterBalanced: boolean;
+    beforeMaximumDifference: number;
+    afterMaximumDifference: number;
+    operationalUpdatedLoans: number;
+    operationalUpdatedComponents: number;
+    unresolvedOperationalDifferences: string[];
+  } | null>(null);
+
   const [showBankAccountForm, setShowBankAccountForm] = useState(false);
 
   const [showTransactionForm, setShowTransactionForm] = useState(false);
@@ -247,14 +259,31 @@ export default function AccountingPage() {
       setError("");
 
       const result = await accountingApi.reconcileLegacyLoans();
-      const created =
-        (result as any)?.created ?? (result as any)?.data?.created ?? 0;
+      const payload = (result as any)?.data ?? result;
+      const created = Number(payload?.created ?? 0);
+      const processed = Number(payload?.processed ?? 0);
+
+      setReconciliationSummary({
+        processed,
+        created,
+        beforeBalanced: Boolean(payload?.beforeBalanced),
+        afterBalanced: Boolean(payload?.afterBalanced),
+        beforeMaximumDifference: Number(payload?.beforeMaximumDifference ?? 0),
+        afterMaximumDifference: Number(payload?.afterMaximumDifference ?? 0),
+        operationalUpdatedLoans: Number(payload?.operationalUpdatedLoans ?? 0),
+        operationalUpdatedComponents: Number(
+          payload?.operationalUpdatedComponents ?? 0,
+        ),
+        unresolvedOperationalDifferences: Array.isArray(
+          payload?.unresolvedOperationalDifferences,
+        )
+          ? payload.unresolvedOperationalDifferences.map(String)
+          : [],
+      });
 
       await loadAll();
 
-      setError(
-        `Historical loan accounting reconciliation completed. ${created} opening journal ${created === 1 ? "entry was" : "entries were"} created.`,
-      );
+      setError("");
     } catch (err) {
       setError(
         err instanceof Error
@@ -389,6 +418,95 @@ export default function AccountingPage() {
             : "Reconcile Imported Loans"}
         </button>
       </div>
+
+      {reconciliationSummary && (
+        <div
+          className={`rounded-2xl border p-5 shadow-sm ${
+            reconciliationSummary.afterBalanced
+              ? "border-emerald-200 bg-emerald-50"
+              : "border-amber-200 bg-amber-50"
+          }`}
+        >
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`inline-flex h-2.5 w-2.5 rounded-full ${
+                    reconciliationSummary.afterBalanced
+                      ? "bg-emerald-500"
+                      : "bg-amber-500"
+                  }`}
+                />
+                <h2 className="text-sm font-bold text-slate-900">
+                  Imported Loan Reconciliation
+                </h2>
+              </div>
+              <p className="mt-1 text-xs text-slate-600">
+                {reconciliationSummary.processed} imported loans processed ·{" "}
+                {reconciliationSummary.created} journal adjustments created ·{" "}
+                {reconciliationSummary.operationalUpdatedLoans} loan operational
+                balances synchronized.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-xl border border-white/80 bg-white/80 px-4 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Before
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {reconciliationSummary.beforeBalanced
+                    ? "Balanced"
+                    : "Mismatch"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-white/80 bg-white/80 px-4 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  After
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {reconciliationSummary.afterBalanced ? "Balanced" : "Review"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-white/80 bg-white/80 px-4 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Before Difference
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {fmt(reconciliationSummary.beforeMaximumDifference)}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-white/80 bg-white/80 px-4 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  After Difference
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {fmt(reconciliationSummary.afterMaximumDifference)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {reconciliationSummary.unresolvedOperationalDifferences.length >
+            0 && (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-white/80 p-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-amber-700">
+                Manual review required
+              </p>
+              <ul className="mt-2 space-y-1 text-xs text-slate-600">
+                {reconciliationSummary.unresolvedOperationalDifferences
+                  .slice(0, 8)
+                  .map((item, index) => (
+                    <li key={`${item}-${index}`}>• {item}</li>
+                  ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ===================================================
           GLOBAL ERROR

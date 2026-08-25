@@ -57,6 +57,9 @@ public class AccountingService {
                         MONEY_SCALE,
                         MONEY_ROUNDING);
 
+        /** Maximum immaterial reconciliation difference, in RWF. */
+        private static final BigDecimal TOLERANCE = new BigDecimal("0.01");
+
         // ============================================================
         // DEFAULT CHART OF ACCOUNTS
         // ============================================================
@@ -1038,7 +1041,13 @@ public class AccountingService {
                                 glBalance = money(glBalance.max(ZERO));
                                 BigDecimal delta = money(expectedBalance.subtract(glBalance));
 
-                                if (delta.abs().compareTo(new BigDecimal("0.01")) >= 0) {
+                                // Positive delta means the operational imported opening
+                                // receivable is larger than the active GL balance. That is a
+                                // safe historical-opening correction. A negative delta means
+                                // GL is already larger than the operational state; that case
+                                // is handled by the conservative operational synchronization
+                                // instead of reducing accounting history automatically.
+                                if (delta.compareTo(new BigDecimal("0.01")) >= 0) {
                                         deltas.put(code, delta);
                                 }
                         }
@@ -1051,6 +1060,163 @@ public class AccountingService {
                 }
 
                 return repaired;
+        }
+
+        /**
+         * Synchronizes the operational loan receivable state upward when the
+         * authoritative GL already contains a larger active receivable balance.
+         *
+         * This is intentionally conservative:
+         * - it never decreases a loan balance automatically;
+         * - it never creates a journal;
+         * - it never edits or deletes accounting history;
+         * - imported-loan opening differences are repaired by the legacy
+         * reconciliation method before this synchronization runs.
+         *
+         * This closes the historical gap where scheduled contractual accruals
+         * were posted to GL 1150/1160 but the Loan operational fields were not
+         * advanced at the same time.
+         */
+        @Transactional
+        public OperationalReceivableSyncResult synchronizeOperationalReceivables(
+                        Long organizationId) {
+
+                if (organizationId == null || organizationId <= 0) {
+                        throw new IllegalArgumentException(
+                                        "Organization ID must be positive.");
+                }
+
+                List<Loan> loans = loanRepo.findByOrganization_Id(organizationId);
+                if (loans == null || loans.isEmpty()) {
+                        return new OperationalReceivableSyncResult(0, 0, List.of());
+                }
+
+                Map<String, ChartOfAccount> receivableAccounts = new LinkedHashMap<>();
+                for (String code : List.of("1100", "1150", "1160", "1170", "1175")) {
+                        ChartOfAccount account = coaRepo
+                                        .findByOrganization_IdAndCode(organizationId, code)
+                                        .orElse(null);
+                        if (account != null) {
+                                receivableAccounts.put(code, account);
+                        }
+                }
+
+                List<String> unresolved = new ArrayList<>();
+                int updatedLoans = 0;
+                int updatedComponents = 0;
+
+                for (Loan loan : loans) {
+                        if (loan == null
+                                        || loan.getId() == null
+                                        || loan.getOrganization() == null
+                                        || !organizationId.equals(loan.getOrganization().getId())
+                                        || loan.getReferenceNumber() == null
+                                        || loan.getReferenceNumber().isBlank()) {
+                                continue;
+                        }
+
+                        boolean loanUpdated = false;
+
+                        for (Map.Entry<String, ChartOfAccount> accountEntry : receivableAccounts.entrySet()) {
+                                String code = accountEntry.getKey();
+                                ChartOfAccount account = accountEntry.getValue();
+
+                                List<JournalLine> lines = lineRepo.findReceivableLinesForLoan(
+                                                account.getId(),
+                                                organizationId,
+                                                loan.getReferenceNumber());
+
+                                BigDecimal glBalance = ZERO;
+
+                                if (lines != null) {
+                                        for (JournalLine line : lines) {
+                                                if (line == null || line.getJournalEntry() == null) {
+                                                        continue;
+                                                }
+
+                                                JournalEntry entry = line.getJournalEntry();
+
+                                                if (Boolean.TRUE.equals(entry.getReversed())) {
+                                                        continue;
+                                                }
+
+                                                // A legacy-imported loan must never acquire a
+                                                // historical LOAN_DISBURSEMENT receivable from this
+                                                // synchronization. Its opening position is represented
+                                                // by LEGACY_LOAN_OPENING / RECONCILIATION.
+                                                if (Boolean.TRUE.equals(loan.getImported())
+                                                                && "LOAN_DISBURSEMENT".equals(entry.getSourceType())) {
+                                                        continue;
+                                                }
+
+                                                glBalance = glBalance
+                                                                .add(money(line.getDebitDecimal()))
+                                                                .subtract(money(line.getCreditDecimal()));
+                                        }
+                                }
+
+                                glBalance = money(glBalance.max(ZERO));
+
+                                BigDecimal operational;
+
+                                switch (code) {
+                                        case "1100" ->
+                                                operational = money(loan.getOutstandingBalanceDecimal()).max(ZERO);
+                                        case "1150" ->
+                                                operational = money(loan.getInterestOutstandingDecimal()).max(ZERO);
+                                        case "1160" -> operational = money(loan.getManagementFeeOutstandingDecimal())
+                                                        .max(ZERO);
+                                        case "1170" ->
+                                                operational = money(loan.getExtensionFeeOutstandingDecimal()).max(ZERO);
+                                        case "1175" -> operational = money(loan.getPenaltiesAssessedDecimal())
+                                                        .subtract(money(loan.getPenaltiesPaidDecimal()))
+                                                        .max(ZERO);
+                                        default -> operational = ZERO;
+                                }
+
+                                BigDecimal difference = money(glBalance.subtract(operational));
+
+                                if (difference.compareTo(TOLERANCE) > 0) {
+                                        switch (code) {
+                                                case "1100" -> loan.setOutstandingBalance(glBalance);
+                                                case "1150" -> loan.setInterestOutstanding(glBalance);
+                                                case "1160" -> loan.setManagementFeeOutstanding(glBalance);
+                                                case "1170" -> loan.setExtensionFeeOutstanding(glBalance);
+                                                case "1175" -> loan.setPenaltiesAssessed(
+                                                                glBalance.add(money(loan.getPenaltiesPaidDecimal())));
+                                                default -> {
+                                                }
+                                        }
+
+                                        updatedComponents++;
+                                        loanUpdated = true;
+                                } else if (difference.compareTo(TOLERANCE.negate()) < 0) {
+                                        unresolved.add(
+                                                        loan.getReferenceNumber()
+                                                                        + " / GL " + code
+                                                                        + " is " + difference.abs().toPlainString()
+                                                                        + " below the operational balance. No automatic decrease was applied.");
+                                }
+                        }
+
+                        if (loanUpdated) {
+                                updatedLoans++;
+                        }
+                }
+
+                return new OperationalReceivableSyncResult(
+                                updatedLoans,
+                                updatedComponents,
+                                unresolved);
+        }
+
+        /**
+         * Result of the conservative operational-sub-ledger synchronization.
+         */
+        public record OperationalReceivableSyncResult(
+                        int updatedLoans,
+                        int updatedComponents,
+                        List<String> unresolved) {
         }
 
         /**
@@ -1474,7 +1640,7 @@ public class AccountingService {
                                 ? loan.getReferenceNumber().trim()
                                 : "LOAN-" + loan.getId();
 
-                return post(
+                JournalEntry entry = post(
                                 org,
                                 loan.getBranch(),
                                 "SCHEDULED_INTEREST_ACCRUAL",
@@ -1497,6 +1663,16 @@ public class AccountingService {
                                                                 .description("Contractual interest income — "
                                                                                 + reference)
                                                                 .build()));
+
+                // Keep the operational loan sub-ledger synchronized with the
+                // receivable journal. The scheduler is the accounting event
+                // that creates this contractual receivable, so the loan's
+                // outstanding interest must increase atomically with GL 1150.
+                loan.setInterestOutstanding(
+                                money(loan.getInterestOutstandingDecimal())
+                                                .add(amount));
+
+                return entry;
         }
 
         /**
@@ -1534,7 +1710,7 @@ public class AccountingService {
                                 ? loan.getReferenceNumber().trim()
                                 : "LOAN-" + loan.getId();
 
-                return post(
+                JournalEntry entry = post(
                                 org,
                                 loan.getBranch(),
                                 "SCHEDULED_MANAGEMENT_FEE_ACCRUAL",
@@ -1557,6 +1733,14 @@ public class AccountingService {
                                                                 .description("Contractual management fee income — "
                                                                                 + reference)
                                                                 .build()));
+
+                // Keep the operational loan sub-ledger synchronized with GL
+                // 1160 at the exact moment the contractual fee is accrued.
+                loan.setManagementFeeOutstanding(
+                                money(loan.getManagementFeeOutstandingDecimal())
+                                                .add(amount));
+
+                return entry;
         }
 
         // ============================================================
@@ -1614,7 +1798,7 @@ public class AccountingService {
                                 ? loan.getReferenceNumber().trim()
                                 : "LOAN-" + loan.getId();
 
-                return post(
+                JournalEntry entry = post(
                                 org,
                                 loan.getBranch(),
                                 "CONTRACTUAL_MONTHLY_INTEREST_ACCRUAL",
@@ -1636,6 +1820,12 @@ public class AccountingService {
                                                                 .description("Contractual monthly interest income — "
                                                                                 + reference)
                                                                 .build()));
+
+                loan.setInterestOutstanding(
+                                money(loan.getInterestOutstandingDecimal())
+                                                .add(interest));
+
+                return entry;
         }
 
         /**
@@ -1680,7 +1870,7 @@ public class AccountingService {
                                 ? loan.getReferenceNumber().trim()
                                 : "LOAN-" + loan.getId();
 
-                return post(
+                JournalEntry entry = post(
                                 org,
                                 loan.getBranch(),
                                 "CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL",
@@ -1702,6 +1892,12 @@ public class AccountingService {
                                                                 .description("Contractual monthly management fee income — "
                                                                                 + reference)
                                                                 .build()));
+
+                loan.setManagementFeeOutstanding(
+                                money(loan.getManagementFeeOutstandingDecimal())
+                                                .add(fee));
+
+                return entry;
         }
 
         // ============================================================

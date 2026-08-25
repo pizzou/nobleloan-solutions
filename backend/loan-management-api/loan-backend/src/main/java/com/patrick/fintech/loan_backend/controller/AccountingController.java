@@ -12,6 +12,7 @@ import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.service.AccountingService;
 import com.patrick.fintech.loan_backend.service.AuditService;
 import com.patrick.fintech.loan_backend.service.ReportExportService;
+import com.patrick.fintech.loan_backend.service.FinancialReconciliationService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 
 import lombok.RequiredArgsConstructor;
@@ -46,6 +47,7 @@ public class AccountingController {
         private final CurrentUserUtil currentUserUtil;
         private final AuditService auditService;
         private final ReportExportService exportService;
+        private final FinancialReconciliationService financialReconciliationService;
 
         // ============================================================
         // ORGANIZATION / SECURITY
@@ -366,8 +368,18 @@ public class AccountingController {
                                 .findByOrganization_IdAndImportedTrue(
                                                 organization.getId());
 
+                FinancialReconciliationService.ReconciliationReport before = financialReconciliationService
+                                .reconcile(organization.getId());
+
                 int repaired = accountingService.reconcileLegacyLoanOpeningBalances(
                                 importedLoans);
+
+                AccountingService.OperationalReceivableSyncResult operationalSync = accountingService
+                                .synchronizeOperationalReceivables(
+                                                organization.getId());
+
+                FinancialReconciliationService.ReconciliationReport after = financialReconciliationService
+                                .reconcile(organization.getId());
 
                 auditService.log(
                                 organization,
@@ -386,6 +398,14 @@ public class AccountingController {
 
                 result.put("processed", importedLoans.size());
                 result.put("created", repaired);
+                result.put("beforeBalanced", before.balanced());
+                result.put("afterBalanced", after.balanced());
+                result.put("beforeMaximumDifference", before.maximumDifference());
+                result.put("afterMaximumDifference", after.maximumDifference());
+                result.put("operationalUpdatedLoans", operationalSync.updatedLoans());
+                result.put("operationalUpdatedComponents", operationalSync.updatedComponents());
+                result.put("unresolvedOperationalDifferences", operationalSync.unresolved());
+                result.put("afterReconciliation", after);
 
                 return ResponseEntity.ok(
                                 ApiResponse.safe(
