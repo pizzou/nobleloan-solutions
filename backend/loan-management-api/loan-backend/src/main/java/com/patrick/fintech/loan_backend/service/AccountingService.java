@@ -22,6 +22,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -787,14 +790,41 @@ public class AccountingService {
                 requireOrganization(org);
                 ensureChartOfAccounts(org);
 
-                BigDecimal principalOutstanding = money(loan.getOutstandingBalanceDecimal()).max(ZERO);
-                BigDecimal interestOutstanding = money(loan.getInterestOutstandingDecimal()).max(ZERO);
-                BigDecimal managementOutstanding = money(loan.getManagementFeeOutstandingDecimal()).max(ZERO);
+                BigDecimal principalOutstanding = money(
+                                loan.getOutstandingBalanceDecimal()).max(ZERO);
+                BigDecimal interestOutstanding = money(
+                                loan.getInterestOutstandingDecimal()).max(ZERO);
+                BigDecimal managementOutstanding = money(
+                                loan.getManagementFeeOutstandingDecimal()).max(ZERO);
+                BigDecimal extensionOutstanding = money(
+                                loan.getExtensionFeeOutstandingDecimal()).max(ZERO);
 
+                BigDecimal penaltiesAssessed = money(
+                                loan.getPenaltiesAssessedDecimal()).max(ZERO);
+                BigDecimal penaltiesPaid = money(
+                                loan.getPenaltiesPaidDecimal()).max(ZERO);
+                BigDecimal penaltyOutstanding = penaltiesAssessed
+                                .subtract(penaltiesPaid)
+                                .max(ZERO);
+                penaltyOutstanding = money(penaltyOutstanding);
+
+                /*
+                 * IMPORTANT:
+                 *
+                 * A migrated loan's opening position must contain the COMPLETE
+                 * outstanding receivable position, not only principal,
+                 * interest and management fees. Extension-fee and penalty
+                 * receivables are part of the operational sub-ledger and must
+                 * therefore be opened in GL 1170 and 1175 as well.
+                 *
+                 * Historical cash movements are deliberately NOT replayed.
+                 */
                 BigDecimal openingBalance = money(
                                 principalOutstanding
                                                 .add(interestOutstanding)
-                                                .add(managementOutstanding));
+                                                .add(managementOutstanding)
+                                                .add(extensionOutstanding)
+                                                .add(penaltyOutstanding));
 
                 if (openingBalance.compareTo(ZERO) <= 0) {
                         log.info(
@@ -846,6 +876,30 @@ public class AccountingService {
                                                         .build());
                 }
 
+                if (extensionOutstanding.compareTo(ZERO) > 0) {
+                        lines.add(
+                                        JournalLine.builder()
+                                                        .account(account(org, "1170"))
+                                                        .debit(extensionOutstanding)
+                                                        .credit(ZERO)
+                                                        .description(
+                                                                        "Opening historical extension-fee receivable — "
+                                                                                        + reference)
+                                                        .build());
+                }
+
+                if (penaltyOutstanding.compareTo(ZERO) > 0) {
+                        lines.add(
+                                        JournalLine.builder()
+                                                        .account(account(org, "1175"))
+                                                        .debit(penaltyOutstanding)
+                                                        .credit(ZERO)
+                                                        .description(
+                                                                        "Opening historical penalty receivable — "
+                                                                                        + reference)
+                                                        .build());
+                }
+
                 lines.add(
                                 JournalLine.builder()
                                                 .account(account(org, "3010"))
@@ -888,17 +942,266 @@ public class AccountingService {
                 int repaired = 0;
 
                 for (Loan loan : importedLoans) {
-                        if (loan == null || !Boolean.TRUE.equals(loan.getImported())) {
+                        if (loan == null
+                                        || loan.getId() == null
+                                        || !Boolean.TRUE.equals(loan.getImported())) {
                                 continue;
                         }
 
-                        JournalEntry entry = postHistoricalLoanOpening(loan);
-                        if (entry != null) {
+                        /*
+                         * First make sure the historical opening event exists.
+                         * postAtDate() is source-idempotent, so an existing
+                         * correct opening journal is never duplicated.
+                         */
+                        JournalEntry opening = postHistoricalLoanOpening(loan);
+                        if (opening != null) {
                                 repaired++;
+                        }
+
+                        /*
+                         * Existing production data may already contain an opening
+                         * journal created by an older version of the accounting
+                         * code. Merely checking whether the journal exists is not
+                         * enough: its receivable values may differ from the
+                         * current imported loan opening state.
+                         *
+                         * We therefore calculate the per-loan GL balance for each
+                         * operational receivable and create an explicit,
+                         * auditable migration-equity correction only when a
+                         * difference remains.
+                         *
+                         * This does NOT rewrite or delete historical journals.
+                         * It also does NOT replay historical cash movements.
+                         */
+                        Map<String, BigDecimal> expected = new LinkedHashMap<>();
+                        expected.put("1100", money(
+                                        loan.getOutstandingBalanceDecimal()).max(ZERO));
+                        expected.put("1150", money(
+                                        loan.getInterestOutstandingDecimal()).max(ZERO));
+                        expected.put("1160", money(
+                                        loan.getManagementFeeOutstandingDecimal()).max(ZERO));
+                        expected.put("1170", money(
+                                        loan.getExtensionFeeOutstandingDecimal()).max(ZERO));
+
+                        BigDecimal penaltyOutstanding = money(
+                                        loan.getPenaltiesAssessedDecimal())
+                                        .subtract(money(loan.getPenaltiesPaidDecimal()))
+                                        .max(ZERO);
+                        expected.put("1175", money(penaltyOutstanding));
+
+                        Map<String, BigDecimal> deltas = new LinkedHashMap<>();
+
+                        for (Map.Entry<String, BigDecimal> item : expected.entrySet()) {
+                                String code = item.getKey();
+                                BigDecimal expectedBalance = money(item.getValue());
+
+                                ChartOfAccount receivable = coaRepo
+                                                .findByOrganization_IdAndCode(
+                                                                loan.getOrganization().getId(),
+                                                                code)
+                                                .orElse(null);
+
+                                if (receivable == null) {
+                                        throw new IllegalStateException(
+                                                        "Required accounting account "
+                                                                        + code
+                                                                        + " is not configured for organization "
+                                                                        + loan.getOrganization().getId());
+                                }
+
+                                List<JournalLine> lines = lineRepo.findReceivableLinesForLoan(
+                                                receivable.getId(),
+                                                loan.getOrganization().getId(),
+                                                loan.getReferenceNumber());
+
+                                BigDecimal glBalance = ZERO;
+
+                                if (lines != null) {
+                                        for (JournalLine line : lines) {
+                                                if (line == null) {
+                                                        continue;
+                                                }
+
+                                                JournalEntry entry = line.getJournalEntry();
+
+                                                if (entry == null
+                                                                || Boolean.TRUE.equals(entry.getReversed())) {
+                                                        continue;
+                                                }
+
+                                                glBalance = glBalance
+                                                                .add(money(line.getDebitDecimal()))
+                                                                .subtract(money(line.getCreditDecimal()));
+                                        }
+                                }
+
+                                glBalance = money(glBalance.max(ZERO));
+                                BigDecimal delta = money(expectedBalance.subtract(glBalance));
+
+                                if (delta.abs().compareTo(new BigDecimal("0.01")) >= 0) {
+                                        deltas.put(code, delta);
+                                }
+                        }
+
+                        if (!deltas.isEmpty()) {
+                                repaired += postLegacyReconciliationAdjustment(
+                                                loan,
+                                                deltas);
                         }
                 }
 
                 return repaired;
+        }
+
+        /**
+         * Posts a controlled, auditable adjustment for an imported loan whose
+         * existing legacy opening journals do not agree with the current
+         * operational opening balances.
+         *
+         * Positive delta:
+         * DR receivable
+         * CR migration equity
+         *
+         * Negative delta:
+         * CR receivable
+         * DR migration equity
+         *
+         * The correction is source-idempotent and is dated on the current
+         * accounting date. Historical journals are never edited or deleted.
+         */
+        private int postLegacyReconciliationAdjustment(
+                        Loan loan,
+                        Map<String, BigDecimal> deltas) {
+
+                if (loan == null
+                                || loan.getOrganization() == null
+                                || loan.getOrganization().getId() == null
+                                || deltas == null
+                                || deltas.isEmpty()) {
+                        return 0;
+                }
+
+                Organization org = loan.getOrganization();
+                requireOrganization(org);
+                ensureChartOfAccounts(org);
+
+                String fingerprint = sha256(
+                                loan.getId()
+                                                + "|"
+                                                + deltas.entrySet().stream()
+                                                                .map(entry -> entry.getKey()
+                                                                                + "="
+                                                                                + money(entry.getValue())
+                                                                                                .toPlainString())
+                                                                .reduce((a, b) -> a + "|" + b)
+                                                                .orElse(""));
+
+                String sourceId = "LOAN:" + loan.getId() + ":" + fingerprint.substring(0, 24);
+                String reference = loan.getReferenceNumber() != null
+                                ? loan.getReferenceNumber()
+                                : "LOAN:" + loan.getId();
+
+                List<JournalLine> lines = new ArrayList<>();
+                BigDecimal totalAdjustment = ZERO;
+
+                for (Map.Entry<String, BigDecimal> item : deltas.entrySet()) {
+                        BigDecimal delta = money(item.getValue());
+
+                        if (delta.compareTo(ZERO) > 0) {
+                                lines.add(
+                                                JournalLine.builder()
+                                                                .account(account(org, item.getKey()))
+                                                                .debit(delta)
+                                                                .credit(ZERO)
+                                                                .description(
+                                                                                "Legacy reconciliation increase — "
+                                                                                                + item.getKey()
+                                                                                                + " — "
+                                                                                                + reference)
+                                                                .build());
+                                totalAdjustment = totalAdjustment.add(delta);
+                        } else if (delta.compareTo(ZERO) < 0) {
+                                BigDecimal absolute = delta.abs();
+                                lines.add(
+                                                JournalLine.builder()
+                                                                .account(account(org, item.getKey()))
+                                                                .debit(ZERO)
+                                                                .credit(absolute)
+                                                                .description(
+                                                                                "Legacy reconciliation decrease — "
+                                                                                                + item.getKey()
+                                                                                                + " — "
+                                                                                                + reference)
+                                                                .build());
+                                totalAdjustment = totalAdjustment.subtract(absolute);
+                        }
+                }
+
+                totalAdjustment = money(totalAdjustment);
+
+                if (totalAdjustment.compareTo(ZERO) > 0) {
+                        lines.add(
+                                        JournalLine.builder()
+                                                        .account(account(org, "3010"))
+                                                        .debit(ZERO)
+                                                        .credit(totalAdjustment)
+                                                        .description(
+                                                                        "Legacy portfolio reconciliation equity adjustment — "
+                                                                                        + reference)
+                                                        .build());
+                } else if (totalAdjustment.compareTo(ZERO) < 0) {
+                        lines.add(
+                                        JournalLine.builder()
+                                                        .account(account(org, "3010"))
+                                                        .debit(totalAdjustment.abs())
+                                                        .credit(ZERO)
+                                                        .description(
+                                                                        "Legacy portfolio reconciliation equity adjustment — "
+                                                                                        + reference)
+                                                        .build());
+                }
+
+                if (lines.isEmpty()) {
+                        return 0;
+                }
+
+                postAtDate(
+                                org,
+                                loan.getBranch(),
+                                "LEGACY_LOAN_RECONCILIATION",
+                                sourceId,
+                                reference,
+                                "Controlled reconciliation adjustment for migrated loan "
+                                                + reference,
+                                LocalDate.now(),
+                                lines);
+
+                log.warn(
+                                "Legacy loan accounting reconciliation adjustment posted. "
+                                                + "organizationId={}, loanId={}, reference={}, deltas={}",
+                                org.getId(),
+                                loan.getId(),
+                                reference,
+                                deltas);
+
+                return 1;
+        }
+
+        private String sha256(String value) {
+                try {
+                        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                        byte[] hash = digest.digest(
+                                        value.getBytes(StandardCharsets.UTF_8));
+                        StringBuilder hex = new StringBuilder(hash.length * 2);
+                        for (byte b : hash) {
+                                hex.append(String.format("%02x", b));
+                        }
+                        return hex.toString();
+                } catch (NoSuchAlgorithmException ex) {
+                        throw new IllegalStateException(
+                                        "SHA-256 is not available in this runtime",
+                                        ex);
+                }
         }
 
         // ============================================================
