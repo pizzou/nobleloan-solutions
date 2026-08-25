@@ -67,7 +67,7 @@ public class FinancialReconciliationService {
         }
 
         List<JournalEntry> entries = journalEntryRepository
-                .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAscIdAsc(
+                .findByOrganization_IdAndEntryDateBetweenAndReversedFalseOrderByEntryDateAsc(
                         organizationId,
                         LocalDate.of(1900, 1, 1),
                         asOf);
