@@ -776,7 +776,7 @@ public class AccountingService {
          * DR 1100 Loans Receivable outstanding principal
          * DR 1150 Interest Receivable unpaid historical interest
          * DR 1160 Management Fees Receivable unpaid historical fee
-         * CR 3000 Owner's Equity balancing migration opening
+         * CR 3010 Historical Portfolio Migration Equity balancing migration opening
          *
          * Historical amounts already paid remain stored on the Loan as
          * opening cumulative totals and will not be reposted to cash/income.
@@ -921,11 +921,7 @@ public class AccountingService {
                                 reference,
                                 "Opening financial position for migrated historical loan "
                                                 + reference,
-                                loan.getDisbursedAt() != null
-                                                ? loan.getDisbursedAt().toLocalDate()
-                                                : (loan.getStartDate() != null
-                                                                ? loan.getStartDate()
-                                                                : LocalDate.now()),
+                                legacyOpeningDate(loan),
                                 lines);
         }
 
@@ -952,12 +948,33 @@ public class AccountingService {
                         }
 
                         /*
+                         * First repair a dangerous legacy condition found in
+                         * production data: an opening journal may have been
+                         * dated on the historical disbursement date. If that
+                         * date is in the future, the journal is invisible to
+                         * today's GL while still becoming active later.
+                         *
+                         * Never edit/delete the original journal. Reverse it
+                         * through the normal immutable reversal mechanism and
+                         * post one current-dated migration opening.
+                         */
+                        repairFutureDatedLegacyOpening(loan);
+
+                        /*
                          * First make sure the historical opening event exists.
                          * postAtDate() is source-idempotent, so an existing
                          * correct opening journal is never duplicated.
                          */
+                        JournalEntry existingOpening = journalRepo
+                                        .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                        loan.getOrganization().getId(),
+                                                        "LEGACY_LOAN_OPENING",
+                                                        "LOAN:" + loan.getId())
+                                        .orElse(null);
                         JournalEntry opening = postHistoricalLoanOpening(loan);
-                        if (opening != null) {
+                        if (existingOpening == null
+                                        && opening != null
+                                        && !Boolean.TRUE.equals(opening.getReversed())) {
                                 repaired++;
                         }
 
@@ -1028,7 +1045,10 @@ public class AccountingService {
                                                 JournalEntry entry = line.getJournalEntry();
 
                                                 if (entry == null
-                                                                || Boolean.TRUE.equals(entry.getReversed())) {
+                                                                || Boolean.TRUE.equals(entry.getReversed())
+                                                                || (entry.getEntryDate() != null
+                                                                                && entry.getEntryDate().isAfter(
+                                                                                                LocalDate.now()))) {
                                                         continue;
                                                 }
 
@@ -1255,6 +1275,121 @@ public class AccountingService {
          * The correction is source-idempotent and is dated on the current
          * accounting date. Historical journals are never edited or deleted.
          */
+        private LocalDate legacyOpeningDate(Loan loan) {
+                if (loan != null && loan.getCreatedAt() != null) {
+                        LocalDate createdDate = loan.getCreatedAt().toLocalDate();
+                        return createdDate.isAfter(LocalDate.now()) ? LocalDate.now() : createdDate;
+                }
+                return LocalDate.now();
+        }
+
+        /**
+         * Repairs opening journals that were incorrectly dated in the future.
+         * The original remains immutable and auditable through a reversal; the
+         * replacement is dated on the migration/current accounting date.
+         */
+        private void repairFutureDatedLegacyOpening(Loan loan) {
+                if (loan == null
+                                || loan.getOrganization() == null
+                                || loan.getOrganization().getId() == null
+                                || loan.getId() == null) {
+                        return;
+                }
+
+                Organization org = loan.getOrganization();
+                String sourceId = "LOAN:" + loan.getId();
+                JournalEntry opening = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(),
+                                                "LEGACY_LOAN_OPENING",
+                                                sourceId)
+                                .orElse(null);
+
+                if (opening == null
+                                || Boolean.TRUE.equals(opening.getReversed())
+                                || opening.getEntryDate() == null
+                                || !opening.getEntryDate().isAfter(LocalDate.now())) {
+                        return;
+                }
+
+                String repairSourceId = "LOAN:" + loan.getId() + ":FUTURE-DATE-REPAIR";
+                JournalEntry existingRepair = journalRepo
+                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                org.getId(),
+                                                "LEGACY_LOAN_OPENING_DATE_REPAIR",
+                                                repairSourceId)
+                                .orElse(null);
+                if (existingRepair != null) {
+                        return;
+                }
+
+                reverseEntry(
+                                org.getId(),
+                                opening.getId(),
+                                "SYSTEM",
+                                "Correct future-dated legacy opening journal; preserve historical audit trail.");
+
+                BigDecimal principal = money(loan.getOutstandingBalanceDecimal()).max(ZERO);
+                BigDecimal interest = money(loan.getInterestOutstandingDecimal()).max(ZERO);
+                BigDecimal management = money(loan.getManagementFeeOutstandingDecimal()).max(ZERO);
+                BigDecimal extension = money(loan.getExtensionFeeOutstandingDecimal()).max(ZERO);
+                BigDecimal penalty = money(loan.getPenaltiesAssessedDecimal())
+                                .subtract(money(loan.getPenaltiesPaidDecimal()))
+                                .max(ZERO);
+
+                BigDecimal total = money(principal.add(interest).add(management).add(extension).add(penalty));
+                if (total.compareTo(ZERO) <= 0) {
+                        return;
+                }
+
+                List<JournalLine> lines = new ArrayList<>();
+                addLegacyReceivableLine(lines, org, "1100", principal, loan.getReferenceNumber());
+                addLegacyReceivableLine(lines, org, "1150", interest, loan.getReferenceNumber());
+                addLegacyReceivableLine(lines, org, "1160", management, loan.getReferenceNumber());
+                addLegacyReceivableLine(lines, org, "1170", extension, loan.getReferenceNumber());
+                addLegacyReceivableLine(lines, org, "1175", penalty, loan.getReferenceNumber());
+                lines.add(JournalLine.builder()
+                                .account(account(org, "3010"))
+                                .debit(ZERO)
+                                .credit(total)
+                                .description("Corrected historical migration opening equity — "
+                                                + loan.getReferenceNumber())
+                                .build());
+
+                postAtDate(
+                                org,
+                                loan.getBranch(),
+                                "LEGACY_LOAN_OPENING_DATE_REPAIR",
+                                repairSourceId,
+                                loan.getReferenceNumber() != null ? loan.getReferenceNumber() : sourceId,
+                                "Corrected current-dated opening position for migrated historical loan "
+                                                + (loan.getReferenceNumber() != null ? loan.getReferenceNumber()
+                                                                : sourceId),
+                                LocalDate.now(),
+                                lines);
+
+                log.warn(
+                                "Future-dated legacy opening repaired. organizationId={}, loanId={}, oldJournalId={}, newSourceId={}",
+                                org.getId(), loan.getId(), opening.getId(), repairSourceId);
+        }
+
+        private void addLegacyReceivableLine(
+                        List<JournalLine> lines,
+                        Organization org,
+                        String code,
+                        BigDecimal amount,
+                        String reference) {
+                if (amount == null || amount.compareTo(ZERO) <= 0) {
+                        return;
+                }
+                lines.add(JournalLine.builder()
+                                .account(account(org, code))
+                                .debit(money(amount))
+                                .credit(ZERO)
+                                .description("Corrected historical " + code + " receivable — " + reference)
+                                .build());
+        }
+
         private int postLegacyReconciliationAdjustment(
                         Loan loan,
                         Map<String, BigDecimal> deltas) {
@@ -2040,6 +2175,13 @@ public class AccountingService {
                                 && !loan.getReferenceNumber().isBlank()
                                                 ? loan.getReferenceNumber().trim()
                                                 : "LOAN-" + loan.getId();
+
+                // Keep the operational sub-ledger synchronized with GL 1170.
+                // The restructuring service normally updates this before calling
+                // accounting, but this method is also a public accounting entry
+                // point and must remain safe/idempotent on its own.
+                loan.setExtensionFeeOutstanding(
+                                money(loan.getExtensionFeeOutstandingDecimal()).add(fee));
 
                 return post(
                                 org,

@@ -4,6 +4,7 @@ import com.patrick.fintech.loan_backend.model.ChartOfAccount;
 import com.patrick.fintech.loan_backend.model.JournalEntry;
 import com.patrick.fintech.loan_backend.model.JournalLine;
 import com.patrick.fintech.loan_backend.model.Loan;
+import com.patrick.fintech.loan_backend.model.LoanStatus;
 import com.patrick.fintech.loan_backend.repository.ChartOfAccountRepository;
 import com.patrick.fintech.loan_backend.repository.JournalEntryRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
@@ -87,6 +88,21 @@ public class FinancialReconciliationService {
         if (loans == null) {
             loans = List.of();
         }
+
+        /*
+         * The operational receivable sub-ledger is a DISBURSED-loan ledger,
+         * not an approval pipeline ledger. LoanService intentionally prepares
+         * a provisional outstanding balance while a loan is APPROVED so the
+         * repayment schedule can be displayed before disbursement. That
+         * provisional value must never enter GL reconciliation.
+         *
+         * Legacy imports are already-disbursed historical positions and are
+         * therefore eligible immediately. System-originated loans are eligible
+         * only from their actual disbursement date.
+         */
+        loans = loans.stream()
+                .filter(loan -> isFinanciallyOriginated(loan, asOf))
+                .toList();
 
         List<Issue> issues = new ArrayList<>();
 
@@ -358,6 +374,10 @@ public class FinancialReconciliationService {
             return List.of();
         }
 
+        loans = loans.stream()
+                .filter(loan -> isFinanciallyOriginated(loan, LocalDate.now()))
+                .toList();
+
         List<LoanReconciliationDiagnostic> result = new ArrayList<>();
 
         for (Loan loan : loans) {
@@ -463,6 +483,7 @@ public class FinancialReconciliationService {
                     || "HISTORICAL_LOAN_OPENING".equals(sourceType)
                     || "LEGACY_LOAN_OPENING".equals(sourceType)
                     || "LEGACY_LOAN_RECONCILIATION".equals(sourceType)
+                    || "LEGACY_LOAN_OPENING_DATE_REPAIR".equals(sourceType)
                     || "PAYMENT_RECEIVED".equals(sourceType)
                     || "LOAN_DISBURSEMENT".equals(sourceType);
 
@@ -493,6 +514,39 @@ public class FinancialReconciliationService {
         }
 
         return normalize(balance);
+    }
+
+    /**
+     * Returns true only when the loan represents an accounting receivable as
+     * of the supplied date. Approval alone does not create a receivable.
+     */
+    private boolean isFinanciallyOriginated(Loan loan, LocalDate asOf) {
+        if (loan == null || asOf == null) {
+            return false;
+        }
+
+        if (Boolean.TRUE.equals(loan.getImported())) {
+            LoanStatus status = loan.getStatus();
+            return status != LoanStatus.PENDING
+                    && status != LoanStatus.UNDER_REVIEW
+                    && status != LoanStatus.REJECTED
+                    && status != LoanStatus.CANCELLED;
+        }
+
+        if (loan.getDisbursedAt() != null) {
+            return !loan.getDisbursedAt().toLocalDate().isAfter(asOf);
+        }
+
+        // Never treat APPROVED/PENDING pipeline balances as GL receivables.
+        LoanStatus status = loan.getStatus();
+        return status == LoanStatus.DISBURSED
+                || status == LoanStatus.ACTIVE
+                || status == LoanStatus.OVERDUE
+                || status == LoanStatus.DEFAULTED
+                || status == LoanStatus.RESTRUCTURED
+                || status == LoanStatus.WRITTEN_OFF
+                || status == LoanStatus.PAID
+                || status == LoanStatus.CLOSED;
     }
 
     private BigDecimal accountBalance(ChartOfAccount account, BigDecimal[] totals) {

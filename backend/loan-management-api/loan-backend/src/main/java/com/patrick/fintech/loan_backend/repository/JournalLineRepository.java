@@ -147,11 +147,6 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
       @Param("organizationId") Long organizationId,
       @Param("loanId") Long loanId);
 
-  /**
-   * Receivable/accrual lines scoped to one loan reference. Used to clear
-   * interest, management, penalty and extension receivables without ever
-   * using another loan's balances.
-   */
   @Query("""
       SELECT l
       FROM JournalLine l
@@ -172,6 +167,7 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
               'HISTORICAL_LOAN_OPENING',
               'LEGACY_LOAN_OPENING',
               'LEGACY_LOAN_RECONCILIATION',
+              'LEGACY_LOAN_OPENING_DATE_REPAIR',
               'PAYMENT_RECEIVED'
         )
         AND (
@@ -184,12 +180,6 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
       @Param("accountId") Long accountId,
       @Param("organizationId") Long organizationId,
       @Param("loanReference") String loanReference);
-
-  /*
-   * ============================================================
-   * ACCRUAL LINES BY ORGANIZATION
-   * ============================================================
-   */
 
   @Query("""
       SELECT l

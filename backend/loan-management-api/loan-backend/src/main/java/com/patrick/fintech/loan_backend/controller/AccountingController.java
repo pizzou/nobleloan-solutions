@@ -374,9 +374,17 @@ public class AccountingController {
                 int repaired = accountingService.reconcileLegacyLoanOpeningBalances(
                                 importedLoans);
 
-                AccountingService.OperationalReceivableSyncResult operationalSync = accountingService
-                                .synchronizeOperationalReceivables(
-                                                organization.getId());
+                /*
+                 * Reconciliation is an accounting-control operation. It must not
+                 * silently rewrite operational loan balances from the GL.
+                 * Internal loan state is changed only by its originating business
+                 * transaction (disbursement, accrual, payment, extension, etc.).
+                 */
+                AccountingService.OperationalReceivableSyncResult operationalSync = new AccountingService.OperationalReceivableSyncResult(
+                                0,
+                                0,
+                                List.of("Operational synchronization is disabled during reconciliation; " +
+                                                "financial differences must be corrected at the originating transaction or by an authorized journal."));
 
                 FinancialReconciliationService.ReconciliationReport after = financialReconciliationService
                                 .reconcile(organization.getId());
