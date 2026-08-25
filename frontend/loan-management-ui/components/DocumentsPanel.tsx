@@ -22,6 +22,17 @@ type ReviewAction = "VERIFIED" | "REJECTED" | "REPLACEMENT_REQUESTED";
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const MAX_COMMENT_LENGTH = 2000;
 
+/**
+ * The backend may expose contentAvailable on document metadata.
+ *
+ * We keep this local extension so this component remains compatible with
+ * existing BorrowerFile definitions while the backend/frontend types are
+ * being deployed independently.
+ */
+type BorrowerFileWithContent = BorrowerFile & {
+  contentAvailable?: boolean;
+};
+
 export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
   const params = useParams<{ id?: string | string[] }>();
   const rawLoanId = params?.id;
@@ -371,8 +382,24 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
 
             const isVerified = normalizedKey === "VERIFIED";
             const isBusy = busyFileId === f.id;
-            const contentAvailable = f.contentAvailable !== false;
             const isReviewOpen = verifyingId === f.id;
+
+            /*
+             * IMPORTANT:
+             * Keep Preview and Download visible.
+             *
+             * A document can have metadata but no stored file content.
+             * In that case the buttons remain visible for a consistent UI,
+             * but they are disabled so we do not repeatedly send requests
+             * that will return HTTP 409.
+             *
+             * When contentAvailable is not supplied by an older backend,
+             * we assume the file is available so existing documents continue
+             * to behave exactly as before.
+             */
+            const fileWithContent = f as BorrowerFileWithContent;
+            const contentAvailable = fileWithContent.contentAvailable !== false;
+
             const isSelfie =
               f.documentType === "SELFIE" ||
               f.documentType === "SELFIE_LIVENESS";
@@ -432,6 +459,7 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
                   </div>
 
                   <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+                    {/* Preview is ALWAYS visible. */}
                     <button
                       type="button"
                       onClick={() => void handlePreview(f.id)}
@@ -443,13 +471,10 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
                       }
                       className="text-gray-600 hover:text-gray-800 text-xs font-medium border border-gray-200 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {isBusy
-                        ? "Working..."
-                        : contentAvailable
-                          ? "Preview"
-                          : "Unavailable"}
+                      {isBusy ? "Working..." : "Preview"}
                     </button>
 
+                    {/* Download is ALWAYS visible. */}
                     <button
                       type="button"
                       onClick={() => void handleDownload(f.id, f.fileName)}
@@ -466,7 +491,7 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
 
                     {!contentAvailable && (
                       <span
-                        className="text-amber-700 text-xs font-medium border border-amber-200 bg-amber-50 px-3 py-1.5 rounded-lg"
+                        className="text-amber-700 text-xs font-medium border border-amber-200 bg-amber-50 px-3 py-1.5 rounded-lg whitespace-nowrap"
                         title="The document record exists, but its stored file content is missing."
                       >
                         File content unavailable
