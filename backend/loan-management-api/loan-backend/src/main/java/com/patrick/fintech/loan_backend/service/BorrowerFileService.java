@@ -88,7 +88,13 @@ public class BorrowerFileService {
         borrowerFile.setFileName(file.getOriginalFilename());
         borrowerFile.setFileType(file.getContentType());
         borrowerFile.setFileSize(file.getSize());
-        borrowerFile.setData(file.getBytes());
+        byte[] content = file.getBytes();
+
+        if (content.length == 0) {
+            throw new IllegalStateException("The uploaded document contains no file content.");
+        }
+
+        borrowerFile.setData(content);
 
         borrowerFile.setDocumentType(
                 documentType != null
@@ -99,7 +105,15 @@ public class BorrowerFileService {
 
         borrowerFile.setVerificationStatus(VerificationStatus.PENDING);
 
-        return fileRepository.save(borrowerFile);
+        BorrowerFile saved = fileRepository.save(borrowerFile);
+
+        if (saved.getData() == null || saved.getData().length == 0) {
+            throw new IllegalStateException(
+                    "The document was accepted but its binary content was not persisted. "
+                            + "Please retry the upload.");
+        }
+
+        return saved;
     }
 
     /**

@@ -158,6 +158,7 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
       JOIN FETCH l.journalEntry e
       WHERE l.account.id = :accountId
         AND e.organization.id = :organizationId
+        AND e.reversed = FALSE
         AND e.sourceType IN (
               'INTEREST_ACCRUAL',
               'MANAGEMENT_FEE_ACCRUAL',

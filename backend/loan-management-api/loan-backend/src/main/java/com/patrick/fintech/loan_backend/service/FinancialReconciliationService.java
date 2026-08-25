@@ -102,6 +102,15 @@ public class FinancialReconciliationService {
                 continue;
             }
 
+            // A reversed original entry is no longer part of the active GL.
+            // Its separate REVERSAL journal remains in the ledger and therefore
+            // carries the accounting effect. Counting both the reversed original
+            // and its reversal would double-count the transaction during
+            // reconciliation.
+            if (Boolean.TRUE.equals(entry.getReversed())) {
+                continue;
+            }
+
             BigDecimal entryDebit = ZERO;
             BigDecimal entryCredit = ZERO;
 

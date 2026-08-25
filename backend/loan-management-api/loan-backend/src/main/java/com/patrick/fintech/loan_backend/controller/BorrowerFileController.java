@@ -99,7 +99,7 @@ public class BorrowerFileController {
 
         /** Attachment download — forces "Save As". */
         @GetMapping("/download/{fileId}")
-        @org.springframework.transaction.annotation.Transactional
+        @org.springframework.transaction.annotation.Transactional(readOnly = true)
         public ResponseEntity<byte[]> download(@PathVariable Long fileId) {
                 return serveFile(fileId, "attachment", "DOCUMENT_DOWNLOADED", "Downloaded");
         }
@@ -109,7 +109,7 @@ public class BorrowerFileController {
          * images/PDFs directly.
          */
         @GetMapping("/preview/{fileId}")
-        @org.springframework.transaction.annotation.Transactional
+        @org.springframework.transaction.annotation.Transactional(readOnly = true)
         public ResponseEntity<byte[]> preview(@PathVariable Long fileId) {
                 return serveFile(fileId, "inline", "DOCUMENT_PREVIEWED", "Previewed");
         }
@@ -117,6 +117,13 @@ public class BorrowerFileController {
         private ResponseEntity<byte[]> serveFile(Long fileId, String disposition, String action, String verb) {
                 User user = currentUserUtil.getCurrentUser();
                 BorrowerFile file = fileService.getByIdForOrg(fileId, user.getOrganization().getId());
+                byte[] data = file.getData();
+                if (data == null || data.length == 0) {
+                        throw new IllegalStateException(
+                                        "The requested document has no stored file content. "
+                                                        + "Please request a replacement document from the applicant.");
+                }
+
                 auditService.log(file.getBorrower().getOrganization(), user,
                                 action, "BORROWER_FILE", String.valueOf(fileId),
                                 verb + " " + file.getDocumentType() + " (" + file.getFileName() + ")",
@@ -127,7 +134,7 @@ public class BorrowerFileController {
                                                                 : "application/octet-stream"))
                                 .header(HttpHeaders.CONTENT_DISPOSITION,
                                                 disposition + "; filename=\"" + file.getFileName() + "\"")
-                                .body(file.getData());
+                                .body(data);
         }
 
         /**

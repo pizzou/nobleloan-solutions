@@ -1041,13 +1041,22 @@ public class AccountingService {
                                 glBalance = money(glBalance.max(ZERO));
                                 BigDecimal delta = money(expectedBalance.subtract(glBalance));
 
-                                // Positive delta means the operational imported opening
-                                // receivable is larger than the active GL balance. That is a
-                                // safe historical-opening correction. A negative delta means
-                                // GL is already larger than the operational state; that case
-                                // is handled by the conservative operational synchronization
-                                // instead of reducing accounting history automatically.
-                                if (delta.compareTo(new BigDecimal("0.01")) >= 0) {
+                                /*
+                                 * The imported loan operational balance is the authoritative
+                                 * migrated opening/current receivable for this loan. Both
+                                 * directions are material reconciliation differences:
+                                 *
+                                 * expected > GL -> debit the receivable / credit migration
+                                 * GL > expected -> credit the receivable / debit migration
+                                 *
+                                 * The old implementation only repaired the first direction
+                                 * and delegated the second direction to
+                                 * synchronizeOperationalReceivables(). That could silently
+                                 * increase imported loan balances to match duplicate or stale
+                                 * historical GL entries instead of correcting the accounting
+                                 * side. Imported loans must remain opening-balance driven.
+                                 */
+                                if (delta.abs().compareTo(TOLERANCE) >= 0) {
                                         deltas.put(code, delta);
                                 }
                         }
@@ -1112,6 +1121,17 @@ public class AccountingService {
                                         || !organizationId.equals(loan.getOrganization().getId())
                                         || loan.getReferenceNumber() == null
                                         || loan.getReferenceNumber().isBlank()) {
+                                continue;
+                        }
+
+                        /*
+                         * Imported loans are opening-balance loans. Their historical
+                         * receivable position must be repaired through the explicit
+                         * LEGACY_LOAN_RECONCILIATION journal, never by silently
+                         * rewriting the operational loan fields from whatever happens
+                         * to be present in the GL.
+                         */
+                        if (Boolean.TRUE.equals(loan.getImported())) {
                                 continue;
                         }
 
