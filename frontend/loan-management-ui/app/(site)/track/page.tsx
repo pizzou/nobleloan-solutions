@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useTenant } from "../layout";
 import { publicApi } from "@/services/api";
 import { toast } from "@/hooks/useToast";
@@ -207,16 +207,6 @@ export default function TrackPage() {
   const [uploadingType, setUploadingType] = useState<string | null>(null);
 
   const [uploadError, setUploadError] = useState("");
-
-  // Live-camera replacement state. The browser file picker is kept only as a
-  // deliberate fallback; SELFIE replacement uses the front camera first.
-  const [cameraOpen, setCameraOpen] = useState(false);
-  const [cameraDocumentType, setCameraDocumentType] = useState<string | null>(null);
-  const [cameraFileId, setCameraFileId] = useState<number | null>(null);
-  const [cameraStarting, setCameraStarting] = useState(false);
-  const [cameraError, setCameraError] = useState("");
-  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
-  const cameraStreamRef = useRef<MediaStream | null>(null);
 
   const primary = tenant?.primaryColor ?? "#0F1B3D";
 
@@ -682,185 +672,6 @@ export default function TrackPage() {
    * UPLOAD DOCUMENT
    * =========================================================
    */
-
-  const stopCamera = () => {
-    const stream = cameraStreamRef.current;
-
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-    }
-
-    cameraStreamRef.current = null;
-
-    if (cameraVideoRef.current) {
-      cameraVideoRef.current.srcObject = null;
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      const stream = cameraStreamRef.current;
-
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, []);
-
-  const closeCamera = () => {
-    stopCamera();
-    setCameraOpen(false);
-    setCameraDocumentType(null);
-    setCameraFileId(null);
-    setCameraStarting(false);
-    setCameraError("");
-  };
-
-  const openCamera = async (documentType: string, fileId?: number) => {
-    setCameraDocumentType(documentType);
-    setCameraFileId(fileId ?? null);
-    setCameraError("");
-    setCameraOpen(true);
-    setCameraStarting(true);
-
-    stopCamera();
-
-    if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setCameraStarting(false);
-      setCameraError(
-        "Live camera capture is not available in this browser. Use the file upload option below."
-      );
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: documentType === "SELFIE" ? "user" : "environment",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
-
-      cameraStreamRef.current = stream;
-
-      window.setTimeout(() => {
-        const video = cameraVideoRef.current;
-        if (!video) return;
-
-        video.srcObject = stream;
-        void video.play().catch(() => undefined);
-      }, 0);
-    } catch (err: any) {
-      console.error("[TRACK CAMERA] Unable to start camera", err);
-      setCameraError(
-        err?.name === "NotAllowedError"
-          ? "Camera permission was denied. Allow camera access in your browser, or use the secure file-upload fallback."
-          : "We could not start the camera. Please check your camera and browser permissions."
-      );
-    } finally {
-      setCameraStarting(false);
-    }
-  };
-
-  const captureCamera = async () => {
-    const video = cameraVideoRef.current;
-    const documentType = cameraDocumentType;
-
-    if (!video || !documentType) {
-      return;
-    }
-
-    if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
-      setCameraError("The camera is still starting. Please wait a moment and try again.");
-      return;
-    }
-
-    const canvas = document.createElement("canvas");
-    const maxWidth = 1600;
-    const scale = Math.min(1, maxWidth / video.videoWidth);
-
-    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
-
-    const context = canvas.getContext("2d");
-
-    if (!context) {
-      setCameraError("Your browser could not prepare the captured image.");
-      return;
-    }
-
-    // A mirrored preview should still be stored as a normal document image.
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/jpeg", 0.92),
-    );
-
-    if (!blob) {
-      setCameraError("We could not create the captured image. Please try again.");
-      return;
-    }
-
-    const file = new File(
-      [blob],
-      `${documentType.toLowerCase()}-${Date.now()}.jpg`,
-      { type: "image/jpeg" },
-    );
-
-    const fileId = cameraFileId;
-    closeCamera();
-
-    if (fileId != null) {
-      await handleReplace(documentType, fileId, file);
-    } else {
-      await handleUpload(documentType, file);
-    }
-  };
-
-  const handleReplace = async (
-    documentType: string,
-    fileId: number,
-    file: File,
-  ) => {
-    if (!result) return;
-
-    setUploadingType(documentType);
-    setUploadError("");
-
-    const ref = result.referenceNumber || result.reference;
-    const ph = phone.trim();
-
-    try {
-      await publicApi.replaceDocument(ref, ph, fileId, file);
-
-      toast(
-        "success",
-        `${docLabel(documentType)} replacement submitted for verification.`,
-      );
-
-      const [docs, status] = await Promise.all([
-        publicApi.listDocuments(ref, ph) as Promise<UploadedDoc[]>,
-        publicApi.trackApplication(ref, ph) as Promise<StatusResult>,
-      ]);
-
-      setUploadedDocs(docs);
-      setResult((prev) => ({
-        ...(prev ?? {}),
-        ...status,
-      }) as TrackResult);
-    } catch (err: any) {
-      setUploadError(
-        err?.response?.data?.error ||
-          err?.response?.data?.message ||
-          err?.message ||
-          `Could not replace ${docLabel(documentType)}.`,
-      );
-    } finally {
-      setUploadingType(null);
-    }
-  };
 
   const handleUpload = async (documentType: string, file: File) => {
     if (!result) return;
@@ -1526,36 +1337,34 @@ export default function TrackPage() {
                         </span>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2 mt-4">
-                        {docType === "SELFIE" ? (
-                          <button
-                            type="button"
-                            disabled={uploadingType === docType}
-                            onClick={() => void openCamera(docType)}
-                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-[10px] font-black disabled:opacity-50"
-                            style={{ backgroundColor: primary }}
-                          >
-                            {uploadingType === docType ? "Uploading…" : "Open Camera"}
-                          </button>
-                        ) : null}
+                      <label className="inline-block mt-4">
+                        <input
+                          type="file"
+                          accept="image/*,application/pdf"
+                          className="hidden"
+                          disabled={uploadingType === docType}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
 
-                        <label className="inline-block">
-                          <input
-                            type="file"
-                            accept="image/*,application/pdf"
-                            className="hidden"
-                            disabled={uploadingType === docType}
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) void handleUpload(docType, file);
-                              e.target.value = "";
-                            }}
-                          />
-                          <span className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-gray-700 text-[10px] font-black cursor-pointer">
-                            Choose File
-                          </span>
-                        </label>
-                      </div>
+                            if (file) {
+                              handleUpload(docType, file);
+                            }
+
+                            e.target.value = "";
+                          }}
+                        />
+
+                        <span
+                          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-[10px] font-black cursor-pointer"
+                          style={{
+                            backgroundColor: primary,
+                          }}
+                        >
+                          {uploadingType === docType
+                            ? "Uploading…"
+                            : "Upload Document"}
+                        </span>
+                      </label>
                     </div>
                   ))}
 
@@ -1611,44 +1420,27 @@ export default function TrackPage() {
                           </div>
 
                           {rejected && (
-                            <div className="flex flex-wrap items-center gap-2 mt-4">
-                              {doc.documentType === "SELFIE" ? (
-                                <button
-                                  type="button"
-                                  disabled={uploadingType === doc.documentType}
-                                  onClick={() =>
-                                    void openCamera(doc.documentType, doc.id)
-                                  }
-                                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-red-600 text-white text-[10px] font-black disabled:opacity-50"
-                                >
-                                  {uploadingType === doc.documentType
-                                    ? "Uploading…"
-                                    : "Open Camera"}
-                                </button>
-                              ) : null}
+                            <label className="inline-block mt-4">
+                              <input
+                                type="file"
+                                accept="image/*,application/pdf"
+                                className="hidden"
+                                disabled={uploadingType === doc.documentType}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
 
-                              <label className="inline-block">
-                                <input
-                                  type="file"
-                                  accept="image/*,application/pdf"
-                                  className="hidden"
-                                  disabled={uploadingType === doc.documentType}
-                                  onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file)
-                                      void handleReplace(
-                                        doc.documentType,
-                                        doc.id,
-                                        file,
-                                      );
-                                    e.target.value = "";
-                                  }}
-                                />
-                                <span className="inline-flex px-3 py-2 rounded-xl border border-red-200 bg-white text-red-700 text-[10px] font-black cursor-pointer">
-                                  Choose Replacement File
-                                </span>
-                              </label>
-                            </div>
+                                  if (file) {
+                                    handleUpload(doc.documentType, file);
+                                  }
+
+                                  e.target.value = "";
+                                }}
+                              />
+
+                              <span className="inline-flex px-3 py-2 rounded-xl bg-red-600 text-white text-[10px] font-black cursor-pointer">
+                                Upload Replacement
+                              </span>
+                            </label>
                           )}
                         </div>
                       );
@@ -1991,114 +1783,6 @@ export default function TrackPage() {
           </div>
         )}
       </main>
-
-      {cameraOpen && (
-        <div
-          className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="camera-modal-title"
-        >
-          <div className="w-full max-w-2xl overflow-hidden rounded-3xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div>
-                <div className="text-[9px] uppercase tracking-[0.18em] font-black text-emerald-700">
-                  Secure document capture
-                </div>
-                <h3 id="camera-modal-title" className="text-lg font-black text-gray-900 mt-1">
-                  {cameraDocumentType ? docLabel(cameraDocumentType) : "Document"}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={closeCamera}
-                className="w-9 h-9 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 font-black"
-                aria-label="Close camera"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="p-5">
-              <div className="relative overflow-hidden rounded-2xl bg-black aspect-video">
-                <video
-                  ref={cameraVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className={`w-full h-full object-cover ${
-                    cameraDocumentType === "SELFIE" ? "scale-x-[-1]" : ""
-                  }`}
-                />
-
-                {cameraStarting && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-white text-xs font-bold">
-                    Starting camera…
-                  </div>
-                )}
-
-                {cameraError && (
-                  <div className="absolute inset-0 flex items-center justify-center p-6 bg-black/70">
-                    <div className="max-w-md text-center text-white">
-                      <div className="text-3xl mb-3">📷</div>
-                      <p className="text-xs leading-5">{cameraError}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-4 rounded-xl bg-gray-50 border border-gray-100 p-3 text-[10px] text-gray-500 leading-5">
-                Position the document clearly inside the frame. For a selfie, keep your face centered and visible.
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-4">
-                <button
-                  type="button"
-                  onClick={captureCamera}
-                  disabled={cameraStarting || !!cameraError}
-                  className="sm:col-span-2 h-12 rounded-xl bg-gray-900 text-white text-xs font-black disabled:opacity-40"
-                >
-                  Capture &amp; Submit
-                </button>
-                <button
-                  type="button"
-                  onClick={closeCamera}
-                  className="h-12 rounded-xl border border-gray-200 text-gray-700 text-xs font-black"
-                >
-                  Cancel
-                </button>
-              </div>
-
-              {cameraError && cameraDocumentType && (
-                <label className="block mt-3 text-center">
-                  <input
-                    type="file"
-                    accept="image/*,application/pdf"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const fileId = cameraFileId;
-                        const type = cameraDocumentType;
-                        closeCamera();
-                        if (fileId != null) {
-                          void handleReplace(type, fileId, file);
-                        } else {
-                          void handleUpload(type, file);
-                        }
-                      }
-                      e.target.value = "";
-                    }}
-                  />
-                  <span className="inline-flex px-4 py-2 rounded-xl text-[10px] font-black text-red-700 bg-red-50 border border-red-100 cursor-pointer">
-                    Use File Upload Instead
-                  </span>
-                </label>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/*
        * =========================================================
