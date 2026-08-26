@@ -145,9 +145,24 @@ public class DataSeeder implements CommandLineRunner {
 
                 Organization organization = Organization.builder()
 
+                                /*
+                                 * Organization name remains exactly:
+                                 * nobleloansolution
+                                 */
                                 .name(
                                                 envOrDefault(
                                                                 "BOOTSTRAP_ORG_NAME",
+                                                                "nobleloansolution"))
+
+                                /*
+                                 * REQUIRED BY organizations.slug NOT NULL
+                                 *
+                                 * This is the missing field that caused
+                                 * the production startup failure.
+                                 */
+                                .slug(
+                                                envOrDefault(
+                                                                "BOOTSTRAP_ORG_SLUG",
                                                                 "nobleloansolution"))
 
                                 .industry(
@@ -210,7 +225,7 @@ public class DataSeeder implements CommandLineRunner {
                                                 "Your trusted partner in financial support — personal, business, vehicle, salary advance, and agriculture loans, backed by a secure, fully compliant lending platform.")
 
                                 .foundedYear(
-                                                2020)
+                                                2025)
 
                                 .facebookUrl(
                                                 "https://facebook.com/nobleloansolutionsrw")
@@ -245,6 +260,9 @@ public class DataSeeder implements CommandLineRunner {
                                 .minLoanAmount(
                                                 MIN_LOAN_AMOUNT)
 
+                                /*
+                                 * NULL means unlimited.
+                                 */
                                 .maxLoanAmount(
                                                 null)
 
