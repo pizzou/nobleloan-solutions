@@ -122,6 +122,11 @@ public class DataSeeder implements CommandLineRunner {
                                         organization);
                 }
 
+                // Existing production databases do not enter the
+                // organizations.isEmpty() branch. Keep the configured
+                // bootstrap administrator's login phone synchronized on
+                // every startup so ADMIN email+SMS OTP works after a
+                // deployment without recreating or resetting the account.
                 ensureConfiguredAdminPhone();
 
                 log.info(
@@ -140,11 +145,6 @@ public class DataSeeder implements CommandLineRunner {
 
                                 .name(
                                                 envOrDefault("BOOTSTRAP_ORG_NAME", "Noble Loan Solutions Ltd"))
-
-                                .slug(
-                                                envOrDefault(
-                                                                "BOOTSTRAP_ORG_SLUG",
-                                                                "noble-loan-solutions"))
 
                                 .industry(
                                                 "Microfinance")
@@ -248,6 +248,12 @@ public class DataSeeder implements CommandLineRunner {
                 return orgRepo.save(
                                 organization);
         }
+
+        /*
+         * ============================================================
+         * BOOTSTRAP ADMIN
+         * ============================================================
+         */
 
         private void createBootstrapAdmin(
                         Organization organization,
