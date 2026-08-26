@@ -2374,7 +2374,7 @@ export default function LoanDetailPage() {
 
             <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-4">
               <Field
-                label="Processing Fee"
+                label="Application Fee"
                 value={`${fc(loan.applicationFee)} (${(loan.applicationFeeRate ?? 2).toFixed(2)}%)`}
               />
               <Field
@@ -2549,7 +2549,7 @@ export default function LoanDetailPage() {
               <Field label="Total Paid" value={fc(loan.totalPaid)} />
               <Field label="Total Repayable" value={fc(loan.totalRepayable)} />
               <Field
-                label="Processing Fee Paid"
+                label="Application Fee Paid"
                 value={fc(loan.applicationFeePaid)}
               />
               <Field
@@ -2693,7 +2693,7 @@ export default function LoanDetailPage() {
                 <Field label="Schedule" value={loan.repaymentFrequency} />
 
                 <Field
-                  label="Processing Fee"
+                  label="Application Fee"
                   value={`${fc(loan.applicationFee)} · ${(loan.applicationFeeRate ?? 2).toFixed(2)}%`}
                 />
 
@@ -3609,7 +3609,7 @@ export default function LoanDetailPage() {
                     </p>
                   </FormGroup>
 
-                  <FormGroup label="Processing Fee (one-time)">
+                  <FormGroup label="Application Fee (one-time)">
                     <Input
                       type="number"
                       min="0"
