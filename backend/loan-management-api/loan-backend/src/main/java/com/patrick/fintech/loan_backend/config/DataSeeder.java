@@ -154,12 +154,6 @@ public class DataSeeder implements CommandLineRunner {
                                                                 "BOOTSTRAP_ORG_NAME",
                                                                 "nobleloansolution"))
 
-                                /*
-                                 * REQUIRED BY organizations.slug NOT NULL
-                                 *
-                                 * This is the missing field that caused
-                                 * the production startup failure.
-                                 */
                                 .slug(
                                                 envOrDefault(
                                                                 "BOOTSTRAP_ORG_SLUG",
