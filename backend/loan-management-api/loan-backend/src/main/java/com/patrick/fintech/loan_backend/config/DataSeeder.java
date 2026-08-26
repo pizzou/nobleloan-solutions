@@ -122,11 +122,13 @@ public class DataSeeder implements CommandLineRunner {
                                         organization);
                 }
 
-                // Existing production databases do not enter the
-                // organizations.isEmpty() branch. Keep the configured
-                // bootstrap administrator's login phone synchronized on
-                // every startup so ADMIN email+SMS OTP works after a
-                // deployment without recreating or resetting the account.
+                /*
+                 * Existing production databases do not enter the
+                 * organizations.isEmpty() branch. Keep the configured
+                 * bootstrap administrator's login phone synchronized on
+                 * every startup so ADMIN email+SMS OTP works after a
+                 * deployment without recreating or resetting the account.
+                 */
                 ensureConfiguredAdminPhone();
 
                 log.info(
@@ -144,22 +146,32 @@ public class DataSeeder implements CommandLineRunner {
                 Organization organization = Organization.builder()
 
                                 .name(
-                                                envOrDefault("BOOTSTRAP_ORG_NAME", "nobleloansolution"))
+                                                envOrDefault(
+                                                                "BOOTSTRAP_ORG_NAME",
+                                                                "nobleloansolution"))
 
                                 .industry(
                                                 "Microfinance")
 
                                 .country(
-                                                envOrDefault("BOOTSTRAP_ORG_COUNTRY", "RW"))
+                                                envOrDefault(
+                                                                "BOOTSTRAP_ORG_COUNTRY",
+                                                                "RW"))
 
                                 .defaultCurrency(
-                                                envOrDefault("BOOTSTRAP_ORG_CURRENCY", "RWF"))
+                                                envOrDefault(
+                                                                "BOOTSTRAP_ORG_CURRENCY",
+                                                                "RWF"))
 
                                 .timezone(
-                                                envOrDefault("BOOTSTRAP_ORG_TIMEZONE", "Africa/Kigali"))
+                                                envOrDefault(
+                                                                "BOOTSTRAP_ORG_TIMEZONE",
+                                                                "Africa/Kigali"))
 
                                 .locale(
-                                                envOrDefault("BOOTSTRAP_ORG_LOCALE", "en-RW"))
+                                                envOrDefault(
+                                                                "BOOTSTRAP_ORG_LOCALE",
+                                                                "en-RW"))
 
                                 .primaryColor(
                                                 "#0F1B3D")
@@ -286,14 +298,13 @@ public class DataSeeder implements CommandLineRunner {
                                 .toLowerCase();
 
                 if (userRepo.findByEmail(normalizedEmail).isPresent()) {
-                        // Never reset an existing production administrator.
-                        // Phone synchronization is deliberately handled by
-                        // ensureConfiguredAdminPhone(), which also runs when
-                        // organizations already exist.
+
                         ensureConfiguredAdminPhone();
+
                         log.info(
                                         "Bootstrap admin {} already exists — no account reset performed.",
                                         normalizedEmail);
+
                         return;
                 }
 
@@ -309,8 +320,11 @@ public class DataSeeder implements CommandLineRunner {
                                 adminRole,
                                 organization);
 
-                if (configuredPhone != null && !configuredPhone.isBlank()) {
-                        user.setPhone(configuredPhone.trim());
+                if (configuredPhone != null
+                                && !configuredPhone.isBlank()) {
+
+                        user.setPhone(
+                                        configuredPhone.trim());
                 }
 
                 userRepo.save(user);
@@ -322,41 +336,60 @@ public class DataSeeder implements CommandLineRunner {
 
         private void ensureConfiguredAdminPhone() {
 
-                String email = System.getenv("BOOTSTRAP_ADMIN_EMAIL");
-                String phone = System.getenv("BOOTSTRAP_ADMIN_PHONE");
+                String email = System.getenv(
+                                "BOOTSTRAP_ADMIN_EMAIL");
 
-                if (email == null || email.isBlank()) {
+                String phone = System.getenv(
+                                "BOOTSTRAP_ADMIN_PHONE");
+
+                if (email == null
+                                || email.isBlank()) {
+
                         log.warn(
                                         "BOOTSTRAP_ADMIN_EMAIL is not configured; "
                                                         + "cannot identify the bootstrap administrator for login-phone repair.");
+
                         return;
                 }
 
-                if (phone == null || phone.isBlank()) {
+                if (phone == null
+                                || phone.isBlank()) {
+
                         log.warn(
                                         "BOOTSTRAP_ADMIN_PHONE is not configured. "
                                                         + "ADMIN login will continue to require a registered mobile number.");
+
                         return;
                 }
 
-                String normalizedEmail = email.trim().toLowerCase();
+                String normalizedEmail = email.trim()
+                                .toLowerCase();
+
                 String normalizedPhone = phone.trim();
 
-                User user = userRepo.findByEmail(normalizedEmail).orElse(null);
+                User user = userRepo
+                                .findByEmail(normalizedEmail)
+                                .orElse(null);
 
                 if (user == null) {
+
                         log.warn(
                                         "Configured bootstrap administrator {} does not exist yet; "
                                                         + "its phone will be assigned when the account is created.",
                                         normalizedEmail);
+
                         return;
                 }
 
                 if (user.getPhone() == null
                                 || user.getPhone().isBlank()
-                                || !user.getPhone().trim().equals(normalizedPhone)) {
+                                || !user.getPhone()
+                                                .trim()
+                                                .equals(normalizedPhone)) {
 
-                        user.setPhone(normalizedPhone);
+                        user.setPhone(
+                                        normalizedPhone);
+
                         userRepo.save(user);
 
                         log.info(
@@ -536,9 +569,17 @@ public class DataSeeder implements CommandLineRunner {
                 product.setMaxTermMonths(
                                 MAX_TERM_MONTHS);
 
-                product.setProcessingFeePercent(
+                /*
+                 * Application fee:
+                 * One-time fee charged at application/disbursement.
+                 */
+                product.setApplicationFeePercent(
                                 APPLICATION_FEE);
 
+                /*
+                 * Management fee:
+                 * Monthly management fee.
+                 */
                 product.setManagementFeePercent(
                                 MANAGEMENT_FEE);
 
@@ -568,9 +609,17 @@ public class DataSeeder implements CommandLineRunner {
                                 product);
         }
 
-        private String envOrDefault(String name, String defaultValue) {
-                String value = System.getenv(name);
-                return value == null || value.isBlank() ? defaultValue : value.trim();
+        private String envOrDefault(
+                        String name,
+                        String defaultValue) {
+
+                String value = System.getenv(
+                                name);
+
+                return value == null
+                                || value.isBlank()
+                                                ? defaultValue
+                                                : value.trim();
         }
 
         /*
@@ -583,38 +632,51 @@ public class DataSeeder implements CommandLineRunner {
                         Organization organization) {
 
                 log.info("");
+
                 log.info(
                                 "╔══════════════════════════════════════════════════════════════╗");
+
                 log.info(
                                 "║             LOANSAAS PRO — BOOTSTRAP COMPLETE              ║");
+
                 log.info(
                                 "╠══════════════════════════════════════════════════════════════╣");
+
                 log.info(
                                 "║ Organization : {}",
                                 organization.getName());
+
                 log.info(
                                 "║ Currency     : {}",
                                 organization.getDefaultCurrency());
+
                 log.info(
                                 "║ Min Loan     : {}",
                                 MIN_LOAN_AMOUNT);
+
                 log.info(
                                 "║ Max Loan     : UNLIMITED");
+
                 log.info(
                                 "║ Interest     : {}% MONTHLY",
                                 INTEREST_RATE);
+
                 log.info(
                                 "║ Application   : {}%",
                                 APPLICATION_FEE);
+
                 log.info(
                                 "║ Management   : {}%",
                                 MANAGEMENT_FEE);
+
                 log.info(
                                 "║ Term         : {}-{} months",
                                 MIN_TERM_MONTHS,
                                 MAX_TERM_MONTHS);
+
                 log.info(
                                 "╚══════════════════════════════════════════════════════════════╝");
+
                 log.info("");
         }
 }
