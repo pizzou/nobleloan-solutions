@@ -144,7 +144,7 @@ public class DataSeeder implements CommandLineRunner {
                 Organization organization = Organization.builder()
 
                                 .name(
-                                                envOrDefault("BOOTSTRAP_ORG_NAME", "Noble Loan Solutions Ltd"))
+                                                envOrDefault("BOOTSTRAP_ORG_NAME", "nobleloansolution"))
 
                                 .industry(
                                                 "Microfinance")
