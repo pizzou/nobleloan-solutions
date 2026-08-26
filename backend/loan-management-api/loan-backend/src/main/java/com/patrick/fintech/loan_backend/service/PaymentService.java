@@ -67,7 +67,7 @@ public class PaymentService {
          * This is NOT charged by PaymentService.
          * It is deducted at disbursement.
          */
-        private static final BigDecimal PROCESSING_FEE_RATE = FinancialPolicy.PROCESSING_FEE_RATE;
+        private static final BigDecimal APPLICATION_FEE_RATE = FinancialPolicy.APPLICATION_FEE_RATE;
 
         /**
          * Monthly late-payment penalty.
@@ -1543,11 +1543,11 @@ public class PaymentService {
 
                         paymentWebhook.put(
                                         "applicationFee",
-                                        loan.getProcessingFeeDecimal());
+                                        loan.getApplicationFeeDecimal());
 
                         paymentWebhook.put(
                                         "applicationFeePaid",
-                                        loan.getProcessingFeePaid());
+                                        loan.getApplicationFeePaid());
 
                         paymentWebhook.put(
                                         "loanGrossPrincipal",

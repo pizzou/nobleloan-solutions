@@ -94,7 +94,7 @@ public class ESignatureService {
 
         private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = new BigDecimal("5.00");
 
-        private static final BigDecimal PROCESSING_FEE_RATE = new BigDecimal("2.00");
+        private static final BigDecimal APPLICATION_FEE_RATE = new BigDecimal("2.00");
 
         // ================================================================
         // INITIATE SIGNATURE REQUEST
@@ -729,10 +729,10 @@ public class ESignatureService {
                                 loan.getManagementFeeRateDecimal());
 
                 BigDecimal applicationFeeRate = money(
-                                loan.getProcessingFeeRateDecimal());
+                                loan.getApplicationFeeRateDecimal());
 
                 BigDecimal applicationFee = money(
-                                loan.getProcessingFeeDecimal());
+                                loan.getApplicationFeeDecimal());
 
                 BigDecimal totalRepayable = money(
                                 loan.getTotalRepayableDecimal());

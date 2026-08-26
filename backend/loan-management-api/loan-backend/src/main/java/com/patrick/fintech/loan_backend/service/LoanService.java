@@ -86,7 +86,7 @@ public class LoanService {
         private static final BigDecimal TOTAL_MONTHLY_CHARGE_RATE = MONTHLY_INTEREST_RATE
                         .add(MONTHLY_MANAGEMENT_FEE_RATE);
 
-        private static final BigDecimal PROCESSING_FEE_RATE = FinancialPolicy.PROCESSING_FEE_RATE;
+        private static final BigDecimal APPLICATION_FEE_RATE = FinancialPolicy.APPLICATION_FEE_RATE;
 
         private static final BigDecimal ZERO = BigDecimal.ZERO;
 
@@ -540,8 +540,8 @@ public class LoanService {
                 // ============================================================
 
                 BigDecimal applicationFeeRate = product != null
-                                ? moneyValue(product.getProcessingFeePercentDecimal())
-                                : PROCESSING_FEE_RATE;
+                                ? moneyValue(product.getApplicationFeePercentDecimal())
+                                : APPLICATION_FEE_RATE;
 
                 BigDecimal applicationFee = money(
                                 principal
@@ -866,13 +866,13 @@ public class LoanService {
                         User approvedBy,
                         String notes,
                         Double newInterestRate,
-                        Double newProcessingFeeRate) {
+                        Double newApplicationFeeRate) {
                 return approveLoan(
                                 loanId,
                                 approvedBy,
                                 notes,
                                 newInterestRate,
-                                newProcessingFeeRate,
+                                newApplicationFeeRate,
                                 null);
         }
 
@@ -889,7 +889,7 @@ public class LoanService {
                         User approvedBy,
                         String notes,
                         Double newInterestRate,
-                        Double newProcessingFeeRate,
+                        Double newApplicationFeeRate,
                         BigDecimal newApprovedAmount) {
 
                 if (approvedBy == null
@@ -971,7 +971,7 @@ public class LoanService {
 
                 BigDecimal interestRate = moneyValue(loan.getInterestRateDecimal());
                 BigDecimal managementFeeRate = moneyValue(loan.getManagementFeeRateDecimal());
-                BigDecimal applicationFeeRate = moneyValue(loan.getProcessingFeeRateDecimal());
+                BigDecimal applicationFeeRate = moneyValue(loan.getApplicationFeeRateDecimal());
 
                 LoanProduct activeProduct = loanProductRepo
                                 .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
@@ -986,7 +986,7 @@ public class LoanService {
                         managementFeeRate = moneyValue(activeProduct.getManagementFeePercentDecimal());
                 }
                 if (applicationFeeRate.compareTo(ZERO) < 0 && activeProduct != null) {
-                        applicationFeeRate = moneyValue(activeProduct.getProcessingFeePercentDecimal());
+                        applicationFeeRate = moneyValue(activeProduct.getApplicationFeePercentDecimal());
                 }
 
                 if (newInterestRate != null) {
@@ -1022,7 +1022,7 @@ public class LoanService {
                         }
                 }
 
-                if (newProcessingFeeRate != null) {
+                if (newApplicationFeeRate != null) {
                         String role = approvedBy.getRole() != null
                                         && approvedBy.getRole().getName() != null
                                                         ? approvedBy.getRole().getName().trim().toUpperCase(Locale.ROOT)
@@ -1037,16 +1037,16 @@ public class LoanService {
                                                 "Only MANAGER or ADMIN may change the application fee rate.");
                         }
 
-                        BigDecimal requestedProcessingFeeRate = bd(newProcessingFeeRate);
-                        validateInterestRate(requestedProcessingFeeRate);
-                        applicationFeeRate = requestedProcessingFeeRate;
+                        BigDecimal requestedApplicationFeeRate = bd(newApplicationFeeRate);
+                        validateInterestRate(requestedApplicationFeeRate);
+                        applicationFeeRate = requestedApplicationFeeRate;
                 }
 
                 if (interestRate.compareTo(ZERO) <= 0) {
                         interestRate = MONTHLY_INTEREST_RATE;
                 }
                 if (applicationFeeRate.compareTo(ZERO) < 0) {
-                        applicationFeeRate = PROCESSING_FEE_RATE;
+                        applicationFeeRate = APPLICATION_FEE_RATE;
                 }
 
                 BigDecimal totalMonthlyRate = money(interestRate.add(managementFeeRate));
@@ -1057,7 +1057,7 @@ public class LoanService {
 
                 loan.setInterestRate(interestRate);
                 loan.setManagementFeeRate(managementFeeRate);
-                loan.setProcessingFeeRate(applicationFeeRate);
+                loan.setApplicationFeeRate(applicationFeeRate);
                 loan.setInterestRateType("MONTHLY");
 
                 // ============================================================
@@ -1076,13 +1076,13 @@ public class LoanService {
                 BigDecimal applicationFee = money(
                                 principal
                                                 .multiply(
-                                                                moneyValue(loan.getProcessingFeeRateDecimal()))
+                                                                moneyValue(loan.getApplicationFeeRateDecimal()))
                                                 .divide(
                                                                 ONE_HUNDRED,
                                                                 16,
                                                                 RoundingMode.HALF_UP));
 
-                loan.setProcessingFee(
+                loan.setApplicationFee(
                                 applicationFee);
 
                 // ============================================================
@@ -1165,7 +1165,7 @@ public class LoanService {
                                                 + saved.getManagementFeeRateDecimal()
                                                 + "%"
                                                 + " — one-time application fee "
-                                                + saved.getProcessingFeeRateDecimal()
+                                                + saved.getApplicationFeeRateDecimal()
                                                 + "%"
                                                 + " — credit quality CURRENT");
 
@@ -1452,7 +1452,7 @@ public class LoanService {
 
                 BigDecimal interestRate = moneyValue(loan.getInterestRateDecimal());
                 BigDecimal managementFeeRate = moneyValue(loan.getManagementFeeRateDecimal());
-                BigDecimal applicationFeeRate = moneyValue(loan.getProcessingFeeRateDecimal());
+                BigDecimal applicationFeeRate = moneyValue(loan.getApplicationFeeRateDecimal());
 
                 if (interestRate.compareTo(ZERO) <= 0
                                 || managementFeeRate.compareTo(ZERO) < 0
@@ -1472,7 +1472,7 @@ public class LoanService {
                                 managementFeeRate = moneyValue(product.getManagementFeePercentDecimal());
                         }
                         if (applicationFeeRate.compareTo(ZERO) < 0) {
-                                applicationFeeRate = moneyValue(product.getProcessingFeePercentDecimal());
+                                applicationFeeRate = moneyValue(product.getApplicationFeePercentDecimal());
                         }
                 }
 
@@ -1482,7 +1482,7 @@ public class LoanService {
 
                 loan.setInterestRate(interestRate);
                 loan.setManagementFeeRate(managementFeeRate);
-                loan.setProcessingFeeRate(applicationFeeRate);
+                loan.setApplicationFeeRate(applicationFeeRate);
                 loan.setInterestRateType("MONTHLY");
 
                 BigDecimal applicationFee = money(
@@ -1494,12 +1494,12 @@ public class LoanService {
                                                                 16,
                                                                 RoundingMode.HALF_UP));
 
-                loan.setProcessingFee(
+                loan.setApplicationFee(
                                 applicationFee);
 
                 // The 2% application fee is collected once at disbursement.
                 // It is never part of principal or recurring monthly charges.
-                loan.setProcessingFeePaid(applicationFee);
+                loan.setApplicationFeePaid(applicationFee);
                 loan.setNetDisbursedAmount(
                                 exactPrincipal.subtract(applicationFee).max(ZERO));
 
@@ -1646,7 +1646,7 @@ public class LoanService {
                                                 + saved.getManagementFeeRateDecimal()
                                                 + "%"
                                                 + " — application fee "
-                                                + saved.getProcessingFeeRateDecimal()
+                                                + saved.getApplicationFeeRateDecimal()
                                                 + "% one time"
                                                 + " — credit quality CURRENT");
 
@@ -2610,7 +2610,7 @@ public class LoanService {
                                 .orElse(ZERO);
 
                 BigDecimal applicationFeesCollected = Optional.ofNullable(
-                                loanRepo.sumProcessingFeesCollected(org))
+                                loanRepo.sumApplicationFeesCollected(org))
                                 .orElse(ZERO);
 
                 BigDecimal totalCollected = money(
@@ -2647,7 +2647,7 @@ public class LoanService {
                                                                                 .max(ZERO)
                                                                                 .add(
                                                                                                 Optional.ofNullable(
-                                                                                                                loanRepo.sumImportedProcessingFeesCollected(
+                                                                                                                loanRepo.sumImportedApplicationFeesCollected(
                                                                                                                                 org))
                                                                                                                 .orElse(ZERO))))
                                 .applicationFeesCollected(applicationFeesCollected)
@@ -2795,10 +2795,10 @@ public class LoanService {
 
                 loan.setInterestRate(interestRate);
                 loan.setManagementFeeRate(managementRate);
-                loan.setProcessingFeeRate(
-                                loan.getProcessingFeeRateDecimal() != null
-                                                ? moneyValue(loan.getProcessingFeeRateDecimal())
-                                                : PROCESSING_FEE_RATE);
+                loan.setApplicationFeeRate(
+                                loan.getApplicationFeeRateDecimal() != null
+                                                ? moneyValue(loan.getApplicationFeeRateDecimal())
+                                                : APPLICATION_FEE_RATE);
                 loan.setInterestRateType(
                                 "MONTHLY");
 
@@ -2809,13 +2809,13 @@ public class LoanService {
                 BigDecimal applicationFee = money(
                                 principal
                                                 .multiply(
-                                                                moneyValue(loan.getProcessingFeeRateDecimal()))
+                                                                moneyValue(loan.getApplicationFeeRateDecimal()))
                                                 .divide(
                                                                 ONE_HUNDRED,
                                                                 16,
                                                                 RoundingMode.HALF_UP));
 
-                loan.setProcessingFee(
+                loan.setApplicationFee(
                                 applicationFee);
 
                 // ============================================================
@@ -2918,7 +2918,7 @@ public class LoanService {
                 // The one-time application fee is therefore still unpaid here.
                 // Do not change this to a collection event: actual collection
                 // is recorded by the disbursement flow.
-                loan.setProcessingFee(
+                loan.setApplicationFee(
                                 applicationFee);
 
                 loan.setNextDueDate(

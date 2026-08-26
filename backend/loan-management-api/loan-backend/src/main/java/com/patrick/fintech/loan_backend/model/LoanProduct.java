@@ -90,69 +90,28 @@ public class LoanProduct {
         @Column(nullable = false, length = 20)
         private String interestRateType = "MONTHLY";
 
-        /**
-         * Minimum loan amount.
-         *
-         * Current business rule:
-         * RWF 500,000 minimum.
-         */
         @Column(nullable = false, precision = 19, scale = 6)
         @JsonProperty("minAmount")
         private BigDecimal minAmount;
 
-        /**
-         * Null means unlimited.
-         *
-         * There is intentionally NO maximum loan amount.
-         */
         @Column(precision = 19, scale = 6)
         @JsonProperty("maxAmount")
         private BigDecimal maxAmount;
 
-        /**
-         * Minimum repayment term in months.
-         */
         @Column(nullable = false)
         private Integer minTermMonths;
 
-        /**
-         * Maximum repayment term in months.
-         *
-         * Current business rule:
-         * maximum 6 months.
-         */
         @Column(nullable = false)
         private Integer maxTermMonths;
 
-        /**
-         * Loan application fee percentage.
-         *
-         * Current business rule:
-         * 2%.
-         */
         @Column(nullable = false, precision = 19, scale = 9)
         @JsonProperty("applicationFeePercent")
         private BigDecimal applicationFeePercent;
 
-        /**
-         * Loan management fee percentage.
-         *
-         * Current business rule:
-         * 5%.
-         */
         @Column(nullable = false, precision = 19, scale = 9)
         @JsonProperty("managementFeePercent")
         private BigDecimal managementFeePercent;
 
-        /**
-         * Penalty percentage.
-         *
-         * Current business rule:
-         * 15%.
-         *
-         * The exact application frequency should remain controlled by
-         * PaymentService/penalty calculation logic.
-         */
         @Column(nullable = false, precision = 19, scale = 9)
         @JsonProperty("penaltyPercent")
         private BigDecimal penaltyPercent;
@@ -185,7 +144,7 @@ public class LoanProduct {
 
         public static final BigDecimal DEFAULT_INTEREST_RATE = FinancialPolicy.MONTHLY_INTEREST_RATE;
 
-        public static final BigDecimal DEFAULT_PROCESSING_FEE_PERCENT = FinancialPolicy.PROCESSING_FEE_RATE;
+        public static final BigDecimal DEFAULT_APPLICATION_FEE_PERCENT = FinancialPolicy.APPLICATION_FEE_RATE;
 
         public static final BigDecimal DEFAULT_MANAGEMENT_FEE_PERCENT = FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE;
 
@@ -269,7 +228,7 @@ public class LoanProduct {
                 }
 
                 if (applicationFeePercent == null) {
-                        applicationFeePercent = DEFAULT_PROCESSING_FEE_PERCENT;
+                        applicationFeePercent = DEFAULT_APPLICATION_FEE_PERCENT;
                 }
 
                 if (managementFeePercent == null) {
@@ -410,7 +369,7 @@ public class LoanProduct {
         }
 
         @JsonIgnore
-        public BigDecimal getProcessingFeePercentDecimal() {
+        public BigDecimal getApplicationFeePercentDecimal() {
                 return applicationFeePercent;
         }
 

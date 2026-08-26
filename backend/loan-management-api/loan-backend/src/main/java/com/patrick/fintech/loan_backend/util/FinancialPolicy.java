@@ -9,7 +9,7 @@ public final class FinancialPolicy {
 
         public static final BigDecimal MONTHLY_INTEREST_RATE = new BigDecimal("5.00");
         public static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = new BigDecimal("5.00");
-        public static final BigDecimal PROCESSING_FEE_RATE = new BigDecimal("2.00");
+        public static final BigDecimal APPLICATION_FEE_RATE = new BigDecimal("2.00");
         public static final BigDecimal MONTHLY_PENALTY_RATE = new BigDecimal("15.00");
         public static final BigDecimal EXTENSION_FEE_RATE = new BigDecimal("10.00");
 
@@ -203,7 +203,7 @@ public final class FinancialPolicy {
                 }
 
                 return principal
-                                .multiply(PROCESSING_FEE_RATE)
+                                .multiply(APPLICATION_FEE_RATE)
                                 .divide(ONE_HUNDRED, 2, ROUNDING);
         }
 

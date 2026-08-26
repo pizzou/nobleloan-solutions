@@ -405,7 +405,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             WHERE l.organization = :org
               AND COALESCE(l.applicationFeePaid, 0) > 0
             """)
-    BigDecimal sumProcessingFeesCollected(
+    BigDecimal sumApplicationFeesCollected(
             @Param("org") Organization org);
 
     @Query("""
@@ -415,7 +415,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
               AND l.imported = true
               AND COALESCE(l.applicationFeePaid, 0) > 0
             """)
-    BigDecimal sumImportedProcessingFeesCollected(
+    BigDecimal sumImportedApplicationFeesCollected(
             @Param("org") Organization org);
 
     /**

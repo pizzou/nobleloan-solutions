@@ -46,7 +46,7 @@ public class LoanProductController {
 
         private static final BigDecimal DEFAULT_MANAGEMENT_FEE_PERCENT = new BigDecimal("5.00");
 
-        private static final BigDecimal DEFAULT_PROCESSING_FEE_PERCENT = new BigDecimal("2.00");
+        private static final BigDecimal DEFAULT_APPLICATION_FEE_PERCENT = new BigDecimal("2.00");
 
         private static final int MAXIMUM_TERM_MONTHS = 6;
 
@@ -227,7 +227,7 @@ public class LoanProductController {
                                 product.getLoanType(),
                                 product.getInterestRateDecimal(),
                                 product.getManagementFeePercentDecimal(),
-                                product.getProcessingFeePercentDecimal());
+                                product.getApplicationFeePercentDecimal());
 
                 auditService.log(
                                 product.getOrganization(),
@@ -243,7 +243,7 @@ public class LoanProductController {
                                                 + "%, management fee="
                                                 + product.getManagementFeePercentDecimal()
                                                 + "%, application fee="
-                                                + product.getProcessingFeePercentDecimal()
+                                                + product.getApplicationFeePercentDecimal()
                                                 + "%.");
 
                 return ResponseEntity.ok(
@@ -612,7 +612,7 @@ public class LoanProductController {
                                                                         body.get(
                                                                                         "applicationFeePercent"),
                                                                         "applicationFeePercent")
-                                                        : DEFAULT_PROCESSING_FEE_PERCENT;
+                                                        : DEFAULT_APPLICATION_FEE_PERCENT;
 
                         if (requestedProcessingFee.compareTo(
                                         BigDecimal.ZERO) < 0) {
@@ -980,7 +980,7 @@ public class LoanProductController {
                 // PROCESSING FEE
                 // ----------------------------------------------------
 
-                BigDecimal applicationFee = product.getProcessingFeePercentDecimal();
+                BigDecimal applicationFee = product.getApplicationFeePercentDecimal();
 
                 if (applicationFee == null) {
 

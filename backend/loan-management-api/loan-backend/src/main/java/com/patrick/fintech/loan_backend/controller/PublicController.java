@@ -122,7 +122,7 @@ public class PublicController {
 
         private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = Loan.DEFAULT_MONTHLY_MANAGEMENT_FEE_RATE;
 
-        private static final BigDecimal PROCESSING_FEE_RATE = Loan.DEFAULT_PROCESSING_FEE_RATE;
+        private static final BigDecimal APPLICATION_FEE_RATE = Loan.DEFAULT_APPLICATION_FEE_RATE;
 
         private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(
                         2,
@@ -1870,7 +1870,7 @@ public class PublicController {
                                                 loan.getCurrency())
                                                 + " "
                                                 + formatMoney(
-                                                                loan.getProcessingFeePaidDecimal()));
+                                                                loan.getApplicationFeePaidDecimal()));
 
                 add.accept(
                                 "Net Disbursement",
@@ -1983,7 +1983,7 @@ public class PublicController {
                                                 loan.getCurrency())
                                                 + " "
                                                 + formatMoney(
-                                                                loan.getProcessingFeePaidDecimal()));
+                                                                loan.getApplicationFeePaidDecimal()));
 
                 add.accept(
                                 "Net Amount Received",
@@ -2230,7 +2230,7 @@ public class PublicController {
 
                 config.put(
                                 "applicationFeeRate",
-                                PROCESSING_FEE_RATE);
+                                APPLICATION_FEE_RATE);
 
                 config.put(
                                 "minLoanDurationMonths",
@@ -2801,7 +2801,7 @@ public class PublicController {
                                 MONTHLY_MANAGEMENT_FEE_RATE);
 
                 loan.setProcessingFeeRate(
-                                PROCESSING_FEE_RATE);
+                                APPLICATION_FEE_RATE);
 
                 loan.setInterestRateType(
                                 "MONTHLY");
@@ -2882,7 +2882,7 @@ public class PublicController {
                                                 MONTHLY_MANAGEMENT_FEE_RATE,
 
                                                 "applicationFeeRate",
-                                                PROCESSING_FEE_RATE));
+                                                APPLICATION_FEE_RATE));
 
                 idempotencyService.recordSuccess(
                                 idempotencyKey,

@@ -143,7 +143,7 @@ public class ReportingService {
                 BigDecimal legacyInterestPaid = ZERO;
                 BigDecimal legacyFeesPaid = ZERO;
                 BigDecimal legacyPenaltiesPaid = ZERO;
-                BigDecimal legacyCashCollectedIncludingProcessingFees = ZERO;
+                BigDecimal legacyCashCollectedIncludingApplicationFees = ZERO;
                 long legacyLoanCount = 0L;
 
                 for (Payment payment : payments) {
@@ -186,12 +186,12 @@ public class ReportingService {
                         legacyInterestPaid = add(legacyInterestPaid, normalizeMoney(loan.getInterestPaidDecimal()));
                         legacyFeesPaid = add(legacyFeesPaid, normalizeMoney(loan.getManagementFeePaidDecimal())
                                         .add(normalizeMoney(loan.getExtensionFeePaidDecimal()))
-                                        .add(normalizeMoney(loan.getProcessingFeePaidDecimal())));
+                                        .add(normalizeMoney(loan.getApplicationFeePaidDecimal())));
                         legacyPenaltiesPaid = add(legacyPenaltiesPaid, normalizeMoney(loan.getPenaltiesPaidDecimal()));
-                        legacyCashCollectedIncludingProcessingFees = add(
-                                        legacyCashCollectedIncludingProcessingFees,
+                        legacyCashCollectedIncludingApplicationFees = add(
+                                        legacyCashCollectedIncludingApplicationFees,
                                         normalizeMoney(loan.getTotalPaidDecimal())
-                                                        .add(normalizeMoney(loan.getProcessingFeePaidDecimal())));
+                                                        .add(normalizeMoney(loan.getApplicationFeePaidDecimal())));
                 }
 
                 Map<String, BigDecimal> result = new LinkedHashMap<>();
@@ -202,7 +202,7 @@ public class ReportingService {
                 result.put("legacyInterestPaid", legacyInterestPaid);
                 result.put("legacyFeesPaid", legacyFeesPaid);
                 result.put("legacyPenaltiesPaid", legacyPenaltiesPaid);
-                result.put("legacyCashCollectedIncludingProcessingFees", legacyCashCollectedIncludingProcessingFees);
+                result.put("legacyCashCollectedIncludingApplicationFees", legacyCashCollectedIncludingApplicationFees);
                 result.put("legacyLoanCount", BigDecimal.valueOf(legacyLoanCount));
 
                 result.put(
@@ -1103,12 +1103,12 @@ public class ReportingService {
                                 setCell(row, 4, normalizeMoney(loan.getInterestPaidDecimal()), currencyStyle);
                                 setCell(row, 5, normalizeMoney(loan.getManagementFeePaidDecimal())
                                                 .add(normalizeMoney(loan.getExtensionFeePaidDecimal()))
-                                                .add(normalizeMoney(loan.getProcessingFeePaidDecimal())),
+                                                .add(normalizeMoney(loan.getApplicationFeePaidDecimal())),
                                                 currencyStyle);
                                 setCell(row, 6, normalizeMoney(loan.getPenaltiesPaidDecimal()), currencyStyle);
                                 setCell(row, 7, normalizeMoney(loan.getTotalPaidDecimal()), currencyStyle);
                                 setCell(row, 8, normalizeMoney(loan.getTotalPaidDecimal())
-                                                .add(normalizeMoney(loan.getProcessingFeePaidDecimal())),
+                                                .add(normalizeMoney(loan.getApplicationFeePaidDecimal())),
                                                 currencyStyle);
                                 setCell(row, 9, normalizeMoney(loan.getOutstandingBalanceDecimal()), currencyStyle);
                                 setCell(row, 10, "Imported legacy cumulative balance", bodyStyle);

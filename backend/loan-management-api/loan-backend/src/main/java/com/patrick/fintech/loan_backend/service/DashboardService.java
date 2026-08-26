@@ -295,7 +295,7 @@ public class DashboardService {
                                         .add(money(loan.getManagementFeePaidDecimal()))
                                         .add(money(loan.getExtensionFeePaidDecimal()))
                                         .add(money(loan.getPenaltiesPaidDecimal()))
-                                        .add(money(loan.getProcessingFeePaidDecimal()));
+                                        .add(money(loan.getApplicationFeePaidDecimal()));
 
                         legacyHistoricalCollected = money(legacyHistoricalCollected.add(historical));
                 }

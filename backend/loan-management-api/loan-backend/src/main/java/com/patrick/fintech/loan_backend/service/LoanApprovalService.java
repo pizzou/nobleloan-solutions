@@ -288,7 +288,7 @@ public class LoanApprovalService {
                         String decision,
                         String comments,
                         Double newInterestRate,
-                        Double newProcessingFeeRate,
+                        Double newApplicationFeeRate,
                         BigDecimal newApprovedAmount) {
 
                 if (decider == null) {
@@ -442,7 +442,7 @@ public class LoanApprovalService {
                                                                 ? comments
                                                                 : "Finalized from existing website approval.",
                                                 newInterestRate,
-                                                newProcessingFeeRate,
+                                                newApplicationFeeRate,
                                                 newApprovedAmount);
                                 return decisionRecord;
                         }
@@ -495,7 +495,7 @@ public class LoanApprovalService {
                                                         ? comments
                                                         : "Approved by " + publicRole + " for website-submitted loan.",
                                         newInterestRate,
-                                        newProcessingFeeRate,
+                                        newApplicationFeeRate,
                                         newApprovedAmount);
 
                         return decisionRecord;
@@ -666,7 +666,7 @@ public class LoanApprovalService {
                                         decider,
                                         approvalMessage,
                                         newInterestRate,
-                                        newProcessingFeeRate,
+                                        newApplicationFeeRate,
                                         newApprovedAmount);
                 }
 

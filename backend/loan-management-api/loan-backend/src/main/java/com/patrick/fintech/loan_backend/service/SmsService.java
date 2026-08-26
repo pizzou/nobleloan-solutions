@@ -62,7 +62,7 @@ public class SmsService {
         // PLATFORM RULES
         // ================================================================
 
-        private static final BigDecimal PROCESSING_FEE_RATE = new BigDecimal("2.00");
+        private static final BigDecimal APPLICATION_FEE_RATE = new BigDecimal("2.00");
 
         private static final BigDecimal MONTHLY_PENALTY_RATE = new BigDecimal("15.00");
 
@@ -87,7 +87,7 @@ public class SmsService {
 
                 BigDecimal applicationFee = money(
                                 loan != null
-                                                ? loan.getProcessingFeeDecimal()
+                                                ? loan.getApplicationFeeDecimal()
                                                 : null);
 
                 BigDecimal expectedNetDisbursement = grossAmount
@@ -100,9 +100,9 @@ public class SmsService {
                                                 : grossAmount);
 
                 BigDecimal applicationFeeRate = money(
-                                loan != null && loan.getProcessingFeeRateDecimal() != null
-                                                ? loan.getProcessingFeeRateDecimal()
-                                                : PROCESSING_FEE_RATE);
+                                loan != null && loan.getApplicationFeeRateDecimal() != null
+                                                ? loan.getApplicationFeeRateDecimal()
+                                                : APPLICATION_FEE_RATE);
 
                 BigDecimal interestRate = money(
                                 loan != null && loan.getInterestRateDecimal() != null
@@ -188,7 +188,7 @@ public class SmsService {
 
                 BigDecimal applicationFee = money(
                                 loan != null
-                                                ? loan.getProcessingFeeDecimal()
+                                                ? loan.getApplicationFeeDecimal()
                                                 : null);
 
                 /*

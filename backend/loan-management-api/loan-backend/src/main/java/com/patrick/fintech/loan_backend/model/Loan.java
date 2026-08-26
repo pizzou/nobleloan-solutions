@@ -57,120 +57,67 @@ import com.patrick.fintech.loan_backend.util.MoneyMath;
 public class Loan {
 
         // ================================================================
-        // PLATFORM FINANCIAL RULES
+        // LOAN LIMITS / DEFAULTS
         // ================================================================
 
         public static final BigDecimal MIN_LOAN_AMOUNT = new BigDecimal("500000.00");
 
-        /**
-         * There is deliberately no maximum loan amount.
-         */
         public static final BigDecimal MAX_LOAN_AMOUNT = null;
 
-        /**
-         * Maximum loan duration.
-         *
-         * All loans must be between 1 and 6 months.
-         */
         public static final int MAX_LOAN_DURATION_MONTHS = 6;
 
-        /**
-         * Minimum loan duration.
-         */
         public static final int MIN_LOAN_DURATION_MONTHS = 1;
 
-        /**
-         * Unified monthly loan interest rate.
-         *
-         * ALL loan types use 5% monthly interest.
-         */
         public static final BigDecimal DEFAULT_MONTHLY_INTEREST_RATE = new BigDecimal("5.00");
 
-        /**
-         * Unified monthly loan management fee rate.
-         *
-         * ALL loan types use 5% monthly management fee.
-         */
         public static final BigDecimal DEFAULT_MONTHLY_MANAGEMENT_FEE_RATE = new BigDecimal("5.00");
 
         /**
-         * Unified one-time application fee rate.
+         * Default one-time application fee rate.
          *
-         * ALL loan types use 2%.
+         * Historical code used the name PROCESSING_FEE.
+         * The financial concept is now APPLICATION_FEE.
          */
-        public static final BigDecimal DEFAULT_PROCESSING_FEE_RATE = new BigDecimal("2.00");
+        public static final BigDecimal DEFAULT_APPLICATION_FEE_RATE = new BigDecimal("2.00");
 
         /**
-         * Total recurring monthly charge:
+         * Legacy constant retained temporarily for source compatibility.
          *
-         * 5% interest + 5% management fee = 10%.
+         * This does NOT represent a second fee.
+         * It points to the canonical application-fee rate.
          */
+        @Deprecated
+        public static final BigDecimal DEFAULT_PROCESSING_FEE_RATE = DEFAULT_APPLICATION_FEE_RATE;
+
         public static final BigDecimal DEFAULT_TOTAL_MONTHLY_CHARGE_RATE = new BigDecimal("10.00");
 
-        // ================================================================
-        // CREDIT CLASSIFICATION THRESHOLDS
-        // ================================================================
-
-        /**
-         * NORMAL:
-         *
-         * 0 days overdue.
-         */
         public static final int NORMAL_MAX_DAYS_OVERDUE = 0;
 
-        /**
-         * WATCH:
-         *
-         * 1 - 89 days overdue.
-         */
         public static final int WATCH_MIN_DAYS_OVERDUE = 1;
         public static final int WATCH_MAX_DAYS_OVERDUE = 89;
 
-        /**
-         * SUBSTANDARD:
-         *
-         * 90 - 179 days overdue.
-         */
         public static final int SUBSTANDARD_MIN_DAYS_OVERDUE = 90;
         public static final int SUBSTANDARD_MAX_DAYS_OVERDUE = 179;
 
-        /**
-         * DOUBTFUL:
-         *
-         * 180 - 359 days overdue.
-         */
         public static final int DOUBTFUL_MIN_DAYS_OVERDUE = 180;
         public static final int DOUBTFUL_MAX_DAYS_OVERDUE = 359;
 
-        /**
-         * WRITTEN_OFF:
-         *
-         * 360 - 719 days overdue according to the requested
-         * classification range.
-         *
-         * For production safety, anything beyond 719 days is also
-         * kept as WRITTEN_OFF rather than leaving the loan unclassified.
-         */
         public static final int WRITTEN_OFF_MIN_DAYS_OVERDUE = 360;
         public static final int WRITTEN_OFF_MAX_DAYS_OVERDUE = 719;
 
         // ================================================================
-        // ID
+        // ID / REFERENCES
         // ================================================================
 
         @Id
         @GeneratedValue(strategy = GenerationType.IDENTITY)
         private Long id;
 
-        // ================================================================
-        // REFERENCE
-        // ================================================================
-
         @Column(unique = true, nullable = false, length = 100)
         private String referenceNumber;
 
         // ================================================================
-        // ORGANIZATION / TENANCY
+        // RELATIONSHIPS
         // ================================================================
 
         @JsonIgnore
@@ -181,10 +128,6 @@ public class Loan {
         @ManyToOne(fetch = FetchType.EAGER)
         @JoinColumn(name = "branch_id", foreignKey = @ForeignKey(name = "fk_loan_branch"))
         private Branch branch;
-
-        // ================================================================
-        // BORROWER / USERS
-        // ================================================================
 
         @JsonIgnore
         @ManyToOne(fetch = FetchType.EAGER, optional = false)
@@ -207,7 +150,7 @@ public class Loan {
         private User loanOfficer;
 
         // ================================================================
-        // LOAN CLASSIFICATION
+        // LOAN STATUS / CLASSIFICATION
         // ================================================================
 
         @Enumerated(EnumType.STRING)
@@ -229,22 +172,11 @@ public class Loan {
         @Column(name = "arrears_status", nullable = false, length = 20)
         private ArrearsStatus arrearsStatus = ArrearsStatus.NOT_DUE;
 
-        /**
-         * Loan-level collection stage.
-         *
-         * This describes the overall stage of the loan.
-         *
-         * CollectionCase remains responsible for operational
-         * collection activities.
-         */
         @Enumerated(EnumType.STRING)
         @Builder.Default
         @Column(name = "collections_stage", nullable = false, length = 20)
         private CollectionsStage collectionsStage = CollectionsStage.NORMAL;
 
-        /**
-         * Date/time when the current credit classification was calculated.
-         */
         @Column(name = "classified_at")
         private LocalDateTime classifiedAt;
 
@@ -254,61 +186,29 @@ public class Loan {
         private RepaymentFrequency repaymentFrequency = RepaymentFrequency.MONTHLY;
 
         // ================================================================
-        // LOAN AMOUNTS
+        // PRINCIPAL / DISBURSEMENT
         // ================================================================
 
-        /**
-         * Original approved loan principal.
-         *
-         * Interest is calculated from this amount.
-         */
         @Column(name = "amount", precision = 19, scale = 2, nullable = false)
         @JsonProperty("amount")
         private BigDecimal amount;
 
-        /**
-         * Runtime-only compatibility value for legacy integrations. The database
-         * remains authoritative at scale 2; this preserves the caller's original
-         * BigDecimal when an old Double getter is used before persistence.
-         */
         @jakarta.persistence.Transient
         @JsonIgnore
         private Double legacyAmountDouble;
 
-        /**
-         * Amount originally requested by the borrower. This is immutable after
-         * application creation and is intentionally separate from the approved
-         * principal stored in {@link #amount}.
-         *
-         * Example: borrower requests RWF 10,000,000 and the approver authorizes
-         * RWF 7,000,000. requestedAmount remains 10,000,000 while amount becomes
-         * 7,000,000.
-         */
         @Column(name = "requested_amount", precision = 19, scale = 2, nullable = false)
         @JsonProperty("requestedAmount")
         private BigDecimal requestedAmount;
 
-        /**
-         * Gross principal actually used for disbursement calculations.
-         *
-         * This remains the full loan principal before the one-time
-         * application fee deduction.
-         */
         @Column(name = "disbursed_amount", precision = 19, scale = 2)
         @JsonProperty("disbursedAmount")
         private BigDecimal disbursedAmount;
 
-        /**
-         * Net cash actually received by the borrower after the
-         * one-time 2% application fee is deducted.
-         */
         @Column(name = "net_disbursed_amount", precision = 19, scale = 2)
         @JsonProperty("netDisbursedAmount")
         private BigDecimal netDisbursedAmount;
 
-        /**
-         * Total contractual amount repayable over the loan term.
-         */
         @Column(name = "total_repayable", precision = 19, scale = 2)
         @JsonProperty("totalRepayable")
         private BigDecimal totalRepayable;
@@ -323,12 +223,6 @@ public class Loan {
         @JsonProperty("principalPaid")
         private BigDecimal principalPaid = BigDecimal.ZERO;
 
-        /**
-         * Current outstanding loan balance.
-         *
-         * Loan owns this because it is the current financial state
-         * of the loan.
-         */
         @Column(name = "outstanding_balance", precision = 19, scale = 2)
         @Builder.Default
         @JsonProperty("outstandingBalance")
@@ -337,10 +231,6 @@ public class Loan {
         @Column(name = "next_installment_amount", precision = 19, scale = 2)
         @JsonProperty("nextInstallmentAmount")
         private BigDecimal nextInstallmentAmount;
-
-        // ================================================================
-        // PAYMENT DATES
-        // ================================================================
 
         @Column(name = "next_payment_date")
         private LocalDate nextPaymentDate;
@@ -355,12 +245,6 @@ public class Loan {
         @Builder.Default
         private Integer missedInstallments = 0;
 
-        /**
-         * Number of calendar days the loan is overdue.
-         *
-         * This is the primary input to the credit-quality
-         * classification.
-         */
         @Column(name = "days_overdue")
         @Builder.Default
         private Integer daysOverdue = 0;
@@ -369,39 +253,29 @@ public class Loan {
         // INTEREST
         // ================================================================
 
-        /**
-         * Monthly loan interest rate.
-         *
-         * ALL loan types = 5% monthly.
-         */
         @Column(name = "interest_rate", precision = 19, scale = 9)
         @Builder.Default
         @JsonProperty("interestRate")
         private BigDecimal interestRate = DEFAULT_MONTHLY_INTEREST_RATE;
 
-        /**
-         * Interest is always monthly for this platform.
-         */
         @Column(name = "interest_rate_type", length = 20, nullable = false)
         @Builder.Default
         private String interestRateType = "MONTHLY";
+
+        // ================================================================
+        // MANAGEMENT FEE
+        // ================================================================
 
         @Column(name = "management_fee_rate", precision = 19, scale = 9)
         @Builder.Default
         @JsonProperty("managementFeeRate")
         private BigDecimal managementFeeRate = DEFAULT_MONTHLY_MANAGEMENT_FEE_RATE;
 
-        /**
-         * Total management fee scheduled over the loan term.
-         */
         @Column(name = "management_fee", precision = 19, scale = 2)
         @Builder.Default
         @JsonProperty("managementFee")
         private BigDecimal managementFee = BigDecimal.ZERO;
 
-        /**
-         * Total management fee actually paid so far.
-         */
         @Column(name = "management_fee_paid", precision = 19, scale = 2)
         @Builder.Default
         @JsonProperty("managementFeePaid")
@@ -416,17 +290,11 @@ public class Loan {
         // INTEREST TOTALS
         // ================================================================
 
-        /**
-         * Total interest scheduled over the loan term.
-         */
         @Column(name = "total_interest", precision = 19, scale = 2)
         @Builder.Default
         @JsonProperty("totalInterest")
         private BigDecimal totalInterest = BigDecimal.ZERO;
 
-        /**
-         * Total interest actually paid so far.
-         */
         @Column(name = "interest_paid", precision = 19, scale = 2)
         @Builder.Default
         @JsonProperty("interestPaid")
@@ -436,6 +304,10 @@ public class Loan {
         @Builder.Default
         @JsonProperty("interestOutstanding")
         private BigDecimal interestOutstanding = BigDecimal.ZERO;
+
+        // ================================================================
+        // PENALTIES
+        // ================================================================
 
         @Column(name = "penalties_assessed", precision = 19, scale = 2, nullable = false)
         @Builder.Default
@@ -447,24 +319,34 @@ public class Loan {
         @JsonProperty("penaltiesPaid")
         private BigDecimal penaltiesPaid = BigDecimal.ZERO;
 
+        // ================================================================
+        // LOAN TERM / CURRENCY
+        // ================================================================
+
         @Column(name = "duration_months", nullable = false)
         private Integer durationMonths;
-
-        // ================================================================
-        // CURRENCY
-        // ================================================================
 
         @Column(name = "currency", length = 3, nullable = false)
         @Builder.Default
         private String currency = "RWF";
 
+        // ================================================================
+        // APPLICATION FEE
+        // ================================================================
+
+        /**
+         * One-time application fee rate.
+         *
+         * This replaces the old processing-fee terminology.
+         * The fee is NOT a monthly charge.
+         */
         @Column(name = "application_fee_rate", precision = 19, scale = 9)
         @Builder.Default
         @JsonProperty("applicationFeeRate")
-        private BigDecimal applicationFeeRate = DEFAULT_PROCESSING_FEE_RATE;
+        private BigDecimal applicationFeeRate = DEFAULT_APPLICATION_FEE_RATE;
 
         /**
-         * One-time application fee amount.
+         * One-time application fee amount assessed on the loan.
          */
         @Column(name = "application_fee", precision = 19, scale = 2)
         @Builder.Default
@@ -480,39 +362,41 @@ public class Loan {
         private BigDecimal applicationFeePaid = BigDecimal.ZERO;
 
         // ================================================================
-        // EXTENSION / RESTRUCTURING FEES
+        // EXTENSION FEES
         // ================================================================
 
-        /**
-         * Cumulative extension fees assessed on this loan.
-         *
-         * Extension fees are separate from principal, interest, management
-         * fees and the one-time application fee.
-         */
         @Column(name = "extension_fee_assessed", precision = 19, scale = 2, nullable = false)
         @Builder.Default
         @JsonProperty("extensionFeeAssessed")
         private BigDecimal extensionFeeAssessed = BigDecimal.ZERO;
 
-        /** Amount of extension fees actually collected. */
+        /**
+         * Amount of extension fees actually collected.
+         */
         @Column(name = "extension_fee_paid", precision = 19, scale = 2, nullable = false)
         @Builder.Default
         @JsonProperty("extensionFeePaid")
         private BigDecimal extensionFeePaid = BigDecimal.ZERO;
 
-        /** Extension fees currently outstanding. */
+        /**
+         * Extension fees currently outstanding.
+         */
         @Column(name = "extension_fee_outstanding", precision = 19, scale = 2, nullable = false)
         @Builder.Default
         @JsonProperty("extensionFeeOutstanding")
         private BigDecimal extensionFeeOutstanding = BigDecimal.ZERO;
 
-        /** Number of approved extensions/restructuring extensions. */
+        /**
+         * Number of approved extensions/restructuring extensions.
+         */
         @Column(name = "extension_count", nullable = false)
         @Builder.Default
         @JsonProperty("extensionCount")
         private Integer extensionCount = 0;
 
-        /** Date of the most recent approved extension. */
+        /**
+         * Date of the most recent approved extension.
+         */
         @Column(name = "last_extension_date")
         @JsonProperty("lastExtensionDate")
         private LocalDate lastExtensionDate;
@@ -657,7 +541,9 @@ public class Loan {
                         interestRateType = "MONTHLY";
                 }
 
-                interestRateType = interestRateType.trim().toUpperCase();
+                interestRateType = interestRateType
+                                .trim()
+                                .toUpperCase();
 
                 if (managementFeeRate == null) {
                         managementFeeRate = DEFAULT_MONTHLY_MANAGEMENT_FEE_RATE;
@@ -668,7 +554,7 @@ public class Loan {
                                 RoundingMode.HALF_UP);
 
                 if (applicationFeeRate == null) {
-                        applicationFeeRate = DEFAULT_PROCESSING_FEE_RATE;
+                        applicationFeeRate = DEFAULT_APPLICATION_FEE_RATE;
                 }
 
                 applicationFeeRate = applicationFeeRate.setScale(
@@ -689,7 +575,9 @@ public class Loan {
                         currency = "RWF";
                 }
 
-                currency = currency.trim().toUpperCase();
+                currency = currency
+                                .trim()
+                                .toUpperCase();
 
                 // ============================================================
                 // DEFAULT COUNTERS
@@ -740,18 +628,23 @@ public class Loan {
                 if (interestPaid == null) {
                         interestPaid = MoneyMath.ZERO;
                 }
+
                 if (principalPaid == null) {
                         principalPaid = MoneyMath.ZERO;
                 }
+
                 if (interestOutstanding == null) {
                         interestOutstanding = MoneyMath.ZERO;
                 }
+
                 if (managementFeeOutstanding == null) {
                         managementFeeOutstanding = MoneyMath.ZERO;
                 }
+
                 if (penaltiesAssessed == null) {
                         penaltiesAssessed = MoneyMath.ZERO;
                 }
+
                 if (penaltiesPaid == null) {
                         penaltiesPaid = MoneyMath.ZERO;
                 }
@@ -764,8 +657,9 @@ public class Loan {
                         amount = MoneyMath.ZERO;
                 }
 
-                // Preserve the original borrower request for maker-checker
-                // auditability. Never overwrite this during approval.
+                // Preserve the original borrower request for
+                // maker-checker auditability.
+                // Never overwrite this during approval.
                 if (requestedAmount == null) {
                         requestedAmount = amount;
                 }
@@ -861,6 +755,10 @@ public class Loan {
                 recalculateClassification();
         }
 
+        // ================================================================
+        // CREDIT QUALITY CLASSIFICATION
+        // ================================================================
+
         public static CreditQuality classifyCreditQuality(
                         Integer daysOverdue) {
 
@@ -951,13 +849,6 @@ public class Loan {
                 this.classifiedAt = LocalDateTime.now();
         }
 
-        /**
-         * Updates days overdue and immediately recalculates
-         * the loan classification.
-         *
-         * CollectionService can use this method whenever it
-         * calculates the current overdue days.
-         */
         public void updateDaysOverdue(Integer days) {
 
                 this.daysOverdue = days == null
@@ -967,9 +858,6 @@ public class Loan {
                 recalculateClassification();
         }
 
-        /**
-         * Returns true when the loan is currently overdue.
-         */
         @JsonIgnore
         public boolean isOverdue() {
 
@@ -977,20 +865,12 @@ public class Loan {
                                 && daysOverdue > 0;
         }
 
-        /**
-         * Returns true when the loan has reached written-off
-         * classification.
-         */
         @JsonIgnore
         public boolean isWrittenOffClassification() {
 
                 return creditQuality == CreditQuality.WRITTEN_OFF;
         }
 
-        /**
-         * Returns true when the loan is in the high-risk
-         * collection/legal/recovery range.
-         */
         @JsonIgnore
         public boolean isInCollections() {
 
@@ -1000,15 +880,9 @@ public class Loan {
         }
 
         // ================================================================
-        // BUSINESS VALIDATION HELPERS
+        // LOAN VALIDATION
         // ================================================================
 
-        /**
-         * Returns true when the supplied principal satisfies
-         * the platform minimum.
-         *
-         * There is deliberately no maximum amount check.
-         */
         public static boolean isValidLoanAmount(
                         BigDecimal principal) {
 
@@ -1031,11 +905,10 @@ public class Loan {
                                 && months <= MAX_LOAN_DURATION_MONTHS;
         }
 
-        /**
-         * Returns the total recurring monthly charge rate.
-         *
-         * 5% interest + 5% management = 10%.
-         */
+        // ================================================================
+        // MONTHLY CHARGE RATE
+        // ================================================================
+
         public BigDecimal getTotalMonthlyChargeRate() {
 
                 BigDecimal interest = interestRate != null
@@ -1053,11 +926,17 @@ public class Loan {
                                                 RoundingMode.HALF_UP);
         }
 
+        // ================================================================
+        // APPLICATION FEE CALCULATION
+        // ================================================================
+
         /**
-         * Calculates the one-time application fee from principal.
+         * Calculates the one-time application fee.
+         *
+         * Application fee is NOT a monthly charge.
          */
         @JsonIgnore
-        public BigDecimal calculateProcessingFee() {
+        public BigDecimal calculateApplicationFee() {
 
                 BigDecimal principal = amount != null
                                 ? amount
@@ -1065,7 +944,7 @@ public class Loan {
 
                 BigDecimal rate = applicationFeeRate != null
                                 ? applicationFeeRate
-                                : DEFAULT_PROCESSING_FEE_RATE;
+                                : DEFAULT_APPLICATION_FEE_RATE;
 
                 return principal
                                 .multiply(rate)
@@ -1076,8 +955,8 @@ public class Loan {
         }
 
         /**
-         * Calculates the net cash amount received after
-         * the one-time 2% application fee.
+         * Calculates net disbursement after the one-time
+         * application fee.
          */
         @JsonIgnore
         public BigDecimal calculateNetDisbursedAmount() {
@@ -1088,7 +967,7 @@ public class Loan {
 
                 BigDecimal fee = applicationFee != null
                                 ? applicationFee
-                                : calculateProcessingFee();
+                                : calculateApplicationFee();
 
                 return principal
                                 .subtract(fee)
@@ -1096,6 +975,19 @@ public class Loan {
                                 .setScale(
                                                 2,
                                                 RoundingMode.HALF_UP);
+        }
+
+        // ================================================================
+        // LEGACY PROCESSING-FEE CALCULATION COMPATIBILITY
+        // ================================================================
+
+        /**
+         * @deprecated Use calculateApplicationFee().
+         */
+        @Deprecated
+        @JsonIgnore
+        public BigDecimal calculateProcessingFee() {
+                return calculateApplicationFee();
         }
 
         // ================================================================
@@ -1139,60 +1031,123 @@ public class Loan {
 
         @JsonIgnore
         public BigDecimal getPrincipalPaidDecimal() {
-                return principalPaid == null ? MoneyMath.ZERO : principalPaid;
+                return principalPaid == null
+                                ? MoneyMath.ZERO
+                                : principalPaid;
         }
 
         @JsonIgnore
         public BigDecimal getManagementFeeOutstandingDecimal() {
-                return managementFeeOutstanding == null ? MoneyMath.ZERO : managementFeeOutstanding;
+                return managementFeeOutstanding == null
+                                ? MoneyMath.ZERO
+                                : managementFeeOutstanding;
         }
 
         @JsonIgnore
         public BigDecimal getInterestOutstandingDecimal() {
-                return interestOutstanding == null ? MoneyMath.ZERO : interestOutstanding;
+                return interestOutstanding == null
+                                ? MoneyMath.ZERO
+                                : interestOutstanding;
         }
 
         @JsonIgnore
         public BigDecimal getPenaltiesAssessedDecimal() {
-                return penaltiesAssessed == null ? MoneyMath.ZERO : penaltiesAssessed;
+                return penaltiesAssessed == null
+                                ? MoneyMath.ZERO
+                                : penaltiesAssessed;
         }
 
         @JsonIgnore
         public BigDecimal getPenaltiesPaidDecimal() {
-                return penaltiesPaid == null ? MoneyMath.ZERO : penaltiesPaid;
+                return penaltiesPaid == null
+                                ? MoneyMath.ZERO
+                                : penaltiesPaid;
         }
 
         @JsonIgnore
         public BigDecimal getInterestPaidDecimal() {
-                return interestPaid;
+                return interestPaid == null
+                                ? MoneyMath.ZERO
+                                : interestPaid;
         }
 
+        // ================================================================
+        // APPLICATION FEE BIGDECIMAL ACCESSORS
+        // ================================================================
+
+        @JsonIgnore
+        public BigDecimal getApplicationFeeRateDecimal() {
+                return applicationFeeRate == null
+                                ? MoneyMath.ZERO
+                                : applicationFeeRate;
+        }
+
+        @JsonIgnore
+        public BigDecimal getApplicationFeeDecimal() {
+                return applicationFee == null
+                                ? MoneyMath.ZERO
+                                : applicationFee;
+        }
+
+        @JsonIgnore
+        public BigDecimal getApplicationFeePaidDecimal() {
+                return applicationFeePaid == null
+                                ? MoneyMath.ZERO
+                                : applicationFeePaid;
+        }
+
+        // ================================================================
+        // LEGACY PROCESSING-FEE BIGDECIMAL ACCESSORS
+        // ================================================================
+        //
+        // These are compatibility aliases only.
+        // They use the same application-fee fields.
+        // No second financial fee is created.
+        //
+
+        @Deprecated
         @JsonIgnore
         public BigDecimal getProcessingFeeRateDecimal() {
-                return applicationFeeRate;
+                return getApplicationFeeRateDecimal();
         }
 
+        @Deprecated
         @JsonIgnore
         public BigDecimal getProcessingFeeDecimal() {
-                return applicationFee;
+                return getApplicationFeeDecimal();
         }
 
+        @Deprecated
         @JsonIgnore
         public BigDecimal getProcessingFeePaidDecimal() {
-                return applicationFeePaid;
+                return getApplicationFeePaidDecimal();
         }
 
+        // ================================================================
+        // EXTENSION FEE ACCESSORS
+        // ================================================================
+
         public BigDecimal getExtensionFeeAssessedDecimal() {
-                return extensionFeeAssessed == null ? MoneyMath.ZERO : extensionFeeAssessed;
+                return extensionFeeAssessed == null
+                                ? MoneyMath.ZERO
+                                : extensionFeeAssessed;
         }
 
         public BigDecimal getExtensionFeePaidDecimal() {
-                return extensionFeePaid == null ? MoneyMath.ZERO : extensionFeePaid;
+                return extensionFeePaid == null
+                                ? MoneyMath.ZERO
+                                : extensionFeePaid;
         }
 
         public BigDecimal getExtensionFeeOutstandingDecimal() {
-                return extensionFeeOutstanding == null ? MoneyMath.ZERO : extensionFeeOutstanding;
+                return extensionFeeOutstanding == null
+                                ? MoneyMath.ZERO
+                                : extensionFeeOutstanding;
         }
+
+        // ================================================================
+        // OTHER BIGDECIMAL ACCESSORS
+        // ================================================================
 
         @JsonIgnore
         public BigDecimal getDisbursedAmountDecimal() {
@@ -1236,7 +1191,9 @@ public class Loan {
         public Double getAmountDouble() {
                 return legacyAmountDouble != null
                                 ? legacyAmountDouble
-                                : (amount == null ? null : amount.doubleValue());
+                                : (amount == null
+                                                ? null
+                                                : amount.doubleValue());
         }
 
         public Double getInterestRateDouble() {
@@ -1275,23 +1232,50 @@ public class Loan {
                                 : interestPaid.doubleValue();
         }
 
-        public Double getProcessingFeeRateDouble() {
+        // ================================================================
+        // APPLICATION FEE DOUBLE GETTERS
+        // ================================================================
+
+        public Double getApplicationFeeRateDouble() {
                 return applicationFeeRate == null
                                 ? null
                                 : applicationFeeRate.doubleValue();
         }
 
-        public Double getProcessingFeeDouble() {
+        public Double getApplicationFeeDouble() {
                 return applicationFee == null
                                 ? null
                                 : applicationFee.doubleValue();
         }
 
-        public Double getProcessingFeePaidDouble() {
+        public Double getApplicationFeePaidDouble() {
                 return applicationFeePaid == null
                                 ? null
                                 : applicationFeePaid.doubleValue();
         }
+
+        // ================================================================
+        // LEGACY PROCESSING-FEE DOUBLE GETTERS
+        // ================================================================
+
+        @Deprecated
+        public Double getProcessingFeeRateDouble() {
+                return getApplicationFeeRateDouble();
+        }
+
+        @Deprecated
+        public Double getProcessingFeeDouble() {
+                return getApplicationFeeDouble();
+        }
+
+        @Deprecated
+        public Double getProcessingFeePaidDouble() {
+                return getApplicationFeePaidDouble();
+        }
+
+        // ================================================================
+        // OTHER DOUBLE GETTERS
+        // ================================================================
 
         public Double getDisbursedAmountDouble() {
                 return disbursedAmount == null
@@ -1340,7 +1324,10 @@ public class Loan {
         // ================================================================
 
         public void setAmount(BigDecimal value) {
-                this.legacyAmountDouble = value == null ? null : value.doubleValue();
+                this.legacyAmountDouble = value == null
+                                ? null
+                                : value.doubleValue();
+
                 this.amount = normalizeMoney(value);
         }
 
@@ -1372,17 +1359,44 @@ public class Loan {
                 this.interestPaid = normalizeMoney(value);
         }
 
-        public void setProcessingFeeRate(BigDecimal value) {
+        // ================================================================
+        // APPLICATION FEE BIGDECIMAL SETTERS
+        // ================================================================
+
+        public void setApplicationFeeRate(BigDecimal value) {
                 this.applicationFeeRate = normalizeRate(value);
         }
 
-        public void setProcessingFee(BigDecimal value) {
+        public void setApplicationFee(BigDecimal value) {
                 this.applicationFee = normalizeMoney(value);
         }
 
-        public void setProcessingFeePaid(BigDecimal value) {
+        public void setApplicationFeePaid(BigDecimal value) {
                 this.applicationFeePaid = normalizeMoney(value);
         }
+
+        // ================================================================
+        // LEGACY PROCESSING-FEE BIGDECIMAL SETTERS
+        // ================================================================
+
+        @Deprecated
+        public void setProcessingFeeRate(BigDecimal value) {
+                setApplicationFeeRate(value);
+        }
+
+        @Deprecated
+        public void setProcessingFee(BigDecimal value) {
+                setApplicationFee(value);
+        }
+
+        @Deprecated
+        public void setProcessingFeePaid(BigDecimal value) {
+                setApplicationFeePaid(value);
+        }
+
+        // ================================================================
+        // EXTENSION FEE SETTERS
+        // ================================================================
 
         public void setExtensionFeeAssessed(BigDecimal value) {
                 this.extensionFeeAssessed = normalizeMoney(value);
@@ -1395,6 +1409,10 @@ public class Loan {
         public void setExtensionFeeOutstanding(BigDecimal value) {
                 this.extensionFeeOutstanding = normalizeMoney(value);
         }
+
+        // ================================================================
+        // OTHER BIGDECIMAL SETTERS
+        // ================================================================
 
         public void setDisbursedAmount(BigDecimal value) {
                 this.disbursedAmount = normalizeMoney(value);
@@ -1425,10 +1443,12 @@ public class Loan {
         }
 
         // ================================================================
-        // LEGACY DOUBLE SETTERS
+        // DOUBLE SETTERS
         // ================================================================
 
         public void setAmount(Double value) {
+                this.legacyAmountDouble = value;
+
                 this.amount = MoneyMath.of(value);
         }
 
@@ -1460,17 +1480,44 @@ public class Loan {
                 this.interestPaid = MoneyMath.of(value);
         }
 
-        public void setProcessingFeeRate(Double value) {
+        // ================================================================
+        // APPLICATION FEE DOUBLE SETTERS
+        // ================================================================
+
+        public void setApplicationFeeRate(Double value) {
                 this.applicationFeeRate = MoneyMath.of(value);
         }
 
-        public void setProcessingFee(Double value) {
+        public void setApplicationFee(Double value) {
                 this.applicationFee = MoneyMath.of(value);
         }
 
-        public void setProcessingFeePaid(Double value) {
+        public void setApplicationFeePaid(Double value) {
                 this.applicationFeePaid = MoneyMath.of(value);
         }
+
+        // ================================================================
+        // LEGACY PROCESSING-FEE DOUBLE SETTERS
+        // ================================================================
+
+        @Deprecated
+        public void setProcessingFeeRate(Double value) {
+                setApplicationFeeRate(value);
+        }
+
+        @Deprecated
+        public void setProcessingFee(Double value) {
+                setApplicationFee(value);
+        }
+
+        @Deprecated
+        public void setProcessingFeePaid(Double value) {
+                setApplicationFeePaid(value);
+        }
+
+        // ================================================================
+        // OTHER DOUBLE SETTERS
+        // ================================================================
 
         public void setDisbursedAmount(Double value) {
                 this.disbursedAmount = MoneyMath.of(value);
@@ -1501,7 +1548,7 @@ public class Loan {
         }
 
         // ================================================================
-        // NORMALIZATION HELPERS
+        // NORMALIZATION
         // ================================================================
 
         private static BigDecimal normalizeMoney(

@@ -585,8 +585,8 @@ public class RegulatoryReportingService {
                                                 + Math.max(0.0, number(loan.getPenaltiesAssessedDecimal())
                                                                 - number(loan.getPenaltiesPaidDecimal()))
                                                 + number(loan.getExtensionFeeOutstandingDecimal())
-                                                + Math.max(0.0, number(loan.getProcessingFee())
-                                                                - number(loan.getProcessingFeePaid()));
+                                                + Math.max(0.0, number(loan.getApplicationFee())
+                                                                - number(loan.getApplicationFeePaid()));
                         }
 
                         // ----------------------------------------------------
@@ -829,9 +829,9 @@ public class RegulatoryReportingService {
 
                                 // Processing fee is collected once, at disbursement. It is
                                 // therefore part of period fee collections, not principal.
-                                double applicationFeeCollected = number(loan.getProcessingFeePaid()) > 0
-                                                ? number(loan.getProcessingFeePaid())
-                                                : number(loan.getProcessingFee());
+                                double applicationFeeCollected = number(loan.getApplicationFeePaid()) > 0
+                                                ? number(loan.getApplicationFeePaid())
+                                                : number(loan.getApplicationFee());
                                 feesCollected += applicationFeeCollected;
                                 applicationFeesCollected += applicationFeeCollected;
 
@@ -970,7 +970,7 @@ public class RegulatoryReportingService {
                                         loan.getPenaltiesPaidDecimal()).max(ZERO);
 
                         BigDecimal applicationPaid = moneyDecimal(
-                                        loan.getProcessingFeePaidDecimal()).max(ZERO);
+                                        loan.getApplicationFeePaidDecimal()).max(ZERO);
 
                         BigDecimal feePaid = managementPaid
                                         .add(extensionPaid)

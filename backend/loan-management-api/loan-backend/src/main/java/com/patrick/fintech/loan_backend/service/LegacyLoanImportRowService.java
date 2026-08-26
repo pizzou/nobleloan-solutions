@@ -73,7 +73,7 @@ public class LegacyLoanImportRowService {
 
         // Noble Loan: application fee and application fee are the same one-time charge.
         // Default is 2% of gross principal and is deducted at disbursement.
-        private static final BigDecimal PROCESSING_FEE_RATE = new BigDecimal("2.00");
+        private static final BigDecimal APPLICATION_FEE_RATE = new BigDecimal("2.00");
 
         private static final BigDecimal MAX_IMPORT_RATE = new BigDecimal("1000.00");
 
@@ -573,7 +573,7 @@ public class LegacyLoanImportRowService {
                                                                                 : ZERO));
                         } else {
                                 applicationFee = money(
-                                                amount.multiply(PROCESSING_FEE_RATE)
+                                                amount.multiply(APPLICATION_FEE_RATE)
                                                                 .divide(ONE_HUNDRED, CALCULATION_SCALE,
                                                                                 RoundingMode.HALF_UP));
                         }
@@ -592,9 +592,9 @@ public class LegacyLoanImportRowService {
                         }
 
                         if (applicationFeeOutstandingGiven != null) {
-                                BigDecimal reconciledProcessingFee = money(
+                                BigDecimal reconciledApplicationFee = money(
                                                 applicationFeePaidAmount.add(applicationFeeOutstandingGiven));
-                                if (reconciledProcessingFee.subtract(applicationFee).abs()
+                                if (reconciledApplicationFee.subtract(applicationFee).abs()
                                                 .compareTo(new BigDecimal("0.01")) > 0) {
                                         return fail(
                                                         rowNumber,
@@ -609,7 +609,7 @@ public class LegacyLoanImportRowService {
                         BigDecimal applicationFeeRate = amount.compareTo(ZERO) > 0
                                         ? applicationFee.multiply(ONE_HUNDRED)
                                                         .divide(amount, RATE_SCALE, RoundingMode.HALF_UP)
-                                        : PROCESSING_FEE_RATE;
+                                        : APPLICATION_FEE_RATE;
 
                         // STATUS / BALANCE CONSISTENCY
                         // ========================================================

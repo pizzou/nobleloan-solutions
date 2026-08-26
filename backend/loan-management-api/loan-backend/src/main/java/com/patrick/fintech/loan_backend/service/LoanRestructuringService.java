@@ -54,7 +54,7 @@ public class LoanRestructuringService {
 
         private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE;
 
-        private static final BigDecimal PROCESSING_FEE_RATE = FinancialPolicy.PROCESSING_FEE_RATE;
+        private static final BigDecimal APPLICATION_FEE_RATE = FinancialPolicy.APPLICATION_FEE_RATE;
 
         /*
          * Institution policy:
@@ -213,10 +213,10 @@ public class LoanRestructuringService {
                  *
                  * NEVER recalculate 2% here.
                  */
-                loan.setProcessingFeeRate(
-                                loan.getProcessingFeeRateDecimal() != null
-                                                ? loan.getProcessingFeeRateDecimal()
-                                                : PROCESSING_FEE_RATE);
+                loan.setApplicationFeeRate(
+                                loan.getApplicationFeeRateDecimal() != null
+                                                ? loan.getApplicationFeeRateDecimal()
+                                                : APPLICATION_FEE_RATE);
 
                 /*
                  * Extend maturity and next due date.
@@ -337,7 +337,7 @@ public class LoanRestructuringService {
                                                 + " | extensionFee="
                                                 + extensionFee
                                                 + " | applicationFee="
-                                                + PROCESSING_FEE_RATE
+                                                + APPLICATION_FEE_RATE
                                                 + "% one-time");
 
                 /*
@@ -807,7 +807,7 @@ public class LoanRestructuringService {
                                                 + restructuringManagementRate
                                                 + "% monthly"
                                                 + " | Processing fee remains one-time="
-                                                + PROCESSING_FEE_RATE
+                                                + APPLICATION_FEE_RATE
                                                 + "%");
 
                 webhookService.dispatch(

@@ -35,7 +35,7 @@ public class BulkDisbursementService {
         // PLATFORM RULES
         // ================================================================
 
-        private static final BigDecimal PROCESSING_FEE_RATE = new BigDecimal("2.00");
+        private static final BigDecimal APPLICATION_FEE_RATE = new BigDecimal("2.00");
 
         private static final BigDecimal ONE_HUNDRED = new BigDecimal("100.00");
 
@@ -89,7 +89,7 @@ public class BulkDisbursementService {
 
                 BigDecimal totalGrossDisbursed = ZERO;
 
-                BigDecimal totalProcessingFees = ZERO;
+                BigDecimal totalApplicationFees = ZERO;
 
                 BigDecimal totalNetDisbursed = ZERO;
 
@@ -179,7 +179,7 @@ public class BulkDisbursementService {
                                 BigDecimal applicationFee = money(
                                                 grossAmount
                                                                 .multiply(
-                                                                                PROCESSING_FEE_RATE)
+                                                                                APPLICATION_FEE_RATE)
                                                                 .divide(
                                                                                 ONE_HUNDRED,
                                                                                 16,
@@ -222,10 +222,10 @@ public class BulkDisbursementService {
                                 loan.setDisbursedAmount(
                                                 netDisbursement);
 
-                                loan.setProcessingFeeRate(
-                                                PROCESSING_FEE_RATE);
+                                loan.setApplicationFeeRate(
+                                                APPLICATION_FEE_RATE);
 
-                                loan.setProcessingFee(
+                                loan.setApplicationFee(
                                                 applicationFee);
 
                                 loan.setOutstandingBalance(
@@ -271,8 +271,8 @@ public class BulkDisbursementService {
                                                                 .add(
                                                                                 grossAmount));
 
-                                totalProcessingFees = money(
-                                                totalProcessingFees
+                                totalApplicationFees = money(
+                                                totalApplicationFees
                                                                 .add(
                                                                                 applicationFee));
 
@@ -405,7 +405,7 @@ public class BulkDisbursementService {
                                 successCount,
                                 failureCount,
                                 totalGrossDisbursed,
-                                totalProcessingFees,
+                                totalApplicationFees,
                                 totalNetDisbursed,
                                 normalizedMethod);
 
@@ -417,7 +417,7 @@ public class BulkDisbursementService {
                                 successCount,
                                 failureCount,
                                 totalGrossDisbursed.doubleValue(),
-                                totalProcessingFees.doubleValue(),
+                                totalApplicationFees.doubleValue(),
                                 totalNetDisbursed.doubleValue(),
                                 normalizedMethod,
                                 processedAt,
@@ -505,7 +505,7 @@ public class BulkDisbursementService {
                         int successCount,
                         int failureCount,
                         double totalGrossAmountDisbursed,
-                        double totalProcessingFees,
+                        double totalApplicationFees,
                         double totalNetAmountDisbursed,
                         String disbursementMethod,
                         LocalDateTime processedAt,

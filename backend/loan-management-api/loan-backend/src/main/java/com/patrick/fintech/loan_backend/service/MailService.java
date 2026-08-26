@@ -107,13 +107,13 @@ public class MailService {
                 ? loan.getRequestedAmountDecimal()
                 : loan.getAmountDecimal();
         java.math.BigDecimal approved = loan.getAmountDecimal();
-        java.math.BigDecimal applicationFee = loan.getProcessingFeeDecimal() != null
-                ? loan.getProcessingFeeDecimal()
+        java.math.BigDecimal applicationFee = loan.getApplicationFeeDecimal() != null
+                ? loan.getApplicationFeeDecimal()
                 : java.math.BigDecimal.ZERO;
         java.math.BigDecimal net = approved.subtract(applicationFee).max(java.math.BigDecimal.ZERO);
         java.math.BigDecimal interestRate = loan.getInterestRateDecimal();
         java.math.BigDecimal managementRate = loan.getManagementFeeRateDecimal();
-        java.math.BigDecimal applicationRate = loan.getProcessingFeeRateDecimal();
+        java.math.BigDecimal applicationRate = loan.getApplicationFeeRateDecimal();
 
         send(to, "Your Loan Has Been Approved — " + loan.getReferenceNumber(),
                 "<h2>Loan Approved</h2>" +

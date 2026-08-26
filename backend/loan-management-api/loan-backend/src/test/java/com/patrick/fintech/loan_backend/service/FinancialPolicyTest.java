@@ -14,7 +14,7 @@ class FinancialPolicyTest {
         void platformRatesAreCentralized() {
                 assertEquals(new BigDecimal("5.00"), FinancialPolicy.MONTHLY_INTEREST_RATE);
                 assertEquals(new BigDecimal("5.00"), FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE);
-                assertEquals(new BigDecimal("2.00"), FinancialPolicy.PROCESSING_FEE_RATE);
+                assertEquals(new BigDecimal("2.00"), FinancialPolicy.APPLICATION_FEE_RATE);
                 assertEquals(new BigDecimal("15.00"), FinancialPolicy.MONTHLY_PENALTY_RATE);
                 assertEquals(new BigDecimal("10.00"), FinancialPolicy.EXTENSION_FEE_RATE);
         }

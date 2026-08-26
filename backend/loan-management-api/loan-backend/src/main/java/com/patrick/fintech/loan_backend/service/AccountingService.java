@@ -1422,7 +1422,7 @@ public class AccountingService {
                 // --------------------------------------------------------
 
                 BigDecimal applicationFee = money(
-                                loan.getProcessingFeeDecimal());
+                                loan.getApplicationFeeDecimal());
 
                 if (applicationFee.compareTo(
                                 ZERO) < 0) {
@@ -1450,8 +1450,8 @@ public class AccountingService {
                 // Keep the operational loan state synchronized with the journal:
                 // gross principal remains the receivable, while the borrower
                 // receives principal minus the one-time application fee.
-                loan.setProcessingFee(applicationFee);
-                loan.setProcessingFeePaid(applicationFee);
+                loan.setApplicationFee(applicationFee);
+                loan.setApplicationFeePaid(applicationFee);
                 loan.setNetDisbursedAmount(netCashDisbursed);
 
                 if (netCashDisbursed.compareTo(
