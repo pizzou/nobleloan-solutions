@@ -1439,8 +1439,37 @@ public class LoanService {
                 // ============================================================
                 // REAL KYC / AML GATE
                 // ============================================================
+                //
+                // Production safety: KYC/AML is required by default.
+                //
+                // Test-only bypass: set BOTH environment variables:
+                // SPRING_PROFILES_ACTIVE=test
+                // NOBLE_TEST_KYC_BYPASS=true
+                //
+                // The bypass is intentionally disabled unless the application
+                // is explicitly running with the TEST Spring profile. This
+                // prevents an accidental production environment variable from
+                // silently disabling the compliance control.
+                //
+                // Remove the two test environment variables when testing is
+                // complete. The default behavior remains provider-backed KYC/AML.
+                // ============================================================
 
-                if (!complianceService.isKycCurrentlyClear(loan.getBorrower().getId())) {
+                if (isTestKycBypassEnabled()) {
+                        log.warn(
+                                        "TEST-ONLY KYC/AML BYPASS ACTIVE for loan {}. "
+                                                        + "This must NEVER be enabled in production.",
+                                        loan.getReferenceNumber());
+
+                        audit(
+                                        loan.getOrganization(),
+                                        officer,
+                                        "LOAN_KYC_AML_TEST_BYPASS",
+                                        "LOAN",
+                                        loanId.toString(),
+                                        "TEST-ONLY KYC/AML gate bypassed for disbursement. "
+                                                        + "Provider-backed KYC/AML clearance was not used.");
+                } else if (!complianceService.isKycCurrentlyClear(loan.getBorrower().getId())) {
                         throw new IllegalStateException(
                                         "Cannot disburse this loan — the borrower does not have a current, real provider-backed KYC/AML clearance.");
                 }
@@ -1725,6 +1754,24 @@ public class LoanService {
                                 saved);
 
                 return saved;
+        }
+
+        // ================================================================
+        // TEST-ONLY KYC/AML BYPASS
+        // ================================================================
+
+        private boolean isTestKycBypassEnabled() {
+
+                String activeProfiles = System.getenv("SPRING_PROFILES_ACTIVE");
+                String bypass = System.getenv("NOBLE_TEST_KYC_BYPASS");
+
+                boolean testProfile = activeProfiles != null
+                                && java.util.Arrays.stream(activeProfiles.split(","))
+                                                .map(String::trim)
+                                                .anyMatch("test"::equalsIgnoreCase);
+
+                return testProfile
+                                && "true".equalsIgnoreCase(bypass);
         }
 
         // ================================================================
