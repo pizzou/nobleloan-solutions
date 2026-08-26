@@ -1671,7 +1671,7 @@ export default function LoanDetailPage() {
           processingFeeRate > 100
         ) {
           throw new Error(
-            "Enter a valid processing fee rate between 0% and 100%.",
+            "Enter a valid application fee rate between 0% and 100%.",
           );
         }
 
@@ -3622,7 +3622,7 @@ export default function LoanDetailPage() {
                       }
                     />
                     <p className="mt-1.5 text-[11px] text-slate-500">
-                      "Manager/Admin may change the one-time processing fee
+                      "Manager/Admin may change the one-time application fee
                       rate. The backend enforces this role restriction."
                     </p>
                   </FormGroup>

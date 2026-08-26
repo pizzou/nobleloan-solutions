@@ -309,7 +309,7 @@ public class BulkDisbursementService {
                                          * sendLoanApproved().
                                          *
                                          * The borrower needs to know the actual net
-                                         * amount received after the 2% processing fee.
+                                         * amount received after the 2% application fee.
                                          */
                                         smsService.sendLoanDisbursed(
                                                         saved,
@@ -339,7 +339,7 @@ public class BulkDisbursementService {
                                                                         + normalizedMethod
                                                                         + ". Gross="
                                                                         + grossAmount
-                                                                        + ", processing fee="
+                                                                        + ", application fee="
                                                                         + processingFee
                                                                         + ", net disbursement="
                                                                         + netDisbursement);

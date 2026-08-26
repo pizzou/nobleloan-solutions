@@ -81,7 +81,7 @@ const LOAN_TYPES = [
  * Noble's current default:
  * 5% monthly interest
  * 5% monthly management fee
- * 2% processing fee
+ * 2% application fee
  */
 const DEFAULT_INTEREST_RATE = 5;
 const DEFAULT_MANAGEMENT_FEE = 5;

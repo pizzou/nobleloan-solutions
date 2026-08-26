@@ -11,58 +11,54 @@ import java.util.concurrent.Executor;
 @EnableAsync
 public class AsyncConfig {
 
-    @Bean(name = "loansaasAsyncExecutor")
-    public Executor loansaasAsyncExecutor() {
+        @Bean(name = "loansaasAsyncExecutor")
+        public Executor loansaasAsyncExecutor() {
 
-        ThreadPoolTaskExecutor executor =
-                new ThreadPoolTaskExecutor();
+                ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
 
-        /*
-         * Number of threads available for asynchronous work.
-         *
-         * Webhooks are external HTTP calls, so we do not want
-         * them executing on the payment request thread.
-         */
-        executor.setCorePoolSize(4);
+                /*
+                 * Number of threads available for asynchronous work.
+                 *
+                 * Webhooks are external HTTP calls, so we do not want
+                 * them executing on the payment request thread.
+                 */
+                executor.setCorePoolSize(4);
 
-        /*
-         * Maximum number of concurrent asynchronous tasks.
-         */
-        executor.setMaxPoolSize(12);
+                /*
+                 * Maximum number of concurrent asynchronous tasks.
+                 */
+                executor.setMaxPoolSize(12);
 
-        /*
-         * Tasks waiting for an available worker thread.
-         */
-        executor.setQueueCapacity(100);
+                /*
+                 * Tasks waiting for an available worker thread.
+                 */
+                executor.setQueueCapacity(100);
 
-        /*
-         * Makes thread names easy to identify in production logs.
-         */
-        executor.setThreadNamePrefix(
-                "loansaas-async-"
-        );
+                /*
+                 * Makes thread names easy to identify in production logs.
+                 */
+                executor.setThreadNamePrefix(
+                                "loansaas-async-");
 
-        /*
-         * Finish already-submitted tasks during graceful
-         * application shutdown.
-         */
-        executor.setWaitForTasksToCompleteOnShutdown(
-                true
-        );
+                /*
+                 * Finish already-submitted tasks during graceful
+                 * application shutdown.
+                 */
+                executor.setWaitForTasksToCompleteOnShutdown(
+                                true);
 
-        /*
-         * Give existing asynchronous tasks time to finish
-         * during shutdown.
-         */
-        executor.setAwaitTerminationSeconds(
-                30
-        );
+                /*
+                 * Give existing asynchronous tasks time to finish
+                 * during shutdown.
+                 */
+                executor.setAwaitTerminationSeconds(
+                                30);
 
-        /*
-         * Initialize the executor.
-         */
-        executor.initialize();
+                /*
+                 * Initialize the executor.
+                 */
+                executor.initialize();
 
-        return executor;
-    }
+                return executor;
+        }
 }

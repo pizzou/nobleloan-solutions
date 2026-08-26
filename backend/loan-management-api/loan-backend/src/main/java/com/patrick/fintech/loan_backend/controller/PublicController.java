@@ -2737,7 +2737,7 @@ public class PublicController {
                  *
                  * 5% monthly interest
                  * 5% monthly management fee
-                 * 2% one-time processing fee
+                 * 2% one-time application fee
                  */
                 BigDecimal interestRate = MONTHLY_INTEREST_RATE;
 
@@ -2834,7 +2834,7 @@ public class PublicController {
                         smsService.sendCustom(
                                         phone,
                                         String.format(
-                                                        "%s: Thank you %s! We received your loan application %s for %s %s. Terms: 5%% monthly interest, 5%% monthly management fee, 2%% processing fee.",
+                                                        "%s: Thank you %s! We received your loan application %s for %s %s. Terms: 5%% monthly interest, 5%% monthly management fee, 2%% application fee.",
                                                         org.getName(),
                                                         firstName,
                                                         loan.getReferenceNumber(),

@@ -782,7 +782,7 @@ public class LoanService {
                                         + " — monthly management fee "
                                         + managementFeeRate
                                         + "%"
-                                        + " — processing fee "
+                                        + " — application fee "
                                         + processingFeeRate
                                         + "%"
                                         + " — duration "
@@ -804,7 +804,7 @@ public class LoanService {
                                         + " — monthly management fee "
                                         + managementFeeRate
                                         + "%"
-                                        + " — processing fee "
+                                        + " — application fee "
                                         + processingFeeRate
                                         + "%"
                                         + " — duration "
@@ -1034,7 +1034,7 @@ public class LoanService {
 
                         if (!"ADMIN".equals(role) && !"MANAGER".equals(role)) {
                                 throw new SecurityException(
-                                                "Only MANAGER or ADMIN may change the processing fee rate.");
+                                                "Only MANAGER or ADMIN may change the application fee rate.");
                         }
 
                         BigDecimal requestedProcessingFeeRate = bd(newProcessingFeeRate);
@@ -1164,7 +1164,7 @@ public class LoanService {
                                                 + " — monthly management fee "
                                                 + saved.getManagementFeeRateDecimal()
                                                 + "%"
-                                                + " — one-time processing fee "
+                                                + " — one-time application fee "
                                                 + saved.getProcessingFeeRateDecimal()
                                                 + "%"
                                                 + " — credit quality CURRENT");
@@ -1497,7 +1497,7 @@ public class LoanService {
                 loan.setProcessingFee(
                                 processingFee);
 
-                // The 2% processing fee is collected once at disbursement.
+                // The 2% application fee is collected once at disbursement.
                 // It is never part of principal or recurring monthly charges.
                 loan.setProcessingFeePaid(processingFee);
                 loan.setNetDisbursedAmount(
@@ -1645,7 +1645,7 @@ public class LoanService {
                                                 + " — monthly management fee "
                                                 + saved.getManagementFeeRateDecimal()
                                                 + "%"
-                                                + " — processing fee "
+                                                + " — application fee "
                                                 + saved.getProcessingFeeRateDecimal()
                                                 + "% one time"
                                                 + " — credit quality CURRENT");
@@ -2915,7 +2915,7 @@ public class LoanService {
                                 ZERO);
 
                 // Approval/schedule generation happens before disbursement.
-                // The one-time processing fee is therefore still unpaid here.
+                // The one-time application fee is therefore still unpaid here.
                 // Do not change this to a collection event: actual collection
                 // is recorded by the disbursement flow.
                 loan.setProcessingFee(
@@ -2988,7 +2988,7 @@ public class LoanService {
          *
          * This mirrors FinancialPolicy.contractualScheduleLine(), including
          * declining-balance principal, monthly interest and monthly management
-         * fee. It intentionally excludes the one-time processing fee.
+         * fee. It intentionally excludes the one-time application fee.
          */
         private BigDecimal calculateContractualTotalRepayable(
                         BigDecimal principal,

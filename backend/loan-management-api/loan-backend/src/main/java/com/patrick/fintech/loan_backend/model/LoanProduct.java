@@ -125,7 +125,7 @@ public class LoanProduct {
         private Integer maxTermMonths;
 
         /**
-         * Loan processing fee percentage.
+         * Loan application fee percentage.
          *
          * Current business rule:
          * 2%.

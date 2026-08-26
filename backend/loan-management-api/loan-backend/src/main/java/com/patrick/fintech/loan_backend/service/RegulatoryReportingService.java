@@ -943,7 +943,7 @@ public class RegulatoryReportingService {
                         }
                 }
 
-                // One-time processing fees are collected at disbursement, not as
+                // One-time application fees are collected at disbursement, not as
                 // Payment rows. Include them in the reporting-period cash collected.
                 totalAmountCollected += processingFeesCollected;
                 interestAccruedUnpaid = outstandingInterest;

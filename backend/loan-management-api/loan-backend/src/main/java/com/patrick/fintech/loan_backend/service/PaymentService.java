@@ -62,7 +62,7 @@ public class PaymentService {
         private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE;
 
         /**
-         * One-time processing fee.
+         * One-time application fee.
          *
          * This is NOT charged by PaymentService.
          * It is deducted at disbursement.
@@ -479,7 +479,7 @@ public class PaymentService {
                 // ============================================================
 
                 /*
-                 * The processing fee is NOT subtracted from outstanding
+                 * The application fee is NOT subtracted from outstanding
                  * principal.
                  *
                  * Example:

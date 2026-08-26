@@ -279,7 +279,7 @@ public class DashboardService {
                  * + management fee paid
                  * + extension fee paid
                  * + penalties paid
-                 * + processing fee paid
+                 * + application fee paid
                  *
                  * Processing fee is a one-time cash collection at disbursement.
                  * It is kept in the institution-wide collected KPI, but is not

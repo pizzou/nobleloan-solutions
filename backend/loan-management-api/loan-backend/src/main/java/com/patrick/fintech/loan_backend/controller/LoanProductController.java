@@ -242,7 +242,7 @@ public class LoanProductController {
                                                 + product.getInterestRateDecimal()
                                                 + "%, management fee="
                                                 + product.getManagementFeePercentDecimal()
-                                                + "%, processing fee="
+                                                + "%, application fee="
                                                 + product.getProcessingFeePercentDecimal()
                                                 + "%.");
 

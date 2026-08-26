@@ -1446,10 +1446,10 @@ public class AccountingService {
                                 grossPrincipal.subtract(
                                                 processingFee));
 
-                // The processing fee is collected exactly once at disbursement.
+                // The application fee is collected exactly once at disbursement.
                 // Keep the operational loan state synchronized with the journal:
                 // gross principal remains the receivable, while the borrower
-                // receives principal minus the one-time processing fee.
+                // receives principal minus the one-time application fee.
                 loan.setProcessingFee(processingFee);
                 loan.setProcessingFeePaid(processingFee);
                 loan.setNetDisbursedAmount(netCashDisbursed);
@@ -1554,7 +1554,7 @@ public class AccountingService {
                                                 .credit(
                                                                 netCashDisbursed)
                                                 .description(
-                                                                "Net cash disbursed after 2% processing fee — "
+                                                                "Net cash disbursed after 2% application fee — "
                                                                                 + reference)
                                                 .build());
 
@@ -1576,7 +1576,7 @@ public class AccountingService {
                                                         .credit(
                                                                         processingFee)
                                                         .description(
-                                                                        "One-time 2% processing fee income — "
+                                                                        "One-time 2% application fee income — "
                                                                                         + reference)
                                                         .build());
                 }
@@ -1591,7 +1591,7 @@ public class AccountingService {
                                                 + reference
                                                 + " — gross "
                                                 + grossPrincipal.toPlainString()
-                                                + ", processing fee "
+                                                + ", application fee "
                                                 + processingFee.toPlainString()
                                                 + ", net cash "
                                                 + netCashDisbursed.toPlainString(),

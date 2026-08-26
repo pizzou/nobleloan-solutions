@@ -121,7 +121,7 @@ public class MailService {
                         + "</strong> has been reviewed and approved.</p>" +
                         "<p>Requested amount: <strong>" + loan.getCurrency() + " " + requested + "</strong></p>" +
                         "<p>Approved principal: <strong>" + loan.getCurrency() + " " + approved + "</strong></p>" +
-                        "<p>One-time processing fee (" + processingRate + "%): <strong>" + loan.getCurrency() + " "
+                        "<p>One-time application fee (" + processingRate + "%): <strong>" + loan.getCurrency() + " "
                         + processingFee + "</strong></p>" +
                         "<p>Net amount to be disbursed: <strong>" + loan.getCurrency() + " " + net + "</strong></p>" +
                         "<p>Contractual interest: <strong>" + interestRate

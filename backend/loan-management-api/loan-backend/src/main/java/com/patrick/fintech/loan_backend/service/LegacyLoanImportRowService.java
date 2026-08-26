@@ -71,7 +71,7 @@ public class LegacyLoanImportRowService {
         private static final BigDecimal TOTAL_MONTHLY_CHARGE_RATE = MONTHLY_INTEREST_RATE.add(
                         MONTHLY_MANAGEMENT_FEE_RATE);
 
-        // Noble Loan: application fee and processing fee are the same one-time charge.
+        // Noble Loan: application fee and application fee are the same one-time charge.
         // Default is 2% of gross principal and is deducted at disbursement.
         private static final BigDecimal PROCESSING_FEE_RATE = new BigDecimal("2.00");
 
@@ -1233,7 +1233,7 @@ public class LegacyLoanImportRowService {
                  * Noble Loan uses a reducing-principal schedule:
                  * principal is divided across the contractual months; interest
                  * and management fee are each charged monthly on opening principal.
-                 * The one-time processing fee is excluded from repayment total.
+                 * The one-time application fee is excluded from repayment total.
                  *
                  * For RWF 10,000,000 over 3 months this produces total recurring
                  * charges of RWF 2,000,000 and total repayable of RWF 12,000,000.
@@ -2030,7 +2030,7 @@ public class LegacyLoanImportRowService {
                                 "5% monthly management fee, ");
 
                 note.append(
-                                "2% one-time processing fee.");
+                                "2% one-time application fee.");
 
                 /*
                  * Preserve information about the original source rate

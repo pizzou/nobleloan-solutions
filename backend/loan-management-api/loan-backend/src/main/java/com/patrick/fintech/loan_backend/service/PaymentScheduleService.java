@@ -64,7 +64,7 @@ public class PaymentScheduleService {
         private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = new BigDecimal("5.00");
 
         /**
-         * One-time processing fee.
+         * One-time application fee.
          */
         private static final BigDecimal PROCESSING_FEE_RATE = new BigDecimal("2.00");
 

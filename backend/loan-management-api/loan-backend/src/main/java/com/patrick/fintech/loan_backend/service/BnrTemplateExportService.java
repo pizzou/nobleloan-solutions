@@ -238,7 +238,7 @@ public class BnrTemplateExportService {
                 { "B.INCOME STATEMENT", "" },
                 { "Interest income", "Interest income recognized from the lending portfolio." },
                 { "Fee and penalty income",
-                        "Management fees, processing fees, extension fees and penalties recognized as income." },
+                        "Management fees, application fees, extension fees and penalties recognized as income." },
                 { "Operating expenses", "Operating expenses supported by the accounting ledger." },
                 { "Net income", "Income less operating and loan-loss expenses." },
                 { "C.LOAN CLASSIFICATION", "" },

@@ -113,12 +113,12 @@ export default function ApprovalsPage() {
       processingFeeRate < 0 ||
       processingFeeRate > 100
     ) {
-      toast("error", "Enter a valid processing fee rate between 0% and 100%.");
+      toast("error", "Enter a valid application fee rate between 0% and 100%.");
       return;
     }
 
     if (!isManagerOrAdmin && processingFeeRate !== 2) {
-      toast("error", "Only a Manager or Admin may change the processing fee.");
+      toast("error", "Only a Manager or Admin may change the application fee.");
       return;
     }
 
@@ -416,7 +416,7 @@ export default function ApprovalsPage() {
 
               <div className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-900">
                 <strong>No daily accrual:</strong> interest and management fees
-                are contractual monthly charges. The processing fee is deducted
+                are contractual monthly charges. The application fee is deducted
                 once when disbursement is triggered.
               </div>
 

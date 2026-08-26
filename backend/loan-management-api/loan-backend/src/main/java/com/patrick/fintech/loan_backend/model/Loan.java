@@ -94,7 +94,7 @@ public class Loan {
         public static final BigDecimal DEFAULT_MONTHLY_MANAGEMENT_FEE_RATE = new BigDecimal("5.00");
 
         /**
-         * Unified one-time processing fee rate.
+         * Unified one-time application fee rate.
          *
          * ALL loan types use 2%.
          */
@@ -292,7 +292,7 @@ public class Loan {
          * Gross principal actually used for disbursement calculations.
          *
          * This remains the full loan principal before the one-time
-         * processing fee deduction.
+         * application fee deduction.
          */
         @Column(name = "disbursed_amount", precision = 19, scale = 2)
         @JsonProperty("disbursedAmount")
@@ -300,7 +300,7 @@ public class Loan {
 
         /**
          * Net cash actually received by the borrower after the
-         * one-time 2% processing fee is deducted.
+         * one-time 2% application fee is deducted.
          */
         @Column(name = "net_disbursed_amount", precision = 19, scale = 2)
         @JsonProperty("netDisbursedAmount")
@@ -464,7 +464,7 @@ public class Loan {
         private BigDecimal processingFeeRate = DEFAULT_PROCESSING_FEE_RATE;
 
         /**
-         * One-time processing fee amount.
+         * One-time application fee amount.
          */
         @Column(name = "processing_fee", precision = 19, scale = 2)
         @Builder.Default
@@ -472,7 +472,7 @@ public class Loan {
         private BigDecimal processingFee = BigDecimal.ZERO;
 
         /**
-         * Actual processing fee amount collected so far.
+         * Actual application fee amount collected so far.
          */
         @Column(name = "processing_fee_paid", precision = 19, scale = 2, nullable = false)
         @Builder.Default
@@ -487,7 +487,7 @@ public class Loan {
          * Cumulative extension fees assessed on this loan.
          *
          * Extension fees are separate from principal, interest, management
-         * fees and the one-time processing fee.
+         * fees and the one-time application fee.
          */
         @Column(name = "extension_fee_assessed", precision = 19, scale = 2, nullable = false)
         @Builder.Default
@@ -1054,7 +1054,7 @@ public class Loan {
         }
 
         /**
-         * Calculates the one-time processing fee from principal.
+         * Calculates the one-time application fee from principal.
          */
         @JsonIgnore
         public BigDecimal calculateProcessingFee() {
@@ -1077,7 +1077,7 @@ public class Loan {
 
         /**
          * Calculates the net cash amount received after
-         * the one-time 2% processing fee.
+         * the one-time 2% application fee.
          */
         @JsonIgnore
         public BigDecimal calculateNetDisbursedAmount() {

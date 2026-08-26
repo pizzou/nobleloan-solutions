@@ -64,7 +64,7 @@ public class LoanRestructuringService {
          * the extension is approved/requested.
          *
          * This is NOT principal.
-         * This is NOT the normal processing fee.
+         * This is NOT the normal application fee.
          */
         private static final BigDecimal EXTENSION_FEE_RATE = FinancialPolicy.EXTENSION_FEE_RATE;
 
@@ -392,7 +392,7 @@ public class LoanRestructuringService {
          * 3. The new schedule starts from the latest retained installment.
          * 4. Principal used for the new schedule is the current outstanding
          * principal, never the original loan amount.
-         * 5. The processing fee is never recalculated.
+         * 5. The application fee is never recalculated.
          * 6. Interest and management fee are calculated again for the new
          * remaining term using the platform calendar-day policy.
          */
@@ -628,7 +628,7 @@ public class LoanRestructuringService {
          * Restructure an existing loan.
          *
          * IMPORTANT:
-         * This method does NOT charge the 2% processing fee again.
+         * This method does NOT charge the 2% application fee again.
          */
         @Transactional
         public Loan restructure(
@@ -712,9 +712,9 @@ public class LoanRestructuringService {
                 loan.setManagementFeeRate(restructuringManagementRate);
 
                 /*
-                 * Do not create a new processing fee.
+                 * Do not create a new application fee.
                  *
-                 * The original processing fee belongs to disbursement.
+                 * The original application fee belongs to disbursement.
                  */
                 loan.setInterestRateType(
                                 "MONTHLY");
