@@ -51,6 +51,12 @@ public class RegulatoryReportingService {
 
         private final BnrFinancialStatementService bnrFinancialStatementService;
 
+        private static final BigDecimal ZERO = BigDecimal.ZERO;
+
+        private static BigDecimal moneyDecimal(BigDecimal value) {
+                return value == null ? ZERO : value;
+        }
+
         // ============================================================
         // REPORT PERIOD
         // ============================================================
@@ -555,17 +561,33 @@ public class RegulatoryReportingService {
                                 outstanding = 0.0;
                         }
 
-                        outstandingPrincipal += outstanding;
+                        /*
+                         * Written-off receivables are removed from the gross
+                         * performing/outstanding loan portfolio. They are
+                         * reported separately through the written-off metrics.
+                         */
+                        boolean includedInGrossPortfolio = status != LoanStatus.WRITTEN_OFF
+                                        && status != LoanStatus.PAID
+                                        && status != LoanStatus.CLOSED
+                                        && status != LoanStatus.PENDING
+                                        && status != LoanStatus.UNDER_REVIEW
+                                        && status != LoanStatus.REJECTED
+                                        && status != LoanStatus.CANCELLED;
 
-                        // The loan balance is principal only. Interest, management fee,
-                        // penalty and extension fee are separate receivables.
-                        outstandingInterest += number(loan.getInterestOutstandingDecimal());
-                        outstandingFees += number(loan.getManagementFeeOutstandingDecimal())
-                                        + Math.max(0.0, number(loan.getPenaltiesAssessedDecimal())
-                                                        - number(loan.getPenaltiesPaidDecimal()))
-                                        + number(loan.getExtensionFeeOutstandingDecimal())
-                                        + Math.max(0.0, number(loan.getProcessingFee())
-                                                        - number(loan.getProcessingFeePaid()));
+                        if (includedInGrossPortfolio) {
+                                outstandingPrincipal += outstanding;
+
+                                // The loan balance is principal only. Interest,
+                                // management fee, penalty and extension fee are
+                                // separate receivables.
+                                outstandingInterest += number(loan.getInterestOutstandingDecimal());
+                                outstandingFees += number(loan.getManagementFeeOutstandingDecimal())
+                                                + Math.max(0.0, number(loan.getPenaltiesAssessedDecimal())
+                                                                - number(loan.getPenaltiesPaidDecimal()))
+                                                + number(loan.getExtensionFeeOutstandingDecimal())
+                                                + Math.max(0.0, number(loan.getProcessingFee())
+                                                                - number(loan.getProcessingFeePaid()));
+                        }
 
                         // ----------------------------------------------------
                         // DAYS PAST DUE
@@ -844,6 +866,11 @@ public class RegulatoryReportingService {
 
                 double totalAmountCollected = 0.0;
 
+                BigDecimal historicalPrincipalCollected = ZERO;
+                BigDecimal historicalInterestCollected = ZERO;
+                BigDecimal historicalFeesCollected = ZERO;
+                BigDecimal historicalAmountCollected = ZERO;
+
                 long totalPayments = payments.size();
 
                 long missedPayments = 0;
@@ -922,59 +949,46 @@ public class RegulatoryReportingService {
                 interestAccruedUnpaid = outstandingInterest;
                 feesAccruedUnpaid = outstandingFees;
 
-                // ========================================================
-                // HISTORICAL COLLECTIONS BROUGHT FORWARD
-                // ========================================================
-                //
-                // Legacy imports intentionally preserve cumulative paid-to-date
-                // balances on Loan rather than manufacturing historical Payment
-                // rows. Those amounts must be visible in regulatory reporting,
-                // but must NOT be presented as cash collected during the selected
-                // period because the historical transaction dates are unavailable.
-                double historicalPrincipalCollected = 0.0;
-                double historicalInterestCollected = 0.0;
-                double historicalFeesCollected = 0.0;
-                double historicalAmountCollected = 0.0;
-
                 for (Loan loan : portfolioLoans) {
                         if (loan == null || !Boolean.TRUE.equals(loan.getImported())) {
                                 continue;
                         }
 
-                        historicalPrincipalCollected += number(loan.getPrincipalPaidDecimal());
-                        historicalInterestCollected += number(loan.getInterestPaidDecimal());
-                        historicalFeesCollected += number(loan.getManagementFeePaidDecimal())
-                                        + number(loan.getExtensionFeePaidDecimal())
-                                        + number(loan.getPenaltiesPaidDecimal())
-                                        + number(loan.getProcessingFeePaid());
-                        historicalAmountCollected += number(loan.getTotalPaidDecimal())
-                                        + number(loan.getProcessingFeePaid());
+                        BigDecimal principalPaid = moneyDecimal(
+                                        loan.getPrincipalPaidDecimal()).max(ZERO);
+
+                        BigDecimal interestPaid = moneyDecimal(
+                                        loan.getInterestPaidDecimal()).max(ZERO);
+
+                        BigDecimal managementPaid = moneyDecimal(
+                                        loan.getManagementFeePaidDecimal()).max(ZERO);
+
+                        BigDecimal extensionPaid = moneyDecimal(
+                                        loan.getExtensionFeePaidDecimal()).max(ZERO);
+
+                        BigDecimal penaltiesPaid = moneyDecimal(
+                                        loan.getPenaltiesPaidDecimal()).max(ZERO);
+
+                        BigDecimal processingPaid = moneyDecimal(
+                                        loan.getProcessingFeePaidDecimal()).max(ZERO);
+
+                        BigDecimal feePaid = managementPaid
+                                        .add(extensionPaid)
+                                        .add(penaltiesPaid)
+                                        .add(processingPaid);
+
+                        BigDecimal historicalTotal = principalPaid
+                                        .add(interestPaid)
+                                        .add(feePaid);
+
+                        historicalPrincipalCollected = moneyDecimal(historicalPrincipalCollected.add(principalPaid));
+
+                        historicalInterestCollected = moneyDecimal(historicalInterestCollected.add(interestPaid));
+
+                        historicalFeesCollected = moneyDecimal(historicalFeesCollected.add(feePaid));
+
+                        historicalAmountCollected = moneyDecimal(historicalAmountCollected.add(historicalTotal));
                 }
-
-                Object[] importedPaymentHistory = paymentRepository
-                                .getImportedPaymentComponentAggregateAsOf(
-                                                organizationId,
-                                                branchId,
-                                                periodEnd);
-
-                historicalPrincipalCollected = Math.max(
-                                0.0,
-                                historicalPrincipalCollected
-                                                - number(valueAt(importedPaymentHistory, 1)));
-                historicalInterestCollected = Math.max(
-                                0.0,
-                                historicalInterestCollected
-                                                - number(valueAt(importedPaymentHistory, 2)));
-                historicalFeesCollected = Math.max(
-                                0.0,
-                                historicalFeesCollected
-                                                - number(valueAt(importedPaymentHistory, 3))
-                                                - number(valueAt(importedPaymentHistory, 4))
-                                                - number(valueAt(importedPaymentHistory, 5)));
-                historicalAmountCollected = Math.max(
-                                0.0,
-                                historicalAmountCollected
-                                                - number(valueAt(importedPaymentHistory, 0)));
 
                 // ========================================================
                 // RATIOS
@@ -1239,20 +1253,16 @@ public class RegulatoryReportingService {
                                                 totalAmountCollected)
 
                                 .historicalPrincipalCollected(
-                                                BigDecimal.valueOf(
-                                                                historicalPrincipalCollected))
+                                                historicalPrincipalCollected)
 
                                 .historicalInterestCollected(
-                                                BigDecimal.valueOf(
-                                                                historicalInterestCollected))
+                                                historicalInterestCollected)
 
                                 .historicalFeesCollected(
-                                                BigDecimal.valueOf(
-                                                                historicalFeesCollected))
+                                                historicalFeesCollected)
 
                                 .historicalAmountCollected(
-                                                BigDecimal.valueOf(
-                                                                historicalAmountCollected))
+                                                historicalAmountCollected)
 
                                 .interestAccruedUnpaid(
                                                 interestAccruedUnpaid)
@@ -2405,17 +2415,6 @@ public class RegulatoryReportingService {
         }
 
         // ============================================================
-        // AGGREGATE VALUE
-        // ============================================================
-
-        private Object valueAt(Object[] values, int index) {
-                if (values == null || index < 0 || index >= values.length) {
-                        return null;
-                }
-                return values[index];
-        }
-
-        // ============================================================
         // NUMBER
         // ============================================================
 
@@ -2427,24 +2426,6 @@ public class RegulatoryReportingService {
                 }
 
                 return value.doubleValue();
-        }
-
-        private double number(
-                        Object value) {
-
-                if (value == null) {
-                        return 0.0;
-                }
-
-                if (value instanceof Number numeric) {
-                        return numeric.doubleValue();
-                }
-
-                try {
-                        return Double.parseDouble(value.toString());
-                } catch (NumberFormatException ignored) {
-                        return 0.0;
-                }
         }
 
         // ============================================================

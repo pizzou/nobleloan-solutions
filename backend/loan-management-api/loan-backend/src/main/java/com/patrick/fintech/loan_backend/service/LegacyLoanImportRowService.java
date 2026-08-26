@@ -8,7 +8,6 @@ import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.repository.BorrowerRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.security.HmacIndexer;
-import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -63,16 +62,26 @@ public class LegacyLoanImportRowService {
 
         private static final BigDecimal MIN_LOAN_AMOUNT = new BigDecimal("500000.00");
 
+        /*
+         * There is intentionally no maximum loan amount under the
+         * current Noble Loan platform rule.
+         *
+         * Do not use this value in a compareTo() operation because
+         * it is null by design.
+         */
         private static final BigDecimal MAX_LOAN_AMOUNT = null;
 
-        private static final BigDecimal MONTHLY_INTEREST_RATE = FinancialPolicy.MONTHLY_INTEREST_RATE;
+        /*
+         * Current Noble Loan platform rules.
+         */
+        private static final BigDecimal MONTHLY_INTEREST_RATE = new BigDecimal("5.00");
 
-        private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE;
+        private static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = new BigDecimal("5.00");
 
         private static final BigDecimal TOTAL_MONTHLY_CHARGE_RATE = MONTHLY_INTEREST_RATE.add(
                         MONTHLY_MANAGEMENT_FEE_RATE);
 
-        private static final BigDecimal PROCESSING_FEE_RATE = FinancialPolicy.PROCESSING_FEE_RATE;
+        private static final BigDecimal PROCESSING_FEE_RATE = new BigDecimal("2.00");
 
         private static final BigDecimal MAX_IMPORT_RATE = new BigDecimal("1000.00");
 
@@ -116,8 +125,6 @@ public class LegacyLoanImportRowService {
         private final LoanRepository loanRepo;
 
         private final LoanService loanService;
-
-        private final AccountingService accountingService;
 
         // ================================================================
         // IMPORT ROW
@@ -378,57 +385,103 @@ public class LegacyLoanImportRowService {
                                         totalRepayableGiven,
                                         "total_repayable");
 
-                        validateOptionalMoney(principalPaidGiven, "principal_paid");
-                        validateOptionalMoney(interestPaidGiven, "interest_paid");
-                        validateOptionalMoney(interestOutstandingGiven, "interest_outstanding");
-                        validateOptionalMoney(managementFeePaidGiven, "management_fee_paid");
-                        validateOptionalMoney(managementFeeOutstandingGiven, "total_management_fee_balance");
-                        validateOptionalMoney(processingFeePaidGiven, "processing_fee_paid");
-                        validateOptionalMoney(penaltiesAssessedGiven, "penalties_assessed");
-                        validateOptionalMoney(penaltiesPaidGiven, "penalties_paid");
+                        validateOptionalMoney(
+                                        principalPaidGiven,
+                                        "principal_paid");
 
-                        boolean totalPaidProvided = totalPaid != null;
+                        validateOptionalMoney(
+                                        interestPaidGiven,
+                                        "interest_paid");
 
-                        if (totalPaid == null && outstandingGiven != null) {
+                        validateOptionalMoney(
+                                        interestOutstandingGiven,
+                                        "interest_outstanding");
+
+                        validateOptionalMoney(
+                                        managementFeePaidGiven,
+                                        "management_fee_paid");
+
+                        validateOptionalMoney(
+                                        managementFeeOutstandingGiven,
+                                        "total_management_fee_balance");
+
+                        validateOptionalMoney(
+                                        processingFeePaidGiven,
+                                        "processing_fee_paid");
+
+                        validateOptionalMoney(
+                                        penaltiesAssessedGiven,
+                                        "penalties_assessed");
+
+                        validateOptionalMoney(
+                                        penaltiesPaidGiven,
+                                        "penalties_paid");
+
+                        if (totalPaid == null) {
+
                                 /*
-                                 * A legacy ledger often supplies the current
-                                 * outstanding principal but omits total_paid.
-                                 * In that case the already-repaid principal is
-                                 * objectively amount - outstanding_balance.
-                                 * Add any supplied paid interest/management/penalty
-                                 * components so the migrated collection control
-                                 * does not incorrectly become zero.
+                                 * Legacy source files frequently provide the
+                                 * paid components without a total_paid column.
+                                 *
+                                 * Do not silently turn those real collections
+                                 * into zero.
+                                 *
+                                 * Processing fee is deliberately excluded
+                                 * from totalPaid because it is a one-time
+                                 * disbursement fee, not repayment.
                                  */
-                                BigDecimal inferredPrincipalPaid = money(
-                                                amount.subtract(outstandingGiven).max(ZERO));
                                 totalPaid = money(
-                                                inferredPrincipalPaid
-                                                                .add(interestPaidGiven != null ? interestPaidGiven
-                                                                                : ZERO)
-                                                                .add(managementFeePaidGiven != null
-                                                                                ? managementFeePaidGiven
-                                                                                : ZERO)
-                                                                .add(penaltiesPaidGiven != null ? penaltiesPaidGiven
-                                                                                : ZERO));
-                        } else if (totalPaid == null) {
-                                totalPaid = ZERO;
+                                                (principalPaidGiven == null
+                                                                ? ZERO
+                                                                : principalPaidGiven)
+                                                                .add(
+                                                                                interestPaidGiven == null
+                                                                                                ? ZERO
+                                                                                                : interestPaidGiven)
+                                                                .add(
+                                                                                managementFeePaidGiven == null
+                                                                                                ? ZERO
+                                                                                                : managementFeePaidGiven)
+                                                                .add(
+                                                                                penaltiesPaidGiven == null
+                                                                                                ? ZERO
+                                                                                                : penaltiesPaidGiven));
+
                         } else {
-                                totalPaid = money(totalPaid);
+
+                                totalPaid = money(
+                                                totalPaid);
                         }
 
                         BigDecimal penaltiesAssessed = money(
-                                        penaltiesAssessedGiven != null ? penaltiesAssessedGiven : ZERO);
+                                        penaltiesAssessedGiven != null
+                                                        ? penaltiesAssessedGiven
+                                                        : ZERO);
+
                         BigDecimal penaltiesPaid = money(
-                                        penaltiesPaidGiven != null ? penaltiesPaidGiven : ZERO);
+                                        penaltiesPaidGiven != null
+                                                        ? penaltiesPaidGiven
+                                                        : ZERO);
 
                         BigDecimal interestPaidHistorical = money(
-                                        interestPaidGiven != null ? interestPaidGiven : ZERO);
+                                        interestPaidGiven != null
+                                                        ? interestPaidGiven
+                                                        : ZERO);
+
                         BigDecimal interestOutstandingHistorical = money(
-                                        interestOutstandingGiven != null ? interestOutstandingGiven : ZERO);
+                                        interestOutstandingGiven != null
+                                                        ? interestOutstandingGiven
+                                                        : ZERO);
+
                         BigDecimal managementFeePaidHistorical = money(
-                                        managementFeePaidGiven != null ? managementFeePaidGiven : ZERO);
+                                        managementFeePaidGiven != null
+                                                        ? managementFeePaidGiven
+                                                        : ZERO);
+
                         BigDecimal managementFeeOutstandingHistorical = money(
-                                        managementFeeOutstandingGiven != null ? managementFeeOutstandingGiven : ZERO);
+                                        managementFeeOutstandingGiven != null
+                                                        ? managementFeeOutstandingGiven
+                                                        : ZERO);
 
                         // ========================================================
                         // FINANCIAL CONSISTENCY
@@ -535,35 +588,35 @@ public class LegacyLoanImportRowService {
                                         ZERO);
 
                         BigDecimal principalPaidHistorical = principalPaidGiven != null
-                                        ? money(principalPaidGiven)
-                                        : money(amount.subtract(outstandingBalance).max(ZERO));
+                                        ? money(
+                                                        principalPaidGiven)
+                                        : money(
+                                                        amount
+                                                                        .subtract(
+                                                                                        outstandingBalance)
+                                                                        .max(
+                                                                                        ZERO));
 
                         BigDecimal principalReconciled = money(
-                                        principalPaidHistorical.add(outstandingBalance));
+                                        principalPaidHistorical.add(
+                                                        outstandingBalance));
 
-                        if (totalPaidProvided) {
-                                BigDecimal minimumKnownCollected = money(
-                                                principalPaidHistorical
-                                                                .add(interestPaidHistorical)
-                                                                .add(managementFeePaidHistorical)
-                                                                .add(penaltiesPaid));
-                                if (totalPaid.compareTo(minimumKnownCollected) < 0) {
-                                        return fail(
-                                                        rowNumber,
-                                                        "total_paid is below the supplied paid components. "
-                                                                        + "total_paid=" + totalPaid
-                                                                        + ", minimumKnownCollected="
-                                                                        + minimumKnownCollected);
-                                }
-                        }
+                        if (principalReconciled
+                                        .subtract(
+                                                        amount)
+                                        .abs()
+                                        .compareTo(
+                                                        new BigDecimal("0.01")) > 0) {
 
-                        if (principalReconciled.subtract(amount).abs().compareTo(new BigDecimal("0.01")) > 0) {
                                 return fail(
                                                 rowNumber,
                                                 "principal_paid + outstanding_balance must equal amount. "
-                                                                + "principal_paid=" + principalPaidHistorical
-                                                                + ", outstanding_balance=" + outstandingBalance
-                                                                + ", amount=" + amount);
+                                                                + "principal_paid="
+                                                                + principalPaidHistorical
+                                                                + ", outstanding_balance="
+                                                                + outstandingBalance
+                                                                + ", amount="
+                                                                + amount);
                         }
 
                         // ========================================================
@@ -601,12 +654,18 @@ public class LegacyLoanImportRowService {
                          * Therefore do not charge the processing fee again.
                          */
                         boolean processingFeePaid = processingFeePaidGiven != null
-                                        ? processingFeePaidGiven.compareTo(ZERO) > 0
-                                        : isHistoricalLoanStatus(statusRaw);
+                                        ? processingFeePaidGiven.compareTo(
+                                                        ZERO) > 0
+                                        : isHistoricalLoanStatus(
+                                                        statusRaw);
 
                         if (processingFeePaidGiven != null
-                                        && processingFeePaidGiven.compareTo(processingFee) > 0) {
-                                return fail(rowNumber, "processing_fee_paid cannot exceed processing_fee.");
+                                        && processingFeePaidGiven.compareTo(
+                                                        processingFee) > 0) {
+
+                                return fail(
+                                                rowNumber,
+                                                "processing_fee_paid cannot exceed processing_fee.");
                         }
 
                         // ========================================================
@@ -827,25 +886,35 @@ public class LegacyLoanImportRowService {
                         // ========================================================
 
                         BigDecimal totalHistoricalInterest = money(
-                                        interestPaidHistorical.add(interestOutstandingHistorical));
+                                        interestPaidHistorical.add(
+                                                        interestOutstandingHistorical));
 
                         BigDecimal totalHistoricalManagementFee = money(
-                                        managementFeePaidHistorical.add(managementFeeOutstandingHistorical));
+                                        managementFeePaidHistorical.add(
+                                                        managementFeeOutstandingHistorical));
 
-                        if (interestPaidGiven != null || managementFeePaidGiven != null
+                        if (interestPaidGiven != null
+                                        || managementFeePaidGiven != null
                                         || principalPaidGiven != null) {
+
                                 totalPaid = money(
                                                 principalPaidHistorical
-                                                                .add(interestPaidHistorical)
-                                                                .add(managementFeePaidHistorical)
-                                                                .add(penaltiesPaid));
+                                                                .add(
+                                                                                interestPaidHistorical)
+                                                                .add(
+                                                                                managementFeePaidHistorical)
+                                                                .add(
+                                                                                penaltiesPaid));
                         }
 
                         if (totalRepayableGiven == null) {
+
                                 totalRepayable = money(
                                                 amount
-                                                                .add(totalHistoricalInterest)
-                                                                .add(totalHistoricalManagementFee));
+                                                                .add(
+                                                                                totalHistoricalInterest)
+                                                                .add(
+                                                                                totalHistoricalManagementFee));
                         }
 
                         // ========================================================
@@ -919,7 +988,9 @@ public class LegacyLoanImportRowService {
                                                         processingFee)
 
                                         .processingFeePaid(
-                                                        processingFeePaid ? processingFee : ZERO)
+                                                        processingFeePaid
+                                                                        ? processingFee
+                                                                        : ZERO)
 
                                         .totalRepayable(
                                                         totalRepayable)
@@ -998,7 +1069,9 @@ public class LegacyLoanImportRowService {
 
                                         .nextDueDate(
                                                         historicalLoan
-                                                                        ? optDate(row, "next_due_date",
+                                                                        ? optDate(
+                                                                                        row,
+                                                                                        "next_due_date",
                                                                                         startDate.plusMonths(1))
                                                                         : null)
 
@@ -1088,16 +1161,6 @@ public class LegacyLoanImportRowService {
                                                                 + "a conflicting record already exists or "
                                                                 + "the database rejected the record.");
                         }
-
-                        // --------------------------------------------------------
-                        // ACCOUNTING OPENING BALANCE
-                        // --------------------------------------------------------
-                        // Historical loans are already disbursed. Record only the
-                        // remaining receivable position as an opening journal and
-                        // immediately reconcile any pre-existing accounting rows.
-                        // Historical cash movements are never replayed.
-                        accountingService.reconcileLegacyLoanOpeningBalances(
-                                        List.of(loan));
 
                         // ========================================================
                         // SUCCESS LOG
@@ -1208,16 +1271,21 @@ public class LegacyLoanImportRowService {
                         BigDecimal principal,
                         int months) {
 
-                BigDecimal normalizedPrincipal = money(principal);
+                BigDecimal normalizedPrincipal = money(
+                                principal);
 
-                if (normalizedPrincipal.compareTo(MIN_LOAN_AMOUNT) < 0) {
+                if (normalizedPrincipal.compareTo(
+                                MIN_LOAN_AMOUNT) < 0) {
+
                         throw new IllegalArgumentException(
                                         "Loan principal must be at least "
-                                                        + formatMoney(MIN_LOAN_AMOUNT));
+                                                        + formatMoney(
+                                                                        MIN_LOAN_AMOUNT));
                 }
 
                 if (months < MIN_DURATION_MONTHS
                                 || months > MAX_DURATION_MONTHS) {
+
                         throw new IllegalArgumentException(
                                         "Loan duration must be between "
                                                         + MIN_DURATION_MONTHS
@@ -1226,47 +1294,71 @@ public class LegacyLoanImportRowService {
                                                         + " months");
                 }
 
-                /*
-                 * Use exactly the same contractual schedule formula as
-                 * system-originated loans. The legacy importer previously used
-                 * an EMI/annuity calculation on the combined 10% monthly rate.
-                 * Noble Loan instead uses equal principal amortisation with 5%
-                 * monthly interest and 5% monthly management fee calculated on
-                 * each month's opening principal.
-                 *
-                 * This is only the fallback when the legacy file does not supply
-                 * an authoritative outstanding/repayment total.
-                 */
-                BigDecimal balance = normalizedPrincipal;
-                BigDecimal totalInterest = ZERO;
-                BigDecimal totalManagementFee = ZERO;
-                BigDecimal firstInstallment = ZERO;
+                BigDecimal monthlyRate = TOTAL_MONTHLY_CHARGE_RATE
+                                .divide(
+                                                ONE_HUNDRED,
+                                                CALCULATION_SCALE,
+                                                RoundingMode.HALF_UP);
 
-                for (int installmentNumber = 1; installmentNumber <= months; installmentNumber++) {
-                        FinancialPolicy.ScheduleLine line = FinancialPolicy.contractualScheduleLine(
-                                        balance,
-                                        months - installmentNumber + 1,
-                                        MONTHLY_INTEREST_RATE,
-                                        MONTHLY_MANAGEMENT_FEE_RATE);
+                if (monthlyRate.compareTo(
+                                ZERO) == 0) {
 
-                        BigDecimal installment = money(line.installment());
+                        BigDecimal monthlyPayment = money(
+                                        normalizedPrincipal
+                                                        .divide(
+                                                                        BigDecimal.valueOf(
+                                                                                        months),
+                                                                        CALCULATION_SCALE,
+                                                                        RoundingMode.HALF_UP));
 
-                        if (installmentNumber == 1) {
-                                firstInstallment = installment;
-                        }
+                        BigDecimal totalRepayable = money(
+                                        monthlyPayment
+                                                        .multiply(
+                                                                        BigDecimal.valueOf(
+                                                                                        months)));
 
-                        totalInterest = money(totalInterest.add(line.interest()));
-                        totalManagementFee = money(totalManagementFee.add(line.managementFee()));
-                        balance = money(line.remainingBalance());
+                        return new BigDecimal[] {
+                                        monthlyPayment,
+                                        totalRepayable
+                        };
                 }
 
+                BigDecimal onePlusRate = BigDecimal.ONE.add(
+                                monthlyRate);
+
+                BigDecimal factor = onePlusRate.pow(
+                                months,
+                                MathContext.DECIMAL128);
+
+                BigDecimal numerator = normalizedPrincipal
+                                .multiply(
+                                                monthlyRate)
+                                .multiply(
+                                                factor);
+
+                BigDecimal denominator = factor.subtract(
+                                BigDecimal.ONE);
+
+                if (denominator.compareTo(
+                                ZERO) == 0) {
+
+                        throw new IllegalStateException(
+                                        "Invalid monthly loan calculation.");
+                }
+
+                BigDecimal monthlyPayment = money(
+                                numerator.divide(
+                                                denominator,
+                                                CALCULATION_SCALE,
+                                                RoundingMode.HALF_UP));
+
                 BigDecimal totalRepayable = money(
-                                normalizedPrincipal
-                                                .add(totalInterest)
-                                                .add(totalManagementFee));
+                                monthlyPayment.multiply(
+                                                BigDecimal.valueOf(
+                                                                months)));
 
                 return new BigDecimal[] {
-                                firstInstallment,
+                                monthlyPayment,
                                 totalRepayable
                 };
         }
@@ -1433,26 +1525,57 @@ public class LegacyLoanImportRowService {
         private BigDecimal reqMoney(
                         Map<String, String> row,
                         String key) {
-                String value = req(row, key);
+
+                String value = req(
+                                row,
+                                key);
+
                 try {
-                        return money(parseDecimalValue(value, key, true));
+
+                        return money(
+                                        parseDecimalValue(
+                                                        value,
+                                                        key,
+                                                        true));
+
                 } catch (NumberFormatException e) {
+
                         throw new IllegalArgumentException(
-                                        "\"" + key + "\" must be a valid decimal amount. Got \"" + value + "\".");
+                                        "\""
+                                                        + key
+                                                        + "\" must be a valid decimal amount. Got \""
+                                                        + value
+                                                        + "\".");
                 }
         }
 
         private BigDecimal optMoney(
                         Map<String, String> row,
                         String key) {
-                String value = row.get(key);
-                if (isBlankOrSkipped(value))
+
+                String value = row.get(
+                                key);
+
+                if (isBlankOrSkipped(value)) {
+
                         return null;
+                }
+
                 try {
-                        return money(parseDecimalValue(value, key, true));
+
+                        return money(
+                                        parseDecimalValue(
+                                                        value,
+                                                        key,
+                                                        true));
+
                 } catch (NumberFormatException e) {
+
                         throw new IllegalArgumentException(
-                                        "\"" + key + "\" must be a valid decimal amount if provided. Got \"" + value
+                                        "\""
+                                                        + key
+                                                        + "\" must be a valid decimal amount if provided. Got \""
+                                                        + value
                                                         + "\".");
                 }
         }
@@ -1462,6 +1585,7 @@ public class LegacyLoanImportRowService {
                         String field) {
 
                 if (value == null) {
+
                         return;
                 }
 
@@ -1512,7 +1636,8 @@ public class LegacyLoanImportRowService {
                         BigDecimal value) {
 
                 return money(
-                                value).toPlainString();
+                                value)
+                                .toPlainString();
         }
 
         // ================================================================
@@ -1522,13 +1647,29 @@ public class LegacyLoanImportRowService {
         private BigDecimal reqRate(
                         Map<String, String> row,
                         String key) {
-                String value = req(row, key);
+
+                String value = req(
+                                row,
+                                key);
+
                 try {
-                        return parseDecimalValue(value, key, true)
-                                        .setScale(RATE_SCALE, RoundingMode.HALF_UP);
+
+                        return parseDecimalValue(
+                                        value,
+                                        key,
+                                        true)
+                                        .setScale(
+                                                        RATE_SCALE,
+                                                        RoundingMode.HALF_UP);
+
                 } catch (NumberFormatException e) {
+
                         throw new IllegalArgumentException(
-                                        "\"" + key + "\" must be a valid interest rate. Got \"" + value + "\".");
+                                        "\""
+                                                        + key
+                                                        + "\" must be a valid interest rate. Got \""
+                                                        + value
+                                                        + "\".");
                 }
         }
 
@@ -1561,17 +1702,40 @@ public class LegacyLoanImportRowService {
         private int reqInteger(
                         Map<String, String> row,
                         String key) {
-                String value = req(row, key);
+
+                String value = req(
+                                row,
+                                key);
+
                 try {
-                        BigDecimal decimal = parseDecimalValue(value, key, true);
-                        if (decimal.stripTrailingZeros().scale() > 0) {
+
+                        BigDecimal decimal = parseDecimalValue(
+                                        value,
+                                        key,
+                                        true);
+
+                        if (decimal
+                                        .stripTrailingZeros()
+                                        .scale() > 0) {
+
                                 throw new IllegalArgumentException(
-                                                "\"" + key + "\" must be a whole number.");
+                                                "\""
+                                                                + key
+                                                                + "\" must be a whole number.");
                         }
+
                         return decimal.intValueExact();
-                } catch (NumberFormatException | ArithmeticException e) {
+
+                } catch (
+                                NumberFormatException
+                                | ArithmeticException e) {
+
                         throw new IllegalArgumentException(
-                                        "\"" + key + "\" must be a valid whole number. Got \"" + value + "\".");
+                                        "\""
+                                                        + key
+                                                        + "\" must be a valid whole number. Got \""
+                                                        + value
+                                                        + "\".");
                 }
         }
 
@@ -1624,35 +1788,77 @@ public class LegacyLoanImportRowService {
                                                 + "\".");
         }
 
-        // ================================================================
-        // OPTIONAL DATE
-        // ================================================================
-
+        /**
+         * Reads an optional date from a legacy import row.
+         *
+         * This method is intentionally separate from reqDate().
+         *
+         * reqDate():
+         * The field is mandatory and throws an error when absent.
+         *
+         * optDate():
+         * The field is optional and returns the supplied fallback
+         * when the source column is missing or blank.
+         *
+         * Supported formats are the same formats used by reqDate():
+         *
+         * yyyy-MM-dd
+         * dd/MM/yyyy
+         * d/M/yyyy
+         * dd-MM-yyyy
+         *
+         * The imported value is normalized first so Excel-generated
+         * apostrophes, quotation marks and BOM characters do not cause
+         * otherwise valid dates to fail.
+         */
         private LocalDate optDate(
                         Map<String, String> row,
                         String key,
                         LocalDate fallback) {
 
-                String raw = row.get(key);
+                if (row == null) {
 
-                if (isBlankOrSkipped(raw)) {
                         return fallback;
                 }
 
-                String value = normalizeImportedValue(raw);
+                String value = row.get(
+                                key);
+
+                if (isBlankOrSkipped(value)) {
+
+                        return fallback;
+                }
+
+                String normalized = normalizeImportedValue(
+                                value);
+
+                if (normalized.isBlank()) {
+
+                        return fallback;
+                }
 
                 for (DateTimeFormatter formatter : DATE_FORMATS) {
+
                         try {
-                                return LocalDate.parse(value, formatter);
+
+                                return LocalDate.parse(
+                                                normalized,
+                                                formatter);
+
                         } catch (DateTimeParseException ignored) {
-                                // Try the next supported format.
+                                // Continue with the next supported date format.
                         }
                 }
 
                 throw new IllegalArgumentException(
-                                "\"" + key + "\" isn't a recognized optional date. "
-                                                + "Preferred format is YYYY-MM-DD. Got \""
-                                                + value + "\".");
+                                "\""
+                                                + key
+                                                + "\" isn't a recognized date. "
+                                                + "Supported formats are YYYY-MM-DD, "
+                                                + "DD/MM/YYYY, D/M/YYYY and DD-MM-YYYY. "
+                                                + "Got \""
+                                                + value
+                                                + "\".");
         }
 
         // ================================================================
@@ -1663,6 +1869,7 @@ public class LegacyLoanImportRowService {
                         String value) {
 
                 if (value == null) {
+
                         return "UNKNOWN";
                 }
 
@@ -1671,19 +1878,24 @@ public class LegacyLoanImportRowService {
                                 .toUpperCase(
                                                 Locale.ROOT);
 
-                if ("M".equals(gender)
-                                || "MALE".equals(gender)) {
+                if ("M".equals(
+                                gender)
+                                || "MALE".equals(
+                                                gender)) {
 
                         return "Male";
                 }
 
-                if ("F".equals(gender)
-                                || "FEMALE".equals(gender)) {
+                if ("F".equals(
+                                gender)
+                                || "FEMALE".equals(
+                                                gender)) {
 
                         return "Female";
                 }
 
                 if (gender.isBlank()) {
+
                         return "UNKNOWN";
                 }
 
@@ -1754,22 +1966,39 @@ public class LegacyLoanImportRowService {
         private String req(
                         Map<String, String> row,
                         String key) {
-                String value = row.get(key);
-                if (isBlankOrSkipped(value)) {
+
+                String value = row.get(
+                                key);
+
+                if (isBlankOrSkipped(
+                                value)) {
+
                         throw new IllegalArgumentException(
-                                        "\"" + key + "\" is required but was blank.");
+                                        "\""
+                                                        + key
+                                                        + "\" is required but was blank.");
                 }
-                return normalizeImportedValue(value);
+
+                return normalizeImportedValue(
+                                value);
         }
 
         private String opt(
                         Map<String, String> row,
                         String key,
                         String fallback) {
-                String value = row.get(key);
-                if (isBlankOrSkipped(value))
+
+                String value = row.get(
+                                key);
+
+                if (isBlankOrSkipped(
+                                value)) {
+
                         return fallback;
-                return normalizeImportedValue(value);
+                }
+
+                return normalizeImportedValue(
+                                value);
         }
 
         // ================================================================
@@ -1779,68 +2008,176 @@ public class LegacyLoanImportRowService {
         private Double optDouble(
                         Map<String, String> row,
                         String key) {
-                String value = row.get(key);
-                if (isBlankOrSkipped(value))
+
+                String value = row.get(
+                                key);
+
+                if (isBlankOrSkipped(
+                                value)) {
+
                         return null;
+                }
+
                 try {
-                        BigDecimal parsed = parseDecimalValue(value, key, true);
+
+                        BigDecimal parsed = parseDecimalValue(
+                                        value,
+                                        key,
+                                        true);
+
                         double result = parsed.doubleValue();
-                        if (!Double.isFinite(result)) {
+
+                        if (!Double.isFinite(
+                                        result)) {
+
                                 throw new IllegalArgumentException(
-                                                "\"" + key + "\" must be a finite number.");
+                                                "\""
+                                                                + key
+                                                                + "\" must be a finite number.");
                         }
+
                         if (result < 0) {
+
                                 throw new IllegalArgumentException(
-                                                "\"" + key + "\" cannot be negative.");
+                                                "\""
+                                                                + key
+                                                                + "\" cannot be negative.");
                         }
+
                         return result;
+
                 } catch (NumberFormatException e) {
+
                         throw new IllegalArgumentException(
-                                        "\"" + key + "\" must be a valid number if provided. Got \"" + value + "\".");
+                                        "\""
+                                                        + key
+                                                        + "\" must be a valid number if provided. Got \""
+                                                        + value
+                                                        + "\".");
                 }
         }
 
-        private boolean isBlankOrSkipped(String value) {
-                return value == null || normalizeImportedValue(value).isBlank();
+        // ================================================================
+        // IMPORTED VALUE NORMALIZATION
+        // ================================================================
+
+        private boolean isBlankOrSkipped(
+                        String value) {
+
+                return value == null
+                                || normalizeImportedValue(
+                                                value)
+                                                .isBlank();
         }
 
-        private String normalizeImportedValue(String value) {
-                if (value == null)
-                        return "";
-                String normalized = value.replace("\uFEFF", "").trim();
-                if (normalized.isBlank())
-                        return "";
+        private String normalizeImportedValue(
+                        String value) {
 
-                normalized = LEADING_APOSTROPHES.matcher(normalized).replaceFirst("").trim();
+                if (value == null) {
 
-                for (int i = 0; i < 2 && normalized.length() >= 2; i++) {
-                        char first = normalized.charAt(0);
-                        char last = normalized.charAt(normalized.length() - 1);
-                        if ((first == '\'' && last == '\'') || (first == '\"' && last == '\"')) {
-                                normalized = normalized.substring(1, normalized.length() - 1).trim();
+                        return "";
+                }
+
+                String normalized = value
+                                .replace(
+                                                "\uFEFF",
+                                                "")
+                                .trim();
+
+                if (normalized.isBlank()) {
+
+                        return "";
+                }
+
+                /*
+                 * Remove Excel-style leading text markers and accidental
+                 * leading whitespace/underscores.
+                 */
+                normalized = LEADING_APOSTROPHES
+                                .matcher(
+                                                normalized)
+                                .replaceFirst(
+                                                "")
+                                .trim();
+
+                /*
+                 * Remove up to two matching pairs of quotation marks.
+                 *
+                 * This protects imports such as:
+                 *
+                 * '2026-01-01'
+                 * "2026-01-01"
+                 */
+                for (int i = 0; i < 2
+                                && normalized.length() >= 2; i++) {
+
+                        char first = normalized.charAt(
+                                        0);
+
+                        char last = normalized.charAt(
+                                        normalized.length() - 1);
+
+                        if ((first == '\''
+                                        && last == '\'')
+                                        ||
+                                        (first == '"'
+                                                        && last == '"')) {
+
+                                normalized = normalized.substring(
+                                                1,
+                                                normalized.length() - 1)
+                                                .trim();
+
                         } else {
+
                                 break;
                         }
                 }
+
                 return normalized;
         }
+
+        // ================================================================
+        // DECIMAL PARSING
+        // ================================================================
 
         private BigDecimal parseDecimalValue(
                         String value,
                         String key,
                         boolean allowNegative) {
-                String normalized = normalizeImportedValue(value)
-                                .replace(",", "")
+
+                String normalized = normalizeImportedValue(
+                                value)
+                                .replace(
+                                                ",",
+                                                "")
                                 .trim();
+
                 if (normalized.isBlank()) {
-                        throw new NumberFormatException("Blank numeric value for " + key);
+
+                        throw new NumberFormatException(
+                                        "Blank numeric value for "
+                                                        + key);
                 }
-                BigDecimal parsed = new BigDecimal(normalized);
-                if (!allowNegative && parsed.compareTo(ZERO) < 0) {
-                        throw new NumberFormatException("Negative value for " + key);
+
+                BigDecimal parsed = new BigDecimal(
+                                normalized);
+
+                if (!allowNegative
+                                && parsed.compareTo(
+                                                ZERO) < 0) {
+
+                        throw new NumberFormatException(
+                                        "Negative value for "
+                                                        + key);
                 }
+
                 return parsed;
         }
+
+        // ================================================================
+        // EMAIL
+        // ================================================================
 
         private String resolveEmail(
                         Map<String, String> row,
@@ -2018,7 +2355,8 @@ public class LegacyLoanImportRowService {
                                         " Original imported interest rate was ");
 
                         note.append(
-                                        importedInterestRate.stripTrailingZeros());
+                                        importedInterestRate
+                                                        .stripTrailingZeros());
 
                         note.append(
                                         "% ");
