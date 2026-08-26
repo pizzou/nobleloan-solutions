@@ -45,7 +45,6 @@ public class BnrTemplateExportService {
 
     private static final List<String> CLASSIFICATION_SHEETS = List.of(
             "A1.3. Normal Loans",
-            "A1.3. Normal",
             "A1.4. Watch",
             "A1.5. Substandard",
             "A1.6. Doubtful",
@@ -112,8 +111,6 @@ public class BnrTemplateExportService {
                     window[1]);
 
             populateFinancialStatement(workbook, financialStatement);
-            addValidationSheet(workbook, loans, classified, reportDate);
-
             workbook.setForceFormulaRecalculation(true);
             workbook.write(output);
             output.flush();
@@ -121,6 +118,19 @@ public class BnrTemplateExportService {
             byte[] bytes = output.toByteArray();
             if (bytes.length == 0) {
                 throw new IllegalStateException("Generated BNR workbook is empty");
+            }
+
+            long missingBorrowerIds = loans.stream()
+                    .filter(Objects::nonNull)
+                    .filter(loan -> resolveBorrowerReportingId(loan.getBorrower()) == null)
+                    .count();
+
+            if (missingBorrowerIds > 0) {
+                log.warn(
+                        "BNR export contains {} loan(s) without a borrower national ID. "
+                                + "The 'ID of the Borrower' field is left blank rather than "
+                                + "using Noble's internal borrower database ID.",
+                        missingBorrowerIds);
             }
 
             log.info(
@@ -166,14 +176,6 @@ public class BnrTemplateExportService {
 
         createClassificationSheet(
                 workbook,
-                "A1.3. Normal",
-                "NORMAL",
-                "Loan Classification Report (NORMAL)",
-                7,
-                normalHeaders());
-
-        createClassificationSheet(
-                workbook,
                 "A1.4. Watch",
                 "WATCH",
                 "Loan Classification Report (WATCH)",
@@ -214,671 +216,196 @@ public class BnrTemplateExportService {
 
         createWrittenOffSheet(workbook);
 
-        // The supplied BNR workbook contains a final blank worksheet named Sheet1.
-        // Preserve that workbook-level structure without introducing template I/O.
-        workbook.createSheet("Sheet1");
-
         return workbook;
     }
 
     private void createExplanatoryNoteSheet(XSSFWorkbook workbook) {
         Sheet sheet = workbook.createSheet("A1.1  Explanatory Note ");
 
+        String[][] notes = {
+                { "DENOMINATION", "Explanatory Notes" },
+                { "A.BALANCE SHEET", "" },
+                { "1.Total Liquid Assets (2+3+4)", "" },
+                { "2.Cash in vault", "Physical cash held on the institution premises as at reporting date." },
+                { "3.Cash in bank and other FIs (Current account)",
+                        "Balances at banks, financial institutions and transactional mobile money accounts." },
+                { "4.Cash in bank and other FIs (Term deposit)",
+                        "Cash placed in fixed-term accounts earning interest." },
+                { "5.Gross loans", "Outstanding loan balance before eligible collateral and provisions." },
+                { "6.Provision for bad and doubtful debts",
+                        "Required provisioning based on regulatory loan classification." },
+                { "7.Net loans", "Gross loans less provisions." },
+                { "B.INCOME STATEMENT", "" },
+                { "Interest income", "Interest income recognized from the lending portfolio." },
+                { "Fee and penalty income",
+                        "Management fees, processing fees, extension fees and penalties recognized as income." },
+                { "Operating expenses", "Operating expenses supported by the accounting ledger." },
+                { "Net income", "Income less operating and loan-loss expenses." },
+                { "C.LOAN CLASSIFICATION", "" },
+                { "Normal", "Current performing loans with no qualifying arrears." },
+                { "Watch", "Loans with arrears requiring watch classification." },
+                { "Substandard", "Loans meeting the regulatory substandard arrears threshold." },
+                { "Doubtful", "Loans meeting the regulatory doubtful arrears threshold." },
+                { "Loss", "Loans meeting the regulatory loss threshold." },
+                { "Restructured loans", "Loans formally restructured or extended according to the platform record." },
+                { "Written off", "Loans recorded as written off in the Noble Loan system." },
+                { "INTEREST BASIS",
+                        "Noble Loan contractual interest is monthly. The BNR annual-interest field is the contractual monthly rate multiplied by 12." },
+                { "COLLATERAL",
+                        "Eligible collateral is limited by the collateral treatment implemented by the BNR exporter." },
+                { "SOURCE",
+                        "All report values are sourced from Noble Loan operational and accounting data. Missing source values are left blank." }
+        };
+
+        CellStyle title = createTitleStyle(workbook);
         CellStyle header = createHeaderStyle(workbook);
         CellStyle body = createBodyStyle(workbook);
 
-        /*
-         * This is the regulatory explanatory-note structure from the supplied
-         * BNR workbook, embedded as data so the application never needs to
-         * load the workbook at runtime.
-         */
-        String[][] notes = {
-                { "1", "1", "DENOMINATION" },
-                { "1", "2", "Explanatory Notes" },
-                { "2", "1", "A.BALANCE SHEET" },
-                { "3", "1", "1.Total Liquid Assets (2+3+4)" },
-                { "4", "1", "2.Cash in vault " },
-                { "4", "2",
-                        "In this section, Accountant record physical cash (Coins or Notes) held on the institution’s premises as at reporting date, " },
-                { "5", "1", "3.Cash in bank and other FIs (Current account)" },
-                { "5", "2",
-                        "Report the total balances at all banks or financial institutions including Mobile Money, used for transactional liquidity." },
-                { "6", "0", " " },
-                { "6", "1", "4.Cash in bank and other FIs (Term deposit )" },
-                { "6", "2", "Cash placed in fixed‑term accounts earning interest but less liquid." },
-                { "7", "0", " " },
-                { "7", "1", "5.Gross loans " },
-                { "7", "2",
-                        "Do not edit enything here, The formula will take the total outstanding loan balance issued to clients, as per loan classification in line ( 77–84.)" },
-                { "8", "1", "6.Provisions " },
-                { "8", "2",
-                        "add the provisions computed in allowances established against expected credit losses in compliance with Article 39 of REGULATION No 65/04/2023 OF 25/04/2023." },
-                { "9", "1", "7.Net Loans (5-6)" },
-                { "10", "1", "8.NPLs " },
-                { "10", "2",
-                        "Add all out non performing loans outstanding as at reporting date ( substandard, Doubtful and loss) refer to Article 3: Paragraph u " },
-                { "11", "1", "9.Financial Instruments" },
-                { "11", "2", "investments in securities or other financial assets permitted under regulations." },
-                { "12", "1", "Fixed Assets (PPE,Intangible, Investment properties, etc) Gross Amount" },
-                { "12", "2",
-                        "capital expenditure on property, plant & equipment, intangible and investment assets, in this section the accountant record the actual cost incured to accure asset as per IAS 16." },
-                { "13", "1", "Depreciation " },
-                { "13", "2",
-                        "Add the Depreciiation for the quarter to the previously reported accumulated depreciation " },
-                { "14", "1", "10.Fixed Assets (net)" },
-                { "15", "1", "11. Interest receivable" },
-                { "15", "2", "Accrued incured by not yet paid by clients as at the of quarter." },
-                { "16", "1", "12.Other Assets " },
-                { "16", "2",
-                        "Assets such as prepayments, accrued interest income, or any other items not classified elsewhere." },
-                { "17", "1", "13.Suspense Accounts" },
-                { "17", "2", "Temporary ledger accounts holding unresolved or pending transaction entries." },
-                { "18", "1", "14.Total Assets (1+7+9+10+11+12)=25" },
-                { "19", "1", "15.Total Liabilities (15+16+20)" },
-                { "20", "1", "16.Borrowings from other FIs and Non FIs" },
-                { "20", "2",
-                        "Outstanding Debt obligations owed to the Bank and other creditors payable in the period exceeding 1 year." },
-                { "21", "1", " 17.Cash collateral if any" },
-                { "21", "2", "Cash pledged as collateral for third-party obligations or regulatory requirements." },
-                { "22", "1", "18. interest Payable" },
-                { "22", "2",
-                        "Accrued interest payable to the lender at the end of  quarter as per Loan ammortization." },
-                { "23", "1", "19.Other liabilities (payables+suspense+other liabilities)" },
-                { "23", "2",
-                        "Includes trade payables, payroll liabilities, interest payable, suspense liability accounts, accruals, and miscellaneous obligations." },
-                { "24", "0", " " },
-                { "24", "1", "20.Total Equity " },
-                { "25", "1", "21.Subsidies  (for equipment or financing Equity)" },
-                { "25", "2",
-                        "Grants or donor‑funded investments provided to support capital or operational capacity. If any" },
-                { "26", "1", "22.Revaluation surplus" },
-                { "26", "2",
-                        "record all Unrealized gains from reappraisal of assets recognized under accounting standards." },
-                { "27", "1", "23.Other Equity" },
-                { "27", "2",
-                        "any other equity categories such as statutory reserves or specific retained components." },
-                { "28", "1", "24.Retained profits/Acc losses" },
-                { "28", "2", "record the opening accumulated P/L as at the start of quarter " },
-                { "29", "1", "25.Profit/loss for the period" },
-                { "29", "2", "Link to profit in P/L account" },
-                { "30", "1", "26.Paid up capital" },
-                { "30", "2",
-                        "	Equity contributed by shareholders meeting the minimum capital thresholds (e.g. RWF 30m–100m depending on category) " },
-                { "31", "1", "27.Total Equity&Liabilities (14+18)=13" },
-                { "32", "1", "28.NPL Ratio (max 5%) " },
-                { "32", "2", "don't edit in this formulas" },
-                { "33", "1", "29.Capital Adequacy Ratio " },
-                { "33", "2", "don't edit in this formulas" },
-                { "34", "1", "30.Conversion of resources into loans " },
-                { "34", "2", "don't edit in this formulas" },
-                { "35", "1", "Investment in fixed assets " },
-                { "35", "2", "don't edit in this formulas" },
-                { "36", "1", "B.INCOME STATEMENT" },
-                { "37", "1", "31.Financial Income (32+33+34+35+36)" },
-                { "38", "1", "32.Interest Income on Loan Portfolio" },
-                { "38", "2", "Record all Interest accrued from outstanding loans as per IFRS 15." },
-                { "39", "1", "33.Fees and Commissions on Loan Portfolio" },
-                { "39", "2",
-                        "record all Non‑interest income from lending services like origination or processing fees." },
-                { "40", "1", "34.Incomes on Deposits in banks and other Fis" },
-                { "40", "2", "Interest from parked liquidity in bank deposits." },
-                { "41", "1", "35.Incomes on Financial Instruments" },
-                { "41", "2", "Earnings on permitted investments such as T bonds, T Bills or any other securities." },
-                { "42", "1", "36.Other financial Income" },
-                { "42", "2", "Miscellaneous income such as FX gains or other finance-related sources." },
-                { "43", "0", " " },
-                { "43", "1", "37.Recoveries on Loans (prov. Back)" },
-                { "43", "2",
-                        "if the loan provisions has been reduced compared to prior  report provision (the difference is the income to be recognised hire) :  Eg: if in the Q1 provision was 100,000 and in quarter 2 provision become 80,000) 20,000 decrease will be recognised as income" },
-                { "44", "1", "38.Recoveries on loans (written offs)" },
-                { "44", "2", "Income from collections on loans previously written off." },
-                { "45", "1", "39.Other operating Incomes" },
-                { "45", "2", "Income from incidental operations related to lending services." },
-                { "46", "1", "40.Non Operating Incomes" },
-                { "46", "2", "non-core income, such as gains from asset sales." },
-                { "47", "1", "41.Total Incomes(31+37+38+39+40)" },
-                { "48", "1", "42.Financial Expenses (43+44+45)" },
-                { "49", "1", "43.Interest on cash collateral if any" },
-                { "49", "2", "Cost incurred on cash pledged as collateral if any" },
-                { "50", "1", "44.Interest on borrowings from Fis and Non FIs" },
-                { "50", "2", "Interest expenses on borrowings from bank or other lenders " },
-                { "51", "1", "45. Bank Charges,Commissions and other Financial Exp." },
-                { "51", "2", " Transaction fees, service charges related to funding." },
-                { "52", "1", "46.Loan losses (provisions)" },
-                { "52", "2",
-                        "when the loan provisions has been reduced compared to prior  report provision (the difference is the income to be recognised hire) Eg. if in the Q1 provision was 100,000 and in quarter 2 provision become 80,000) 20,000 decrease will be recognised as income" },
-                { "53", "1", "47. Loan Losses (written off for the period)" },
-                { "53", "2",
-                        "Report all irrecoverable loans during the period (loans which took at least 1 Year in loss class or Un paid installment has 720 days and above days in arrear)" },
-                { "54", "1", "48.Personnel Expenses (Gross amount)" },
-                { "54", "2",
-                        "When the loan provisions has been reduced compared to prior  report provision (the difference is the income to be recognised hire) :  Eg: if in the Q1 provision was 100,000 and in quarter 2 provision become 80,000) 20,000 decrease will be recognised as income." },
-                { "55", "1", "49.Administrative Expenses" },
-                { "55", "2",
-                        "in this section, Accountant record all expenses incured during the quarter to assist in day today management of the business operation (expenses like dipreciation and ammortization, Advertisement, Board sitting allowances, office stationaries, etc are found here), " },
-                { "56", "1", "50.Non Operating Expenses" },
-                { "56", "2", "Any other Expenses not sspecified in above reporting lines." },
-                { "57", "1", "51.Total Expenses  (42+46+47+48+49+50)" },
-                { "58", "1", "52.Profit/Loss before donations (41-51)" },
-                { "59", "1", "53. Income Tax " },
-                { "60", "1", "54. Profit after tax and before donations(52-53)" },
-                { "61", "0", " " },
-                { "61", "1", "55.Donations (Financing Operating Expenses)" },
-                { "61", "2", "Any donation made to Government entity. Non government Entity or Individual person." },
-                { "62", "1", "Profit/loss after tax and  donations (54+55)=23" },
-                { "63", "1", "Dividends " },
-                { "64", "1", "Net profit After Dividends " },
-                { "65", "1", "56.Cost to income   52/43" },
-                { "66", "1", "57.% of Financial Income 34/43" },
-                { "67", "1", "58.ROA   (AVERAGED 53/13)" },
-                { "68", "1", "59.ROE  (AVERAGED 53/21)" },
-                { "69", "1", "C. OFF-BALANCE SHEET (Written-Off Loans)" },
-                { "70", "1", "D.SUPPLEMENTARY INFORMATION" },
-                { "71", "0", "60.Number of Loans (Outstanding)" },
-                { "71", "1", "61.Men" },
-                { "71", "2", "give the number of Men with outstanding loan (Unpaid loan) as at the end of quarter" },
-                { "72", "1", "62.Women" },
-                { "72", "2", "give the number of Women with outstanding loan (Unpaid loan) as at the end of quarter" },
-                { "73", "1", "63.Group&Entities" },
-                { "73", "2",
-                        "give the number of  Entities with outstanding loan (Unpaid loan) as at the end of quarter" },
-                { "74", "1", "64.Total (61+62+63)" },
-                { "74", "2", "The total should be equal to the line 5.Gross loans in the balance sheet" },
-                { "75", "0", "65.Value of Loans (Outstanding) by Gender" },
-                { "75", "1", "66.Men" },
-                { "75", "2", "give the balance amount of loan  receivable from Men at the end of quarter" },
-                { "76", "1", "67.Women" },
-                { "76", "2", "give the balance amount of loan  receivable from Wemen at the end of quarter" },
-                { "77", "1", "68.Group&Entities" },
-                { "77", "2", "give the balance amount of loan  receivable from entities at the end of quarter" },
-                { "78", "1", "69.Total (66+67+68)=5=76=84" },
-                { "78", "2", "The total should be equal to the line 5.Gross loans in the balance sheet" },
-                { "79", "0", "70.Value of Loans (Outstanding) to Economic Sector" },
-                { "79", "1", "71.Agriculture, Livestock, Fishing " },
-                { "79", "2",
-                        "give the balance amount of loan  receivable from borrowers engaged in Agriculture sector at the end of quarter" },
-                { "80", "1", "72.Public Works (Construction), Buildings, Residences/Homes" },
-                { "80", "2",
-                        "give the balance amount of loan  receivable from borrowers engaged in Public Works at the end of quarter" },
-                { "81", "1", "73.Commerce, Restaurants, Hotels" },
-                { "81", "2",
-                        "give the balance amount of loan  receivable from borrowers engaged in Commerce, Restaurants and Hotels at the end of quarter" },
-                { "82", "1", "74.Transport, Warehouses, Communications" },
-                { "82", "2",
-                        "give the balance amount of loan  receivable from borrowers engaged in Transport, Warehouses and Communications at the end of quarter" },
-                { "83", "1", "75.Others" },
-                { "83", "2",
-                        "give the balance amount of loan  receivable from borrowers engaged in other sectors not specified" },
-                { "84", "1", "76.Total  (71+72+73+74+75)=5=69=84" },
-                { "84", "2", "The total should be equal to the line 5.Gross loans in the balance sheet" },
-                { "85", "1", "78.Current loans -Normal (0% Prov.)" },
-                { "85", "2", "give the balance amount of loan outstanding classified under Normal (A1.3) Column AH" },
-                { "86", "0", "77.Value of Loans (Outstanding) in the Loan Classfication" },
-                { "86", "1", "79. Watch (1-89 days) 1% Prov." },
-                { "86", "2", "give the balance amount of loan outstanding classified under Watch (A1.4) Column AH" },
-                { "87", "1", "80. Substandard (90-179 days)  20% Prov." },
-                { "87", "2", "give the balance amount of loan outstanding classified under Normal (A1.5) Column AI" },
-                { "88", "1", "81.Doubtful (180-359 days) 50% Prov." },
-                { "88", "2", "give the balance amount of loan outstanding classified under Normal (A1.6) Column AH " },
-                { "89", "1", "82. Loss (360 -719 days ) 100% prov." },
-                { "89", "2", "give the balance amount of loan outstanding classified under Normal (A1.7) Column AH" },
-                { "90", "1", "83.(Restructured)" },
-                { "90", "2", "give the balance amount of loan outstanding classified under Normal (A1.8) Column AH" },
-                { "91", "1", "84.Total (78+79+80+81+82+83)" },
-                { "91", "2", "The total should be equal to the line 5.Gross loans in the balance sheet" },
-                { "92", "0", "85.Number of Loans (disbursed loans )" },
-                { "92", "1", "86.Men" },
-                { "92", "2", "give the number of New Loans disbursed to the Men in three months time" },
-                { "93", "1", "87.Women" },
-                { "93", "2", "give the number of New Loans disbursed to the Wemen in three months time" },
-                { "94", "1", "88.Group&Entities" },
-                { "94", "2", "give the number of New Loans disbursed to the Entity in three months time" },
-                { "95", "1", "88.Total (86+87+88)" },
-                { "95", "2", "Total should be equal to the Number of new cotracts signed in 3 monthss time" },
-                { "96", "0", "90.Value of Loans (Disbursed ) by Gender" },
-                { "96", "1", "91.Men" },
-                { "96", "2", "give the Value of New Loans disbursed to the Men in three months time" },
-                { "97", "1", "92.Women" },
-                { "97", "2", "give the  Value of New Loans disbursed to the Wemen in three months time" },
-                { "98", "1", "93.Group&Entities" },
-                { "98", "2", "give the  Value of New Loans disbursed to the Entities in three months time" },
-                { "99", "1", "94.Total (92+93+94)" },
-                { "99", "2",
-                        "Total should be equal to the sum of gross loans in a new cotracts signed in 3 monthss time" },
-                { "100", "0", "95.Value of Loans (Disbursed ) to Economic Sector" },
-                { "100", "1", "96.Agriculture, Livestock, Fishing " },
-                { "100", "2",
-                        "give the  Value of New Loans disbursed to the borrowers based in Agriculture in three months time" },
-                { "101", "1", "97.Public Works (Construction), Buildings, Residences/Homes" },
-                { "101", "2",
-                        "give the  Value of New Loans disbursed to the borrowers based in Public Works in three months time" },
-                { "102", "1", "98.Commerce, Restaurants, Hotels" },
-                { "102", "2",
-                        "give the  Value of New Loans disbursed to the borrowers based in Commerce  in three months time" },
-                { "103", "1", "99.Transport, Warehouses, Communications" },
-                { "103", "2",
-                        "give the  Value of New Loans disbursed to the borrowers based in Transport, Warehouses, Communications in three months time" },
-                { "104", "1", "100.Others" },
-                { "104", "2",
-                        "give the  Value of New Loans disbursed to the borrowers based in any other sector not specified above." },
-                { "105", "1", "101.Total  (96+97+98+99+100)" },
-                { "105", "2",
-                        "Total should be equal to the sum of gross loans in a new cotracts signed in 3 monthss time" },
-                { "106", "0", "102. NDFSP BORROWINGS" },
-                { "106", "1", "103. Borrowing from Shareholders at …..% P.a" },
-                { "106", "2", "All money injected by shareholders expected to be repaid back" },
-                { "107", "1", "104.Borrowing from related parties (Parent, Subsidiary, Sister company Etc at …% P.a" },
-                { "107", "2", "All money injected from related companies expected to be repaid back" },
-                { "108", "1", "105. Borrowing from Banks or Micro finance at …% P.a" },
-                { "108", "2", "Bank Loans" },
-                { "109", "1", "106. Borrowing from other sources (Specify)  at …..% P.a" },
-                { "109", "2",
-                        "Report any other loans (Wether from individual friend, family or any source not specified)" },
-                { "110", "1", "107.Total  (103+104+105+106)" },
-                { "110", "2", "The total should be the total borrowings reported in the balance sheet" },
-                { "111", "0", "Financing Women Entities(Cooperatives, Companies &Other groupings)" },
-                { "111", "1", "Number of Disbursed Loans to WE (As Per Quarter )" },
-                { "111", "2", "give the number of New Loans disbursed to the Wemen Enterprise in three months time" },
-                { "112", "1", "Number of Outstanding Loans to WE (Balance)" },
-                { "112", "2",
-                        "give the number of unpaid Loans receivable from the Wemen Enterprise as at the end of quarter" },
-                { "113", "1", "Value of Disbursed Loans to WE (As Per Quarter )" },
-                { "113", "2", "report the Value of New Loans disbursed to the Wemen Enterprise in three months time" },
-                { "114", "1", "Value  of Outstanding Loans to WE (Balance)" },
-                { "114", "2",
-                        "give the balance (Unpaid) amount of loan  receivable from borrowers engaged  in the Wemen Enterprise as at the end of quarter" },
-                { "115", "1", " Number of Accounts with WE" },
-                { "116", "0", "Financing SMEs" },
-                { "116", "1", "Number of Disbursed Loans to SMEs (As Per Quarter )" },
-                { "116", "2",
-                        "give the number of New Loans disbursed to the small and Medium  Enterprises in three months time" },
-                { "117", "1", "Number of Outstanding Loans to SMEs (Balance)" },
-                { "117", "2",
-                        "give the number of unpaid Loans receivable from the small and Medium  Enterprises  as at the end of quarter" },
-                { "118", "1", "Value of Disbursed Loans to SMEs (As Per Quarter )" },
-                { "118", "2",
-                        "report the Value of New Loans disbursed to the small and Medium  Enterprises in three months time" },
-                { "119", "1", "Value  of Outstanding Loans to SMEs (As Per Quarter)" },
-                { "119", "2",
-                        "give the balance (Unpaid) amount of loan  receivable from borrowers engaged  in the small and Medium  Enterprise as at the end of quarter." },
-                { "120", "0", "Financing Youth Entities(Cooperatives, Companies &Other groupings)" },
-                { "120", "1", "Number of Disbursed Loans to YE (As Per Quarter )" },
-                { "120", "2",
-                        "give the number of New Loans disbursed to the Financing Youth Entities in three months time" },
-                { "121", "1", "Number of Outstanding Loans to YE (As Per Quarter)" },
-                { "121", "2",
-                        "give the number of unpaid Loans receivable from the Financing Youth Entities as at the end of quarter" },
-                { "122", "1", "Value of Disbursed Loans to YE (As Per Quarter )" },
-                { "122", "2",
-                        "report the Value of New Loans disbursed to the Financing Youth Entities in three months time" },
-                { "123", "1", "Value  of Outstanding Loans to YE (As Per Quarter)" },
-                { "123", "2",
-                        "give the balance (Unpaid) amount of loan  receivable from borrowers engaged  in the small and Medium  Enterprise as at the end of quarter." },
-                { "124", "0", "New Loans Applied" },
-                { "124", "1", "Number of loans applied for (As Per Quarter )" },
-                { "124", "2", "Total loan application received during quarter" },
-                { "125", "1", "Number of loans rejected (As Per Quarter )" },
-                { "125", "2", "Report the number of Loan application rejected " },
-                { "126", "1", "Amount of loans applied for (As Per Quarter )" },
-                { "126", "2", "Report the amount applied for during the three months time" },
-                { "127", "1", "Amount of loans rejected (As Per Quarter )" },
-                { "127", "2", "Report the amount applied for but rejected during three months time" },
-                { "128", "1", "Men" },
-                { "128", "2", "Show the number of Male Employees " },
-                { "129", "0", "Number of NDFSP' Staff" },
-                { "129", "1", "Women" },
-                { "129", "2", "Show the number of female Employees " },
-                { "130", "1", "Total " },
-                { "130", "2", "The total should be the total number of staff" },
-                { "131", "1", "Men" },
-                { "131", "2", "Show the number of Male BOD" },
-                { "132", "0", "Number of NDFSP' Board Members " },
-                { "132", "1", "Women" },
-                { "132", "2", "Show the number of female BOD " },
-                { "133", "1", "Total " },
-                { "133", "2", "The total should be the total number of BOD" },
-                { "134", "1", "Men" },
-                { "134", "2", "Show the number of Male Share holders" },
-                { "135", "0", "Number of NDFSP' Shareholders " },
-                { "135", "1", "Women" },
-                { "135", "2", "Show the number of female Shareholders" },
-                { "136", "1", "Legal Entities" },
-                { "136", "2", "Show the number of shareholder through Legal Entity " },
-                { "137", "1", "Total " },
-                { "137", "2", "The total should be the total number of Shareholders as per RDB Certificate" },
-                { "138", "1", "Share value" },
-                { "138", "2", "Report the Par Value of Each share (As per RDB certificate)" },
-                { "141", "0", "Before you submit: " },
-                { "142", "0", "❶" },
-                { "142", "1", "Check if all information shared are complete" },
-                { "143", "0", "❷" },
-                { "143", "1", "Check if the financials are balancing " },
-                { "144", "0", "❸" },
-                { "144", "1", "Check if Loans are categorized as per regulation " },
-                { "145", "0", "❹" },
-                { "145", "1", "Do not modify the formulas in the report " },
-                { "146", "0", "❺" },
-                { "146", "1",
-                        "Check whether if the provision is correctly Commputed and reported As per IFRS 9 (Total provision reported in the Balance sheet and The movement reported in Income statement)" },
-                { "147", "0", "❻" },
-                { "147", "1", "Compare reported data with actual fugures in Accounting system used in the NDFSP" },
-                { "148", "0", "❼" },
-                { "148", "1", "For more clarification, Contact the BNR staff" },
-        };
+        Row first = sheet.createRow(0);
+        Cell titleCell = first.createCell(0);
+        titleCell.setCellValue("NOBLE LOAN SOLUTIONS — BNR REGULATORY EXPLANATORY NOTES");
+        titleCell.setCellStyle(title);
+        sheet.addMergedRegion(new org.apache.poi.ss.util.CellRangeAddress(0, 0, 0, 3));
 
-        for (String[] note : notes) {
-            int rowIndex = Integer.parseInt(note[0]);
-            int columnIndex = Integer.parseInt(note[1]);
+        for (int i = 0; i < notes.length; i++) {
+            Row row = sheet.createRow(i + 2);
+            Cell label = row.createCell(0);
+            label.setCellValue(notes[i][0]);
+            label.setCellStyle(header);
 
-            Row row = sheet.getRow(rowIndex);
-            if (row == null) {
-                row = sheet.createRow(rowIndex);
-            }
+            Cell explanation = row.createCell(1);
+            explanation.setCellValue(notes[i][1]);
+            explanation.setCellStyle(body);
 
-            Cell cell = row.createCell(columnIndex);
-            cell.setCellValue(note[2]);
-            cell.setCellStyle(
-                    rowIndex == 1
-                            ? header
-                            : body);
+            sheet.setColumnWidth(0, 12000);
+            sheet.setColumnWidth(1, 30000);
         }
 
-        sheet.setColumnWidth(0, 1800);
-        sheet.setColumnWidth(1, 12000);
-        sheet.setColumnWidth(2, 24000);
         sheet.createFreezePane(0, 2);
     }
 
     private void createFinancialStatementSheet(XSSFWorkbook workbook) {
         Sheet sheet = workbook.createSheet("A1.2. FS");
 
+        String[] labels = {
+                "A.BALANCE SHEET",
+                "1.Total Liquid Assets (2+3+4)",
+                "2.Cash in vault",
+                "3.Cash in bank and other FIs (Current account)",
+                "4.Cash in bank and other FIs (Term deposit)",
+                "5.Gross loans",
+                "6.Provision for bad and doubtful debts",
+                "7.Net loans",
+                "8.Other assets",
+                "9.TOTAL ASSETS",
+                "B.LIABILITIES",
+                "10.Customer deposits payable",
+                "11.Borrower refunds payable",
+                "12.Other liabilities",
+                "13.TOTAL LIABILITIES",
+                "C.EQUITY",
+                "14.Paid-up capital",
+                "15.Retained earnings",
+                "16.Current period net income",
+                "17.TOTAL EQUITY",
+                "18.TOTAL LIABILITIES AND EQUITY",
+                "D.INCOME STATEMENT",
+                "19.Interest income",
+                "20.Fee and penalty income",
+                "21.TOTAL INCOME",
+                "22.Loan loss expense",
+                "23.Bank charges",
+                "24.Salaries and wages",
+                "25.Administrative expenses",
+                "26.TOTAL EXPENSES",
+                "27.Current period net income",
+                "E.LOAN PORTFOLIO STATISTICS",
+                "Normal outstanding",
+                "Watch outstanding",
+                "Substandard outstanding",
+                "Doubtful outstanding",
+                "Loss outstanding",
+                "Restructured outstanding",
+                "Total classified outstanding",
+                "Male outstanding loans",
+                "Female outstanding loans",
+                "Other outstanding loans",
+                "Male disbursed loans",
+                "Female disbursed loans",
+                "Other disbursed loans",
+                "Male disbursed amount",
+                "Female disbursed amount",
+                "Other disbursed amount"
+        };
+
         CellStyle title = createTitleStyle(workbook);
         CellStyle header = createHeaderStyle(workbook);
         CellStyle body = createBodyStyle(workbook);
         CellStyle currency = createCurrencyStyle(workbook);
 
-        CellStyle percentage = createBodyStyle(workbook);
-        percentage.setDataFormat(workbook.createDataFormat().getFormat("0.0%"));
+        Row meta = sheet.createRow(0);
+        meta.createCell(0).setCellValue("NAME OF THE NDFSP:");
+        meta.getCell(0).setCellStyle(header);
 
-        /*
-         * The FS sheet is generated from the supplied BNR workbook's exact
-         * row labels and regulatory formula layout. No XLSX template is loaded
-         * at runtime.
-         */
-        String[] labels = {
-                "1.Total Liquid Assets (2+3+4)",
-                "2.Cash in vault ",
-                "3.Cash in bank and other FIs (Current account)",
-                "4.Cash in bank and other FIs (Term deposit )",
-                "5.Gross loans ",
-                "6.Provisions ",
-                "7.Net Loans (5-6)",
-                "8.NPLs ",
-                "9.Financial Instruments",
-                "Fixed Assets (PPE,Intangible, Investment properties, etc) Gross Amount",
-                "Depreciation ",
-                "10.Fixed Assets (net)",
-                "11. Interest receivable",
-                "12.Other Assets ",
-                "13.Suspense Accounts",
-                "14.Total Assets (1+7+9+10+11+12+13)=27",
-                "15.Total Liabilities (16+17+18+19)",
-                "16.Borrowings from other FIs and Non FIs (107)",
-                " 17.Cash collateral if any",
-                "18. interest Payable",
-                "19.Other liabilities (payables+suspense+other liabilities)",
-                "20.Total Equity ",
-                "21.Subsidies  (for equipment or financing Equity)",
-                "22.Revaluation surplus",
-                "23.Other Equity",
-                "24.Retained profits/Acc losses",
-                "25.Profit/loss for the period",
-                "26.Paid up capital",
-                "27.Total Equity&Liabilities (15+20)=14",
-                "28.NPL Ratio (max 5%) ",
-                "29.Capital Adequacy Ratio ",
-                "30.Conversion of resources into loans ",
-                "Investment in fixed assets ",
-                "B.INCOME STATEMENT",
-                "31.Financial Income (32+33+34+35+36)",
-                "32.Interest Income on Loan Portfolio",
-                "33.Fees and Commissions on Loan Portfolio",
-                "34.Incomes on Deposits in banks and other Fis",
-                "35.Incomes on Financial Instruments",
-                "36.Other financial Income",
-                "37.Recoveries on Loans (prov. Back)",
-                "38.Recoveries on loans (written offs)",
-                "39.Other operating Incomes",
-                "40.Non Operating Incomes",
-                "41.Total Incomes(31+37+38+39+40)",
-                "42.Financial Expenses (43+44+45)",
-                "43.Interest on cash collateral if any",
-                "44.Interest on borrowings from Fis and Non FIs",
-                "45. Bank Charges,Commissions and other Financial Exp.",
-                "46.Loan losses (provisions)",
-                "47. Loan Losses (written off for the period)",
-                "48.Personnel Expenses (Gross amount)",
-                "49.Administrative Expenses",
-                "50.Non Operating Expenses",
-                "51.Total Expenses  (42+46+47+48+49+50)",
-                "52.Profit/Loss before donations (41-51)",
-                "53. Income Tax ",
-                "54. Profit after tax and before donations(52-53)",
-                "55.Donations (Financing Operating Expenses)",
-                "Profit/loss after tax and  donations (54+55)=23",
-                "Dividends ",
-                "Net profit After Dividends ",
-                "56.Cost to income   52/43",
-                "57.% of Financial Income 34/43",
-                "58.ROA   (AVERAGED 53/13)",
-                "59.ROE  (AVERAGED 53/21)",
-                "C. OFF-BALANCE SHEET (Written-Off Loans)",
-                "D.SUPPLEMENTARY INFORMATION",
-                "61.Men",
-                "62.Women",
-                "63.Group&Entities",
-                "64.Total (61+62+63)",
-                "66.Men",
-                "67.Women",
-                "68.Group&Entities",
-                "69.Total (66+67+68)=5=76=84",
-                "71.Agriculture, Livestock, Fishing ",
-                "72.Public Works (Construction), Buildings, Residences/Homes",
-                "73.Commerce, Restaurants, Hotels",
-                "74.Transport, Warehouses, Communications",
-                "75.Others",
-                "76.Total  (71+72+73+74+75)=5=69=84",
-                "78.Current loans -Normal (0% Prov.)",
-                "79. Watch (1-89 days) 1% Prov.",
-                "80. Substandard (90-179 days)  20% Prov.",
-                "81.Doubtful (180-359 days) 50% Prov.",
-                "82. Loss (360 -719 days ) 100% prov.",
-                "83.(Restructured)",
-                "84.Total (78+79+80+81+82+83)",
-                "86.Men",
-                "87.Women",
-                "88.Group&Entities",
-                "88.Total (86+87+88)",
-                "91.Men",
-                "92.Women",
-                "93.Group&Entities",
-                "94.Total (92+93+94)",
-                "96.Agriculture, Livestock, Fishing ",
-                "97.Public Works (Construction), Buildings, Residences/Homes",
-                "98.Commerce, Restaurants, Hotels",
-                "99.Transport, Warehouses, Communications",
-                "100.Others",
-                "101.Total  (96+97+98+99+100)",
-                "103. Borrowing from Shareholders at …..% P.a",
-                "104.Borrowing from related parties (Parent, Subsidiary, Sister company Etc at …% P.a",
-                "105. Borrowing from Banks or Micro finance at …% P.a",
-                "106. Borrowing from other sources (Specify)  at …..% P.a",
-                "107.Total  (103+104+105+106)",
-                "Number of Disbursed Loans to WE (As Per Quarter )",
-                "Number of Outstanding Loans to WE (Cumulative)",
-                "Value of Disbursed Loans to WE (As Per Quarter )",
-                "Value  of Outstanding Loans to WE (Cumulative)",
-                " Number of Accounts with WE",
-                "Number of Disbursed Loans to SMEs (As Per Quarter )",
-                "Number of Outstanding Loans to SMEs (balance)",
-                "Value of Disbursed Loans to SMEs (As Per Quarter )",
-                "Value  of Outstanding Loans to SMEs (As Per Quarter)",
-                "Number of Disbursed Loans to YE (As Per Quarter )",
-                "Number of Outstanding Loans to YE (As Per Quarter)",
-                "Value of Disbursed Loans to YE (As Per Quarter )",
-                "Value  of Outstanding Loans to YE (As Per Quarter)",
-                "Number of loans applied for (As Per Quarter )",
-                "Number of loans rejected (As Per Quarter )",
-                "Amount of loans applied for (As Per Quarter )",
-                "Amount of loans rejected (As Per Quarter )",
-                "Men",
-                "Women",
-                "Total ",
-                "Men",
-                "Women",
-                "Total ",
-                "Men",
-                "Women",
-                "Legal Entities",
-                "Total ",
-                "Share value", };
+        Row sector = sheet.createRow(1);
+        sector.createCell(0).setCellValue("SECTOR:");
+        sector.getCell(0).setCellStyle(header);
 
-        Row meta1 = sheet.createRow(0);
-        meta1.createCell(0).setCellValue("NAME OF THE NDFSP:");
-        meta1.getCell(0).setCellStyle(header);
+        Row district = sheet.createRow(2);
+        district.createCell(0).setCellValue("DISTRICT:");
+        district.getCell(0).setCellStyle(header);
+        district.createCell(2).setCellValue("DENOMINATION");
+        district.getCell(2).setCellStyle(header);
+        district.createCell(8).setCellValue(LocalDate.now());
+        district.getCell(8).setCellStyle(body);
 
-        Row meta2 = sheet.createRow(1);
-        meta2.createCell(0).setCellValue("SECTOR:");
-        meta2.getCell(0).setCellStyle(header);
+        Row section = sheet.createRow(3);
+        section.createCell(2).setCellValue("A.BALANCE SHEET");
+        section.getCell(2).setCellStyle(title);
 
-        Row meta3 = sheet.createRow(2);
-        meta3.createCell(0).setCellValue("DISTRICT:");
-        meta3.getCell(0).setCellStyle(header);
-        meta3.createCell(2).setCellValue("DENOMINATION");
-        meta3.getCell(2).setCellStyle(header);
-        meta3.createCell(8).setCellValue(LocalDate.now());
-        meta3.getCell(8).setCellStyle(body);
+        String[] periodColumns = { "D", "E", "F", "G", "H", "I" };
 
-        Map<Integer, String> formulaRows = new LinkedHashMap<>();
-        formulaRows.put(5, "=D8+D7+D6");
-        formulaRows.put(9, "=D93");
-        formulaRows.put(11, "=D9-D10");
-        formulaRows.put(12, "=SUM(D89:D92)");
-        formulaRows.put(16, "=D14-D15");
-        formulaRows.put(20, "=D5+D11+D13+D16+D17+D18+D19");
-        formulaRows.put(21, "=D22+D23+D25");
-        formulaRows.put(22, "=D112");
-        formulaRows.put(26, "=SUM(D27:D32)");
-        formulaRows.put(31, "=D66");
-        formulaRows.put(33, "=D26+D21");
-        formulaRows.put(34, "=IF(ISNUMBER(D12),IF(ISNUMBER(D9),D12/D9,\"\"),\"\")");
-        formulaRows.put(35, "=IF(ISNUMBER(D26),IF(ISNUMBER(D20),D26/D20,\"\"),\"\")");
-        formulaRows.put(36, "=IF(ISNUMBER(D9),IF(ISNUMBER(D33),D9/D33,\"\"),\"\")");
-        formulaRows.put(37, "=IF(ISNUMBER(D16),IF(ISNUMBER(D26),D16/D26,\"\"),\"\")");
-        formulaRows.put(39, "=D40+D41+D42+D43+D44");
-        formulaRows.put(49, "=D39+D45+D47+D48+D46");
-        formulaRows.put(50, "=D53+D52+D51");
-        formulaRows.put(54, "=D10");
-        formulaRows.put(59, "=D50+D54+D56+D57+D58+D55");
-        formulaRows.put(60, "=D49-D59");
-        formulaRows.put(62, "=D60-D61");
-        formulaRows.put(64, "=D62+D63");
-        formulaRows.put(66, "=D64-D65");
-        formulaRows.put(67, "=IF(ISNUMBER(D59),IF(ISNUMBER(D49),D59/D49,\"\"),\"\")");
-        formulaRows.put(68, "=IF(ISNUMBER(D39),IF(ISNUMBER(D49),D39/D49,\"\"),\"\")");
-        formulaRows.put(76, "=D73+D74+D75");
-        formulaRows.put(80, "=D77+D78+D79");
-        formulaRows.put(86, "=D81+D82+D83+D84+D85");
-        formulaRows.put(93, "=SUM(D87:D92)");
-        formulaRows.put(97, "=D94+D95+D96");
-        formulaRows.put(101, "=D98+D99+D100");
-        formulaRows.put(107, "=D102+D103+D104+D105+D106");
-        formulaRows.put(112, "=SUM(D108:D111)");
-        formulaRows.put(132, "=D130+D131");
-        formulaRows.put(135, "=D133+D134");
-        formulaRows.put(139, "=D136+D137+D138");
-        for (int excelRow = 5; excelRow <= 140; excelRow++) {
-            Row row = sheet.createRow(excelRow - 1);
-
+        for (int i = 0; i < labels.length; i++) {
+            int rowIndex = 4 + i;
+            Row row = sheet.createRow(rowIndex);
             Cell label = row.createCell(2);
-            label.setCellValue(labels[excelRow - 5]);
-            label.setCellStyle(
-                    excelRow == 5
-                            || excelRow == 21
-                            || excelRow == 38
-                            || excelRow == 71
-                            || excelRow == 72
-                                    ? title
-                                    : body);
+            label.setCellValue(labels[i]);
+            label.setCellStyle(header);
 
             for (int c = 3; c <= 8; c++) {
                 Cell cell = row.createCell(c);
-                cell.setCellStyle(
-                        isFinancialStatementPercentageRow(excelRow)
-                                ? percentage
-                                : currency);
+                cell.setCellStyle(currency);
             }
         }
 
-        // The supplied workbook keeps this source value at zero.
-        sheet.getRow(29).getCell(3).setCellValue(0);
+        for (int c = 3; c <= 8; c++) {
+            String col = org.apache.poi.ss.util.CellReference.convertNumToColString(c);
 
-        // Apply the exact D-column formulas to D:I with Excel-relative
-        // references translated to the destination column.
-        for (Map.Entry<Integer, String> entry : formulaRows.entrySet()) {
-            int excelRow = entry.getKey();
-            String sourceFormula = entry.getValue();
+            sheet.getRow(4).getCell(c)
+                    .setCellFormula(col + "7+" + col + "8+" + col + "9");
 
-            for (int c = 3; c <= 8; c++) {
-                String destinationColumn = org.apache.poi.ss.util.CellReference.convertNumToColString(c);
+            sheet.getRow(10).getCell(c)
+                    .setCellFormula(col + "11+" + col + "12+" + col + "13");
 
-                String translatedFormula = sourceFormula.replaceAll(
-                        "\\bD(?=\\$?\\d+)",
-                        destinationColumn);
+            sheet.getRow(21).getCell(c)
+                    .setCellFormula(col + "22+" + col + "23");
 
-                setFormula(
-                        sheet.getRow(excelRow - 1),
-                        c,
-                        translatedFormula);
-            }
+            sheet.getRow(26).getCell(c)
+                    .setCellFormula(col + "27+" + col + "28+" + col + "29+" + col + "30");
+
+            sheet.getRow(31).getCell(c)
+                    .setCellFormula(col + "26-" + col + "30");
         }
 
-        setFormula(sheet.getRow(29), 4, "=D30+D31");
-        setFormula(sheet.getRow(29), 5, "=E30+E31");
-        setFormula(sheet.getRow(29), 6, "=F30+F31");
-        setFormula(sheet.getRow(29), 7, "=G30+G31");
-        setFormula(sheet.getRow(29), 8, "=H30+H31");
+        sheet.getRow(4).getCell(2).setCellStyle(title);
+        sheet.getRow(21).getCell(2).setCellStyle(title);
+        sheet.getRow(32).getCell(2).setCellStyle(title);
 
-        // ROA and ROE start from the second reporting period in the supplied
-        // workbook because their denominator is a two-period average.
-        setFormula(sheet.getRow(68), 4, "=(E60)/((E20+D20)/2)");
-        setFormula(sheet.getRow(68), 5, "=(F60)/((F20+E20)/2)");
-        setFormula(sheet.getRow(68), 6, "=(G60)/((G20+F20)/2)");
-        setFormula(sheet.getRow(68), 7, "=(H60)/((H20+G20)/2)");
-        setFormula(sheet.getRow(68), 8, "=(I60)/((I20+H20)/2)");
-
-        setFormula(sheet.getRow(69), 4, "=(E60)/((E26+D26)/2)");
-        setFormula(sheet.getRow(69), 5, "=(F60)/((F26+E26)/2)");
-        setFormula(sheet.getRow(69), 6, "=(G60)/((G26+F26)/2)");
-        setFormula(sheet.getRow(69), 7, "=(H60)/((H26+G26)/2)");
-        setFormula(sheet.getRow(69), 8, "=(I60)/((I26+H26)/2)");
-
-        for (int c = 0; c <= 8; c++) {
-            sheet.setColumnWidth(c, c == 2 ? 24000 : 4800);
+        for (int c = 0; c <= 14; c++) {
+            sheet.setColumnWidth(c, c == 2 ? 22000 : 4800);
         }
 
         sheet.createFreezePane(3, 4);
-    }
-
-    private boolean isFinancialStatementPercentageRow(int excelRow) {
-        return excelRow == 34
-                || excelRow == 35
-                || excelRow == 36
-                || excelRow == 37
-                || excelRow == 67
-                || excelRow == 68
-                || excelRow == 69
-                || excelRow == 70;
     }
 
     private void createClassificationSheet(
@@ -889,187 +416,119 @@ public class BnrTemplateExportService {
             int headerRowNumber,
             String[] headers) {
 
-        if (workbook == null) {
-            throw new IllegalArgumentException("Workbook cannot be null");
-        }
-        if (sheetName == null || sheetName.isBlank()) {
-            throw new IllegalArgumentException("Sheet name is required");
-        }
-        if (headers == null || headers.length == 0) {
-            throw new IllegalArgumentException("Classification sheet headers are required");
-        }
-        if (headerRowNumber < 7) {
-            throw new IllegalArgumentException(
-                    "Header row number must be at least 7 for the BNR template structure");
-        }
-
-        /*
-         * The workbook is intentionally constructed in code, but its visible
-         * regulatory layout follows the supplied BNR workbook:
-         *
-         * metadata rows
-         * regulatory classification note
-         * column headers
-         * Column1/Column2/... helper row
-         * data rows
-         */
-        final int headerRowIndex = headerRowNumber - 1;
-        final boolean shiftedMetadata = "A1.3. Normal".equals(sheetName)
-                || "A1.5. Substandard".equals(sheetName)
-                || "A1.6. Doubtful".equals(sheetName)
-                || "A1.7 Loss".equals(sheetName)
-                || "A1.8. Restructured loans".equals(sheetName);
-
-        final int metadataColumn = shiftedMetadata ? 1 : 0;
+        Sheet sheet = workbook.createSheet(sheetName);
 
         CellStyle titleStyle = createTitleStyle(workbook);
-        CellStyle columnHeaderStyle = createHeaderStyle(workbook);
+        CellStyle headerStyle = createHeaderStyle(workbook);
         CellStyle bodyStyle = createBodyStyle(workbook);
 
-        // Row 1 intentionally remains blank to match the regulatory workbook.
-        Row ndfspRow = workbookRow(workbook, sheetName, 1);
-        Cell ndfspLabel = ndfspRow.createCell(metadataColumn);
-        ndfspLabel.setCellValue(
-                shiftedMetadata ? "NDFSP Name:" : "NDFSP Name");
-        ndfspLabel.setCellStyle(columnHeaderStyle);
+        // ---------------------------------------------------------------------
+        // 1. NDFSP Name heading
+        // ---------------------------------------------------------------------
+        Row r1 = sheet.createRow(0);
+        Cell r1Cell = r1.createCell(0);
+        r1Cell.setCellValue("NDFSP Name");
+        r1Cell.setCellStyle(headerStyle);
 
-        Row codeRow = workbookRow(workbook, sheetName, 2);
-        Cell codeLabel = codeRow.createCell(metadataColumn);
-        codeLabel.setCellValue("Code of Institution:");
-        codeLabel.setCellStyle(columnHeaderStyle);
+        // ---------------------------------------------------------------------
+        // 2. NDFSP Name value
+        // ---------------------------------------------------------------------
+        Row r2 = sheet.createRow(1);
+        Cell r2Cell = r2.createCell(0);
+        r2Cell.setCellValue("NDFSP Name");
+        r2Cell.setCellStyle(bodyStyle);
 
-        Row periodRow = workbookRow(workbook, sheetName, 3);
-        Cell periodLabel = periodRow.createCell(metadataColumn);
-        periodLabel.setCellValue("Reporting Period (Cut-off date):");
-        periodLabel.setCellStyle(columnHeaderStyle);
-        Cell periodValue = periodRow.createCell(2);
-        periodValue.setCellValue(LocalDate.now());
-        periodValue.setCellStyle(bodyStyle);
+        // ---------------------------------------------------------------------
+        // 3. Report Date
+        // ---------------------------------------------------------------------
+        Row r3 = sheet.createRow(2);
 
-        Row reportRow = workbookRow(workbook, sheetName, 4);
-        Cell reportLabel = reportRow.createCell(metadataColumn);
-        reportLabel.setCellValue("Report Name" + (shiftedMetadata ? ":" : " "));
-        reportLabel.setCellStyle(columnHeaderStyle);
-        Cell reportValue = reportRow.createCell(2);
-        reportValue.setCellValue(reportName == null ? "" : reportName);
-        reportValue.setCellStyle(titleStyle);
+        Cell reportDateLabel = r3.createCell(0);
+        reportDateLabel.setCellValue("Report Date");
+        reportDateLabel.setCellStyle(bodyStyle);
 
-        // Regulatory classification / portfolio-at-risk note.
-        int classificationRowIndex = headerRowIndex - 1;
-        Row classificationRow = workbookRow(
-                workbook,
-                sheetName,
-                classificationRowIndex);
+        Cell reportDateValue = r3.createCell(2);
+        reportDateValue.setCellValue(LocalDate.now());
+        reportDateValue.setCellStyle(bodyStyle);
 
-        Cell classificationCell = classificationRow.createCell(
-                shiftedMetadata ? 1 : 0);
+        // ---------------------------------------------------------------------
+        // 4. Report Name
+        // ---------------------------------------------------------------------
+        Row r4 = sheet.createRow(3);
+
+        Cell reportNameLabel = r4.createCell(0);
+        reportNameLabel.setCellValue("Report Name");
+        reportNameLabel.setCellStyle(headerStyle);
+
+        Cell reportNameValue = r4.createCell(2);
+        reportNameValue.setCellValue(reportName);
+        reportNameValue.setCellStyle(titleStyle);
+
+        // ---------------------------------------------------------------------
+        // 5. Regulatory classification
+        // ---------------------------------------------------------------------
+        Row classificationRow = sheet.createRow(5);
+
+        Cell classificationCell = classificationRow.createCell(0);
         classificationCell.setCellValue(
-                classificationLabel(classification));
+                "Portfolio at risk / regulatory classification: " + classification);
         classificationCell.setCellStyle(titleStyle);
 
-        Cell provisionCell = classificationRow.createCell(
-                shiftedMetadata ? 2 : 2);
-        provisionCell.setCellValue(
-                "Minimum provisioning rate required: "
-                        + provisioningRate(classification).stripTrailingZeros().toPlainString()
-                        + "%");
-        provisionCell.setCellStyle(bodyStyle);
+        // ---------------------------------------------------------------------
+        // 6. Table header
+        // ---------------------------------------------------------------------
+        int actualHeaderRowIndex = headerRowNumber - 1;
 
-        // Exact regulatory header row.
-        Row columnHeaderRow = workbookRow(
-                workbook,
-                sheetName,
-                headerRowIndex);
+        Row headerRow = sheet.createRow(actualHeaderRowIndex);
 
-        for (int columnIndex = 0; columnIndex < headers.length; columnIndex++) {
-            Cell cell = columnHeaderRow.createCell(columnIndex);
-            cell.setCellValue(headers[columnIndex] == null ? "" : headers[columnIndex]);
-            cell.setCellStyle(columnHeaderStyle);
+        for (int c = 0; c < headers.length; c++) {
+            Cell cell = headerRow.createCell(c);
+            cell.setCellValue(headers[c]);
+            cell.setCellStyle(headerStyle);
         }
 
-        // The supplied workbook contains a non-printable helper row
-        // Column1, Column2, ... immediately below the headers.
-        Row helperRow = workbookRow(
-                workbook,
-                sheetName,
-                headerRowIndex + 1);
+        // ---------------------------------------------------------------------
+        // 7. Placeholder data row
+        // ---------------------------------------------------------------------
+        int placeholderRowIndex = headerRowNumber;
 
-        for (int columnIndex = 0; columnIndex < headers.length; columnIndex++) {
-            Cell cell = helperRow.createCell(columnIndex);
-            cell.setCellValue(
-                    columnIndex == 0
-                            ? "Column1"
-                            : "Column" + (columnIndex + 1));
+        Row placeholderRow = sheet.createRow(placeholderRowIndex);
+
+        for (int c = 0; c < headers.length; c++) {
+            Cell cell = placeholderRow.createCell(c);
+            cell.setCellValue("");
             cell.setCellStyle(bodyStyle);
         }
 
-        for (int columnIndex = 0; columnIndex < headers.length; columnIndex++) {
-            int width = Math.max(
-                    4200,
+        // ---------------------------------------------------------------------
+        // 8. Column widths
+        // ---------------------------------------------------------------------
+        for (int c = 0; c < headers.length; c++) {
+            int calculatedWidth = headers[c].length() * 300;
+
+            sheet.setColumnWidth(
+                    c,
                     Math.min(
                             18000,
-                            (headers[columnIndex] == null ? 10 : headers[columnIndex].length()) * 300));
-            workbookSheet(workbook, sheetName).setColumnWidth(columnIndex, width);
+                            Math.max(
+                                    4200,
+                                    Math.min(14000, calculatedWidth))));
         }
 
-        Sheet sheet = workbookSheet(workbook, sheetName);
-        sheet.createFreezePane(0, headerRowIndex + 2);
+        // ---------------------------------------------------------------------
+        // 9. Freeze panes below the table header
+        // ---------------------------------------------------------------------
+        sheet.createFreezePane(0, headerRowNumber);
+
+        // ---------------------------------------------------------------------
+        // 10. Auto-filter
+        // ---------------------------------------------------------------------
         sheet.setAutoFilter(
                 new org.apache.poi.ss.util.CellRangeAddress(
-                        headerRowIndex,
-                        headerRowIndex + 1,
+                        actualHeaderRowIndex,
+                        placeholderRowIndex,
                         0,
                         headers.length - 1));
-    }
-
-    private Row workbookRow(
-            XSSFWorkbook workbook,
-            String sheetName,
-            int rowIndex) {
-        Sheet sheet = workbookSheet(workbook, sheetName);
-        Row row = sheet.getRow(rowIndex);
-        return row != null ? row : sheet.createRow(rowIndex);
-    }
-
-    private Sheet workbookSheet(
-            XSSFWorkbook workbook,
-            String sheetName) {
-        Sheet sheet = workbook.getSheet(sheetName);
-        if (sheet == null) {
-            sheet = workbook.createSheet(sheetName);
-        }
-        return sheet;
-    }
-
-    private String classificationLabel(String classification) {
-        if (classification == null) {
-            return "";
-        }
-
-        return switch (classification.toUpperCase(Locale.ROOT)) {
-            case "NORMAL" -> "Portfolio At Risk 0 days";
-            case "WATCH" -> "Portfolio At Risk 1 to 89 days";
-            case "SUBSTANDARD" -> "Portfolio At Risk 90 to 179 days in arrears";
-            case "DOUBTFUL" -> "Portfolio At Risk 180 to 359 days in arrears";
-            case "LOSS" -> "Portfolio at risk 360 - 719 days in arrears";
-            case "RESTRUCTURED" -> "Renegotiated Loans";
-            default -> classification;
-        };
-    }
-
-    private BigDecimal provisioningRate(String classification) {
-        if (classification == null) {
-            return BigDecimal.ZERO;
-        }
-
-        return switch (classification.toUpperCase(Locale.ROOT)) {
-            case "NORMAL" -> BigDecimal.ZERO;
-            case "WATCH" -> new BigDecimal("1.00");
-            case "SUBSTANDARD" -> new BigDecimal("20.00");
-            case "DOUBTFUL" -> new BigDecimal("50.00");
-            case "LOSS" -> new BigDecimal("100.00");
-            default -> BigDecimal.ZERO;
-        };
     }
 
     private void createWrittenOffSheet(XSSFWorkbook workbook) {
@@ -1090,8 +549,8 @@ public class BnrTemplateExportService {
                 "Borrower's Village",
                 "Date of loan disbursement",
                 "Amount of loan disbursed",
-                "Maturity Date ",
-                "Amount Repaid ",
+                "Maturity Date",
+                "Amount Repaid",
                 "Loan balance outstanding",
                 "Security Savings",
                 "Amount Written Off",
@@ -1139,9 +598,7 @@ public class BnrTemplateExportService {
 
         Row placeholder = sheet.createRow(7);
         for (int c = 0; c < headers.length; c++) {
-            Cell helper = placeholder.createCell(c);
-            helper.setCellValue(c == 0 ? "Column 1" : "Column " + (c + 1));
-            helper.setCellStyle(body);
+            placeholder.createCell(c).setCellStyle(body);
         }
 
         sheet.createFreezePane(0, 7);
@@ -1171,7 +628,7 @@ public class BnrTemplateExportService {
                 "Annual Interest Rate",
                 "Method of interest rate calculation (Flat/Declining)",
                 "Names of the Loan Officer",
-                "Disbursed amount",
+                "Disbursed Amount",
                 "Date of loan disbursement",
                 "Agreed Maturity Date",
                 "Agreed Frequency of Repayment (Days)",
@@ -1181,16 +638,16 @@ public class BnrTemplateExportService {
                 "Date when Arrears Start",
                 "Cut Off Date (Report Date)",
                 "Total Number of Installments",
-                "Round Number of Installments  paid",
+                "Round Number of Installments paid",
                 "Round Number of Installments outstanding",
                 "Amount Repaid (Principal)",
                 "Balance Outstanding (Principal)",
-                "Eligible Collateral provided ",
+                "Eligible Collateral provided",
                 "Net Amount due (Principal)",
-                "Number of days overdue (Arrears) ",
+                "Number of days overdue (Arrears)",
                 "Class",
                 "Provisioning Rate (Regulation)",
-                "Provision Required ",
+                "Provision Required",
                 "Previous Provisions",
                 "Additional Provisions"
         };
@@ -1313,27 +770,6 @@ public class BnrTemplateExportService {
 
         setCellValue(fs, 2, 2, "DENOMINATION");
         setCellValue(fs, 2, 8, window[1]);
-
-        // Populate the same metadata fields on every regulatory
-        // classification sheet so the generated workbook is self-contained.
-        for (String sheetName : CLASSIFICATION_SHEETS) {
-            Sheet classificationSheet = workbook.getSheet(sheetName);
-            if (classificationSheet == null) {
-                continue;
-            }
-
-            boolean shifted = "A1.3. Normal".equals(sheetName)
-                    || "A1.5. Substandard".equals(sheetName)
-                    || "A1.6. Doubtful".equals(sheetName)
-                    || "A1.7 Loss".equals(sheetName)
-                    || "A1.8. Restructured loans".equals(sheetName);
-
-            int labelColumn = shifted ? 1 : 0;
-
-            setCellValue(classificationSheet, 1, labelColumn + 1, institutionName);
-            setCellValue(classificationSheet, 2, labelColumn + 1, registrationNumber);
-            setCellValue(classificationSheet, 3, 2, window[1]);
-        }
 
         // Add report metadata to the first sheet without changing the
         // regulatory sheets' column structure.
@@ -1683,7 +1119,7 @@ public class BnrTemplateExportService {
         return new BnrLoanFacts(
                 loan.getReferenceNumber(),
                 borrower == null ? null : borrower.getFullName(),
-                borrower == null ? null : borrower.getNationalId(),
+                resolveBorrowerReportingId(borrower),
                 borrower == null ? null : borrower.getPhone(),
                 borrower == null ? null : borrower.getGender(),
                 borrower == null ? null : age(borrower.getDateOfBirth(), reportDate),
@@ -1754,6 +1190,32 @@ public class BnrTemplateExportService {
         return money(amount.multiply(haircut)).min(outstanding);
     }
 
+    /**
+     * BNR "ID of the Borrower" is the borrower's regulatory/national ID.
+     *
+     * Legacy imports store the source ID in Borrower.nationalId. We never
+     * substitute the database primary key into the regulatory ID field because
+     * the database PK is an internal Noble identifier, not the borrower's
+     * regulatory identity document number.
+     *
+     * When the national ID is missing, return null and let the source-data
+     * quality controls identify the missing regulatory identifier rather than
+     * fabricating one.
+     */
+    private String resolveBorrowerReportingId(Borrower borrower) {
+        if (borrower == null) {
+            return null;
+        }
+
+        String nationalId = borrower.getNationalId();
+        if (nationalId == null) {
+            return null;
+        }
+
+        String normalized = nationalId.trim();
+        return normalized.isBlank() ? null : normalized;
+    }
+
     private String previousLoansPaidOnTime(Loan current) {
         if (current.getBorrower() == null
                 || current.getBorrower().getId() == null
@@ -1811,7 +1273,7 @@ public class BnrTemplateExportService {
 
     private String classificationForSheet(String sheetName) {
         return switch (sheetName) {
-            case "A1.3. Normal Loans", "A1.3. Normal" -> "NORMAL";
+            case "A1.3. Normal Loans" -> "NORMAL";
             case "A1.4. Watch" -> "WATCH";
             case "A1.5. Substandard" -> "SUBSTANDARD";
             case "A1.6. Doubtful" -> "DOUBTFUL";
@@ -1842,6 +1304,30 @@ public class BnrTemplateExportService {
         if (dpd >= 1)
             return "WATCH";
         return "NORMAL";
+    }
+
+    private BigDecimal provisioningRate(String classification) {
+        return switch (classification) {
+            case "NORMAL" -> ZERO;
+            case "WATCH" -> new BigDecimal("1.00");
+            case "SUBSTANDARD" -> new BigDecimal("20.00");
+            case "DOUBTFUL" -> new BigDecimal("50.00");
+            case "LOSS" -> new BigDecimal("100.00");
+            case "RESTRUCTURED" -> ZERO;
+            default -> ZERO;
+        };
+    }
+
+    private String classificationLabel(String classification) {
+        return switch (classification) {
+            case "NORMAL" -> "NORMAL";
+            case "WATCH" -> "WATCH";
+            case "SUBSTANDARD" -> "SUBSTANDARD";
+            case "DOUBTFUL" -> "DOUBTFUL";
+            case "LOSS" -> "LOSS";
+            case "RESTRUCTURED" -> "RESTRUCTURED";
+            default -> classification;
+        };
     }
 
     private boolean isRestructured(Loan loan) {
@@ -1883,6 +1369,12 @@ public class BnrTemplateExportService {
         // Gross loans, net loans, NPLs and all regulatory totals remain formulas.
         setCellValue(sheet, 9, currentColumn, summaryRequiredProvision); // Excel row 10: Provisions
         setCellValue(sheet, 30, currentColumn, report.getCurrentPeriodNetIncome()); // Excel row 31
+
+        // The template's NPL formula includes the restructured row, while the
+        // explanatory note defines NPL as Substandard + Doubtful + Loss.
+        // Correct only this formula wiring; the regulatory definition is unchanged.
+        String col = org.apache.poi.ss.util.CellReference.convertNumToColString(currentColumn);
+        setFormula(sheet.getRow(11), currentColumn, "=SUM(" + col + "89:" + col + "91)");
 
         populateAccountingComponents(sheet, currentColumn, report);
 
@@ -2478,27 +1970,8 @@ public class BnrTemplateExportService {
     }
 
     private void setFormula(Row row, int column, String formula) {
-        Cell cell = row.getCell(
-                column,
-                Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
-
-        cell.setCellFormula(normalizeFormula(formula));
-    }
-
-    private String normalizeFormula(String formula) {
-        if (formula == null) {
-            throw new IllegalArgumentException("Formula cannot be null");
-        }
-
-        String normalized = formula.trim();
-
-        if (normalized.isEmpty()) {
-            throw new IllegalArgumentException("Formula cannot be empty");
-        }
-
-        return normalized.startsWith("=")
-                ? normalized.substring(1)
-                : normalized;
+        Cell cell = row.getCell(column, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+        cell.setCellFormula(formula.substring(1));
     }
 
     private void writeNote(Sheet sheet, int rowNumber, String label) {
