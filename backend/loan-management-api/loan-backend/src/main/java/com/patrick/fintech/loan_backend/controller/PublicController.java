@@ -289,6 +289,12 @@ public class PublicController {
                                 loan.getLoanType());
 
                 result.put(
+                                "borrowerName",
+                                loan.getBorrower() != null
+                                                ? loan.getBorrower().getFullName()
+                                                : null);
+
+                result.put(
                                 "amount",
                                 money(
                                                 loan.getAmountDecimal()));

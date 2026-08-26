@@ -157,34 +157,6 @@ export const put = (
 export const del = (url: string, config?: AxiosRequestConfig): Promise<any> =>
   API.delete(url, config).then((response) => unwrap(response.data));
 
-/** Generate a stable key once for a mutation and reuse it if the request
- * must be moved into the durable offline queue. */
-export function createIdempotencyKey(): string {
-  if (
-    typeof crypto !== "undefined" &&
-    typeof crypto.randomUUID === "function"
-  ) {
-    return crypto.randomUUID();
-  }
-
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random()
-    .toString(36)
-    .slice(2)}`;
-}
-
-/** True only for failures where retrying later is safe/appropriate. */
-export function isRetryableRequestError(error: unknown): boolean {
-  if (axios.isAxiosError(error)) {
-    const status = error.response?.status;
-
-    if (status == null) return true;
-    if ([401, 403, 400, 404, 405, 409, 422].includes(status)) return false;
-    return status === 408 || status === 425 || status === 429 || status >= 500;
-  }
-
-  return error instanceof TypeError;
-}
-
 export const authApi = {
   login: (email: string, password: string, mfaCode?: string, otp?: string) =>
     post("/auth/login", {
@@ -217,60 +189,27 @@ export const loanApi = {
 
   create: (data: unknown) => post("/loans", data),
 
-  approve: (
-    id: number,
-    notes = "",
-    interestRate?: number,
-    processingFeeRate?: number,
-    approvedAmount?: number,
-    idempotencyKey?: string,
-  ) =>
-    post(
-      `/loans/${id}/approve`,
-      {
-        notes,
-        interestRate: interestRate != null ? String(interestRate) : undefined,
-        processingFeeRate:
-          processingFeeRate != null ? String(processingFeeRate) : undefined,
-        approvedAmount:
-          approvedAmount != null ? String(approvedAmount) : undefined,
-      },
-      idempotencyKey
-        ? { headers: { "Idempotency-Key": idempotencyKey } }
-        : undefined,
-    ),
+  approve: (id: number, notes = "", interestRate?: number) =>
+    post(`/loans/${id}/approve`, {
+      notes,
+      interestRate: interestRate != null ? String(interestRate) : undefined,
+    }),
 
-  reject: (id: number, reason: string, idempotencyKey?: string) =>
-    post(
-      `/loans/${id}/reject`,
-      { reason },
-      idempotencyKey
-        ? { headers: { "Idempotency-Key": idempotencyKey } }
-        : undefined,
-    ),
+  reject: (id: number, reason: string) =>
+    post(`/loans/${id}/reject`, {
+      reason,
+    }),
 
-  disburse: (id: number, method: string, idempotencyKey?: string) =>
-    post(
-      `/loans/${id}/disburse`,
-      { disbursementMethod: method },
-      idempotencyKey
-        ? { headers: { "Idempotency-Key": idempotencyKey } }
-        : undefined,
-    ),
+  disburse: (id: number, method: string) =>
+    post(`/loans/${id}/disburse`, {
+      disbursementMethod: method,
+    }),
 
-  updateStatus: (
-    id: number,
-    status: string,
-    notes?: string,
-    idempotencyKey?: string,
-  ) =>
-    post(
-      `/loans/${id}/status`,
-      { status, notes },
-      idempotencyKey
-        ? { headers: { "Idempotency-Key": idempotencyKey } }
-        : undefined,
-    ),
+  updateStatus: (id: number, status: string, notes?: string) =>
+    post(`/loans/${id}/status`, {
+      status,
+      notes,
+    }),
 
   dashboard: () => get("/loans/dashboard"),
 
@@ -283,8 +222,6 @@ export const loanApi = {
 
   restructure: (id: number, data: unknown) =>
     post(`/loans/${id}/restructure`, data),
-
-  extend: (id: number, data: unknown) => post(`/loans/${id}/extend`, data),
 
   writeOff: (id: number, reason: string) =>
     post(`/loans/${id}/write-off`, {
@@ -470,17 +407,14 @@ export const expenseApi = {
  */
 
 export const paymentApi = {
-  record: (loanId: number, data: unknown, idempotencyKey?: string) => {
-    const key = idempotencyKey || createIdempotencyKey();
-
-    return API.post(`/loans/${loanId}/payments`, data, {
-      headers: {
-        "Idempotency-Key": key,
-      },
-    }).then((response) => unwrap(response.data));
-  },
-
-  createIdempotencyKey,
+  record: (loanId: number, data: unknown, idempotencyKey?: string) =>
+    API.post(`/loans/${loanId}/payments`, data, {
+      headers: idempotencyKey
+        ? {
+            "Idempotency-Key": idempotencyKey,
+          }
+        : {},
+    }).then((response) => unwrap(response.data)),
 
   schedule: (loanId: number) => get(`/loans/${loanId}/payments`),
 };
@@ -723,13 +657,6 @@ export const accountingApi = {
           : ""
       }`,
     ),
-
-  /**
-   * Reconcile opening accounting journals for historical loans imported
-   * from the legacy portfolio. The backend operation is idempotent, so
-   * running it again does not duplicate an existing opening journal.
-   */
-  reconcileLegacyLoans: () => post("/accounting/legacy-loans/reconcile"),
 };
 
 /**
@@ -831,18 +758,10 @@ export const publicApi = {
 
       email?: string;
     },
-    idempotencyKey?: string,
   ) =>
     post(
       `/public/applications/${encodeURIComponent(reference.trim())}/payments/initiate?phone=${encodeURIComponent(phone.trim())}`,
       data,
-      idempotencyKey
-        ? {
-            headers: {
-              "Idempotency-Key": idempotencyKey,
-            },
-          }
-        : undefined,
     ),
 
   trackComments: (reference: string, phone: string) =>
@@ -1084,6 +1003,11 @@ export const regulatoryApi = {
       }`,
     ),
 };
+/**
+ * ============================================================
+ * EXPORT MIME TYPE
+ * ============================================================
+ */
 
 function getExportAcceptHeader(format: string): string {
   switch (format.toLowerCase()) {
@@ -1101,6 +1025,18 @@ function getExportAcceptHeader(format: string): string {
   }
 }
 
+/**
+ * ============================================================
+ * DEFAULT EXPORT
+ * ============================================================
+ */
+
 export default API;
+
+/**
+ * ============================================================
+ * NAMED API EXPORT
+ * ============================================================
+ */
 
 export { API };
