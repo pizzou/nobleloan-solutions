@@ -44,6 +44,8 @@ public class DataSeeder implements CommandLineRunner {
          * ============================================================
          * CURRENT BUSINESS RULES
          * ============================================================
+         *
+         * These values are intentionally preserved.
          */
 
         private static final BigDecimal INTEREST_RATE = new BigDecimal("5.00");
@@ -59,6 +61,12 @@ public class DataSeeder implements CommandLineRunner {
         private static final int MIN_TERM_MONTHS = 1;
 
         private static final int MAX_TERM_MONTHS = 6;
+
+        /*
+         * ============================================================
+         * BOOTSTRAP
+         * ============================================================
+         */
 
         @Override
         @Transactional
@@ -79,6 +87,12 @@ public class DataSeeder implements CommandLineRunner {
                                 "Branch/portfolio management");
 
                 List<Organization> organizations = orgRepo.findAll();
+
+                /*
+                 * ========================================================
+                 * FIRST-TIME INSTALLATION
+                 * ========================================================
+                 */
 
                 if (organizations.isEmpty()) {
 
@@ -103,12 +117,30 @@ public class DataSeeder implements CommandLineRunner {
                         return;
                 }
 
+                /*
+                 * ========================================================
+                 * EXISTING PRODUCTION DATABASE
+                 * ========================================================
+                 */
+
                 for (Organization organization : organizations) {
 
                         if (organization == null
                                         || organization.getId() == null) {
                                 continue;
                         }
+
+                        /*
+                         * ------------------------------------------------
+                         * Repair legacy/malformed organization records.
+                         * ------------------------------------------------
+                         *
+                         * The database requires slug to be NOT NULL.
+                         * Existing records should therefore never remain
+                         * without a valid tenant slug.
+                         */
+                        ensureOrganizationSlug(
+                                        organization);
 
                         log.info(
                                         "Validating loan-product configuration for organization {} ({})",
@@ -122,11 +154,15 @@ public class DataSeeder implements CommandLineRunner {
                                         organization);
                 }
 
-                // Existing production databases do not enter the
-                // organizations.isEmpty() branch. Keep the configured
-                // bootstrap administrator's login phone synchronized on
-                // every startup so ADMIN email+SMS OTP works after a
-                // deployment without recreating or resetting the account.
+                /*
+                 * Existing production databases do not enter the
+                 * organizations.isEmpty() branch.
+                 *
+                 * Keep the configured bootstrap administrator's login
+                 * phone synchronized on every startup so ADMIN email+SMS
+                 * OTP works after a deployment without recreating or
+                 * resetting the account.
+                 */
                 ensureConfiguredAdminPhone();
 
                 log.info(
@@ -141,25 +177,41 @@ public class DataSeeder implements CommandLineRunner {
 
         private Organization createDefaultOrganization() {
 
+                String organizationName = envOrDefault(
+                                "BOOTSTRAP_ORG_NAME",
+                                "Noble Loan Solutions Ltd");
+
+                String organizationSlug = envOrDefault(
+                                "BOOTSTRAP_ORG_SLUG",
+                                "noble-loan-solutions");
+
                 Organization organization = Organization.builder()
 
                                 .name(
-                                                envOrDefault("BOOTSTRAP_ORG_NAME", "Noble Loan Solutions Ltd"))
+                                                organizationName)
 
                                 .industry(
                                                 "Microfinance")
 
                                 .country(
-                                                envOrDefault("BOOTSTRAP_ORG_COUNTRY", "RW"))
+                                                envOrDefault(
+                                                                "BOOTSTRAP_ORG_COUNTRY",
+                                                                "RW"))
 
                                 .defaultCurrency(
-                                                envOrDefault("BOOTSTRAP_ORG_CURRENCY", "RWF"))
+                                                envOrDefault(
+                                                                "BOOTSTRAP_ORG_CURRENCY",
+                                                                "RWF"))
 
                                 .timezone(
-                                                envOrDefault("BOOTSTRAP_ORG_TIMEZONE", "Africa/Kigali"))
+                                                envOrDefault(
+                                                                "BOOTSTRAP_ORG_TIMEZONE",
+                                                                "Africa/Kigali"))
 
                                 .locale(
-                                                envOrDefault("BOOTSTRAP_ORG_LOCALE", "en-RW"))
+                                                envOrDefault(
+                                                                "BOOTSTRAP_ORG_LOCALE",
+                                                                "en-RW"))
 
                                 .primaryColor(
                                                 "#0F1B3D")
@@ -233,6 +285,9 @@ public class DataSeeder implements CommandLineRunner {
                                 .minLoanAmount(
                                                 MIN_LOAN_AMOUNT)
 
+                                /*
+                                 * NULL means unlimited.
+                                 */
                                 .maxLoanAmount(
                                                 null)
 
@@ -245,8 +300,94 @@ public class DataSeeder implements CommandLineRunner {
 
                                 .build();
 
+                /*
+                 * IMPORTANT:
+                 *
+                 * The organizations.slug column is NOT NULL.
+                 * The previous seeder never populated it.
+                 *
+                 * Set it before calling save().
+                 */
+                organization.setSlug(
+                                organizationSlug);
+
                 return orgRepo.save(
                                 organization);
+        }
+
+        /*
+         * ============================================================
+         * ORGANIZATION SLUG VALIDATION / REPAIR
+         * ============================================================
+         */
+
+        private void ensureOrganizationSlug(
+                        Organization organization) {
+
+                if (organization.getSlug() != null
+                                && !organization.getSlug().isBlank()) {
+                        return;
+                }
+
+                /*
+                 * The default Noble Loan organization has a stable
+                 * tenant slug. For a malformed existing organization,
+                 * derive a safe slug from its name rather than leaving
+                 * the required database column empty.
+                 */
+                String fallbackSlug;
+
+                if (organization.getName() != null
+                                && !organization.getName().isBlank()) {
+
+                        fallbackSlug = toSlug(
+                                        organization.getName());
+
+                } else {
+
+                        fallbackSlug = "organization-"
+                                        + organization.getId();
+                }
+
+                organization.setSlug(
+                                fallbackSlug);
+
+                orgRepo.save(
+                                organization);
+
+                log.warn(
+                                "Organization {} had a missing slug. Assigned '{}'.",
+                                organization.getId(),
+                                fallbackSlug);
+        }
+
+        /*
+         * ============================================================
+         * SLUG GENERATION
+         * ============================================================
+         */
+
+        private String toSlug(
+                        String value) {
+
+                if (value == null
+                                || value.isBlank()) {
+
+                        return "organization";
+                }
+
+                String slug = value
+                                .trim()
+                                .toLowerCase()
+                                .replaceAll("[^a-z0-9]+", "-")
+                                .replaceAll("^-+", "")
+                                .replaceAll("-+$", "");
+
+                if (slug.isBlank()) {
+                        return "organization";
+                }
+
+                return slug;
         }
 
         /*
@@ -286,14 +427,19 @@ public class DataSeeder implements CommandLineRunner {
                                 .toLowerCase();
 
                 if (userRepo.findByEmail(normalizedEmail).isPresent()) {
-                        // Never reset an existing production administrator.
-                        // Phone synchronization is deliberately handled by
-                        // ensureConfiguredAdminPhone(), which also runs when
-                        // organizations already exist.
+
+                        /*
+                         * Never reset an existing production administrator.
+                         *
+                         * Phone synchronization is deliberately handled by
+                         * ensureConfiguredAdminPhone().
+                         */
                         ensureConfiguredAdminPhone();
+
                         log.info(
                                         "Bootstrap admin {} already exists — no account reset performed.",
                                         normalizedEmail);
+
                         return;
                 }
 
@@ -309,11 +455,15 @@ public class DataSeeder implements CommandLineRunner {
                                 adminRole,
                                 organization);
 
-                if (configuredPhone != null && !configuredPhone.isBlank()) {
-                        user.setPhone(configuredPhone.trim());
+                if (configuredPhone != null
+                                && !configuredPhone.isBlank()) {
+
+                        user.setPhone(
+                                        configuredPhone.trim());
                 }
 
-                userRepo.save(user);
+                userRepo.save(
+                                user);
 
                 log.info(
                                 "Bootstrap administrator created: {}",
@@ -322,42 +472,62 @@ public class DataSeeder implements CommandLineRunner {
 
         private void ensureConfiguredAdminPhone() {
 
-                String email = System.getenv("BOOTSTRAP_ADMIN_EMAIL");
-                String phone = System.getenv("BOOTSTRAP_ADMIN_PHONE");
+                String email = System.getenv(
+                                "BOOTSTRAP_ADMIN_EMAIL");
 
-                if (email == null || email.isBlank()) {
+                String phone = System.getenv(
+                                "BOOTSTRAP_ADMIN_PHONE");
+
+                if (email == null
+                                || email.isBlank()) {
+
                         log.warn(
                                         "BOOTSTRAP_ADMIN_EMAIL is not configured; "
                                                         + "cannot identify the bootstrap administrator for login-phone repair.");
+
                         return;
                 }
 
-                if (phone == null || phone.isBlank()) {
+                if (phone == null
+                                || phone.isBlank()) {
+
                         log.warn(
                                         "BOOTSTRAP_ADMIN_PHONE is not configured. "
                                                         + "ADMIN login will continue to require a registered mobile number.");
+
                         return;
                 }
 
-                String normalizedEmail = email.trim().toLowerCase();
+                String normalizedEmail = email.trim()
+                                .toLowerCase();
+
                 String normalizedPhone = phone.trim();
 
-                User user = userRepo.findByEmail(normalizedEmail).orElse(null);
+                User user = userRepo
+                                .findByEmail(normalizedEmail)
+                                .orElse(null);
 
                 if (user == null) {
+
                         log.warn(
                                         "Configured bootstrap administrator {} does not exist yet; "
                                                         + "its phone will be assigned when the account is created.",
                                         normalizedEmail);
+
                         return;
                 }
 
                 if (user.getPhone() == null
                                 || user.getPhone().isBlank()
-                                || !user.getPhone().trim().equals(normalizedPhone)) {
+                                || !user.getPhone()
+                                                .trim()
+                                                .equals(normalizedPhone)) {
 
-                        user.setPhone(normalizedPhone);
-                        userRepo.save(user);
+                        user.setPhone(
+                                        normalizedPhone);
+
+                        userRepo.save(
+                                        user);
 
                         log.info(
                                         "Registered login mobile number for bootstrap administrator {} was updated.",
@@ -568,9 +738,23 @@ public class DataSeeder implements CommandLineRunner {
                                 product);
         }
 
-        private String envOrDefault(String name, String defaultValue) {
-                String value = System.getenv(name);
-                return value == null || value.isBlank() ? defaultValue : value.trim();
+        /*
+         * ============================================================
+         * ENVIRONMENT HELPERS
+         * ============================================================
+         */
+
+        private String envOrDefault(
+                        String name,
+                        String defaultValue) {
+
+                String value = System.getenv(
+                                name);
+
+                return value == null
+                                || value.isBlank()
+                                                ? defaultValue
+                                                : value.trim();
         }
 
         /*
@@ -583,38 +767,55 @@ public class DataSeeder implements CommandLineRunner {
                         Organization organization) {
 
                 log.info("");
+
                 log.info(
                                 "╔══════════════════════════════════════════════════════════════╗");
+
                 log.info(
                                 "║             LOANSAAS PRO — BOOTSTRAP COMPLETE              ║");
+
                 log.info(
                                 "╠══════════════════════════════════════════════════════════════╣");
+
                 log.info(
                                 "║ Organization : {}",
                                 organization.getName());
+
+                log.info(
+                                "║ Slug         : {}",
+                                organization.getSlug());
+
                 log.info(
                                 "║ Currency     : {}",
                                 organization.getDefaultCurrency());
+
                 log.info(
                                 "║ Min Loan     : {}",
                                 MIN_LOAN_AMOUNT);
+
                 log.info(
                                 "║ Max Loan     : UNLIMITED");
+
                 log.info(
                                 "║ Interest     : {}% MONTHLY",
                                 INTEREST_RATE);
+
                 log.info(
-                                "║ Application   : {}%",
+                                "║ Application  : {}%",
                                 APPLICATION_FEE);
+
                 log.info(
                                 "║ Management   : {}%",
                                 MANAGEMENT_FEE);
+
                 log.info(
                                 "║ Term         : {}-{} months",
                                 MIN_TERM_MONTHS,
                                 MAX_TERM_MONTHS);
+
                 log.info(
                                 "╚══════════════════════════════════════════════════════════════╝");
+
                 log.info("");
         }
 }
