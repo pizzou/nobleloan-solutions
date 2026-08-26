@@ -1133,8 +1133,8 @@ export default function ApplyPage() {
                       const managementRate = Number(
                         selectedService?.managementFeeRate ?? 5,
                       );
-                      const processingRate = Number(
-                        selectedService?.processingFeeRate ?? 2,
+                      const applicationRate = Number(
+                        selectedService?.applicationFeeRate ?? 2,
                       );
 
                       let balance = Math.max(0, principal);
@@ -1175,8 +1175,8 @@ export default function ApplyPage() {
                         );
                       }
 
-                      const processing =
-                        Math.round(principal * (processingRate / 100) * 100) /
+                      const application =
+                        Math.round(principal * (applicationRate / 100) * 100) /
                         100;
                       const contractualTotal =
                         Math.round((principal + interest + management) * 100) /
@@ -1203,7 +1203,7 @@ export default function ApplyPage() {
                         ],
                         [
                           "Processing fee",
-                          `${tenant.currency} ${processing.toLocaleString(
+                          `${tenant.currency} ${application.toLocaleString(
                             "en",
                             {
                               maximumFractionDigits: 0,

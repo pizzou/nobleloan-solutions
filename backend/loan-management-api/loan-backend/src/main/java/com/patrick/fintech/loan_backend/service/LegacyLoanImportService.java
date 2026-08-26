@@ -151,7 +151,7 @@ public class LegacyLoanImportService {
                 }
 
                 /*
-                 * Clean Excel / CSV values before validation and processing.
+                 * Clean Excel / CSV values before validation and application.
                  */
                 rows = sanitizeParsedRows(rows);
 
@@ -379,7 +379,7 @@ public class LegacyLoanImportService {
                         } catch (Exception e) {
 
                                 log.error(
-                                                "Unexpected exception while processing legacy loan import row. " +
+                                                "Unexpected exception while application legacy loan import row. " +
                                                                 "organizationId={}, batchId={}, rowNumber={}",
                                                 org.getId(),
                                                 batchId,
@@ -390,7 +390,7 @@ public class LegacyLoanImportService {
                                                 .rowNumber(rowNumber)
                                                 .success(false)
                                                 .error(
-                                                                "Unexpected error while processing this row. " +
+                                                                "Unexpected error while application this row. " +
                                                                                 "The row was not imported.")
                                                 .build();
                         }

@@ -38,7 +38,7 @@ relationship.
    contract looks like once you have their docs.
 3. There's already a graceful-fallback path (`tryLiveProvider` catches failures and falls back
    to the simulation, tagging the result with the failure reason) — keep that behavior so a
-   provider outage degrades to a clearly-marked estimate rather than blocking loan processing
+   provider outage degrades to a clearly-marked estimate rather than blocking loan application
    entirely, which is a reasonable product decision but worth your own sign-off given it means
    a temporary bureau outage could mean loans get decided on an estimate.
 4. Beyond credit scoring specifically: a real KYC/AML **program** (not just an API integration)

@@ -2229,7 +2229,7 @@ public class PublicController {
                                 MONTHLY_MANAGEMENT_FEE_RATE);
 
                 config.put(
-                                "processingFeeRate",
+                                "applicationFeeRate",
                                 PROCESSING_FEE_RATE);
 
                 config.put(
@@ -2881,7 +2881,7 @@ public class PublicController {
                                                 "monthlyManagementFeeRate",
                                                 MONTHLY_MANAGEMENT_FEE_RATE,
 
-                                                "processingFeeRate",
+                                                "applicationFeeRate",
                                                 PROCESSING_FEE_RATE));
 
                 idempotencyService.recordSuccess(

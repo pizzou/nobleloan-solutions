@@ -48,7 +48,7 @@ interface TenantConfig {
     rate: string | number;
     rateType?: string;
     interestRate?: string | number;
-    processingFeeRate?: string | number;
+    applicationFeeRate?: string | number;
     managementFeeRate?: string | number;
     minAmount?: string | number;
     maxAmount?: string | number | null;

@@ -165,7 +165,7 @@ public final class StreamingLedgerFileParser {
                 try {
                     consumer.accept(physicalRow, row);
                 } catch (Exception e) {
-                    throw new IOException("Import row processing failed at row " + physicalRow + ".", e);
+                    throw new IOException("Import row application failed at row " + physicalRow + ".", e);
                 }
             }
         }
@@ -480,8 +480,8 @@ public final class StreamingLedgerFileParser {
             BigDecimal interestPaid = decimal(row.get(25));
             BigDecimal managementPaid = decimal(row.get(23));
             BigDecimal managementOutstanding = decimal(row.get(21));
-            BigDecimal processingOutstanding = decimal(row.get(22));
-            BigDecimal processingPaid = decimal(row.get(24));
+            BigDecimal applicationOutstanding = decimal(row.get(22));
+            BigDecimal applicationPaid = decimal(row.get(24));
             BigDecimal interestOutstanding = decimal(row.get(28));
             BigDecimal principalOutstanding = decimal(row.get(29));
             BigDecimal penalties = decimal(row.get(27));
@@ -517,9 +517,9 @@ public final class StreamingLedgerFileParser {
             out.put("interest_outstanding", interestOutstanding.toPlainString());
             out.put("management_fee_paid", managementPaid.toPlainString());
             out.put("total_management_fee_balance", managementOutstanding.toPlainString());
-            out.put("processing_fee", money(applicationFee).toPlainString());
-            out.put("processing_fee_paid", processingPaid.toPlainString());
-            out.put("processing_fee_outstanding", processingOutstanding.toPlainString());
+            out.put("application_fee", money(applicationFee).toPlainString());
+            out.put("application_fee_paid", applicationPaid.toPlainString());
+            out.put("application_fee_outstanding", applicationOutstanding.toPlainString());
             out.put("penalties_assessed", penalties.toPlainString());
             out.put("penalties_paid", "0.00");
             out.put("notes", "Imported from Noble Loan historical portfolio workbook");
@@ -611,7 +611,7 @@ public final class StreamingLedgerFileParser {
         private final long rowNumber;
 
         private ImportRowRuntimeException(long rowNumber, Exception cause) {
-            super("Import row processing failed at row " + rowNumber + ".", cause);
+            super("Import row application failed at row " + rowNumber + ".", cause);
             this.rowNumber = rowNumber;
         }
     }
@@ -675,9 +675,9 @@ public final class StreamingLedgerFileParser {
             case "period_of_the_loan", "loan_period", "period_months" -> "duration_months";
             case "disbursement_date", "date_disbursed" -> "start_date";
             case "rate", "monthly_interest_rate" -> "interest_rate";
-            case "application_fee", "applicationfee" -> "processing_fee";
-            case "application_fee_paid", "applicationfee_paid" -> "processing_fee_paid";
-            case "application_fee_outstanding", "applicationfee_outstanding" -> "processing_fee_outstanding";
+            case "application_fee", "applicationfee" -> "application_fee";
+            case "application_fee_paid", "applicationfee_paid" -> "application_fee_paid";
+            case "application_fee_outstanding", "applicationfee_outstanding" -> "application_fee_outstanding";
             default -> normalized;
         };
     }

@@ -10,7 +10,7 @@ type Product = {
   loanType?: string;
   interestRate?: number | string;
   managementFeeRate?: number | string;
-  processingFeeRate?: number | string;
+  applicationFeeRate?: number | string;
   rate?: number | string;
   rateType?: string;
   minAmount?: number | string;
@@ -139,7 +139,7 @@ export default function PublicLoanCalculator({
     : null;
   const interestRate = numeric(product?.interestRate ?? product?.rate, 5);
   const managementRate = numeric(product?.managementFeeRate, 5);
-  const processingRate = numeric(product?.processingFeeRate, 2);
+  const applicationRate = numeric(product?.applicationFeeRate, 2);
 
   const [amount, setAmount] = useState(minAmount);
   const [months, setMonths] = useState(terms.min);
@@ -354,7 +354,7 @@ export default function PublicLoanCalculator({
                     Processing
                   </div>
                   <div className="mt-1 text-sm font-black text-slate-900">
-                    {processingRate}% once
+                    {applicationRate}% once
                   </div>
                 </div>
               </div>
@@ -408,7 +408,7 @@ export default function PublicLoanCalculator({
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white/60">Processing fee</span>
                   <strong className="text-white">
-                    {currency} {fmt(amount * (processingRate / 100))}
+                    {currency} {fmt(amount * (applicationRate / 100))}
                   </strong>
                 </div>
                 <div className="flex items-center justify-between text-sm">

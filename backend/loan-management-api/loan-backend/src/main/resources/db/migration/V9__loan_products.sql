@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS loan_products (
     max_amount             DOUBLE PRECISION NOT NULL,
     min_term_months        INT NOT NULL,
     max_term_months        INT NOT NULL,
-    processing_fee_percent DOUBLE PRECISION DEFAULT 2.0,
+    application_fee_percent DOUBLE PRECISION DEFAULT 2.0,
     active                 BOOLEAN DEFAULT TRUE,
     display_order          INT DEFAULT 0,
     created_at             TIMESTAMP NOT NULL DEFAULT NOW(),

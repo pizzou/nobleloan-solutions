@@ -367,7 +367,7 @@ public class PaymentWebhookController {
                 } catch (Exception e) {
 
                         log.error(
-                                        "[FLUTTERWAVE WEBHOOK] Payment processing failed.",
+                                        "[FLUTTERWAVE WEBHOOK] Payment application failed.",
                                         e);
 
                         /*
@@ -376,7 +376,7 @@ public class PaymentWebhookController {
                         return ResponseEntity
                                         .internalServerError()
                                         .body(
-                                                        "Webhook processing failed");
+                                                        "Webhook application failed");
                 }
         }
 
@@ -540,7 +540,7 @@ public class PaymentWebhookController {
                         return ResponseEntity
                                         .internalServerError()
                                         .body(
-                                                        "Webhook processing failed");
+                                                        "Webhook application failed");
                 }
         }
 
@@ -702,7 +702,7 @@ public class PaymentWebhookController {
                         return ResponseEntity
                                         .internalServerError()
                                         .body(
-                                                        "Webhook processing failed");
+                                                        "Webhook application failed");
                 }
         }
 

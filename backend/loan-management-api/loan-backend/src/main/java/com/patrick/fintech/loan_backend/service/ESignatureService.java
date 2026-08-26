@@ -728,10 +728,10 @@ public class ESignatureService {
                 BigDecimal managementFeeRate = money(
                                 loan.getManagementFeeRateDecimal());
 
-                BigDecimal processingFeeRate = money(
+                BigDecimal applicationFeeRate = money(
                                 loan.getProcessingFeeRateDecimal());
 
-                BigDecimal processingFee = money(
+                BigDecimal applicationFee = money(
                                 loan.getProcessingFeeDecimal());
 
                 BigDecimal totalRepayable = money(
@@ -781,7 +781,7 @@ public class ESignatureService {
                                                 + "borrower receives the gross principal less the "
                                                 + "2% application fee. Interest and management fee "
                                                 + "are calculated according to the contractual "
-                                                + "loan terms and are not reduced by the processing "
+                                                + "loan terms and are not reduced by the application "
                                                 + "fee deduction.%n%n"
                                                 + "By signing below, the Borrower acknowledges "
                                                 + "receipt of the loan terms above, agrees to "
@@ -799,9 +799,9 @@ public class ESignatureService {
                                 formatRate(interestRate),
                                 formatRate(managementFeeRate),
                                 formatRate(totalMonthlyChargeRate),
-                                formatRate(processingFeeRate),
+                                formatRate(applicationFeeRate),
                                 currency,
-                                formatMoney(processingFee),
+                                formatMoney(applicationFee),
                                 durationMonths,
                                 frequency,
                                 currency,

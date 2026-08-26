@@ -210,7 +210,7 @@ public class LoanApprovalController {
                         return null;
                 }
 
-                String raw = body.get("processingFeeRate");
+                String raw = body.get("applicationFeeRate");
 
                 if (raw == null || raw.isBlank()) {
                         return null;
@@ -220,7 +220,7 @@ public class LoanApprovalController {
                         return Double.valueOf(raw.trim());
                 } catch (NumberFormatException e) {
                         throw new IllegalArgumentException(
-                                        "processingFeeRate must be a valid number.");
+                                        "applicationFeeRate must be a valid number.");
                 }
         }
 

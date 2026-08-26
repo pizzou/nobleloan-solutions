@@ -197,13 +197,13 @@ public class PaymentScheduleService {
 
                 BigDecimal managementFeeRate = MONTHLY_MANAGEMENT_FEE_RATE;
 
-                BigDecimal processingFeeRate = loan.getProcessingFeeRateDecimal();
-                if (processingFeeRate == null || processingFeeRate.compareTo(ZERO) < 0) {
-                        processingFeeRate = PROCESSING_FEE_RATE;
+                BigDecimal applicationFeeRate = loan.getProcessingFeeRateDecimal();
+                if (applicationFeeRate == null || applicationFeeRate.compareTo(ZERO) < 0) {
+                        applicationFeeRate = PROCESSING_FEE_RATE;
                 }
 
-                BigDecimal processingFee = principal
-                                .multiply(processingFeeRate)
+                BigDecimal applicationFee = principal
+                                .multiply(applicationFeeRate)
                                 .divide(ONE_HUNDRED, 16, RoundingMode.HALF_UP)
                                 .setScale(2, RoundingMode.HALF_UP);
 
@@ -211,9 +211,9 @@ public class PaymentScheduleService {
                 loan.setOutstandingBalance(principal);
                 loan.setInterestRate(interestRate);
                 loan.setManagementFeeRate(managementFeeRate);
-                loan.setProcessingFeeRate(processingFeeRate);
+                loan.setProcessingFeeRate(applicationFeeRate);
                 loan.setInterestRateType("MONTHLY");
-                loan.setProcessingFee(processingFee);
+                loan.setProcessingFee(applicationFee);
 
                 LocalDate baseDate = resolveScheduleStartDate(loan);
                 Long organizationId = loan.getOrganization().getId();

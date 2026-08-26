@@ -126,7 +126,7 @@ export default function ServicesPage() {
                 <div>
                   Processing fee{" "}
                   <strong className="text-slate-800">
-                    {service.processingFeeRate ?? 2}%
+                    {service.applicationFeeRate ?? 2}%
                   </strong>
                 </div>
                 <div>

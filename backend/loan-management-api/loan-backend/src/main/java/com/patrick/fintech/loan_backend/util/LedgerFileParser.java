@@ -356,8 +356,8 @@ public final class LedgerFileParser {
         BigDecimal interestPaid = decimalOrZero(cellValue(row.getCell(25), formatter, evaluator));
         BigDecimal managementPaid = decimalOrZero(cellValue(row.getCell(23), formatter, evaluator));
         BigDecimal managementOutstanding = decimalOrZero(cellValue(row.getCell(21), formatter, evaluator));
-        BigDecimal processingOutstanding = decimalOrZero(cellValue(row.getCell(22), formatter, evaluator));
-        BigDecimal processingPaid = decimalOrZero(cellValue(row.getCell(24), formatter, evaluator));
+        BigDecimal applicationOutstanding = decimalOrZero(cellValue(row.getCell(22), formatter, evaluator));
+        BigDecimal applicationPaid = decimalOrZero(cellValue(row.getCell(24), formatter, evaluator));
         BigDecimal interestOutstanding = decimalOrZero(cellValue(row.getCell(28), formatter, evaluator));
         BigDecimal principalOutstanding = decimalOrZero(cellValue(row.getCell(29), formatter, evaluator));
         BigDecimal penalties = decimalOrZero(cellValue(row.getCell(27), formatter, evaluator));
@@ -408,9 +408,9 @@ public final class LedgerFileParser {
         out.put("interest_outstanding", interestOutstanding.toPlainString());
         out.put("management_fee_paid", managementPaid.toPlainString());
         out.put("total_management_fee_balance", managementOutstanding.toPlainString());
-        out.put("processing_fee", money(decimalOrZero(applicationFee)).toPlainString());
-        out.put("processing_fee_paid", processingPaid.toPlainString());
-        out.put("processing_fee_outstanding", processingOutstanding.toPlainString());
+        out.put("application_fee", money(decimalOrZero(applicationFee)).toPlainString());
+        out.put("application_fee_paid", applicationPaid.toPlainString());
+        out.put("application_fee_outstanding", applicationOutstanding.toPlainString());
         out.put("penalties_assessed", penalties.toPlainString());
         out.put("penalties_paid", "0.00");
         out.put("notes", "Imported from Noble Loan historical portfolio workbook");
@@ -619,9 +619,9 @@ public final class LedgerFileParser {
             case "period_of_the_loan", "loan_period", "period_months" -> "duration_months";
             case "disbursement_date", "date_disbursed" -> "start_date";
             case "rate", "monthly_interest_rate" -> "interest_rate";
-            case "application_fee", "applicationfee" -> "processing_fee";
-            case "application_fee_paid", "applicationfee_paid" -> "processing_fee_paid";
-            case "application_fee_outstanding", "applicationfee_outstanding" -> "processing_fee_outstanding";
+            case "application_fee", "applicationfee" -> "application_fee";
+            case "application_fee_paid", "applicationfee_paid" -> "application_fee_paid";
+            case "application_fee_outstanding", "applicationfee_outstanding" -> "application_fee_outstanding";
             default -> normalizeHeader(header);
         };
     }

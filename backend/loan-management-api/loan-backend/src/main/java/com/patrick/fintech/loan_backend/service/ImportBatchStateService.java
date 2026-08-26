@@ -13,7 +13,7 @@ public class ImportBatchStateService {
     private final ImportBatchRepository repo;
 
     /**
-     * Atomically claims a QUEUED batch for processing.
+     * Atomically claims a QUEUED batch for application.
      * Returns false when another worker has already claimed or completed it.
      */
     @Transactional

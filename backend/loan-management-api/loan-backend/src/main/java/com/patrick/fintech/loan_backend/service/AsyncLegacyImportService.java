@@ -255,7 +255,7 @@ public class AsyncLegacyImportService {
                                                                 result = ImportRowResult.builder()
                                                                                 .rowNumber(Math.toIntExact(rowNumber))
                                                                                 .success(false)
-                                                                                .error("Unexpected error while processing this row. The row was not imported.")
+                                                                                .error("Unexpected error while application this row. The row was not imported.")
                                                                                 .build();
                                                         }
 

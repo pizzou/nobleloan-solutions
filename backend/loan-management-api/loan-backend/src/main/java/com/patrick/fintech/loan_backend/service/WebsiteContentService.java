@@ -17,375 +17,375 @@ import java.util.Map;
 @Slf4j
 public class WebsiteContentService {
 
-    private final OrganizationRepository organizationRepository;
+        private final OrganizationRepository organizationRepository;
 
-    @Transactional(readOnly = true)
-    public Map<String, Object> getWebsiteContent(String slug) {
+        @Transactional(readOnly = true)
+        public Map<String, Object> getWebsiteContent(String slug) {
 
-        if (slug == null || slug.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Tenant slug is required");
+                if (slug == null || slug.isBlank()) {
+                        throw new IllegalArgumentException(
+                                        "Tenant slug is required");
+                }
+
+                Organization organization = organizationRepository
+                                .findBySlugIgnoreCase(slug.trim())
+                                .orElseThrow(
+                                                () -> new IllegalArgumentException(
+                                                                "Tenant not found"));
+
+                return buildWebsiteContent(organization);
         }
 
-        Organization organization = organizationRepository
-                .findBySlugIgnoreCase(slug.trim())
-                .orElseThrow(
-                        () -> new IllegalArgumentException(
-                                "Tenant not found"));
+        private Map<String, Object> buildWebsiteContent(
+                        Organization organization) {
 
-        return buildWebsiteContent(organization);
-    }
+                String country = blankTo(
+                                organization.getCountry(),
+                                "—");
 
-    private Map<String, Object> buildWebsiteContent(
-            Organization organization) {
+                String organizationName = blankTo(
+                                organization.getName(),
+                                "Financial Services");
 
-        String country = blankTo(
-                organization.getCountry(),
-                "—");
+                Map<String, Object> content = new LinkedHashMap<>();
 
-        String organizationName = blankTo(
-                organization.getName(),
-                "Financial Services");
+                /*
+                 * ============================================================
+                 * HERO
+                 * ============================================================
+                 */
 
-        Map<String, Object> content = new LinkedHashMap<>();
+                content.put(
+                                "heroBadge",
+                                "Licensed & regulated financial institution");
 
-        /*
-         * ============================================================
-         * HERO
-         * ============================================================
-         */
+                content.put(
+                                "heroTitle",
+                                blankTo(
+                                                organization.getHeroHeadline(),
+                                                "Need Financial Support?"));
 
-        content.put(
-                "heroBadge",
-                "Licensed & regulated financial institution");
+                content.put(
+                                "heroText",
+                                blankTo(
+                                                organization.getHeroSubtext(),
+                                                "Transparent lending solutions designed around your financial needs."));
 
-        content.put(
-                "heroTitle",
-                blankTo(
-                        organization.getHeroHeadline(),
-                        "Need Financial Support?"));
+                /*
+                 * ============================================================
+                 * TRUST ITEMS
+                 * ============================================================
+                 */
 
-        content.put(
-                "heroText",
-                blankTo(
-                        organization.getHeroSubtext(),
-                        "Transparent lending solutions designed around your financial needs."));
+                content.put(
+                                "trustItems",
+                                List.of(
+                                                "Clear lending terms",
+                                                "Secure customer information",
+                                                "Online application",
+                                                "Dedicated customer support"));
 
-        /*
-         * ============================================================
-         * TRUST ITEMS
-         * ============================================================
-         */
+                /*
+                 * ============================================================
+                 * WHY CHOOSE US
+                 * ============================================================
+                 */
 
-        content.put(
-                "trustItems",
-                List.of(
-                        "Clear lending terms",
-                        "Secure customer information",
-                        "Online application",
-                        "Dedicated customer support"));
+                List<Map<String, Object>> pillars = new ArrayList<>();
 
-        /*
-         * ============================================================
-         * WHY CHOOSE US
-         * ============================================================
-         */
+                pillars.add(
+                                Map.of(
+                                                "icon",
+                                                "⚡",
+                                                "title",
+                                                "Fast Decisions",
+                                                "description",
+                                                "Applications are reviewed through a structured credit process with clear next steps."));
 
-        List<Map<String, Object>> pillars = new ArrayList<>();
+                pillars.add(
+                                Map.of(
+                                                "icon",
+                                                "🛡️",
+                                                "title",
+                                                "Secure & Compliant",
+                                                "description",
+                                                "Customer information is handled through controlled access and secure platform processes."));
 
-        pillars.add(
-                Map.of(
-                        "icon",
-                        "⚡",
-                        "title",
-                        "Fast Decisions",
-                        "description",
-                        "Applications are reviewed through a structured credit process with clear next steps."));
+                pillars.add(
+                                Map.of(
+                                                "icon",
+                                                "🤝",
+                                                "title",
+                                                "Transparent Terms",
+                                                "description",
+                                                "Applicable rates, fees, repayment obligations and loan conditions are communicated clearly."));
 
-        pillars.add(
-                Map.of(
-                        "icon",
-                        "🛡️",
-                        "title",
-                        "Secure & Compliant",
-                        "description",
-                        "Customer information is handled through controlled access and secure platform processes."));
+                pillars.add(
+                                Map.of(
+                                                "icon",
+                                                "🎧",
+                                                "title",
+                                                "Dedicated Support",
+                                                "description",
+                                                organizationName
+                                                                + " supports customers throughout application, approval, disbursement and repayment."));
 
-        pillars.add(
-                Map.of(
-                        "icon",
-                        "🤝",
-                        "title",
-                        "Transparent Terms",
-                        "description",
-                        "Applicable rates, fees, repayment obligations and loan conditions are communicated clearly."));
+                content.put(
+                                "pillars",
+                                pillars);
 
-        pillars.add(
-                Map.of(
-                        "icon",
-                        "🎧",
-                        "title",
-                        "Dedicated Support",
-                        "description",
-                        organizationName
-                                + " supports customers throughout application, approval, disbursement and repayment."));
+                /*
+                 * ============================================================
+                 * PROCESS
+                 * ============================================================
+                 */
 
-        content.put(
-                "pillars",
-                pillars);
+                List<Map<String, Object>> process = new ArrayList<>();
 
-        /*
-         * ============================================================
-         * PROCESS
-         * ============================================================
-         */
+                process.add(
+                                Map.of(
+                                                "step",
+                                                "1",
+                                                "title",
+                                                "Apply Online",
+                                                "description",
+                                                "Complete your application using the online application process."));
 
-        List<Map<String, Object>> process = new ArrayList<>();
+                process.add(
+                                Map.of(
+                                                "step",
+                                                "2",
+                                                "title",
+                                                "Submit Documents",
+                                                "description",
+                                                "Provide the documents required for identity, income and credit verification."));
 
-        process.add(
-                Map.of(
-                        "step",
-                        "1",
-                        "title",
-                        "Apply Online",
-                        "description",
-                        "Complete your application using the online application process."));
+                process.add(
+                                Map.of(
+                                                "step",
+                                                "3",
+                                                "title",
+                                                "Credit Assessment",
+                                                "description",
+                                                "The application is assessed against the organization's lending and risk requirements."));
 
-        process.add(
-                Map.of(
-                        "step",
-                        "2",
-                        "title",
-                        "Submit Documents",
-                        "description",
-                        "Provide the documents required for identity, income and credit verification."));
+                process.add(
+                                Map.of(
+                                                "step",
+                                                "4",
+                                                "title",
+                                                "Receive Funds",
+                                                "description",
+                                                "Approved financing is disbursed through the available approved payment channel."));
 
-        process.add(
-                Map.of(
-                        "step",
-                        "3",
-                        "title",
-                        "Credit Assessment",
-                        "description",
-                        "The application is assessed against the organization's lending and risk requirements."));
+                content.put(
+                                "processSteps",
+                                process);
 
-        process.add(
-                Map.of(
-                        "step",
-                        "4",
-                        "title",
-                        "Receive Funds",
-                        "description",
-                        "Approved financing is disbursed through the available approved payment channel."));
+                /*
+                 * ============================================================
+                 * ABOUT
+                 * ============================================================
+                 */
 
-        content.put(
-                "processSteps",
-                process);
+                content.put(
+                                "aboutTitle",
+                                "About " + organizationName);
 
-        /*
-         * ============================================================
-         * ABOUT
-         * ============================================================
-         */
+                content.put(
+                                "aboutIntro",
+                                blankTo(
+                                                organization.getMission(),
+                                                "We provide transparent financial services designed to help customers achieve their financial goals."));
 
-        content.put(
-                "aboutTitle",
-                "About " + organizationName);
+                content.put(
+                                "aboutMission",
+                                blankTo(
+                                                organization.getMission(),
+                                                "To provide accessible, responsible and transparent financial services."));
 
-        content.put(
-                "aboutIntro",
-                blankTo(
-                        organization.getMission(),
-                        "We provide transparent financial services designed to help customers achieve their financial goals."));
+                content.put(
+                                "aboutVision",
+                                blankTo(
+                                                organization.getVision(),
+                                                "To become a trusted financial partner for the communities we serve."));
 
-        content.put(
-                "aboutMission",
-                blankTo(
-                        organization.getMission(),
-                        "To provide accessible, responsible and transparent financial services."));
+                content.put(
+                                "aboutValues",
+                                "Integrity · Transparency · Responsibility · Inclusion · Excellence");
 
-        content.put(
-                "aboutVision",
-                blankTo(
-                        organization.getVision(),
-                        "To become a trusted financial partner for the communities we serve."));
+                List<Map<String, Object>> aboutReasons = new ArrayList<>();
 
-        content.put(
-                "aboutValues",
-                "Integrity · Transparency · Responsibility · Inclusion · Excellence");
+                aboutReasons.add(
+                                Map.of(
+                                                "icon",
+                                                "⚡",
+                                                "title",
+                                                "Structured Credit Decisions",
+                                                "description",
+                                                "Applications are reviewed through defined lending and risk processes."));
 
-        List<Map<String, Object>> aboutReasons = new ArrayList<>();
+                aboutReasons.add(
+                                Map.of(
+                                                "icon",
+                                                "📱",
+                                                "title",
+                                                "Apply from Anywhere",
+                                                "description",
+                                                "The online platform allows customers to begin their application remotely."));
 
-        aboutReasons.add(
-                Map.of(
-                        "icon",
-                        "⚡",
-                        "title",
-                        "Structured Credit Decisions",
-                        "description",
-                        "Applications are reviewed through defined lending and risk processes."));
+                aboutReasons.add(
+                                Map.of(
+                                                "icon",
+                                                "🔒",
+                                                "title",
+                                                "Secure Information",
+                                                "description",
+                                                "Customer information is handled through controlled systems and access policies."));
 
-        aboutReasons.add(
-                Map.of(
-                        "icon",
-                        "📱",
-                        "title",
-                        "Apply from Anywhere",
-                        "description",
-                        "The online platform allows customers to begin their application remotely."));
+                aboutReasons.add(
+                                Map.of(
+                                                "icon",
+                                                "💬",
+                                                "title",
+                                                "Customer Support",
+                                                "description",
+                                                "Customers can communicate with the organization throughout their loan journey."));
 
-        aboutReasons.add(
-                Map.of(
-                        "icon",
-                        "🔒",
-                        "title",
-                        "Secure Information",
-                        "description",
-                        "Customer information is handled through controlled systems and access policies."));
+                aboutReasons.add(
+                                Map.of(
+                                                "icon",
+                                                "🤝",
+                                                "title",
+                                                "Transparent Terms",
+                                                "description",
+                                                "Applicable financial obligations are disclosed as part of the lending process."));
 
-        aboutReasons.add(
-                Map.of(
-                        "icon",
-                        "💬",
-                        "title",
-                        "Customer Support",
-                        "description",
-                        "Customers can communicate with the organization throughout their loan journey."));
+                aboutReasons.add(
+                                Map.of(
+                                                "icon",
+                                                "🌍",
+                                                "title",
+                                                "Local Understanding",
+                                                "description",
+                                                "Products and processes are designed around the needs of the markets served by the organization."));
 
-        aboutReasons.add(
-                Map.of(
-                        "icon",
-                        "🤝",
-                        "title",
-                        "Transparent Terms",
-                        "description",
-                        "Applicable financial obligations are disclosed as part of the lending process."));
+                content.put(
+                                "aboutReasons",
+                                aboutReasons);
 
-        aboutReasons.add(
-                Map.of(
-                        "icon",
-                        "🌍",
-                        "title",
-                        "Local Understanding",
-                        "description",
-                        "Products and processes are designed around the needs of the markets served by the organization."));
+                content.put(
+                                "aboutCtaTitle",
+                                "Ready to Take the Next Step?");
 
-        content.put(
-                "aboutReasons",
-                aboutReasons);
+                content.put(
+                                "aboutCtaText",
+                                "Review the available financial products and start your application when you are ready.");
 
-        content.put(
-                "aboutCtaTitle",
-                "Ready to Take the Next Step?");
+                /*
+                 * ============================================================
+                 * SERVICES
+                 * ============================================================
+                 */
 
-        content.put(
-                "aboutCtaText",
-                "Review the available financial products and start your application when you are ready.");
+                content.put(
+                                "servicesTitle",
+                                "Our Financial Services");
 
-        /*
-         * ============================================================
-         * SERVICES
-         * ============================================================
-         */
+                content.put(
+                                "servicesText",
+                                "Explore the financial products currently offered by "
+                                                + organizationName
+                                                + ".");
 
-        content.put(
-                "servicesTitle",
-                "Our Financial Services");
+                content.put(
+                                "requirementsTitle",
+                                "Typical Requirements");
 
-        content.put(
-                "servicesText",
-                "Explore the financial products currently offered by "
-                        + organizationName
-                        + ".");
+                content.put(
+                                "requirements",
+                                List.of(
+                                                "Valid identification document",
+                                                "Proof of income or business activity",
+                                                "Recent financial statement where applicable",
+                                                "Additional supporting documentation where required",
+                                                "Completed loan application"));
 
-        content.put(
-                "requirementsTitle",
-                "Typical Requirements");
+                content.put(
+                                "applicationLabel",
+                                "Processing");
 
-        content.put(
-                "requirements",
-                List.of(
-                        "Valid identification document",
-                        "Proof of income or business activity",
-                        "Recent financial statement where applicable",
-                        "Additional supporting documentation where required",
-                        "Completed loan application"));
+                content.put(
+                                "applicationText",
+                                "Processing time depends on document completeness, verification and credit assessment.");
 
-        content.put(
-                "processingLabel",
-                "Processing");
+                content.put(
+                                "servicesCtaTitle",
+                                "Need Help Choosing a Product?");
 
-        content.put(
-                "processingText",
-                "Processing time depends on document completeness, verification and credit assessment.");
+                content.put(
+                                "servicesCtaText",
+                                "Contact our team to discuss the financial product that best matches your needs.");
 
-        content.put(
-                "servicesCtaTitle",
-                "Need Help Choosing a Product?");
+                /*
+                 * ============================================================
+                 * CONTACT
+                 * ============================================================
+                 */
 
-        content.put(
-                "servicesCtaText",
-                "Contact our team to discuss the financial product that best matches your needs.");
+                content.put(
+                                "contactTitle",
+                                "Get in Touch");
 
-        /*
-         * ============================================================
-         * CONTACT
-         * ============================================================
-         */
+                content.put(
+                                "contactText",
+                                "Contact "
+                                                + organizationName
+                                                + " through the available communication channels.");
 
-        content.put(
-                "contactTitle",
-                "Get in Touch");
+                content.put(
+                                "contactInformationTitle",
+                                "Contact Information");
 
-        content.put(
-                "contactText",
-                "Contact "
-                        + organizationName
-                        + " through the available communication channels.");
+                content.put(
+                                "messageTitle",
+                                "Send Us a Message");
 
-        content.put(
-                "contactInformationTitle",
-                "Contact Information");
+                content.put(
+                                "messageSuccessTitle",
+                                "Message Received!");
 
-        content.put(
-                "messageTitle",
-                "Send Us a Message");
+                content.put(
+                                "messageSuccessText",
+                                "Thank you for contacting "
+                                                + organizationName
+                                                + ". We have received your message.");
 
-        content.put(
-                "messageSuccessTitle",
-                "Message Received!");
+                /*
+                 * ============================================================
+                 * FOOTER
+                 * ============================================================
+                 */
 
-        content.put(
-                "messageSuccessText",
-                "Thank you for contacting "
-                        + organizationName
-                        + ". We have received your message.");
+                content.put(
+                                "footerSecurityText",
+                                "Customer information is handled through controlled systems and applicable security procedures.");
 
-        /*
-         * ============================================================
-         * FOOTER
-         * ============================================================
-         */
+                content.put(
+                                "footerCountry",
+                                country);
 
-        content.put(
-                "footerSecurityText",
-                "Customer information is handled through controlled systems and applicable security procedures.");
-
-        content.put(
-                "footerCountry",
-                country);
-
-        return content;
-    }
-
-    private String blankTo(
-            String value,
-            String fallback) {
-
-        if (value == null || value.isBlank()) {
-            return fallback;
+                return content;
         }
 
-        return value.trim();
-    }
+        private String blankTo(
+                        String value,
+                        String fallback) {
+
+                if (value == null || value.isBlank()) {
+                        return fallback;
+                }
+
+                return value.trim();
+        }
 }

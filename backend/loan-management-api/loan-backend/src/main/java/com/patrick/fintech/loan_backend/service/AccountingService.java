@@ -1421,17 +1421,17 @@ public class AccountingService {
                 // PROCESSING FEE
                 // --------------------------------------------------------
 
-                BigDecimal processingFee = money(
+                BigDecimal applicationFee = money(
                                 loan.getProcessingFeeDecimal());
 
-                if (processingFee.compareTo(
+                if (applicationFee.compareTo(
                                 ZERO) < 0) {
 
                         throw new IllegalStateException(
                                         "Processing fee cannot be negative");
                 }
 
-                if (processingFee.compareTo(
+                if (applicationFee.compareTo(
                                 grossPrincipal) > 0) {
 
                         throw new IllegalStateException(
@@ -1444,14 +1444,14 @@ public class AccountingService {
 
                 BigDecimal netCashDisbursed = money(
                                 grossPrincipal.subtract(
-                                                processingFee));
+                                                applicationFee));
 
                 // The application fee is collected exactly once at disbursement.
                 // Keep the operational loan state synchronized with the journal:
                 // gross principal remains the receivable, while the borrower
                 // receives principal minus the one-time application fee.
-                loan.setProcessingFee(processingFee);
-                loan.setProcessingFeePaid(processingFee);
+                loan.setProcessingFee(applicationFee);
+                loan.setProcessingFeePaid(applicationFee);
                 loan.setNetDisbursedAmount(netCashDisbursed);
 
                 if (netCashDisbursed.compareTo(
@@ -1562,7 +1562,7 @@ public class AccountingService {
                 // CR PROCESSING FEE INCOME
                 // --------------------------------------------------------
 
-                if (processingFee.compareTo(
+                if (applicationFee.compareTo(
                                 ZERO) > 0) {
 
                         lines.add(
@@ -1574,7 +1574,7 @@ public class AccountingService {
                                                         .debit(
                                                                         ZERO)
                                                         .credit(
-                                                                        processingFee)
+                                                                        applicationFee)
                                                         .description(
                                                                         "One-time 2% application fee income — "
                                                                                         + reference)
@@ -1592,18 +1592,18 @@ public class AccountingService {
                                                 + " — gross "
                                                 + grossPrincipal.toPlainString()
                                                 + ", application fee "
-                                                + processingFee.toPlainString()
+                                                + applicationFee.toPlainString()
                                                 + ", net cash "
                                                 + netCashDisbursed.toPlainString(),
                                 lines);
 
                 log.info(
                                 "Loan disbursement accounted. " +
-                                                "loanId={}, grossPrincipal={}, processingFee={}, " +
+                                                "loanId={}, grossPrincipal={}, applicationFee={}, " +
                                                 "netCashDisbursed={}",
                                 loan.getId(),
                                 grossPrincipal,
-                                processingFee,
+                                applicationFee,
                                 netCashDisbursed);
         }
 

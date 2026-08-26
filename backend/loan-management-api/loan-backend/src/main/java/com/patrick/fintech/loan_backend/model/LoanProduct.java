@@ -131,8 +131,8 @@ public class LoanProduct {
          * 2%.
          */
         @Column(nullable = false, precision = 19, scale = 9)
-        @JsonProperty("processingFeePercent")
-        private BigDecimal processingFeePercent;
+        @JsonProperty("applicationFeePercent")
+        private BigDecimal applicationFeePercent;
 
         /**
          * Loan management fee percentage.
@@ -268,8 +268,8 @@ public class LoanProduct {
                         maxTermMonths = DEFAULT_MAX_TERM_MONTHS;
                 }
 
-                if (processingFeePercent == null) {
-                        processingFeePercent = DEFAULT_PROCESSING_FEE_PERCENT;
+                if (applicationFeePercent == null) {
+                        applicationFeePercent = DEFAULT_PROCESSING_FEE_PERCENT;
                 }
 
                 if (managementFeePercent == null) {
@@ -336,8 +336,8 @@ public class LoanProduct {
                                         "Loan product maximum term cannot exceed 6 months.");
                 }
 
-                if (processingFeePercent == null
-                                || processingFeePercent.signum() < 0) {
+                if (applicationFeePercent == null
+                                || applicationFeePercent.signum() < 0) {
 
                         throw new IllegalStateException(
                                         "Processing fee cannot be negative.");
@@ -411,7 +411,7 @@ public class LoanProduct {
 
         @JsonIgnore
         public BigDecimal getProcessingFeePercentDecimal() {
-                return processingFeePercent;
+                return applicationFeePercent;
         }
 
         @JsonIgnore
@@ -462,7 +462,7 @@ public class LoanProduct {
         public void setProcessingFeePercent(
                         BigDecimal value) {
 
-                this.processingFeePercent = value;
+                this.applicationFeePercent = value;
         }
 
         public void setManagementFeePercent(

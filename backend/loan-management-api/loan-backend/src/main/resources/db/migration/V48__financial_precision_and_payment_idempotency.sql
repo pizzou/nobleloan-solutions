@@ -18,8 +18,8 @@ ALTER TABLE borrowers
 ALTER TABLE loans
     ALTER COLUMN amount TYPE NUMERIC(19,6) USING amount::NUMERIC,
     ALTER COLUMN interest_rate TYPE NUMERIC(19,9) USING interest_rate::NUMERIC,
-    ALTER COLUMN processing_fee_rate TYPE NUMERIC(19,9) USING processing_fee_rate::NUMERIC,
-    ALTER COLUMN processing_fee TYPE NUMERIC(19,6) USING processing_fee::NUMERIC,
+    ALTER COLUMN application_fee_rate TYPE NUMERIC(19,9) USING application_fee_rate::NUMERIC,
+    ALTER COLUMN application_fee TYPE NUMERIC(19,6) USING application_fee::NUMERIC,
     ALTER COLUMN disbursed_amount TYPE NUMERIC(19,6) USING disbursed_amount::NUMERIC,
     ALTER COLUMN total_repayable TYPE NUMERIC(19,6) USING total_repayable::NUMERIC,
     ALTER COLUMN total_paid TYPE NUMERIC(19,6) USING total_paid::NUMERIC,
@@ -57,7 +57,7 @@ ALTER TABLE loan_products
     ALTER COLUMN interest_rate TYPE NUMERIC(19,9) USING interest_rate::NUMERIC,
     ALTER COLUMN min_amount TYPE NUMERIC(19,6) USING min_amount::NUMERIC,
     ALTER COLUMN max_amount TYPE NUMERIC(19,6) USING max_amount::NUMERIC,
-    ALTER COLUMN processing_fee_percent TYPE NUMERIC(19,9) USING processing_fee_percent::NUMERIC;
+    ALTER COLUMN application_fee_percent TYPE NUMERIC(19,9) USING application_fee_percent::NUMERIC;
 
 ALTER TABLE journal_lines
     ALTER COLUMN debit TYPE NUMERIC(19,6) USING debit::NUMERIC,

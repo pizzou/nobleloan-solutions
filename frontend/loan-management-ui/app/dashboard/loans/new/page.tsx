@@ -1901,7 +1901,7 @@ export default function LoanDetailPage() {
             <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-4">
               <Field
                 label="Processing Fee"
-                value={`${fc(loan.processingFee)} (${(loan.processingFeeRate ?? 2).toFixed(2)}%)`}
+                value={`${fc(loan.applicationFee)} (${(loan.applicationFeeRate ?? 2).toFixed(2)}%)`}
               />
               <Field
                 label="Net Disbursed"
@@ -2037,7 +2037,7 @@ export default function LoanDetailPage() {
 
                 <Field
                   label="Processing Fee"
-                  value={`${fc(loan.processingFee)} · ${(loan.processingFeeRate ?? 2).toFixed(2)}%`}
+                  value={`${fc(loan.applicationFee)} · ${(loan.applicationFeeRate ?? 2).toFixed(2)}%`}
                 />
 
                 <Field

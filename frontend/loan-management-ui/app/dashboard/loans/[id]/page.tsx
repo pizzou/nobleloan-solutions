@@ -1075,7 +1075,7 @@ export default function LoanDetailPage() {
     rejectionReason: "",
     internalNotes: "",
     interestRate: "",
-    processingFeeRate: "",
+    applicationFeeRate: "",
     approvedAmount: "",
   });
 
@@ -1614,8 +1614,10 @@ export default function LoanDetailPage() {
       internalNotes: "",
       interestRate:
         loan?.interestRate != null ? String(loan.interestRate) : "5",
-      processingFeeRate:
-        loan?.processingFeeRate != null ? String(loan.processingFeeRate) : "2",
+      applicationFeeRate:
+        loan?.applicationFeeRate != null
+          ? String(loan.applicationFeeRate)
+          : "2",
       approvedAmount: loan?.amount != null ? String(loan.amount) : "",
     });
     setStOpen(true);
@@ -1645,7 +1647,7 @@ export default function LoanDetailPage() {
       if (stForm.status === "APPROVED") {
         const approvedAmount = Number(stForm.approvedAmount);
         const interestRate = Number(stForm.interestRate);
-        const processingFeeRate = Number(stForm.processingFeeRate);
+        const applicationFeeRate = Number(stForm.applicationFeeRate);
 
         if (!Number.isFinite(approvedAmount) || approvedAmount <= 0) {
           throw new Error(
@@ -1666,9 +1668,9 @@ export default function LoanDetailPage() {
         }
 
         if (
-          !Number.isFinite(processingFeeRate) ||
-          processingFeeRate < 0 ||
-          processingFeeRate > 100
+          !Number.isFinite(applicationFeeRate) ||
+          applicationFeeRate < 0 ||
+          applicationFeeRate > 100
         ) {
           throw new Error(
             "Enter a valid application fee rate between 0% and 100%.",
@@ -1679,7 +1681,7 @@ export default function LoanDetailPage() {
         body = {
           notes: stForm.internalNotes || "",
           interestRate: String(interestRate),
-          processingFeeRate: String(processingFeeRate),
+          applicationFeeRate: String(applicationFeeRate),
           approvedAmount: String(approvedAmount),
         };
         label = `Loan approval — ${loan?.referenceNumber ?? loanId}`;
@@ -1732,7 +1734,7 @@ export default function LoanDetailPage() {
               loanId,
               stForm.internalNotes,
               Number(stForm.interestRate),
-              Number(stForm.processingFeeRate),
+              Number(stForm.applicationFeeRate),
               Number(stForm.approvedAmount),
               idempotencyKey,
             );
@@ -2373,7 +2375,7 @@ export default function LoanDetailPage() {
             <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-4">
               <Field
                 label="Processing Fee"
-                value={`${fc(loan.processingFee)} (${(loan.processingFeeRate ?? 2).toFixed(2)}%)`}
+                value={`${fc(loan.applicationFee)} (${(loan.applicationFeeRate ?? 2).toFixed(2)}%)`}
               />
               <Field
                 label="Net Disbursed"
@@ -2548,7 +2550,7 @@ export default function LoanDetailPage() {
               <Field label="Total Repayable" value={fc(loan.totalRepayable)} />
               <Field
                 label="Processing Fee Paid"
-                value={fc(loan.processingFeePaid)}
+                value={fc(loan.applicationFeePaid)}
               />
               <Field
                 label="Outstanding Principal"
@@ -2692,7 +2694,7 @@ export default function LoanDetailPage() {
 
                 <Field
                   label="Processing Fee"
-                  value={`${fc(loan.processingFee)} · ${(loan.processingFeeRate ?? 2).toFixed(2)}%`}
+                  value={`${fc(loan.applicationFee)} · ${(loan.applicationFeeRate ?? 2).toFixed(2)}%`}
                 />
 
                 <Field
@@ -3613,11 +3615,11 @@ export default function LoanDetailPage() {
                       min="0"
                       max="100"
                       step="0.01"
-                      value={stForm.processingFeeRate}
+                      value={stForm.applicationFeeRate}
                       onChange={(e) =>
                         setStForm((f) => ({
                           ...f,
-                          processingFeeRate: e.target.value,
+                          applicationFeeRate: e.target.value,
                         }))
                       }
                     />

@@ -1542,11 +1542,11 @@ public class PaymentService {
                                         BORROWER_REFUNDS_PAYABLE_ACCOUNT);
 
                         paymentWebhook.put(
-                                        "processingFee",
+                                        "applicationFee",
                                         loan.getProcessingFeeDecimal());
 
                         paymentWebhook.put(
-                                        "processingFeePaid",
+                                        "applicationFeePaid",
                                         loan.getProcessingFeePaid());
 
                         paymentWebhook.put(

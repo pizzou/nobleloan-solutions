@@ -530,7 +530,7 @@ export default function PaymentsPage() {
 
           <MetricCard
             label="Processing fees"
-            value={money(portfolioStats?.processingFeesCollected, currency)}
+            value={money(portfolioStats?.applicationFeesCollected, currency)}
             description="One-time fees collected at disbursement"
             tone="amber"
             icon={<IconSend className="h-5 w-5" />}

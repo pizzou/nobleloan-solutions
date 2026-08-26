@@ -221,7 +221,7 @@ export const loanApi = {
     id: number,
     notes = "",
     interestRate?: number,
-    processingFeeRate?: number,
+    applicationFeeRate?: number,
     approvedAmount?: number,
     idempotencyKey?: string,
   ) =>
@@ -230,8 +230,8 @@ export const loanApi = {
       {
         notes,
         interestRate: interestRate != null ? String(interestRate) : undefined,
-        processingFeeRate:
-          processingFeeRate != null ? String(processingFeeRate) : undefined,
+        applicationFeeRate:
+          applicationFeeRate != null ? String(applicationFeeRate) : undefined,
         approvedAmount:
           approvedAmount != null ? String(approvedAmount) : undefined,
       },

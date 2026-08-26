@@ -220,7 +220,7 @@ public class LoanProductController {
                                 product);
 
                 log.info(
-                                "Loan product updated: id={}, organizationId={}, name={}, loanType={}, interestRate={}, managementFee={}, processingFee={}",
+                                "Loan product updated: id={}, organizationId={}, name={}, loanType={}, interestRate={}, managementFee={}, applicationFee={}",
                                 product.getId(),
                                 organizationId,
                                 product.getName(),
@@ -604,14 +604,14 @@ public class LoanProductController {
 
                 if (creating
                                 || body.containsKey(
-                                                "processingFeePercent")) {
+                                                "applicationFeePercent")) {
 
                         BigDecimal requestedProcessingFee = body.containsKey(
-                                        "processingFeePercent")
+                                        "applicationFeePercent")
                                                         ? decimalValue(
                                                                         body.get(
-                                                                                        "processingFeePercent"),
-                                                                        "processingFeePercent")
+                                                                                        "applicationFeePercent"),
+                                                                        "applicationFeePercent")
                                                         : DEFAULT_PROCESSING_FEE_PERCENT;
 
                         if (requestedProcessingFee.compareTo(
@@ -980,22 +980,22 @@ public class LoanProductController {
                 // PROCESSING FEE
                 // ----------------------------------------------------
 
-                BigDecimal processingFee = product.getProcessingFeePercentDecimal();
+                BigDecimal applicationFee = product.getProcessingFeePercentDecimal();
 
-                if (processingFee == null) {
+                if (applicationFee == null) {
 
                         throw new IllegalArgumentException(
                                         "Processing fee percentage is required.");
                 }
 
-                if (processingFee.compareTo(
+                if (applicationFee.compareTo(
                                 BigDecimal.ZERO) < 0) {
 
                         throw new IllegalArgumentException(
                                         "Processing fee percentage cannot be negative.");
                 }
 
-                if (processingFee.compareTo(
+                if (applicationFee.compareTo(
                                 new BigDecimal("100.0000")) > 0) {
 
                         throw new IllegalArgumentException(

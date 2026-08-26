@@ -277,7 +277,7 @@ public class MtnMobileMoneyService {
 
                                                                         log.error(
                                                                                         "[MTN SANDBOX WEBHOOK] " +
-                                                                                                        "Webhook processing failed. "
+                                                                                                        "Webhook application failed. "
                                                                                                         +
                                                                                                         "loanId={}, transactionId={}, status={}, message={}",
                                                                                         loanId,
@@ -301,7 +301,7 @@ public class MtnMobileMoneyService {
 
                                                                 log.error(
                                                                                 "[MTN SANDBOX WEBHOOK] " +
-                                                                                                "Webhook processing threw an exception. "
+                                                                                                "Webhook application threw an exception. "
                                                                                                 +
                                                                                                 "loanId={}, transactionId={}",
                                                                                 loanId,

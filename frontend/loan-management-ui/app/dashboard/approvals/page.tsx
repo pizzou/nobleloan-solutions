@@ -17,7 +17,7 @@ import { useAuth } from "@/hooks/useAuth";
 type ApprovalDraft = {
   approvedAmount: string;
   interestRate: string;
-  processingFeeRate: string;
+  applicationFeeRate: string;
   notes: string;
 };
 
@@ -34,7 +34,7 @@ export default function ApprovalsPage() {
   const [draft, setDraft] = useState<ApprovalDraft>({
     approvedAmount: "",
     interestRate: "5",
-    processingFeeRate: "2",
+    applicationFeeRate: "2",
     notes: "",
   });
 
@@ -62,8 +62,8 @@ export default function ApprovalsPage() {
             ? String(loan.amount)
             : "",
       interestRate: loan.interestRate != null ? String(loan.interestRate) : "5",
-      processingFeeRate:
-        loan.processingFeeRate != null ? String(loan.processingFeeRate) : "2",
+      applicationFeeRate:
+        loan.applicationFeeRate != null ? String(loan.applicationFeeRate) : "2",
       notes: "",
     });
   };
@@ -78,7 +78,7 @@ export default function ApprovalsPage() {
 
     const approvedAmount = Number(draft.approvedAmount);
     const interestRate = Number(draft.interestRate);
-    const processingFeeRate = Number(draft.processingFeeRate);
+    const applicationFeeRate = Number(draft.applicationFeeRate);
 
     const selectedLoan = loans.find((loan) => loan.id === approvalId);
 
@@ -109,15 +109,15 @@ export default function ApprovalsPage() {
     }
 
     if (
-      !Number.isFinite(processingFeeRate) ||
-      processingFeeRate < 0 ||
-      processingFeeRate > 100
+      !Number.isFinite(applicationFeeRate) ||
+      applicationFeeRate < 0 ||
+      applicationFeeRate > 100
     ) {
       toast("error", "Enter a valid application fee rate between 0% and 100%.");
       return;
     }
 
-    if (!isManagerOrAdmin && processingFeeRate !== 2) {
+    if (!isManagerOrAdmin && applicationFeeRate !== 2) {
       toast("error", "Only a Manager or Admin may change the application fee.");
       return;
     }
@@ -129,7 +129,7 @@ export default function ApprovalsPage() {
         approvalId,
         interestRate,
         draft.notes.trim() || undefined,
-        processingFeeRate,
+        applicationFeeRate,
         approvedAmount,
       );
 
@@ -230,7 +230,7 @@ export default function ApprovalsPage() {
                     </Metric>
                     <Metric label="Management fee">5% monthly</Metric>
                     <Metric label="Processing fee">
-                      {loan.processingFeeRate ?? 2}% one-time
+                      {loan.applicationFeeRate ?? 2}% one-time
                     </Metric>
                   </div>
 
@@ -406,10 +406,10 @@ export default function ApprovalsPage() {
                 <RateField
                   label="Processing fee"
                   suffix="% one-time"
-                  value={draft.processingFeeRate}
+                  value={draft.applicationFeeRate}
                   disabled={!isManagerOrAdmin}
                   onChange={(value) =>
-                    setDraft((d) => ({ ...d, processingFeeRate: value }))
+                    setDraft((d) => ({ ...d, applicationFeeRate: value }))
                   }
                 />
               </div>

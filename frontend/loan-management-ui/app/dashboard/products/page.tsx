@@ -17,7 +17,7 @@ interface Product {
   interestRate: number;
   interestRateType: "MONTHLY";
   managementFeePercent: number;
-  processingFeePercent: number;
+  applicationFeePercent: number;
   penaltyPercent?: number;
   minAmount: number;
   maxAmount: number | null;
@@ -47,7 +47,7 @@ interface ProductForm {
   interestRate: number;
   interestRateType: "MONTHLY";
   managementFeePercent: number;
-  processingFeePercent: number;
+  applicationFeePercent: number;
   penaltyPercent: number;
   minAmount: number;
   maxAmount: number | null;
@@ -100,7 +100,7 @@ const emptyForm = (): ProductForm => ({
   interestRate: DEFAULT_INTEREST_RATE,
   interestRateType: "MONTHLY",
   managementFeePercent: DEFAULT_MANAGEMENT_FEE,
-  processingFeePercent: DEFAULT_PROCESSING_FEE,
+  applicationFeePercent: DEFAULT_PROCESSING_FEE,
   penaltyPercent: DEFAULT_PENALTY_RATE,
   minAmount: DEFAULT_MIN_AMOUNT,
   maxAmount: null,
@@ -217,8 +217,8 @@ export default function LoanProductsPage() {
         DEFAULT_MANAGEMENT_FEE,
       ),
 
-      processingFeePercent: numberValue(
-        product.processingFeePercent,
+      applicationFeePercent: numberValue(
+        product.applicationFeePercent,
         DEFAULT_PROCESSING_FEE,
       ),
 
@@ -284,8 +284,8 @@ export default function LoanProductsPage() {
     }
 
     if (
-      !Number.isFinite(editing.processingFeePercent) ||
-      editing.processingFeePercent < 0
+      !Number.isFinite(editing.applicationFeePercent) ||
+      editing.applicationFeePercent < 0
     ) {
       return "Processing fee cannot be negative.";
     }
@@ -376,7 +376,7 @@ export default function LoanProductsPage() {
 
       managementFeePercent: numberValue(editing.managementFeePercent),
 
-      processingFeePercent: numberValue(editing.processingFeePercent),
+      applicationFeePercent: numberValue(editing.applicationFeePercent),
 
       penaltyPercent: numberValue(editing.penaltyPercent),
 
@@ -643,7 +643,7 @@ export default function LoanProductsPage() {
                     </td>
 
                     <td className="px-4 py-4 text-right text-slate-600">
-                      {product.processingFeePercent}%
+                      {product.applicationFeePercent}%
                     </td>
 
                     <td className="px-4 py-4 text-right text-xs text-slate-600">
@@ -842,10 +842,10 @@ export default function LoanProductsPage() {
                     step="0.01"
                     min="0"
                     className="mt-1 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                    value={editing.processingFeePercent ?? 0}
+                    value={editing.applicationFeePercent ?? 0}
                     onChange={(event) =>
                       updateField(
-                        "processingFeePercent",
+                        "applicationFeePercent",
                         numberValue(event.target.value),
                       )
                     }

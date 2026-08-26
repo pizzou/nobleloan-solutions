@@ -238,9 +238,9 @@ export interface Loan {
 
   currency: string;
 
-  processingFee?: number;
-  processingFeeRate?: number;
-  processingFeePaid?: number;
+  applicationFee?: number;
+  applicationFeeRate?: number;
+  applicationFeePaid?: number;
 
   disbursedAmount?: number;
   netDisbursedAmount?: number;
@@ -717,7 +717,7 @@ export interface DashboardStats {
 
   historicalCollected?: number;
 
-  processingFeesCollected?: number;
+  applicationFeesCollected?: number;
 
   outstandingBalance: number;
 

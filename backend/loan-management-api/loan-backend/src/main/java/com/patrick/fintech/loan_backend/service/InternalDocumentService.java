@@ -27,1409 +27,1223 @@ import java.util.UUID;
 @Slf4j
 public class InternalDocumentService {
 
-private final InternalDocumentRepository docRepo;
-private final AuditService auditService;
-
-/*
- * ================================================================
- * FILE SECURITY POLICY
- * ================================================================
- */
-
-private static final long MAX_FILE_BYTES = 20L * 1024L * 1024L;
-
-private static final int MAX_TITLE_LENGTH = 255;
-private static final int MAX_DESCRIPTION_LENGTH = 5000;
-private static final int MAX_FILENAME_LENGTH = 255;
-
-private static final Set<String> ALLOWED_TYPES = Set.of(
-        "application/pdf",
-
-        "image/jpeg",
-        "image/jpg",
-        "image/png",
-        "image/webp",
-
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-
-        "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-
-        "text/plain",
-        "text/csv"
-);
-
-public static final Set<String> CATEGORIES = Set.of(
-        "POLICY",
-        "CONTRACT",
-        "MEMO",
-        "TEMPLATE",
-        "BOARD_MINUTES",
-        "COMPLIANCE",
-        "OTHER"
-);
-
-private static final String DEFAULT_CATEGORY = "OTHER";
-
-/*
- * ================================================================
- * UPLOAD
- * ================================================================
- */
-
-/**
- * Uploads and persists an internal organization document.
- *
- * Security guarantees:
- *
- * - Organization must be present and have an ID.
- * - Uploaded user must belong to the same organization when provided.
- * - File must exist and be non-empty.
- * - File must not exceed MAX_FILE_BYTES.
- * - MIME type is normalized.
- * - File extension is sanitized.
- * - Title and description are length-limited.
- * - File content signatures are checked for supported binary types.
- * - SHA-256 hash is calculated for integrity logging.
- * - Database persistence and audit are part of the same transaction.
- */
-@Transactional
-public InternalDocument upload(
-        Organization org,
-        User uploadedBy,
-        MultipartFile file,
-        String title,
-        String category,
-        String description
-) throws IOException {
-
-    /*
-     * ------------------------------------------------------------
-     * ORGANIZATION VALIDATION
-     * ------------------------------------------------------------
-     */
-
-    validateOrganization(org);
-
-    /*
-     * ------------------------------------------------------------
-     * USER ORGANIZATION VALIDATION
-     * ------------------------------------------------------------
-     */
-
-    validateUploaderOrganization(
-            org,
-            uploadedBy
-    );
-
-    /*
-     * ------------------------------------------------------------
-     * FILE VALIDATION
-     * ------------------------------------------------------------
-     */
-
-    validateFile(file);
-
-    String contentType =
-            normalizeContentType(
-                    file.getContentType()
-            );
-
-    if (!ALLOWED_TYPES.contains(contentType)) {
-
-        throw new IllegalArgumentException(
-                "Unsupported file type."
-        );
-    }
-
-    /*
-     * ------------------------------------------------------------
-     * READ FILE
-     * ------------------------------------------------------------
-     *
-     * The configured maximum is 20 MB, so the application has
-     * an explicit upper memory boundary for this operation.
-     */
-
-    byte[] data;
-
-    try {
-
-        data = file.getBytes();
-
-    } catch (IOException e) {
-
-        log.error(
-                "Failed to read uploaded document. orgId={}",
-                org.getId(),
-                e
-        );
-
-        throw new IOException(
-                "Unable to read the uploaded document.",
-                e
-        );
-    }
-
-    if (data.length == 0) {
-
-        throw new IllegalArgumentException(
-                "The uploaded document is empty."
-        );
-    }
-
-    if (data.length > MAX_FILE_BYTES) {
-
-        throw new IllegalArgumentException(
-                "The uploaded document exceeds the maximum allowed size of 20 MB."
-        );
-    }
-
-    /*
-     * ------------------------------------------------------------
-     * CONTENT SIGNATURE VALIDATION
-     * ------------------------------------------------------------
-     *
-     * MIME type supplied by the browser/client is not trusted.
-     */
-
-    validateFileSignature(
-            data,
-            contentType
-    );
-
-    /*
-     * ------------------------------------------------------------
-     * SAFE ORIGINAL FILENAME
-     * ------------------------------------------------------------
-     */
-
-    String originalFileName =
-            sanitizeFileName(
-                    file.getOriginalFilename()
-            );
-
-    if (originalFileName == null || originalFileName.isBlank()) {
-
-        originalFileName =
-                "document-" +
-                        UUID.randomUUID() +
-                        extensionForContentType(
-                                contentType
-                        );
-    }
-
-    /*
-     * ------------------------------------------------------------
-     * CATEGORY
-     * ------------------------------------------------------------
-     */
-
-    String normalizedCategory =
-            normalizeCategory(
-                    category
-            );
-
-    /*
-     * ------------------------------------------------------------
-     * TITLE
-     * ------------------------------------------------------------
-     */
-
-    String resolvedTitle =
-            resolveTitle(
-                    title,
-                    originalFileName
-            );
-
-    /*
-     * ------------------------------------------------------------
-     * DESCRIPTION
-     * ------------------------------------------------------------
-     */
-
-    String normalizedDescription =
-            normalizeDescription(
-                    description
-            );
-
-    /*
-     * ------------------------------------------------------------
-     * FILE HASH
-     * ------------------------------------------------------------
-     */
-
-    String sha256 =
-            calculateSha256(
-                    data
-            );
-
-    /*
-     * ------------------------------------------------------------
-     * CREATE ENTITY
-     * ------------------------------------------------------------
-     */
-
-    InternalDocument doc =
-            InternalDocument.builder()
-                    .organization(org)
-                    .title(resolvedTitle)
-                    .category(normalizedCategory)
-                    .description(normalizedDescription)
-                    .fileName(originalFileName)
-                    .fileType(contentType)
-                    .fileSize((long) data.length)
-                    .data(data)
-                    .uploadedBy(uploadedBy)
-                    .build();
-
-    /*
-     * ------------------------------------------------------------
-     * PERSIST
-     * ------------------------------------------------------------
-     */
-
-    try {
-
-        doc =
-                docRepo.save(
-                        doc
-                );
-
-    } catch (DataIntegrityViolationException e) {
+        private final InternalDocumentRepository docRepo;
+        private final AuditService auditService;
 
         /*
-         * Do not expose raw database errors to the client.
+         * ================================================================
+         * FILE SECURITY POLICY
+         * ================================================================
          */
 
-        log.warn(
-                "Document persistence constraint violation. " +
-                        "orgId={}, category={}, title={}, sha256={}",
-                org.getId(),
-                normalizedCategory,
-                resolvedTitle,
-                sha256,
-                e
-        );
+        private static final long MAX_FILE_BYTES = 20L * 1024L * 1024L;
+
+        private static final int MAX_TITLE_LENGTH = 255;
+        private static final int MAX_DESCRIPTION_LENGTH = 5000;
+        private static final int MAX_FILENAME_LENGTH = 255;
+
+        private static final Set<String> ALLOWED_TYPES = Set.of(
+                        "application/pdf",
+
+                        "image/jpeg",
+                        "image/jpg",
+                        "image/png",
+                        "image/webp",
+
+                        "application/msword",
+                        "application/vnd.openxmlformats-officedocument.wordapplicationml.document",
+
+                        "application/vnd.ms-excel",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+
+                        "text/plain",
+                        "text/csv");
+
+        public static final Set<String> CATEGORIES = Set.of(
+                        "POLICY",
+                        "CONTRACT",
+                        "MEMO",
+                        "TEMPLATE",
+                        "BOARD_MINUTES",
+                        "COMPLIANCE",
+                        "OTHER");
+
+        private static final String DEFAULT_CATEGORY = "OTHER";
 
         /*
-         * The most likely cause in the current architecture is
-         * the unique organization/title constraint.
+         * ================================================================
+         * UPLOAD
+         * ================================================================
+         */
+
+        /**
+         * Uploads and persists an internal organization document.
          *
-         * Instead of exposing the database constraint, provide
-         * a safe business-level error.
+         * Security guarantees:
+         *
+         * - Organization must be present and have an ID.
+         * - Uploaded user must belong to the same organization when provided.
+         * - File must exist and be non-empty.
+         * - File must not exceed MAX_FILE_BYTES.
+         * - MIME type is normalized.
+         * - File extension is sanitized.
+         * - Title and description are length-limited.
+         * - File content signatures are checked for supported binary types.
+         * - SHA-256 hash is calculated for integrity logging.
+         * - Database persistence and audit are part of the same transaction.
          */
+        @Transactional
+        public InternalDocument upload(
+                        Organization org,
+                        User uploadedBy,
+                        MultipartFile file,
+                        String title,
+                        String category,
+                        String description) throws IOException {
 
-        throw new IllegalStateException(
-                "A document with this title already exists. " +
-                        "Please choose a different document title."
-        );
-    }
+                /*
+                 * ------------------------------------------------------------
+                 * ORGANIZATION VALIDATION
+                 * ------------------------------------------------------------
+                 */
 
-    /*
-     * ------------------------------------------------------------
-     * AUDIT
-     * ------------------------------------------------------------
-     *
-     * Audit is intentionally inside the transaction.
-     *
-     * If the audit operation throws a runtime exception, the
-     * document transaction is rolled back instead of leaving
-     * an unaudited financial-system document in the database.
-     */
+                validateOrganization(org);
 
-    try {
+                /*
+                 * ------------------------------------------------------------
+                 * USER ORGANIZATION VALIDATION
+                 * ------------------------------------------------------------
+                 */
 
-        auditService.log(
-                org,
-                uploadedBy,
-                "INTERNAL_DOCUMENT_UPLOADED",
-                "INTERNAL_DOCUMENT",
-                String.valueOf(doc.getId()),
-                "Uploaded internal document \"" +
-                        doc.getTitle() +
-                        "\" (" +
-                        normalizedCategory +
-                        ")",
-                null,
-                null,
-                "Documents & KYC"
-        );
+                validateUploaderOrganization(
+                                org,
+                                uploadedBy);
 
-    } catch (RuntimeException e) {
+                /*
+                 * ------------------------------------------------------------
+                 * FILE VALIDATION
+                 * ------------------------------------------------------------
+                 */
 
-        log.error(
-                "Document audit failed. Rolling back document upload. " +
-                        "orgId={}, documentId={}, sha256={}",
-                org.getId(),
-                doc.getId(),
-                sha256,
-                e
-        );
+                validateFile(file);
 
-        throw new IllegalStateException(
-                "The document could not be securely recorded. " +
-                        "Please try again.",
-                e
-        );
-    }
+                String contentType = normalizeContentType(
+                                file.getContentType());
 
-    /*
-     * ------------------------------------------------------------
-     * SECURITY LOG
-     * ------------------------------------------------------------
-     *
-     * Do not log the file contents or full filename unnecessarily.
-     */
+                if (!ALLOWED_TYPES.contains(contentType)) {
 
-    log.info(
-            "Internal document uploaded successfully. " +
-                    "orgId={}, documentId={}, category={}, " +
-                    "fileType={}, fileSize={}, sha256={}",
-            org.getId(),
-            doc.getId(),
-            normalizedCategory,
-            contentType,
-            data.length,
-            sha256
-    );
+                        throw new IllegalArgumentException(
+                                        "Unsupported file type.");
+                }
 
-    return doc;
-}
+                /*
+                 * ------------------------------------------------------------
+                 * READ FILE
+                 * ------------------------------------------------------------
+                 *
+                 * The configured maximum is 20 MB, so the application has
+                 * an explicit upper memory boundary for this operation.
+                 */
 
-/*
- * ================================================================
- * LIST DOCUMENTS
- * ================================================================
- */
+                byte[] data;
 
-@Transactional(readOnly = true)
-public List<InternalDocumentRepository.Summary> list(
-        Long orgId,
-        String category
-) {
+                try {
 
-    validateOrganizationId(
-            orgId
-    );
+                        data = file.getBytes();
 
-    String normalizedCategory =
-            normalizeCategoryOrNull(
-                    category
-            );
+                } catch (IOException e) {
 
-    if (normalizedCategory != null) {
+                        log.error(
+                                        "Failed to read uploaded document. orgId={}",
+                                        org.getId(),
+                                        e);
 
-        return docRepo.findSummariesByOrgAndCategory(
-                orgId,
-                normalizedCategory
-        );
-    }
+                        throw new IOException(
+                                        "Unable to read the uploaded document.",
+                                        e);
+                }
 
-    return docRepo.findSummariesByOrg(
-            orgId
-    );
-}
+                if (data.length == 0) {
 
-/*
- * ================================================================
- * GET DOCUMENT
- * ================================================================
- */
+                        throw new IllegalArgumentException(
+                                        "The uploaded document is empty.");
+                }
 
-@Transactional(readOnly = true)
-public InternalDocument getByIdForOrg(
-        Long id,
-        Long orgId
-) {
+                if (data.length > MAX_FILE_BYTES) {
 
-    validateDocumentId(
-            id
-    );
+                        throw new IllegalArgumentException(
+                                        "The uploaded document exceeds the maximum allowed size of 20 MB.");
+                }
 
-    validateOrganizationId(
-            orgId
-    );
+                /*
+                 * ------------------------------------------------------------
+                 * CONTENT SIGNATURE VALIDATION
+                 * ------------------------------------------------------------
+                 *
+                 * MIME type supplied by the browser/client is not trusted.
+                 */
 
-    InternalDocument doc =
-            docRepo.findById(
-                    id
-            ).orElseThrow(
-                    () -> new IllegalArgumentException(
-                            "Document not found."
-                    )
-            );
+                validateFileSignature(
+                                data,
+                                contentType);
 
-    /*
-     * Organization ownership must be checked before returning
-     * document data.
-     */
+                /*
+                 * ------------------------------------------------------------
+                 * SAFE ORIGINAL FILENAME
+                 * ------------------------------------------------------------
+                 */
 
-    if (
-            doc.getOrganization() == null
-                    || doc.getOrganization().getId() == null
-                    || !doc.getOrganization()
-                    .getId()
-                    .equals(orgId)
-    ) {
+                String originalFileName = sanitizeFileName(
+                                file.getOriginalFilename());
+
+                if (originalFileName == null || originalFileName.isBlank()) {
+
+                        originalFileName = "document-" +
+                                        UUID.randomUUID() +
+                                        extensionForContentType(
+                                                        contentType);
+                }
+
+                /*
+                 * ------------------------------------------------------------
+                 * CATEGORY
+                 * ------------------------------------------------------------
+                 */
+
+                String normalizedCategory = normalizeCategory(
+                                category);
+
+                /*
+                 * ------------------------------------------------------------
+                 * TITLE
+                 * ------------------------------------------------------------
+                 */
+
+                String resolvedTitle = resolveTitle(
+                                title,
+                                originalFileName);
+
+                /*
+                 * ------------------------------------------------------------
+                 * DESCRIPTION
+                 * ------------------------------------------------------------
+                 */
+
+                String normalizedDescription = normalizeDescription(
+                                description);
+
+                /*
+                 * ------------------------------------------------------------
+                 * FILE HASH
+                 * ------------------------------------------------------------
+                 */
+
+                String sha256 = calculateSha256(
+                                data);
+
+                /*
+                 * ------------------------------------------------------------
+                 * CREATE ENTITY
+                 * ------------------------------------------------------------
+                 */
+
+                InternalDocument doc = InternalDocument.builder()
+                                .organization(org)
+                                .title(resolvedTitle)
+                                .category(normalizedCategory)
+                                .description(normalizedDescription)
+                                .fileName(originalFileName)
+                                .fileType(contentType)
+                                .fileSize((long) data.length)
+                                .data(data)
+                                .uploadedBy(uploadedBy)
+                                .build();
+
+                /*
+                 * ------------------------------------------------------------
+                 * PERSIST
+                 * ------------------------------------------------------------
+                 */
+
+                try {
+
+                        doc = docRepo.save(
+                                        doc);
+
+                } catch (DataIntegrityViolationException e) {
+
+                        /*
+                         * Do not expose raw database errors to the client.
+                         */
+
+                        log.warn(
+                                        "Document persistence constraint violation. " +
+                                                        "orgId={}, category={}, title={}, sha256={}",
+                                        org.getId(),
+                                        normalizedCategory,
+                                        resolvedTitle,
+                                        sha256,
+                                        e);
+
+                        /*
+                         * The most likely cause in the current architecture is
+                         * the unique organization/title constraint.
+                         *
+                         * Instead of exposing the database constraint, provide
+                         * a safe business-level error.
+                         */
+
+                        throw new IllegalStateException(
+                                        "A document with this title already exists. " +
+                                                        "Please choose a different document title.");
+                }
+
+                /*
+                 * ------------------------------------------------------------
+                 * AUDIT
+                 * ------------------------------------------------------------
+                 *
+                 * Audit is intentionally inside the transaction.
+                 *
+                 * If the audit operation throws a runtime exception, the
+                 * document transaction is rolled back instead of leaving
+                 * an unaudited financial-system document in the database.
+                 */
+
+                try {
+
+                        auditService.log(
+                                        org,
+                                        uploadedBy,
+                                        "INTERNAL_DOCUMENT_UPLOADED",
+                                        "INTERNAL_DOCUMENT",
+                                        String.valueOf(doc.getId()),
+                                        "Uploaded internal document \"" +
+                                                        doc.getTitle() +
+                                                        "\" (" +
+                                                        normalizedCategory +
+                                                        ")",
+                                        null,
+                                        null,
+                                        "Documents & KYC");
+
+                } catch (RuntimeException e) {
+
+                        log.error(
+                                        "Document audit failed. Rolling back document upload. " +
+                                                        "orgId={}, documentId={}, sha256={}",
+                                        org.getId(),
+                                        doc.getId(),
+                                        sha256,
+                                        e);
+
+                        throw new IllegalStateException(
+                                        "The document could not be securely recorded. " +
+                                                        "Please try again.",
+                                        e);
+                }
+
+                /*
+                 * ------------------------------------------------------------
+                 * SECURITY LOG
+                 * ------------------------------------------------------------
+                 *
+                 * Do not log the file contents or full filename unnecessarily.
+                 */
+
+                log.info(
+                                "Internal document uploaded successfully. " +
+                                                "orgId={}, documentId={}, category={}, " +
+                                                "fileType={}, fileSize={}, sha256={}",
+                                org.getId(),
+                                doc.getId(),
+                                normalizedCategory,
+                                contentType,
+                                data.length,
+                                sha256);
+
+                return doc;
+        }
 
         /*
-         * Do not reveal that the document exists in another
-         * organization.
+         * ================================================================
+         * LIST DOCUMENTS
+         * ================================================================
          */
 
-        throw new IllegalArgumentException(
-                "Document not found."
-        );
-    }
+        @Transactional(readOnly = true)
+        public List<InternalDocumentRepository.Summary> list(
+                        Long orgId,
+                        String category) {
 
-    return doc;
-}
+                validateOrganizationId(
+                                orgId);
 
-/*
- * ================================================================
- * DELETE DOCUMENT
- * ================================================================
- */
+                String normalizedCategory = normalizeCategoryOrNull(
+                                category);
 
-@Transactional
-public void delete(
-        Long id,
-        Long orgId,
-        User deletedBy
-) {
+                if (normalizedCategory != null) {
 
-    validateDocumentId(
-            id
-    );
+                        return docRepo.findSummariesByOrgAndCategory(
+                                        orgId,
+                                        normalizedCategory);
+                }
 
-    validateOrganizationId(
-            orgId
-    );
+                return docRepo.findSummariesByOrg(
+                                orgId);
+        }
 
-    validateUserOrganization(
-            deletedBy,
-            orgId
-    );
+        /*
+         * ================================================================
+         * GET DOCUMENT
+         * ================================================================
+         */
 
-    InternalDocument doc =
-            getByIdForOrg(
-                    id,
-                    orgId
-            );
+        @Transactional(readOnly = true)
+        public InternalDocument getByIdForOrg(
+                        Long id,
+                        Long orgId) {
 
-    Organization organization =
-            doc.getOrganization();
+                validateDocumentId(
+                                id);
 
-    String title =
-            doc.getTitle();
+                validateOrganizationId(
+                                orgId);
 
-    /*
-     * Delete the actual entity rather than deleting directly
-     * by ID. This ensures the authorization check above is
-     * completed against the loaded entity.
-     */
+                InternalDocument doc = docRepo.findById(
+                                id).orElseThrow(
+                                                () -> new IllegalArgumentException(
+                                                                "Document not found."));
 
-    docRepo.delete(
-            doc
-    );
+                /*
+                 * Organization ownership must be checked before returning
+                 * document data.
+                 */
 
-    /*
-     * Flush so database-level failures occur inside this
-     * transaction before the method completes.
-     */
+                if (doc.getOrganization() == null
+                                || doc.getOrganization().getId() == null
+                                || !doc.getOrganization()
+                                                .getId()
+                                                .equals(orgId)) {
 
-    docRepo.flush();
+                        /*
+                         * Do not reveal that the document exists in another
+                         * organization.
+                         */
 
-    /*
-     * Audit the successful deletion.
-     */
+                        throw new IllegalArgumentException(
+                                        "Document not found.");
+                }
 
-    try {
+                return doc;
+        }
 
-        auditService.log(
-                organization,
-                deletedBy,
-                "INTERNAL_DOCUMENT_DELETED",
-                "INTERNAL_DOCUMENT",
-                String.valueOf(id),
-                "Deleted internal document \"" +
-                        title +
-                        "\"",
-                null,
-                null,
-                "Documents & KYC"
-        );
+        /*
+         * ================================================================
+         * DELETE DOCUMENT
+         * ================================================================
+         */
 
-    } catch (RuntimeException e) {
+        @Transactional
+        public void delete(
+                        Long id,
+                        Long orgId,
+                        User deletedBy) {
 
-        log.error(
-                "Document deletion audit failed. " +
-                        "orgId={}, documentId={}",
-                orgId,
-                id,
-                e
-        );
+                validateDocumentId(
+                                id);
 
-        throw new IllegalStateException(
-                "The document could not be securely deleted.",
-                e
-        );
-    }
+                validateOrganizationId(
+                                orgId);
 
-    log.info(
-            "Internal document deleted successfully. " +
-                    "orgId={}, documentId={}",
-            orgId,
-            id
-    );
-}
+                validateUserOrganization(
+                                deletedBy,
+                                orgId);
 
-/*
- * ================================================================
- * ORGANIZATION VALIDATION
- * ================================================================
- */
+                InternalDocument doc = getByIdForOrg(
+                                id,
+                                orgId);
 
-private void validateOrganization(
-        Organization org
-) {
+                Organization organization = doc.getOrganization();
 
-    if (org == null) {
+                String title = doc.getTitle();
 
-        throw new IllegalArgumentException(
-                "Organization is required."
-        );
-    }
+                /*
+                 * Delete the actual entity rather than deleting directly
+                 * by ID. This ensures the authorization check above is
+                 * completed against the loaded entity.
+                 */
 
-    if (org.getId() == null) {
+                docRepo.delete(
+                                doc);
 
-        throw new IllegalArgumentException(
-                "Organization ID is required."
-        );
-    }
-}
+                /*
+                 * Flush so database-level failures occur inside this
+                 * transaction before the method completes.
+                 */
 
-/*
- * ================================================================
- * UPLOADER ORGANIZATION VALIDATION
- * ================================================================
- */
+                docRepo.flush();
 
-private void validateUploaderOrganization(
-        Organization org,
-        User uploadedBy
-) {
+                /*
+                 * Audit the successful deletion.
+                 */
 
-    if (uploadedBy == null) {
-        return;
-    }
+                try {
 
-    if (
-            uploadedBy.getOrganization() == null
-                    || uploadedBy.getOrganization().getId() == null
-    ) {
+                        auditService.log(
+                                        organization,
+                                        deletedBy,
+                                        "INTERNAL_DOCUMENT_DELETED",
+                                        "INTERNAL_DOCUMENT",
+                                        String.valueOf(id),
+                                        "Deleted internal document \"" +
+                                                        title +
+                                                        "\"",
+                                        null,
+                                        null,
+                                        "Documents & KYC");
 
-        throw new IllegalArgumentException(
-                "Uploader organization could not be determined."
-        );
-    }
+                } catch (RuntimeException e) {
 
-    if (
-            !uploadedBy.getOrganization()
-                    .getId()
-                    .equals(
-                            org.getId()
-                    )
-    ) {
+                        log.error(
+                                        "Document deletion audit failed. " +
+                                                        "orgId={}, documentId={}",
+                                        orgId,
+                                        id,
+                                        e);
 
-        throw new SecurityException(
-                "You are not authorized to upload documents for this organization."
-        );
-    }
-}
+                        throw new IllegalStateException(
+                                        "The document could not be securely deleted.",
+                                        e);
+                }
 
-/*
- * ================================================================
- * USER ORGANIZATION VALIDATION FOR DELETE
- * ================================================================
- */
+                log.info(
+                                "Internal document deleted successfully. " +
+                                                "orgId={}, documentId={}",
+                                orgId,
+                                id);
+        }
 
-private void validateUserOrganization(
-        User user,
-        Long orgId
-) {
+        /*
+         * ================================================================
+         * ORGANIZATION VALIDATION
+         * ================================================================
+         */
 
-    if (user == null) {
-        return;
-    }
+        private void validateOrganization(
+                        Organization org) {
 
-    if (
-            user.getOrganization() == null
-                    || user.getOrganization().getId() == null
-    ) {
+                if (org == null) {
 
-        throw new SecurityException(
-                "User organization could not be determined."
-        );
-    }
+                        throw new IllegalArgumentException(
+                                        "Organization is required.");
+                }
 
-    if (
-            !user.getOrganization()
-                    .getId()
-                    .equals(orgId)
-    ) {
+                if (org.getId() == null) {
 
-        throw new SecurityException(
-                "You are not authorized to modify documents for this organization."
-        );
-    }
-}
+                        throw new IllegalArgumentException(
+                                        "Organization ID is required.");
+                }
+        }
 
-/*
- * ================================================================
- * FILE VALIDATION
- * ================================================================
- */
+        /*
+         * ================================================================
+         * UPLOADER ORGANIZATION VALIDATION
+         * ================================================================
+         */
 
-private void validateFile(
-        MultipartFile file
-) {
+        private void validateUploaderOrganization(
+                        Organization org,
+                        User uploadedBy) {
 
-    if (file == null) {
+                if (uploadedBy == null) {
+                        return;
+                }
 
-        throw new IllegalArgumentException(
-                "No file was received."
-        );
-    }
+                if (uploadedBy.getOrganization() == null
+                                || uploadedBy.getOrganization().getId() == null) {
 
-    if (file.isEmpty()) {
+                        throw new IllegalArgumentException(
+                                        "Uploader organization could not be determined.");
+                }
 
-        throw new IllegalArgumentException(
-                "The uploaded file is empty."
-        );
-    }
+                if (!uploadedBy.getOrganization()
+                                .getId()
+                                .equals(
+                                                org.getId())) {
 
-    if (file.getSize() <= 0) {
+                        throw new SecurityException(
+                                        "You are not authorized to upload documents for this organization.");
+                }
+        }
 
-        throw new IllegalArgumentException(
-                "The uploaded file is empty."
-        );
-    }
+        /*
+         * ================================================================
+         * USER ORGANIZATION VALIDATION FOR DELETE
+         * ================================================================
+         */
 
-    if (file.getSize() > MAX_FILE_BYTES) {
+        private void validateUserOrganization(
+                        User user,
+                        Long orgId) {
 
-        throw new IllegalArgumentException(
-                "The uploaded file exceeds the maximum allowed size of 20 MB."
-        );
-    }
+                if (user == null) {
+                        return;
+                }
 
-    String contentType =
-            normalizeContentType(
-                    file.getContentType()
-            );
+                if (user.getOrganization() == null
+                                || user.getOrganization().getId() == null) {
 
-    if (contentType == null) {
+                        throw new SecurityException(
+                                        "User organization could not be determined.");
+                }
 
-        throw new IllegalArgumentException(
-                "The uploaded file type could not be determined."
-        );
-    }
+                if (!user.getOrganization()
+                                .getId()
+                                .equals(orgId)) {
 
-    if (!ALLOWED_TYPES.contains(contentType)) {
+                        throw new SecurityException(
+                                        "You are not authorized to modify documents for this organization.");
+                }
+        }
 
-        throw new IllegalArgumentException(
-                "Unsupported file type."
-        );
-    }
-}
+        /*
+         * ================================================================
+         * FILE VALIDATION
+         * ================================================================
+         */
 
-/*
- * ================================================================
- * CONTENT SIGNATURE VALIDATION
- * ================================================================
- *
- * Browser MIME types are not trusted.
- *
- * Supported signatures:
- *
- * PDF      -> %PDF
- * JPEG     -> FF D8 FF
- * PNG      -> PNG signature
- * WEBP     -> RIFF....WEBP
- * DOC/XLS  -> OLE Compound File
- * DOCX/XLSX-> ZIP signature
- *
- * Plain text and CSV are intentionally not signature-enforced
- * because those formats do not have a universal binary magic
- * number.
- */
+        private void validateFile(
+                        MultipartFile file) {
 
-private void validateFileSignature(
-        byte[] data,
-        String contentType
-) {
+                if (file == null) {
 
-    if (data == null || data.length == 0) {
+                        throw new IllegalArgumentException(
+                                        "No file was received.");
+                }
 
-        throw new IllegalArgumentException(
-                "The uploaded file is empty."
-        );
-    }
+                if (file.isEmpty()) {
 
-    boolean valid;
+                        throw new IllegalArgumentException(
+                                        "The uploaded file is empty.");
+                }
 
-    switch (contentType) {
+                if (file.getSize() <= 0) {
 
-        case "application/pdf" ->
-                valid = startsWith(
-                        data,
-                        new byte[]{
-                                0x25,
-                                0x50,
-                                0x44,
-                                0x46
+                        throw new IllegalArgumentException(
+                                        "The uploaded file is empty.");
+                }
+
+                if (file.getSize() > MAX_FILE_BYTES) {
+
+                        throw new IllegalArgumentException(
+                                        "The uploaded file exceeds the maximum allowed size of 20 MB.");
+                }
+
+                String contentType = normalizeContentType(
+                                file.getContentType());
+
+                if (contentType == null) {
+
+                        throw new IllegalArgumentException(
+                                        "The uploaded file type could not be determined.");
+                }
+
+                if (!ALLOWED_TYPES.contains(contentType)) {
+
+                        throw new IllegalArgumentException(
+                                        "Unsupported file type.");
+                }
+        }
+
+        /*
+         * ================================================================
+         * CONTENT SIGNATURE VALIDATION
+         * ================================================================
+         *
+         * Browser MIME types are not trusted.
+         *
+         * Supported signatures:
+         *
+         * PDF -> %PDF
+         * JPEG -> FF D8 FF
+         * PNG -> PNG signature
+         * WEBP -> RIFF....WEBP
+         * DOC/XLS -> OLE Compound File
+         * DOCX/XLSX-> ZIP signature
+         *
+         * Plain text and CSV are intentionally not signature-enforced
+         * because those formats do not have a universal binary magic
+         * number.
+         */
+
+        private void validateFileSignature(
+                        byte[] data,
+                        String contentType) {
+
+                if (data == null || data.length == 0) {
+
+                        throw new IllegalArgumentException(
+                                        "The uploaded file is empty.");
+                }
+
+                boolean valid;
+
+                switch (contentType) {
+
+                        case "application/pdf" ->
+                                valid = startsWith(
+                                                data,
+                                                new byte[] {
+                                                                0x25,
+                                                                0x50,
+                                                                0x44,
+                                                                0x46
+                                                });
+
+                        case "image/jpeg",
+                                        "image/jpg" ->
+                                valid = startsWith(
+                                                data,
+                                                new byte[] {
+                                                                (byte) 0xFF,
+                                                                (byte) 0xD8,
+                                                                (byte) 0xFF
+                                                });
+
+                        case "image/png" ->
+                                valid = startsWith(
+                                                data,
+                                                new byte[] {
+                                                                (byte) 0x89,
+                                                                0x50,
+                                                                0x4E,
+                                                                0x47,
+                                                                0x0D,
+                                                                0x0A,
+                                                                0x1A,
+                                                                0x0A
+                                                });
+
+                        case "image/webp" ->
+                                valid = startsWith(
+                                                data,
+                                                new byte[] {
+                                                                0x52,
+                                                                0x49,
+                                                                0x46,
+                                                                0x46
+                                                })
+                                                && containsAscii(
+                                                                data,
+                                                                8,
+                                                                12,
+                                                                "WEBP");
+
+                        case "application/msword",
+                                        "application/vnd.ms-excel" ->
+                                valid = startsWith(
+                                                data,
+                                                new byte[] {
+                                                                (byte) 0xD0,
+                                                                (byte) 0xCF,
+                                                                0x11,
+                                                                (byte) 0xE0,
+                                                                (byte) 0xA1,
+                                                                (byte) 0xB1,
+                                                                0x1A,
+                                                                (byte) 0xE1
+                                                });
+
+                        case "application/vnd.openxmlformats-officedocument.wordapplicationml.document",
+                                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ->
+                                valid = startsWith(
+                                                data,
+                                                new byte[] {
+                                                                0x50,
+                                                                0x4B,
+                                                                0x03,
+                                                                0x04
+                                                });
+
+                        case "text/plain",
+                                        "text/csv" ->
+                                valid = isReasonableTextFile(
+                                                data);
+
+                        default ->
+                                valid = false;
+                }
+
+                if (!valid) {
+
+                        throw new IllegalArgumentException(
+                                        "The uploaded file content does not match its declared file type.");
+                }
+        }
+
+        /*
+         * ================================================================
+         * TEXT FILE VALIDATION
+         * ================================================================
+         */
+
+        private boolean isReasonableTextFile(
+                        byte[] data) {
+
+                /*
+                 * Reject NUL bytes. They are a strong indication that the
+                 * file is binary rather than normal text/CSV.
+                 */
+
+                for (byte value : data) {
+
+                        if (value == 0) {
+
+                                return false;
                         }
-                );
+                }
 
-        case "image/jpeg",
-             "image/jpg" ->
-                valid = startsWith(
-                        data,
-                        new byte[]{
-                                (byte) 0xFF,
-                                (byte) 0xD8,
-                                (byte) 0xFF
+                return true;
+        }
+
+        /*
+         * ================================================================
+         * BYTE SIGNATURE HELPERS
+         * ================================================================
+         */
+
+        private boolean startsWith(
+                        byte[] data,
+                        byte[] signature) {
+
+                if (data.length < signature.length) {
+                        return false;
+                }
+
+                for (int i = 0; i < signature.length; i++) {
+
+                        if (data[i] != signature[i]) {
+
+                                return false;
                         }
-                );
+                }
 
-        case "image/png" ->
-                valid = startsWith(
-                        data,
-                        new byte[]{
-                                (byte) 0x89,
-                                0x50,
-                                0x4E,
-                                0x47,
-                                0x0D,
-                                0x0A,
-                                0x1A,
-                                0x0A
-                        }
-                );
+                return true;
+        }
 
-        case "image/webp" ->
-                valid =
-                        startsWith(
-                                data,
-                                new byte[]{
-                                        0x52,
-                                        0x49,
-                                        0x46,
-                                        0x46
+        private boolean containsAscii(
+                        byte[] data,
+                        int start,
+                        int end,
+                        String expected) {
+
+                if (start < 0
+                                || end > data.length
+                                || expected == null) {
+
+                        return false;
+                }
+
+                if (end - start < expected.length()) {
+
+                        return false;
+                }
+
+                for (int i = start; i <= end - expected.length(); i++) {
+
+                        boolean matches = true;
+
+                        for (int j = 0; j < expected.length(); j++) {
+
+                                if (data[i + j] != (byte) expected.charAt(j)) {
+
+                                        matches = false;
+                                        break;
                                 }
-                        )
-                                && containsAscii(
-                                data,
-                                8,
-                                12,
-                                "WEBP"
-                        );
-
-        case "application/msword",
-             "application/vnd.ms-excel" ->
-                valid = startsWith(
-                        data,
-                        new byte[]{
-                                (byte) 0xD0,
-                                (byte) 0xCF,
-                                0x11,
-                                (byte) 0xE0,
-                                (byte) 0xA1,
-                                (byte) 0xB1,
-                                0x1A,
-                                (byte) 0xE1
                         }
-                );
 
-        case "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ->
-                valid = startsWith(
-                        data,
-                        new byte[]{
-                                0x50,
-                                0x4B,
-                                0x03,
-                                0x04
+                        if (matches) {
+
+                                return true;
                         }
-                );
+                }
 
-        case "text/plain",
-             "text/csv" ->
-                valid = isReasonableTextFile(
-                        data
-                );
-
-        default ->
-                valid = false;
-    }
-
-    if (!valid) {
-
-        throw new IllegalArgumentException(
-                "The uploaded file content does not match its declared file type."
-        );
-    }
-}
-
-/*
- * ================================================================
- * TEXT FILE VALIDATION
- * ================================================================
- */
-
-private boolean isReasonableTextFile(
-        byte[] data
-) {
-
-    /*
-     * Reject NUL bytes. They are a strong indication that the
-     * file is binary rather than normal text/CSV.
-     */
-
-    for (byte value : data) {
-
-        if (value == 0) {
-
-            return false;
+                return false;
         }
-    }
-
-    return true;
-}
-
-/*
- * ================================================================
- * BYTE SIGNATURE HELPERS
- * ================================================================
- */
-
-private boolean startsWith(
-        byte[] data,
-        byte[] signature
-) {
-
-    if (data.length < signature.length) {
-        return false;
-    }
-
-    for (int i = 0; i < signature.length; i++) {
-
-        if (data[i] != signature[i]) {
-
-            return false;
-        }
-    }
-
-    return true;
-}
-
-private boolean containsAscii(
-        byte[] data,
-        int start,
-        int end,
-        String expected
-) {
-
-    if (
-            start < 0
-                    || end > data.length
-                    || expected == null
-    ) {
-
-        return false;
-    }
-
-    if (end - start < expected.length()) {
-
-        return false;
-    }
-
-    for (
-            int i = start;
-            i <= end - expected.length();
-            i++
-    ) {
-
-        boolean matches = true;
-
-        for (
-                int j = 0;
-                j < expected.length();
-                j++
-        ) {
-
-            if (
-                    data[i + j]
-                            != (byte) expected.charAt(j)
-            ) {
-
-                matches = false;
-                break;
-            }
-        }
-
-        if (matches) {
-
-            return true;
-        }
-    }
-
-    return false;
-}
-
-/*
- * ================================================================
- * CONTENT TYPE NORMALIZATION
- * ================================================================
- */
-
-private String normalizeContentType(
-        String contentType
-) {
-
-    if (
-            contentType == null
-                    || contentType.isBlank()
-    ) {
-
-        return null;
-    }
-
-    String normalized =
-            contentType
-                    .trim()
-                    .toLowerCase(
-                            Locale.ROOT
-                    );
-
-    /*
-     * Normalize common aliases.
-     */
-
-    if ("image/jpg".equals(normalized)) {
-
-        return "image/jpeg";
-    }
-
-    return normalized;
-}
-
-/*
- * ================================================================
- * CATEGORY NORMALIZATION
- * ================================================================
- */
-
-private String normalizeCategory(
-        String category
-) {
-
-    String normalized =
-            normalizeCategoryOrNull(
-                    category
-            );
-
-    return normalized != null
-            ? normalized
-            : DEFAULT_CATEGORY;
-}
-
-private String normalizeCategoryOrNull(
-        String category
-) {
-
-    if (
-            category == null
-                    || category.isBlank()
-    ) {
-
-        return null;
-    }
-
-    String normalized =
-            category
-                    .trim()
-                    .toUpperCase(
-                            Locale.ROOT
-                    );
-
-    if (!CATEGORIES.contains(normalized)) {
-
-        throw new IllegalArgumentException(
-                "Invalid document category."
-        );
-    }
-
-    return normalized;
-}
-
-/*
- * ================================================================
- * TITLE NORMALIZATION
- * ================================================================
- */
-
-private String resolveTitle(
-        String title,
-        String originalFileName
-) {
-
-    String providedTitle =
-            sanitizeText(
-                    title
-            );
-
-    if (
-            providedTitle != null
-                    && !providedTitle.isBlank()
-    ) {
-
-        return truncate(
-                providedTitle,
-                MAX_TITLE_LENGTH
-        );
-    }
-
-    String baseName =
-            originalFileName;
-
-    int extensionIndex =
-            baseName.lastIndexOf('.');
-
-    if (extensionIndex > 0) {
-
-        baseName =
-                baseName.substring(
-                        0,
-                        extensionIndex
-                );
-    }
-
-    baseName =
-            sanitizeText(
-                    baseName
-            );
-
-    if (
-            baseName == null
-                    || baseName.isBlank()
-    ) {
-
-        baseName = "Document";
-    }
-
-    String generatedTitle =
-            baseName
-                    + " ("
-                    + UUID.randomUUID()
-                    .toString()
-                    .substring(
-                            0,
-                            8
-                    )
-                    + ")";
-
-    return truncate(
-            generatedTitle,
-            MAX_TITLE_LENGTH
-    );
-}
-
-/*
- * ================================================================
- * DESCRIPTION NORMALIZATION
- * ================================================================
- */
-
-private String normalizeDescription(
-        String description
-) {
-
-    String normalized =
-            sanitizeText(
-                    description
-            );
-
-    if (
-            normalized == null
-                    || normalized.isBlank()
-    ) {
-
-        return null;
-    }
-
-    return truncate(
-            normalized,
-            MAX_DESCRIPTION_LENGTH
-    );
-}
-
-/*
- * ================================================================
- * FILENAME SANITIZATION
- * ================================================================
- */
-
-private String sanitizeFileName(
-        String fileName
-) {
-
-    if (
-            fileName == null
-                    || fileName.isBlank()
-    ) {
-
-        return null;
-    }
-
-    String sanitized =
-            fileName
-                    .replace(
-                            '\\',
-                            '/'
-                    );
-
-    /*
-     * Remove directory traversal components.
-     */
-
-    int lastSlash =
-            sanitized.lastIndexOf('/');
-
-    if (lastSlash >= 0) {
-
-        sanitized =
-                sanitized.substring(
-                        lastSlash + 1
-                );
-    }
-
-    /*
-     * Remove control characters.
-     */
-
-    sanitized =
-            sanitized.replaceAll(
-                    "[\\p{Cntrl}]",
-                    ""
-            );
-
-    /*
-     * Remove characters commonly dangerous for generated
-     * filesystem paths.
-     */
-
-    sanitized =
-            sanitized.replaceAll(
-                    "[<>:\"/\\\\|?*]",
-                    "_"
-            );
-
-    sanitized =
-            sanitized.trim();
-
-    if (sanitized.isBlank()) {
-
-        return null;
-    }
-
-    return truncate(
-            sanitized,
-            MAX_FILENAME_LENGTH
-    );
-}
-
-/*
- * ================================================================
- * TEXT SANITIZATION
- * ================================================================
- */
-
-private String sanitizeText(
-        String value
-) {
-
-    if (value == null) {
-
-        return null;
-    }
-
-    String normalized =
-            value
-                    .replace(
-                            "\u0000",
-                            ""
-                    )
-                    .trim();
-
-    return normalized.isBlank()
-            ? null
-            : normalized;
-}
-
-/*
- * ================================================================
- * TRUNCATION
- * ================================================================
- */
-
-private String truncate(
-        String value,
-        int maxLength
-) {
-
-    if (value == null) {
-
-        return null;
-    }
-
-    if (value.length() <= maxLength) {
-
-        return value;
-    }
-
-    return value.substring(
-            0,
-            maxLength
-    );
-}
-
-/*
- * ================================================================
- * SHA-256
- * ================================================================
- */
-
-private String calculateSha256(
-        byte[] data
-) {
-
-    try {
-
-        MessageDigest digest =
-                MessageDigest.getInstance(
-                        "SHA-256"
-                );
-
-        byte[] hash =
-                digest.digest(
-                        data
-                );
-
-        return HexFormat.of()
-                .formatHex(
-                        hash
-                );
-
-    } catch (NoSuchAlgorithmException e) {
 
         /*
-         * SHA-256 is required by every standard Java runtime.
-         * Treat absence as a fatal application configuration
-         * problem.
+         * ================================================================
+         * CONTENT TYPE NORMALIZATION
+         * ================================================================
          */
 
-        throw new IllegalStateException(
-                "SHA-256 is not available in this Java runtime.",
-                e
-        );
-    }
-}
+        private String normalizeContentType(
+                        String contentType) {
 
-/*
- * ================================================================
- * EXTENSION
- * ================================================================
- */
+                if (contentType == null
+                                || contentType.isBlank()) {
 
-private String extensionForContentType(
-        String contentType
-) {
+                        return null;
+                }
 
-    if (contentType == null) {
+                String normalized = contentType
+                                .trim()
+                                .toLowerCase(
+                                                Locale.ROOT);
 
-        return "";
-    }
+                /*
+                 * Normalize common aliases.
+                 */
 
-    return switch (contentType) {
+                if ("image/jpg".equals(normalized)) {
 
-        case "application/pdf" ->
-                ".pdf";
+                        return "image/jpeg";
+                }
 
-        case "image/jpeg",
-             "image/jpg" ->
-                ".jpg";
+                return normalized;
+        }
 
-        case "image/png" ->
-                ".png";
+        /*
+         * ================================================================
+         * CATEGORY NORMALIZATION
+         * ================================================================
+         */
 
-        case "image/webp" ->
-                ".webp";
+        private String normalizeCategory(
+                        String category) {
 
-        case "application/msword" ->
-                ".doc";
+                String normalized = normalizeCategoryOrNull(
+                                category);
 
-        case "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ->
-                ".docx";
+                return normalized != null
+                                ? normalized
+                                : DEFAULT_CATEGORY;
+        }
 
-        case "application/vnd.ms-excel" ->
-                ".xls";
+        private String normalizeCategoryOrNull(
+                        String category) {
 
-        case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ->
-                ".xlsx";
+                if (category == null
+                                || category.isBlank()) {
 
-        case "text/csv" ->
-                ".csv";
+                        return null;
+                }
 
-        case "text/plain" ->
-                ".txt";
+                String normalized = category
+                                .trim()
+                                .toUpperCase(
+                                                Locale.ROOT);
 
-        default ->
-                "";
-    };
-}
+                if (!CATEGORIES.contains(normalized)) {
 
-/*
- * ================================================================
- * ID VALIDATION
- * ================================================================
- */
+                        throw new IllegalArgumentException(
+                                        "Invalid document category.");
+                }
 
-private void validateDocumentId(
-        Long id
-) {
+                return normalized;
+        }
 
-    if (id == null || id <= 0) {
+        /*
+         * ================================================================
+         * TITLE NORMALIZATION
+         * ================================================================
+         */
 
-        throw new IllegalArgumentException(
-                "Document ID is required."
-        );
-    }
-}
+        private String resolveTitle(
+                        String title,
+                        String originalFileName) {
 
-private void validateOrganizationId(
-        Long orgId
-) {
+                String providedTitle = sanitizeText(
+                                title);
 
-    if (orgId == null || orgId <= 0) {
+                if (providedTitle != null
+                                && !providedTitle.isBlank()) {
 
-        throw new IllegalArgumentException(
-                "Organization ID is required."
-        );
-    }
-}
+                        return truncate(
+                                        providedTitle,
+                                        MAX_TITLE_LENGTH);
+                }
 
+                String baseName = originalFileName;
+
+                int extensionIndex = baseName.lastIndexOf('.');
+
+                if (extensionIndex > 0) {
+
+                        baseName = baseName.substring(
+                                        0,
+                                        extensionIndex);
+                }
+
+                baseName = sanitizeText(
+                                baseName);
+
+                if (baseName == null
+                                || baseName.isBlank()) {
+
+                        baseName = "Document";
+                }
+
+                String generatedTitle = baseName
+                                + " ("
+                                + UUID.randomUUID()
+                                                .toString()
+                                                .substring(
+                                                                0,
+                                                                8)
+                                + ")";
+
+                return truncate(
+                                generatedTitle,
+                                MAX_TITLE_LENGTH);
+        }
+
+        /*
+         * ================================================================
+         * DESCRIPTION NORMALIZATION
+         * ================================================================
+         */
+
+        private String normalizeDescription(
+                        String description) {
+
+                String normalized = sanitizeText(
+                                description);
+
+                if (normalized == null
+                                || normalized.isBlank()) {
+
+                        return null;
+                }
+
+                return truncate(
+                                normalized,
+                                MAX_DESCRIPTION_LENGTH);
+        }
+
+        /*
+         * ================================================================
+         * FILENAME SANITIZATION
+         * ================================================================
+         */
+
+        private String sanitizeFileName(
+                        String fileName) {
+
+                if (fileName == null
+                                || fileName.isBlank()) {
+
+                        return null;
+                }
+
+                String sanitized = fileName
+                                .replace(
+                                                '\\',
+                                                '/');
+
+                /*
+                 * Remove directory traversal components.
+                 */
+
+                int lastSlash = sanitized.lastIndexOf('/');
+
+                if (lastSlash >= 0) {
+
+                        sanitized = sanitized.substring(
+                                        lastSlash + 1);
+                }
+
+                /*
+                 * Remove control characters.
+                 */
+
+                sanitized = sanitized.replaceAll(
+                                "[\\p{Cntrl}]",
+                                "");
+
+                /*
+                 * Remove characters commonly dangerous for generated
+                 * filesystem paths.
+                 */
+
+                sanitized = sanitized.replaceAll(
+                                "[<>:\"/\\\\|?*]",
+                                "_");
+
+                sanitized = sanitized.trim();
+
+                if (sanitized.isBlank()) {
+
+                        return null;
+                }
+
+                return truncate(
+                                sanitized,
+                                MAX_FILENAME_LENGTH);
+        }
+
+        /*
+         * ================================================================
+         * TEXT SANITIZATION
+         * ================================================================
+         */
+
+        private String sanitizeText(
+                        String value) {
+
+                if (value == null) {
+
+                        return null;
+                }
+
+                String normalized = value
+                                .replace(
+                                                "\u0000",
+                                                "")
+                                .trim();
+
+                return normalized.isBlank()
+                                ? null
+                                : normalized;
+        }
+
+        /*
+         * ================================================================
+         * TRUNCATION
+         * ================================================================
+         */
+
+        private String truncate(
+                        String value,
+                        int maxLength) {
+
+                if (value == null) {
+
+                        return null;
+                }
+
+                if (value.length() <= maxLength) {
+
+                        return value;
+                }
+
+                return value.substring(
+                                0,
+                                maxLength);
+        }
+
+        /*
+         * ================================================================
+         * SHA-256
+         * ================================================================
+         */
+
+        private String calculateSha256(
+                        byte[] data) {
+
+                try {
+
+                        MessageDigest digest = MessageDigest.getInstance(
+                                        "SHA-256");
+
+                        byte[] hash = digest.digest(
+                                        data);
+
+                        return HexFormat.of()
+                                        .formatHex(
+                                                        hash);
+
+                } catch (NoSuchAlgorithmException e) {
+
+                        /*
+                         * SHA-256 is required by every standard Java runtime.
+                         * Treat absence as a fatal application configuration
+                         * problem.
+                         */
+
+                        throw new IllegalStateException(
+                                        "SHA-256 is not available in this Java runtime.",
+                                        e);
+                }
+        }
+
+        /*
+         * ================================================================
+         * EXTENSION
+         * ================================================================
+         */
+
+        private String extensionForContentType(
+                        String contentType) {
+
+                if (contentType == null) {
+
+                        return "";
+                }
+
+                return switch (contentType) {
+
+                        case "application/pdf" ->
+                                ".pdf";
+
+                        case "image/jpeg",
+                                        "image/jpg" ->
+                                ".jpg";
+
+                        case "image/png" ->
+                                ".png";
+
+                        case "image/webp" ->
+                                ".webp";
+
+                        case "application/msword" ->
+                                ".doc";
+
+                        case "application/vnd.openxmlformats-officedocument.wordapplicationml.document" ->
+                                ".docx";
+
+                        case "application/vnd.ms-excel" ->
+                                ".xls";
+
+                        case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ->
+                                ".xlsx";
+
+                        case "text/csv" ->
+                                ".csv";
+
+                        case "text/plain" ->
+                                ".txt";
+
+                        default ->
+                                "";
+                };
+        }
+
+        /*
+         * ================================================================
+         * ID VALIDATION
+         * ================================================================
+         */
+
+        private void validateDocumentId(
+                        Long id) {
+
+                if (id == null || id <= 0) {
+
+                        throw new IllegalArgumentException(
+                                        "Document ID is required.");
+                }
+        }
+
+        private void validateOrganizationId(
+                        Long orgId) {
+
+                if (orgId == null || orgId <= 0) {
+
+                        throw new IllegalArgumentException(
+                                        "Organization ID is required.");
+                }
+        }
 
 }

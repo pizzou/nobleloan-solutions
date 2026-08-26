@@ -73,12 +73,12 @@ export default function PrivacyPage() {
             4. Who we share it with
           </h2>
           <p>
-            We may share your information with: our payment processing provider
+            We may share your information with: our payment application provider
             to disburse funds or collect repayments; a credit reference bureau,
             where we use one, to assess creditworthiness and report repayment
             history; and regulators or law enforcement where required by law.
             [INSERT: name any additional processors/providers you actually use,
-            and confirm whether a data processing agreement is in place with
+            and confirm whether a data application agreement is in place with
             each.] We do not sell your personal information.
           </p>
         </section>

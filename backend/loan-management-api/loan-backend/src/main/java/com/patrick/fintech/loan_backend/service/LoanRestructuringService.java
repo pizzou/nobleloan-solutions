@@ -336,7 +336,7 @@ public class LoanRestructuringService {
                                                 + "%"
                                                 + " | extensionFee="
                                                 + extensionFee
-                                                + " | processingFee="
+                                                + " | applicationFee="
                                                 + PROCESSING_FEE_RATE
                                                 + "% one-time");
 

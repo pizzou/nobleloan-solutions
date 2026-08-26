@@ -176,7 +176,7 @@ public class BulkDisbursementService {
                                 // PROCESSING FEE
                                 // ====================================================
 
-                                BigDecimal processingFee = money(
+                                BigDecimal applicationFee = money(
                                                 grossAmount
                                                                 .multiply(
                                                                                 PROCESSING_FEE_RATE)
@@ -191,7 +191,7 @@ public class BulkDisbursementService {
                                 BigDecimal netDisbursement = money(
                                                 grossAmount
                                                                 .subtract(
-                                                                                processingFee)
+                                                                                applicationFee)
                                                                 .max(
                                                                                 ZERO));
 
@@ -226,7 +226,7 @@ public class BulkDisbursementService {
                                                 PROCESSING_FEE_RATE);
 
                                 loan.setProcessingFee(
-                                                processingFee);
+                                                applicationFee);
 
                                 loan.setOutstandingBalance(
                                                 grossAmount);
@@ -274,7 +274,7 @@ public class BulkDisbursementService {
                                 totalProcessingFees = money(
                                                 totalProcessingFees
                                                                 .add(
-                                                                                processingFee));
+                                                                                applicationFee));
 
                                 totalNetDisbursed = money(
                                                 totalNetDisbursed
@@ -292,7 +292,7 @@ public class BulkDisbursementService {
                                                                 loanId,
                                                                 saved.getReferenceNumber(),
                                                                 grossAmount,
-                                                                processingFee,
+                                                                applicationFee,
                                                                 netDisbursement,
                                                                 saved.getCurrency()));
 
@@ -340,7 +340,7 @@ public class BulkDisbursementService {
                                                                         + ". Gross="
                                                                         + grossAmount
                                                                         + ", application fee="
-                                                                        + processingFee
+                                                                        + applicationFee
                                                                         + ", net disbursement="
                                                                         + netDisbursement);
 
@@ -399,7 +399,7 @@ public class BulkDisbursementService {
                                 "Bulk disbursement completed. " +
                                                 "organizationId={}, totalLoans={}, " +
                                                 "success={}, failures={}, grossDisbursed={}, " +
-                                                "processingFees={}, netDisbursed={}, method={}",
+                                                "applicationFees={}, netDisbursed={}, method={}",
                                 orgId,
                                 loanIds.size(),
                                 successCount,
@@ -450,7 +450,7 @@ public class BulkDisbursementService {
                         String referenceNumber,
                         boolean success,
                         Double grossAmount,
-                        Double processingFee,
+                        Double applicationFee,
                         Double netDisbursedAmount,
                         String currency,
                         String errorMessage) {
@@ -459,7 +459,7 @@ public class BulkDisbursementService {
                                 Long id,
                                 String referenceNumber,
                                 BigDecimal grossAmount,
-                                BigDecimal processingFee,
+                                BigDecimal applicationFee,
                                 BigDecimal netDisbursedAmount,
                                 String currency) {
 
@@ -470,8 +470,8 @@ public class BulkDisbursementService {
                                         grossAmount != null
                                                         ? grossAmount.doubleValue()
                                                         : 0.0,
-                                        processingFee != null
-                                                        ? processingFee.doubleValue()
+                                        applicationFee != null
+                                                        ? applicationFee.doubleValue()
                                                         : 0.0,
                                         netDisbursedAmount != null
                                                         ? netDisbursedAmount.doubleValue()

@@ -85,13 +85,13 @@ public class SmsService {
                                                 ? loan.getAmountDecimal()
                                                 : null);
 
-                BigDecimal processingFee = money(
+                BigDecimal applicationFee = money(
                                 loan != null
                                                 ? loan.getProcessingFeeDecimal()
                                                 : null);
 
                 BigDecimal expectedNetDisbursement = grossAmount
-                                .subtract(processingFee)
+                                .subtract(applicationFee)
                                 .max(BigDecimal.ZERO);
 
                 BigDecimal requestedAmount = money(
@@ -99,7 +99,7 @@ public class SmsService {
                                                 ? loan.getRequestedAmountDecimal()
                                                 : grossAmount);
 
-                BigDecimal processingFeeRate = money(
+                BigDecimal applicationFeeRate = money(
                                 loan != null && loan.getProcessingFeeRateDecimal() != null
                                                 ? loan.getProcessingFeeRateDecimal()
                                                 : PROCESSING_FEE_RATE);
@@ -131,7 +131,7 @@ public class SmsService {
                                                 value(loan != null ? loan.getReferenceNumber() : null),
                                                 currency, formatMoney(requestedAmount),
                                                 currency, formatMoney(grossAmount),
-                                                formatMoney(processingFeeRate), currency, formatMoney(processingFee),
+                                                formatMoney(applicationFeeRate), currency, formatMoney(applicationFee),
                                                 currency, formatMoney(expectedNetDisbursement),
                                                 formatMoney(interestRate), formatMoney(managementFeeRate),
                                                 orgName(loan)));
@@ -186,7 +186,7 @@ public class SmsService {
                                                 ? loan.getAmountDecimal()
                                                 : null);
 
-                BigDecimal processingFee = money(
+                BigDecimal applicationFee = money(
                                 loan != null
                                                 ? loan.getProcessingFeeDecimal()
                                                 : null);
@@ -201,7 +201,7 @@ public class SmsService {
                  */
                 BigDecimal netDisbursedAmount = grossAmount
                                 .subtract(
-                                                processingFee)
+                                                applicationFee)
                                 .max(
                                                 BigDecimal.ZERO);
 
@@ -239,7 +239,7 @@ public class SmsService {
                                                 formatMoney(grossAmount),
 
                                                 currency,
-                                                formatMoney(processingFee),
+                                                formatMoney(applicationFee),
 
                                                 currency,
                                                 formatMoney(netDisbursedAmount),

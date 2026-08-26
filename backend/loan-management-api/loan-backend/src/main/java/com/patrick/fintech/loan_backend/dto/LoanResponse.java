@@ -51,9 +51,9 @@ public class LoanResponse {
     private BigDecimal penaltiesPaid;
     private Integer durationMonths;
     private String currency;
-    private BigDecimal processingFeeRate;
-    private BigDecimal processingFee;
-    private BigDecimal processingFeePaid;
+    private BigDecimal applicationFeeRate;
+    private BigDecimal applicationFee;
+    private BigDecimal applicationFeePaid;
     private BigDecimal extensionFeeAssessed;
     private BigDecimal extensionFeePaid;
     private BigDecimal extensionFeeOutstanding;

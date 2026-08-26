@@ -261,7 +261,7 @@ public class LoanController {
                                         Double newInterestRate = parseOptionalDouble(request.get("interestRate"),
                                                         "interestRate");
                                         Double newProcessingFeeRate = parseOptionalDouble(
-                                                        request.get("processingFeeRate"), "processingFeeRate");
+                                                        request.get("applicationFeeRate"), "applicationFeeRate");
                                         BigDecimal newApprovedAmount = parseOptionalBigDecimal(
                                                         request.get("approvedAmount"), "approvedAmount");
 

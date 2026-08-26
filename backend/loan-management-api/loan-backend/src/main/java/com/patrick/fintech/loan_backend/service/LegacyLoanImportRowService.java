@@ -367,17 +367,17 @@ public class LegacyLoanImportRowService {
                                         row,
                                         "total_management_fee_balance");
 
-                        BigDecimal processingFeeGiven = optMoney(
+                        BigDecimal applicationFeeGiven = optMoney(
                                         row,
-                                        "processing_fee");
+                                        "application_fee");
 
-                        BigDecimal processingFeePaidGiven = optMoney(
+                        BigDecimal applicationFeePaidGiven = optMoney(
                                         row,
-                                        "processing_fee_paid");
+                                        "application_fee_paid");
 
-                        BigDecimal processingFeeOutstandingGiven = optMoney(
+                        BigDecimal applicationFeeOutstandingGiven = optMoney(
                                         row,
-                                        "processing_fee_outstanding");
+                                        "application_fee_outstanding");
 
                         BigDecimal penaltiesAssessedGiven = optMoney(
                                         row,
@@ -404,7 +404,7 @@ public class LegacyLoanImportRowService {
                         validateOptionalMoney(interestOutstandingGiven, "interest_outstanding");
                         validateOptionalMoney(managementFeePaidGiven, "management_fee_paid");
                         validateOptionalMoney(managementFeeOutstandingGiven, "total_management_fee_balance");
-                        validateOptionalMoney(processingFeePaidGiven, "processing_fee_paid");
+                        validateOptionalMoney(applicationFeePaidGiven, "application_fee_paid");
                         validateOptionalMoney(penaltiesAssessedGiven, "penalties_assessed");
                         validateOptionalMoney(penaltiesPaidGiven, "penalties_paid");
 
@@ -561,53 +561,53 @@ public class LegacyLoanImportRowService {
                          * and is excluded from recurring totalRepayable because it is a one-time
                          * disbursement charge.
                          */
-                        BigDecimal processingFee;
+                        BigDecimal applicationFee;
 
-                        if (processingFeeGiven != null) {
-                                processingFee = money(processingFeeGiven);
-                        } else if (processingFeePaidGiven != null || processingFeeOutstandingGiven != null) {
-                                processingFee = money(
-                                                (processingFeePaidGiven != null ? processingFeePaidGiven : ZERO)
-                                                                .add(processingFeeOutstandingGiven != null
-                                                                                ? processingFeeOutstandingGiven
+                        if (applicationFeeGiven != null) {
+                                applicationFee = money(applicationFeeGiven);
+                        } else if (applicationFeePaidGiven != null || applicationFeeOutstandingGiven != null) {
+                                applicationFee = money(
+                                                (applicationFeePaidGiven != null ? applicationFeePaidGiven : ZERO)
+                                                                .add(applicationFeeOutstandingGiven != null
+                                                                                ? applicationFeeOutstandingGiven
                                                                                 : ZERO));
                         } else {
-                                processingFee = money(
+                                applicationFee = money(
                                                 amount.multiply(PROCESSING_FEE_RATE)
                                                                 .divide(ONE_HUNDRED, CALCULATION_SCALE,
                                                                                 RoundingMode.HALF_UP));
                         }
 
-                        if (processingFee.compareTo(ZERO) < 0) {
-                                return fail(rowNumber, "processing_fee cannot be negative.");
+                        if (applicationFee.compareTo(ZERO) < 0) {
+                                return fail(rowNumber, "application_fee cannot be negative.");
                         }
 
-                        BigDecimal processingFeePaidAmount = money(
-                                        processingFeePaidGiven != null
-                                                        ? processingFeePaidGiven
-                                                        : (isHistoricalLoanStatus(statusRaw) ? processingFee : ZERO));
+                        BigDecimal applicationFeePaidAmount = money(
+                                        applicationFeePaidGiven != null
+                                                        ? applicationFeePaidGiven
+                                                        : (isHistoricalLoanStatus(statusRaw) ? applicationFee : ZERO));
 
-                        if (processingFeePaidAmount.compareTo(processingFee) > 0) {
-                                return fail(rowNumber, "processing_fee_paid cannot exceed processing_fee.");
+                        if (applicationFeePaidAmount.compareTo(applicationFee) > 0) {
+                                return fail(rowNumber, "application_fee_paid cannot exceed application_fee.");
                         }
 
-                        if (processingFeeOutstandingGiven != null) {
+                        if (applicationFeeOutstandingGiven != null) {
                                 BigDecimal reconciledProcessingFee = money(
-                                                processingFeePaidAmount.add(processingFeeOutstandingGiven));
-                                if (reconciledProcessingFee.subtract(processingFee).abs()
+                                                applicationFeePaidAmount.add(applicationFeeOutstandingGiven));
+                                if (reconciledProcessingFee.subtract(applicationFee).abs()
                                                 .compareTo(new BigDecimal("0.01")) > 0) {
                                         return fail(
                                                         rowNumber,
-                                                        "processing_fee_paid + processing_fee_outstanding must equal processing_fee. "
-                                                                        + "paid=" + processingFeePaidAmount
+                                                        "application_fee_paid + application_fee_outstanding must equal application_fee. "
+                                                                        + "paid=" + applicationFeePaidAmount
                                                                         + ", outstanding="
-                                                                        + processingFeeOutstandingGiven
-                                                                        + ", fee=" + processingFee);
+                                                                        + applicationFeeOutstandingGiven
+                                                                        + ", fee=" + applicationFee);
                                 }
                         }
 
-                        BigDecimal processingFeeRate = amount.compareTo(ZERO) > 0
-                                        ? processingFee.multiply(ONE_HUNDRED)
+                        BigDecimal applicationFeeRate = amount.compareTo(ZERO) > 0
+                                        ? applicationFee.multiply(ONE_HUNDRED)
                                                         .divide(amount, RATE_SCALE, RoundingMode.HALF_UP)
                                         : PROCESSING_FEE_RATE;
 
@@ -880,7 +880,7 @@ public class LegacyLoanImportRowService {
                                                         amount)
 
                                         .netDisbursedAmount(
-                                                        money(amount.subtract(processingFee).max(ZERO)))
+                                                        money(amount.subtract(applicationFee).max(ZERO)))
 
                                         // ------------------------------------------------
                                         // CONTRACTUAL INTEREST
@@ -924,14 +924,14 @@ public class LegacyLoanImportRowService {
                                         // One-time fee; deducted from gross disbursement.
                                         // ------------------------------------------------
 
-                                        .processingFeeRate(
-                                                        processingFeeRate)
+                                        .applicationFeeRate(
+                                                        applicationFeeRate)
 
-                                        .processingFee(
-                                                        processingFee)
+                                        .applicationFee(
+                                                        applicationFee)
 
-                                        .processingFeePaid(
-                                                        processingFeePaidAmount)
+                                        .applicationFeePaid(
+                                                        applicationFeePaidAmount)
 
                                         .totalRepayable(
                                                         totalRepayable)
@@ -1114,8 +1114,8 @@ public class LegacyLoanImportRowService {
                                                         + "referenceNumber={}, borrowerId={}, status={}, "
                                                         + "amount={}, totalRepayable={}, totalPaid={}, "
                                                         + "outstandingBalance={}, interestRate={}%, "
-                                                        + "managementFeeRate={}%, processingFeeRate={}%, "
-                                                        + "processingFee={}, processingFeePaid={}, "
+                                                        + "managementFeeRate={}%, applicationFeeRate={}%, "
+                                                        + "applicationFee={}, applicationFeePaid={}, "
                                                         + "duration={} months, batchId={}",
                                         rowNumber,
                                         org.getId(),
@@ -1129,9 +1129,9 @@ public class LegacyLoanImportRowService {
                                         outstandingBalance,
                                         effectiveInterestRate,
                                         effectiveManagementFeeRate,
-                                        processingFeeRate,
-                                        processingFee,
-                                        processingFeePaidAmount,
+                                        applicationFeeRate,
+                                        applicationFee,
+                                        applicationFeePaidAmount,
                                         durationMonths,
                                         importBatchId);
 

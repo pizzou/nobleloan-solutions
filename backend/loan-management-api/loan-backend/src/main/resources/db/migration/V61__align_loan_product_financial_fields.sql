@@ -14,7 +14,7 @@ ALTER TABLE loan_products
     ADD COLUMN IF NOT EXISTS max_amount NUMERIC(19, 6);
 
 ALTER TABLE loan_products
-    ADD COLUMN IF NOT EXISTS processing_fee_percent NUMERIC(19, 9);
+    ADD COLUMN IF NOT EXISTS application_fee_percent NUMERIC(19, 9);
 
 ALTER TABLE loan_products
     ADD COLUMN IF NOT EXISTS management_fee_percent NUMERIC(19, 9);
@@ -45,8 +45,8 @@ SET min_amount = 500000.00
 WHERE min_amount IS NULL;
 
 UPDATE loan_products
-SET processing_fee_percent = 2.00
-WHERE processing_fee_percent IS NULL;
+SET application_fee_percent = 2.00
+WHERE application_fee_percent IS NULL;
 
 UPDATE loan_products
 SET management_fee_percent = 5.00
@@ -72,7 +72,7 @@ ALTER TABLE loan_products
     ALTER COLUMN min_amount SET DEFAULT 500000.00;
 
 ALTER TABLE loan_products
-    ALTER COLUMN processing_fee_percent SET DEFAULT 2.00;
+    ALTER COLUMN application_fee_percent SET DEFAULT 2.00;
 
 ALTER TABLE loan_products
     ALTER COLUMN management_fee_percent SET DEFAULT 5.00;
@@ -95,7 +95,7 @@ ALTER TABLE loan_products
     ALTER COLUMN min_amount SET NOT NULL;
 
 ALTER TABLE loan_products
-    ALTER COLUMN processing_fee_percent SET NOT NULL;
+    ALTER COLUMN application_fee_percent SET NOT NULL;
 
 ALTER TABLE loan_products
     ALTER COLUMN management_fee_percent SET NOT NULL;

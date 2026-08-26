@@ -458,26 +458,26 @@ public class Loan {
         @Builder.Default
         private String currency = "RWF";
 
-        @Column(name = "processing_fee_rate", precision = 19, scale = 9)
+        @Column(name = "application_fee_rate", precision = 19, scale = 9)
         @Builder.Default
-        @JsonProperty("processingFeeRate")
-        private BigDecimal processingFeeRate = DEFAULT_PROCESSING_FEE_RATE;
+        @JsonProperty("applicationFeeRate")
+        private BigDecimal applicationFeeRate = DEFAULT_PROCESSING_FEE_RATE;
 
         /**
          * One-time application fee amount.
          */
-        @Column(name = "processing_fee", precision = 19, scale = 2)
+        @Column(name = "application_fee", precision = 19, scale = 2)
         @Builder.Default
-        @JsonProperty("processingFee")
-        private BigDecimal processingFee = BigDecimal.ZERO;
+        @JsonProperty("applicationFee")
+        private BigDecimal applicationFee = BigDecimal.ZERO;
 
         /**
          * Actual application fee amount collected so far.
          */
-        @Column(name = "processing_fee_paid", precision = 19, scale = 2, nullable = false)
+        @Column(name = "application_fee_paid", precision = 19, scale = 2, nullable = false)
         @Builder.Default
-        @JsonProperty("processingFeePaid")
-        private BigDecimal processingFeePaid = BigDecimal.ZERO;
+        @JsonProperty("applicationFeePaid")
+        private BigDecimal applicationFeePaid = BigDecimal.ZERO;
 
         // ================================================================
         // EXTENSION / RESTRUCTURING FEES
@@ -667,11 +667,11 @@ public class Loan {
                                 9,
                                 RoundingMode.HALF_UP);
 
-                if (processingFeeRate == null) {
-                        processingFeeRate = DEFAULT_PROCESSING_FEE_RATE;
+                if (applicationFeeRate == null) {
+                        applicationFeeRate = DEFAULT_PROCESSING_FEE_RATE;
                 }
 
-                processingFeeRate = processingFeeRate.setScale(
+                applicationFeeRate = applicationFeeRate.setScale(
                                 9,
                                 RoundingMode.HALF_UP);
 
@@ -717,12 +717,12 @@ public class Loan {
                         outstandingBalance = MoneyMath.ZERO;
                 }
 
-                if (processingFee == null) {
-                        processingFee = MoneyMath.ZERO;
+                if (applicationFee == null) {
+                        applicationFee = MoneyMath.ZERO;
                 }
 
-                if (processingFeePaid == null) {
-                        processingFeePaid = MoneyMath.ZERO;
+                if (applicationFeePaid == null) {
+                        applicationFeePaid = MoneyMath.ZERO;
                 }
 
                 if (managementFee == null) {
@@ -776,7 +776,7 @@ public class Loan {
 
                 if (netDisbursedAmount == null) {
                         netDisbursedAmount = disbursedAmount
-                                        .subtract(processingFee)
+                                        .subtract(applicationFee)
                                         .max(MoneyMath.ZERO);
                 }
 
@@ -1063,8 +1063,8 @@ public class Loan {
                                 ? amount
                                 : BigDecimal.ZERO;
 
-                BigDecimal rate = processingFeeRate != null
-                                ? processingFeeRate
+                BigDecimal rate = applicationFeeRate != null
+                                ? applicationFeeRate
                                 : DEFAULT_PROCESSING_FEE_RATE;
 
                 return principal
@@ -1086,8 +1086,8 @@ public class Loan {
                                 ? amount
                                 : BigDecimal.ZERO;
 
-                BigDecimal fee = processingFee != null
-                                ? processingFee
+                BigDecimal fee = applicationFee != null
+                                ? applicationFee
                                 : calculateProcessingFee();
 
                 return principal
@@ -1169,17 +1169,17 @@ public class Loan {
 
         @JsonIgnore
         public BigDecimal getProcessingFeeRateDecimal() {
-                return processingFeeRate;
+                return applicationFeeRate;
         }
 
         @JsonIgnore
         public BigDecimal getProcessingFeeDecimal() {
-                return processingFee;
+                return applicationFee;
         }
 
         @JsonIgnore
         public BigDecimal getProcessingFeePaidDecimal() {
-                return processingFeePaid;
+                return applicationFeePaid;
         }
 
         public BigDecimal getExtensionFeeAssessedDecimal() {
@@ -1276,21 +1276,21 @@ public class Loan {
         }
 
         public Double getProcessingFeeRateDouble() {
-                return processingFeeRate == null
+                return applicationFeeRate == null
                                 ? null
-                                : processingFeeRate.doubleValue();
+                                : applicationFeeRate.doubleValue();
         }
 
         public Double getProcessingFeeDouble() {
-                return processingFee == null
+                return applicationFee == null
                                 ? null
-                                : processingFee.doubleValue();
+                                : applicationFee.doubleValue();
         }
 
         public Double getProcessingFeePaidDouble() {
-                return processingFeePaid == null
+                return applicationFeePaid == null
                                 ? null
-                                : processingFeePaid.doubleValue();
+                                : applicationFeePaid.doubleValue();
         }
 
         public Double getDisbursedAmountDouble() {
@@ -1373,15 +1373,15 @@ public class Loan {
         }
 
         public void setProcessingFeeRate(BigDecimal value) {
-                this.processingFeeRate = normalizeRate(value);
+                this.applicationFeeRate = normalizeRate(value);
         }
 
         public void setProcessingFee(BigDecimal value) {
-                this.processingFee = normalizeMoney(value);
+                this.applicationFee = normalizeMoney(value);
         }
 
         public void setProcessingFeePaid(BigDecimal value) {
-                this.processingFeePaid = normalizeMoney(value);
+                this.applicationFeePaid = normalizeMoney(value);
         }
 
         public void setExtensionFeeAssessed(BigDecimal value) {
@@ -1461,15 +1461,15 @@ public class Loan {
         }
 
         public void setProcessingFeeRate(Double value) {
-                this.processingFeeRate = MoneyMath.of(value);
+                this.applicationFeeRate = MoneyMath.of(value);
         }
 
         public void setProcessingFee(Double value) {
-                this.processingFee = MoneyMath.of(value);
+                this.applicationFee = MoneyMath.of(value);
         }
 
         public void setProcessingFeePaid(Double value) {
-                this.processingFeePaid = MoneyMath.of(value);
+                this.applicationFeePaid = MoneyMath.of(value);
         }
 
         public void setDisbursedAmount(Double value) {

@@ -197,7 +197,7 @@ public final class FinancialPolicy {
                         BigDecimal remainingBalance) {
         }
 
-        public static BigDecimal processingFee(BigDecimal principal) {
+        public static BigDecimal applicationFee(BigDecimal principal) {
                 if (principal == null || principal.signum() <= 0) {
                         return BigDecimal.ZERO.setScale(2, ROUNDING);
                 }

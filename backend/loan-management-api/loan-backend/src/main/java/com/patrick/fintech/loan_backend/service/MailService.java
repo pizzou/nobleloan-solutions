@@ -107,13 +107,13 @@ public class MailService {
                 ? loan.getRequestedAmountDecimal()
                 : loan.getAmountDecimal();
         java.math.BigDecimal approved = loan.getAmountDecimal();
-        java.math.BigDecimal processingFee = loan.getProcessingFeeDecimal() != null
+        java.math.BigDecimal applicationFee = loan.getProcessingFeeDecimal() != null
                 ? loan.getProcessingFeeDecimal()
                 : java.math.BigDecimal.ZERO;
-        java.math.BigDecimal net = approved.subtract(processingFee).max(java.math.BigDecimal.ZERO);
+        java.math.BigDecimal net = approved.subtract(applicationFee).max(java.math.BigDecimal.ZERO);
         java.math.BigDecimal interestRate = loan.getInterestRateDecimal();
         java.math.BigDecimal managementRate = loan.getManagementFeeRateDecimal();
-        java.math.BigDecimal processingRate = loan.getProcessingFeeRateDecimal();
+        java.math.BigDecimal applicationRate = loan.getProcessingFeeRateDecimal();
 
         send(to, "Your Loan Has Been Approved — " + loan.getReferenceNumber(),
                 "<h2>Loan Approved</h2>" +
@@ -121,8 +121,8 @@ public class MailService {
                         + "</strong> has been reviewed and approved.</p>" +
                         "<p>Requested amount: <strong>" + loan.getCurrency() + " " + requested + "</strong></p>" +
                         "<p>Approved principal: <strong>" + loan.getCurrency() + " " + approved + "</strong></p>" +
-                        "<p>One-time application fee (" + processingRate + "%): <strong>" + loan.getCurrency() + " "
-                        + processingFee + "</strong></p>" +
+                        "<p>One-time application fee (" + applicationRate + "%): <strong>" + loan.getCurrency() + " "
+                        + applicationFee + "</strong></p>" +
                         "<p>Net amount to be disbursed: <strong>" + loan.getCurrency() + " " + net + "</strong></p>" +
                         "<p>Contractual interest: <strong>" + interestRate
                         + "% monthly</strong>. Management fee: <strong>" + managementRate + "% monthly</strong>.</p>" +
