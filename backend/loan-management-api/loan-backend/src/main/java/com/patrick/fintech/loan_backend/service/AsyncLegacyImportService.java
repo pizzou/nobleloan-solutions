@@ -1,11 +1,11 @@
 package com.patrick.fintech.loan_backend.service;
 
-import com.patrick.fintech.loan_backend.model.User;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.patrick.fintech.loan_backend.dto.ImportRowResult;
 import com.patrick.fintech.loan_backend.model.Borrower;
 import com.patrick.fintech.loan_backend.model.ImportBatch;
 import com.patrick.fintech.loan_backend.model.Organization;
+import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.ImportBatchRepository;
 import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.repository.UserRepository;
@@ -33,6 +33,15 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * Production asynchronous legacy-loan import coordinator.
+ *
+ * The HTTP request only stages the file and creates an ImportBatch. Workbook
+ * parsing and row transactions happen in a background worker. Every imported
+ * loan is marked as historical/imported by LegacyLoanImportRowService and is
+ * posted to accounting as an opening balance, so financial reconciliation is
+ * not asked to replay historical cash disbursements.
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j

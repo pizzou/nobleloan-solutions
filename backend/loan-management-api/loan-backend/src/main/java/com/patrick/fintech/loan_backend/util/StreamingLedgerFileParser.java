@@ -843,6 +843,19 @@ public final class StreamingLedgerFileParser {
         if (normalized.isBlank()) {
             return "";
         }
+
+        // Historical Noble Loan sheets may contain a status marker such as
+        // "loan restructure" in the next-due-date column. It is not a date.
+        // Status detection still reads the original row, so normalize it to
+        // blank here and let the row service apply its normal historical
+        // fallback date.
+        String statusMarker = normalized.toUpperCase(Locale.ROOT);
+        if (statusMarker.contains("RESTRUCTURE")
+                || statusMarker.equals("RESTRUCTURED")
+                || statusMarker.equals("RESTRUCTURE")) {
+            return "";
+        }
+
         for (DateTimeFormatter formatter : DATE_FORMATS) {
             try {
                 return LocalDate.parse(normalized, formatter).toString();
