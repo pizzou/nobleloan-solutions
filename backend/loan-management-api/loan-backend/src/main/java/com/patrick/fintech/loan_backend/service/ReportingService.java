@@ -43,11 +43,6 @@ public class ReportingService {
         private final LoanRepository loanRepository;
         private final PaymentRepository paymentRepository;
 
-        /*
-         * Financial calculations use BigDecimal.
-         *
-         * Money is presented with two decimal places.
-         */
         private static final int MONEY_SCALE = 2;
 
         private static final RoundingMode MONEY_ROUNDING = RoundingMode.HALF_UP;
@@ -93,27 +88,6 @@ public class ReportingService {
                                                                 Collectors.counting()));
         }
 
-        // ============================================================
-        // PAYMENT REPORT
-        // ============================================================
-
-        /**
-         * Returns payment totals using BigDecimal.
-         *
-         * IMPORTANT:
-         *
-         * Do not use:
-         *
-         * payment.getAmount()
-         * payment.getPenalty()
-         *
-         * because those are legacy Double getters.
-         *
-         * The authoritative financial values are:
-         *
-         * payment.getAmountDecimal()
-         * payment.getPenaltyDecimal()
-         */
         public Map<String, BigDecimal> paymentReport(
                         Long organizationId) {
 
@@ -176,7 +150,7 @@ public class ReportingService {
                 }
 
                 List<Loan> importedLoans = safeLoans(
-                                loanRepository.findByOrganization_IdAndImportedTrue(organizationId));
+                                loanRepository.findHistoricalImportedLoans(organizationId));
                 for (Loan loan : importedLoans) {
                         if (loan == null)
                                 continue;
@@ -215,10 +189,6 @@ public class ReportingService {
 
                 return result;
         }
-
-        // ============================================================
-        // CSV FIELD
-        // ============================================================
 
         private String csvField(
                         Object value) {
@@ -1090,7 +1060,7 @@ public class ReportingService {
                         };
                         setHeader(legacySheet.createRow(0), legacyHeaders, headerStyle);
                         List<Loan> importedLoansForExcel = safeLoans(
-                                        loanRepository.findByOrganization_IdAndImportedTrue(organizationId));
+                                        loanRepository.findHistoricalImportedLoans(organizationId));
                         int legacyRowNumber = 1;
                         for (Loan loan : importedLoansForExcel) {
                                 if (loan == null)

@@ -59,7 +59,18 @@ class FinancialReconciliationServiceTest {
         disbursement.addLine(line(cash, "0.00", "1000.00"));
 
         Loan loan = new Loan();
+        loan.setStatus(com.patrick.fintech.loan_backend.model.LoanStatus.ACTIVE);
+        loan.setAmount(new BigDecimal("1000.00"));
+        loan.setPrincipalPaid(new BigDecimal("0.00"));
         loan.setOutstandingBalance(new BigDecimal("1000.00"));
+        loan.setTotalInterest(new BigDecimal("0.00"));
+        loan.setInterestPaid(new BigDecimal("0.00"));
+        loan.setInterestOutstanding(new BigDecimal("0.00"));
+        loan.setManagementFee(new BigDecimal("0.00"));
+        loan.setManagementFeePaid(new BigDecimal("0.00"));
+        loan.setManagementFeeOutstanding(new BigDecimal("0.00"));
+        loan.setApplicationFee(new BigDecimal("0.00"));
+        loan.setApplicationFeePaid(new BigDecimal("0.00"));
 
         stub(List.of(loansReceivable, cash), List.of(disbursement), List.of(loan));
 
@@ -127,6 +138,92 @@ class FinancialReconciliationServiceTest {
         assertFalse(report.balanced());
         assertFalse(report.subledger().get("1150").reconciles());
         assertEquals(new BigDecimal("50.00"), report.subledger().get("1150").difference());
+    }
+
+    @Test
+    void principalInvariantFailureIsReported() {
+        ChartOfAccount loansReceivable = account("1100", "Loans Receivable");
+        ChartOfAccount cash = account("1000", "Cash and Bank");
+
+        JournalEntry entry = entry(8L, "LOAN_DISBURSEMENT", "99", false);
+        entry.addLine(line(loansReceivable, "1000.00", "0.00"));
+        entry.addLine(line(cash, "0.00", "1000.00"));
+
+        Loan loan = new Loan();
+        loan.setStatus(com.patrick.fintech.loan_backend.model.LoanStatus.ACTIVE);
+        loan.setAmount(new BigDecimal("1000.00"));
+        loan.setPrincipalPaid(new BigDecimal("800.00"));
+        loan.setOutstandingBalance(new BigDecimal("300.00"));
+
+        stub(List.of(loansReceivable, cash), List.of(entry), List.of(loan));
+
+        var report = service.reconcile(1L, LocalDate.of(2026, 8, 24));
+
+        assertFalse(report.balanced());
+        assertTrue(report.issues().stream()
+                .anyMatch(issue -> "PRINCIPAL_RECONCILIATION_FAILED".equals(issue.code())));
+    }
+
+    @Test
+    void interestAndManagementFeeInvariantsAreCheckedIndependently() {
+        ChartOfAccount loansReceivable = account("1100", "Loans Receivable");
+        ChartOfAccount interestReceivable = account("1150", "Interest Receivable");
+        ChartOfAccount managementReceivable = account("1160", "Management Fee Receivable");
+        ChartOfAccount cash = account("1000", "Cash and Bank");
+
+        JournalEntry entry = entry(9L, "MANUAL", "100", false);
+        entry.addLine(line(cash, "100.00", "0.00"));
+        entry.addLine(line(loansReceivable, "0.00", "100.00"));
+
+        Loan loan = new Loan();
+        loan.setStatus(com.patrick.fintech.loan_backend.model.LoanStatus.ACTIVE);
+        loan.setAmount(new BigDecimal("1000.00"));
+        loan.setPrincipalPaid(new BigDecimal("0.00"));
+        loan.setOutstandingBalance(new BigDecimal("1000.00"));
+        loan.setTotalInterest(new BigDecimal("500.00"));
+        loan.setInterestPaid(new BigDecimal("100.00"));
+        loan.setInterestOutstanding(new BigDecimal("300.00"));
+        loan.setManagementFee(new BigDecimal("400.00"));
+        loan.setManagementFeePaid(new BigDecimal("100.00"));
+        loan.setManagementFeeOutstanding(new BigDecimal("200.00"));
+        loan.setApplicationFee(new BigDecimal("20.00"));
+        loan.setApplicationFeePaid(new BigDecimal("20.00"));
+
+        stub(List.of(loansReceivable, interestReceivable, managementReceivable, cash),
+                List.of(entry), List.of(loan));
+
+        var report = service.reconcile(1L, LocalDate.of(2026, 8, 24));
+
+        assertFalse(report.balanced());
+        assertTrue(report.issues().stream()
+                .anyMatch(issue -> "INTEREST_RECONCILIATION_FAILED".equals(issue.code())));
+        assertTrue(report.issues().stream()
+                .anyMatch(issue -> "MANAGEMENT_FEE_RECONCILIATION_FAILED".equals(issue.code())));
+    }
+
+    @Test
+    void importBatchMarkerMakesHistoricalLoanFinanciallyOriginated() {
+        ChartOfAccount loansReceivable = account("1100", "Loans Receivable");
+        ChartOfAccount cash = account("1000", "Cash and Bank");
+
+        JournalEntry entry = entry(10L, "LEGACY_LOAN_OPENING", "IMPORT-1", false);
+        entry.addLine(line(loansReceivable, "1000.00", "0.00"));
+        entry.addLine(line(cash, "0.00", "1000.00"));
+
+        Loan loan = new Loan();
+        loan.setStatus(com.patrick.fintech.loan_backend.model.LoanStatus.PENDING);
+        loan.setImportBatchId(77L);
+        loan.setAmount(new BigDecimal("1000.00"));
+        loan.setPrincipalPaid(new BigDecimal("0.00"));
+        loan.setOutstandingBalance(new BigDecimal("1000.00"));
+        loan.setApplicationFee(new BigDecimal("20.00"));
+        loan.setApplicationFeePaid(new BigDecimal("20.00"));
+
+        stub(List.of(loansReceivable, cash), List.of(entry), List.of(loan));
+
+        var report = service.reconcile(1L, LocalDate.of(2026, 8, 24));
+
+        assertEquals(1, report.loanCount());
     }
 
     @Test

@@ -106,6 +106,86 @@ public class FinancialReconciliationService {
 
         List<Issue> issues = new ArrayList<>();
 
+        // ------------------------------------------------------------
+        // OPERATIONAL FINANCIAL INVARIANTS
+        // ------------------------------------------------------------
+        // These checks are deliberately read-only. Reconciliation must expose
+        // a bad source balance rather than silently rewriting customer debt.
+        for (Loan loan : loans) {
+            if (loan == null || loan.getId() == null) {
+                continue;
+            }
+
+            BigDecimal amount = money(loan.getAmountDecimal());
+            BigDecimal principalPaid = money(loan.getPrincipalPaidDecimal());
+            BigDecimal principalOutstanding = money(loan.getOutstandingBalanceDecimal());
+            BigDecimal principalDifference = normalize(
+                    principalPaid.add(principalOutstanding).subtract(amount));
+
+            if (principalDifference.abs().compareTo(TOLERANCE) >= 0) {
+                issues.add(issue(
+                        "PRINCIPAL_RECONCILIATION_FAILED",
+                        "Loan " + safeReference(loan)
+                                + " fails principal reconciliation: principal_paid + outstanding_balance must equal amount. "
+                                + "paid=" + principalPaid.toPlainString()
+                                + ", outstanding=" + principalOutstanding.toPlainString()
+                                + ", amount=" + amount.toPlainString(),
+                        principalDifference.abs()));
+            }
+
+            BigDecimal totalInterest = money(loan.getTotalInterestDecimal());
+            BigDecimal interestPaid = money(loan.getInterestPaidDecimal());
+            BigDecimal interestOutstanding = money(loan.getInterestOutstandingDecimal());
+            BigDecimal interestDifference = normalize(
+                    interestPaid.add(interestOutstanding).subtract(totalInterest));
+
+            if (interestDifference.abs().compareTo(TOLERANCE) >= 0) {
+                issues.add(issue(
+                        "INTEREST_RECONCILIATION_FAILED",
+                        "Loan " + safeReference(loan)
+                                + " fails interest reconciliation: interest_paid + interest_outstanding must equal total_interest. "
+                                + "paid=" + interestPaid.toPlainString()
+                                + ", outstanding=" + interestOutstanding.toPlainString()
+                                + ", total=" + totalInterest.toPlainString(),
+                        interestDifference.abs()));
+            }
+
+            BigDecimal totalManagementFee = money(loan.getManagementFeeDecimal());
+            BigDecimal managementFeePaid = money(loan.getManagementFeePaidDecimal());
+            BigDecimal managementFeeOutstanding = money(loan.getManagementFeeOutstandingDecimal());
+            BigDecimal managementDifference = normalize(
+                    managementFeePaid.add(managementFeeOutstanding).subtract(totalManagementFee));
+
+            if (managementDifference.abs().compareTo(TOLERANCE) >= 0) {
+                issues.add(issue(
+                        "MANAGEMENT_FEE_RECONCILIATION_FAILED",
+                        "Loan " + safeReference(loan)
+                                + " fails management-fee reconciliation: management_fee_paid + management_fee_outstanding must equal management_fee. "
+                                + "paid=" + managementFeePaid.toPlainString()
+                                + ", outstanding=" + managementFeeOutstanding.toPlainString()
+                                + ", total=" + totalManagementFee.toPlainString(),
+                        managementDifference.abs()));
+            }
+
+            BigDecimal applicationFee = money(loan.getApplicationFeeDecimal());
+            BigDecimal applicationFeePaid = money(loan.getApplicationFeePaidDecimal());
+            BigDecimal applicationFeeOutstanding = money(applicationFee.subtract(applicationFeePaid).max(ZERO));
+            BigDecimal applicationFeeDifference = normalize(
+                    applicationFeePaid.add(applicationFeeOutstanding).subtract(applicationFee));
+
+            if (applicationFeePaid.compareTo(applicationFee) > 0
+                    || applicationFeeDifference.abs().compareTo(TOLERANCE) >= 0) {
+                issues.add(issue(
+                        "APPLICATION_FEE_RECONCILIATION_FAILED",
+                        "Loan " + safeReference(loan)
+                                + " fails one-time application/processing fee reconciliation. "
+                                + "paid=" + applicationFeePaid.toPlainString()
+                                + ", outstanding=" + applicationFeeOutstanding.toPlainString()
+                                + ", fee=" + applicationFee.toPlainString(),
+                        applicationFeePaid.subtract(applicationFee).abs().max(applicationFeeDifference.abs())));
+            }
+        }
+
         BigDecimal journalDebits = ZERO;
         BigDecimal journalCredits = ZERO;
         int invalidLineCount = 0;
@@ -525,7 +605,7 @@ public class FinancialReconciliationService {
             return false;
         }
 
-        if (Boolean.TRUE.equals(loan.getImported())) {
+        if (Boolean.TRUE.equals(loan.getImported()) || loan.getImportBatchId() != null) {
             LoanStatus status = loan.getStatus();
             return status != LoanStatus.PENDING
                     && status != LoanStatus.UNDER_REVIEW
@@ -594,6 +674,13 @@ public class FinancialReconciliationService {
             case "1100", "1150", "1160", "1170", "1175" -> true;
             default -> false;
         };
+    }
+
+    private String safeReference(Loan loan) {
+        if (loan == null || loan.getReferenceNumber() == null || loan.getReferenceNumber().isBlank()) {
+            return "#" + (loan == null || loan.getId() == null ? "unknown" : loan.getId());
+        }
+        return loan.getReferenceNumber().trim();
     }
 
     private BigDecimal sum(List<Loan> loans, Function<Loan, BigDecimal> extractor) {

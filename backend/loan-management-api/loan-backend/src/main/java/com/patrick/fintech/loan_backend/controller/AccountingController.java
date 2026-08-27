@@ -365,7 +365,7 @@ public class AccountingController {
                                                 "Organization not found: " + requireOrganizationId()));
 
                 List<com.patrick.fintech.loan_backend.model.Loan> importedLoans = loanRepo
-                                .findByOrganization_IdAndImportedTrue(
+                                .findHistoricalImportedLoans(
                                                 organization.getId());
 
                 FinancialReconciliationService.ReconciliationReport before = financialReconciliationService
