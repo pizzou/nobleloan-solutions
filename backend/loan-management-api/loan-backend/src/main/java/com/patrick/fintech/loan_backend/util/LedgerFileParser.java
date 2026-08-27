@@ -201,7 +201,11 @@ public final class LedgerFileParser {
     private static List<Map<String, String>> parseExcel(InputStream in) throws IOException {
         try (Workbook workbook = WorkbookFactory.create(in)) {
             DataFormatter formatter = new DataFormatter(Locale.ROOT, true);
-            FormulaEvaluator evaluator = null;
+            // Evaluate ordinary Excel formulas so calculated historical balances are
+            // imported from the formula result rather than blindly trusting a stale
+            // cached value. cellValue() still falls back to the cached result when
+            // POI cannot evaluate a workbook-specific/structured-reference formula.
+            FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
 
             List<Map<String, String>> result = new ArrayList<>();
             Set<String> seenKeys = new HashSet<>();
@@ -265,7 +269,7 @@ public final class LedgerFileParser {
         } catch (RuntimeException e) {
             throw new IOException(
                     "The uploaded Excel ledger could not be read. "
-                            + "Formula evaluation is intentionally disabled during import discovery.",
+                            + "Formula results are evaluated when possible and safely fall back to cached values when POI cannot evaluate a formula.",
                     e);
         }
     }
@@ -888,9 +892,19 @@ public final class LedgerFileParser {
             return "";
         }
 
-        // Never evaluate Excel formulas during import discovery. Some valid Excel
-        // structured-reference formulas cannot be parsed by POI's evaluator.
         if (cell.getCellType() == CellType.FORMULA) {
+            // Prefer a live formula result. This matters for legacy portfolio
+            // workbooks where principal/interest balances are formula-driven and
+            // the cached result can be stale after a borrower payment.
+            if (evaluator != null) {
+                try {
+                    return cleanCell(formatter.formatCellValue(cell, evaluator));
+                } catch (RuntimeException ignored) {
+                    // Fall through to the cached formula result. Some Excel
+                    // structured-reference formulas are not supported by POI.
+                }
+            }
+
             CellType cachedType = cell.getCachedFormulaResultType();
             return switch (cachedType) {
                 case NUMERIC -> {

@@ -186,6 +186,50 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
       @Param("organizationId") Long organizationId,
       @Param("loanReference") String loanReference);
 
+  /**
+   * Production-safe loan receivable lookup. The legacy migration opening
+   * journal is keyed by sourceId = LOAN:<loanId>; later accrual/payment
+   * journals may be keyed by another event id but carry the loan reference.
+   * We therefore use the immutable loan id as the primary identity and keep
+   * the reference as a compatibility fallback.
+   */
+  @Query("""
+      SELECT l
+      FROM JournalLine l
+      JOIN FETCH l.journalEntry e
+      WHERE l.account.id = :accountId
+        AND e.organization.id = :organizationId
+        AND e.reversed = FALSE
+        AND e.sourceType IN (
+              'INTEREST_ACCRUAL',
+              'MANAGEMENT_FEE_ACCRUAL',
+              'PENALTY_ACCRUAL',
+              'LOAN_EXTENSION_FEE',
+              'LOAN_DISBURSEMENT',
+              'SCHEDULED_INTEREST_ACCRUAL',
+              'SCHEDULED_MANAGEMENT_FEE_ACCRUAL',
+              'CONTRACTUAL_MONTHLY_INTEREST_ACCRUAL',
+              'CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL',
+              'HISTORICAL_LOAN_OPENING',
+              'LEGACY_LOAN_OPENING',
+              'LEGACY_LOAN_RECONCILIATION',
+              'LEGACY_LOAN_OPENING_DATE_REPAIR',
+              'PAYMENT_RECEIVED',
+              'LOAN_PAYMENT'
+        )
+        AND (
+              e.sourceId = CONCAT('LOAN:', :loanId)
+              OR e.reference = :loanReference
+              OR l.description LIKE CONCAT('%', :loanReference, '%')
+        )
+      ORDER BY e.entryDate ASC, e.id ASC, l.id ASC
+      """)
+  List<JournalLine> findReceivableLinesForLoanIdentity(
+      @Param("accountId") Long accountId,
+      @Param("organizationId") Long organizationId,
+      @Param("loanId") Long loanId,
+      @Param("loanReference") String loanReference);
+
   /*
    * ============================================================
    * ACCRUAL LINES BY ORGANIZATION

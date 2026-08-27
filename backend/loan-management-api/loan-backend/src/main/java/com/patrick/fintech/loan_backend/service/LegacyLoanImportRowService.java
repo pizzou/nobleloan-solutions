@@ -16,6 +16,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
@@ -124,7 +125,7 @@ public class LegacyLoanImportRowService {
         // IMPORT ROW
         // ================================================================
 
-        @Transactional(propagation = Propagation.REQUIRED)
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
         public ImportRowResult importRow(
                         Map<String, String> row,
                         int rowNumber,
@@ -134,6 +135,7 @@ public class LegacyLoanImportRowService {
                         Map<String, Borrower> sessionBorrowers) {
 
                 String borrowerAction = null;
+                boolean borrowerCreatedInThisRow = false;
 
                 try {
 
@@ -514,10 +516,17 @@ public class LegacyLoanImportRowService {
                                  * Processing fee is NOT included here because it is
                                  * a one-time fee deducted at disbursement.
                                  */
+                                BigDecimal calculationInterestRate = effectiveInterestRate;
+                                if ("ANNUAL".equals(importedRateType)) {
+                                        calculationInterestRate = effectiveInterestRate
+                                                        .divide(new BigDecimal("12"), CALCULATION_SCALE,
+                                                                        RoundingMode.HALF_UP);
+                                }
+
                                 BigDecimal[] calculated = calculateCurrentPlatformLoan(
                                                 amount,
                                                 durationMonths,
-                                                effectiveInterestRate,
+                                                calculationInterestRate,
                                                 effectiveManagementFeeRate);
 
                                 totalRepayable = money(
@@ -717,6 +726,7 @@ public class LegacyLoanImportRowService {
 
                         if (borrower == null) {
 
+                                borrowerCreatedInThisRow = true;
                                 borrower = Borrower.builder()
                                                 .organization(
                                                                 org)
@@ -796,9 +806,14 @@ public class LegacyLoanImportRowService {
                                                 : "MATCHED_EXISTING_BORROWER_PREVIEW";
                         }
 
-                        sessionBorrowers.put(
-                                        nationalIdHash,
-                                        borrower);
+                        // In commit mode a newly-created borrower is cached only
+                        // after the loan row has committed. This prevents a failed
+                        // loan row from leaving a rolled-back/transient borrower in
+                        // the in-memory session cache. Preview mode may cache the
+                        // transient borrower because nothing is persisted.
+                        if (!commit || !borrowerCreatedInThisRow) {
+                                sessionBorrowers.put(nationalIdHash, borrower);
+                        }
 
                         // ========================================================
                         // LOAN REFERENCE
@@ -936,7 +951,7 @@ public class LegacyLoanImportRowService {
                                         // ------------------------------------------------
 
                                         .interestRateType(
-                                                        "MONTHLY")
+                                                        importedRateType)
 
                                         // ------------------------------------------------
                                         // TERM
@@ -1138,6 +1153,12 @@ public class LegacyLoanImportRowService {
                         // remaining receivable position as an opening journal so
                         // accounting does not replay historical cash movements.
                         accountingService.postHistoricalLoanOpening(loan);
+
+                        // Only cache a newly-created borrower after both the loan
+                        // and its opening accounting entry have succeeded.
+                        if (borrowerCreatedInThisRow) {
+                                sessionBorrowers.put(nationalIdHash, borrower);
+                        }
 
                         // ========================================================
                         // SUCCESS LOG
@@ -2056,16 +2077,9 @@ public class LegacyLoanImportRowService {
                 }
 
                 note.append(
-                                " Current platform rates normalized to ");
-
-                note.append(
-                                "5% monthly interest, ");
-
-                note.append(
-                                "5% monthly management fee, ");
-
-                note.append(
-                                "2% one-time application fee.");
+                                " Historical contractual rates were preserved on the imported loan; "
+                                                + "5% monthly management fee and 2% one-time application fee "
+                                                + "are used only when the source did not provide those values.");
 
                 /*
                  * Preserve information about the original source rate
@@ -2101,6 +2115,17 @@ public class LegacyLoanImportRowService {
         private ImportRowResult fail(
                         int rowNumber,
                         String error) {
+
+                // A row can create a borrower before a later loan validation or
+                // accounting operation fails. Because each row runs in its own
+                // REQUIRES_NEW transaction, mark that transaction rollback-only
+                // before returning a failure result so the row is truly atomic.
+                try {
+                        TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+                } catch (IllegalStateException ignored) {
+                        // Defensive: fail() is also safe to use outside a Spring
+                        // transaction in tests or tooling.
+                }
 
                 String safeError = error == null
                                 || error.isBlank()

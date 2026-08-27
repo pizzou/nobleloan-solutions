@@ -538,8 +538,12 @@ public class FinancialReconciliationService {
             String reference = loan.getReferenceNumber() == null
                     ? ""
                     : loan.getReferenceNumber().trim();
+            String loanSourceId = "LOAN:" + loan.getId();
 
-            if (reference.isBlank()) {
+            // A migrated loan is identified primarily by its immutable database id.
+            // Reference text remains a compatibility fallback for payment/accrual
+            // events whose sourceId is the payment/event id rather than the loan id.
+            if (reference.isBlank() && loan.getId() == null) {
                 continue;
             }
 
@@ -606,11 +610,15 @@ public class FinancialReconciliationService {
             Loan loan) {
 
         BigDecimal balance = ZERO;
-        String loanReference = loan == null ? null : loan.getReferenceNumber();
-        if (loanReference == null || loanReference.isBlank()) {
+        if (entries == null || account == null || loan == null || loan.getId() == null) {
             return ZERO;
         }
+
+        String loanReference = loan.getReferenceNumber() == null
+                ? ""
+                : loan.getReferenceNumber().trim();
         String token = loanReference.toLowerCase(java.util.Locale.ROOT);
+        String loanSourceId = "LOAN:" + loan.getId();
 
         for (JournalEntry entry : entries) {
             if (entry == null
@@ -619,12 +627,6 @@ public class FinancialReconciliationService {
                     || entry.getLines().isEmpty()) {
                 continue;
             }
-
-            String entryReference = entry.getReference() == null
-                    ? ""
-                    : entry.getReference().toLowerCase(java.util.Locale.ROOT);
-
-            boolean entryMatches = entryReference.contains(token);
 
             String sourceType = entry.getSourceType() == null
                     ? ""
@@ -639,7 +641,12 @@ public class FinancialReconciliationService {
                     || "LEGACY_LOAN_RECONCILIATION".equals(sourceType)
                     || "LEGACY_LOAN_OPENING_DATE_REPAIR".equals(sourceType)
                     || "PAYMENT_RECEIVED".equals(sourceType)
-                    || "LOAN_DISBURSEMENT".equals(sourceType);
+                    || "LOAN_PAYMENT".equals(sourceType)
+                    || "LOAN_DISBURSEMENT".equals(sourceType)
+                    || "SCHEDULED_INTEREST_ACCRUAL".equals(sourceType)
+                    || "SCHEDULED_MANAGEMENT_FEE_ACCRUAL".equals(sourceType)
+                    || "CONTRACTUAL_MONTHLY_INTEREST_ACCRUAL".equals(sourceType)
+                    || "CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL".equals(sourceType);
 
             if (!relevantSource) {
                 continue;
@@ -647,8 +654,17 @@ public class FinancialReconciliationService {
 
             if ((Boolean.TRUE.equals(loan.getImported()) || loan.getImportBatchId() != null)
                     && "LOAN_DISBURSEMENT".equals(sourceType)) {
+                // Historical cash movement is deliberately not replayed for migrated loans.
                 continue;
             }
+
+            String sourceId = entry.getSourceId() == null ? "" : entry.getSourceId().trim();
+            String entryReference = entry.getReference() == null
+                    ? ""
+                    : entry.getReference().trim().toLowerCase(java.util.Locale.ROOT);
+
+            boolean identityMatch = loanSourceId.equals(sourceId);
+            boolean referenceMatch = !token.isBlank() && entryReference.equals(token);
 
             for (JournalLine line : entry.getLines()) {
                 if (line == null
@@ -662,7 +678,8 @@ public class FinancialReconciliationService {
                         ? ""
                         : line.getDescription().toLowerCase(java.util.Locale.ROOT);
 
-                if (!entryMatches && !description.contains(token)) {
+                boolean descriptionMatch = !token.isBlank() && description.contains(token);
+                if (!identityMatch && !referenceMatch && !descriptionMatch) {
                     continue;
                 }
 

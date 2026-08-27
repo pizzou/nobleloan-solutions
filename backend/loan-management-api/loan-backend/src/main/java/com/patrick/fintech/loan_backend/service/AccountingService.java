@@ -1013,9 +1013,10 @@ public class AccountingService {
                                                                         + loan.getOrganization().getId());
                                 }
 
-                                List<JournalLine> lines = lineRepo.findReceivableLinesForLoan(
+                                List<JournalLine> lines = lineRepo.findReceivableLinesForLoanIdentity(
                                                 receivable.getId(),
                                                 loan.getOrganization().getId(),
+                                                loan.getId(),
                                                 loan.getReferenceNumber());
 
                                 BigDecimal glBalance = ZERO;
@@ -1039,7 +1040,10 @@ public class AccountingService {
                                         }
                                 }
 
-                                glBalance = money(glBalance.max(ZERO));
+                                // Preserve the signed GL balance. A negative receivable
+                                // is an accounting exception and must not be silently
+                                // collapsed to zero before reconciliation.
+                                glBalance = money(glBalance);
                                 BigDecimal delta = money(expectedBalance.subtract(glBalance));
 
                                 // Both directions are reconciled through an explicit,
@@ -1121,9 +1125,10 @@ public class AccountingService {
                                 String code = accountEntry.getKey();
                                 ChartOfAccount account = accountEntry.getValue();
 
-                                List<JournalLine> lines = lineRepo.findReceivableLinesForLoan(
+                                List<JournalLine> lines = lineRepo.findReceivableLinesForLoanIdentity(
                                                 account.getId(),
                                                 organizationId,
+                                                loan.getId(),
                                                 loan.getReferenceNumber());
 
                                 BigDecimal glBalance = ZERO;
@@ -1155,7 +1160,11 @@ public class AccountingService {
                                         }
                                 }
 
-                                glBalance = money(glBalance.max(ZERO));
+                                // Do not clamp a negative GL balance to zero. A negative
+                                // receivable normally means historical payments/credits
+                                // exceed the posted receivable and must remain visible as
+                                // an unresolved reconciliation difference.
+                                glBalance = money(glBalance);
 
                                 BigDecimal operational;
 
@@ -2948,9 +2957,10 @@ public class AccountingService {
                         return ZERO;
                 }
 
-                List<JournalLine> lines = lineRepo.findReceivableLinesForLoan(
+                List<JournalLine> lines = lineRepo.findReceivableLinesForLoanIdentity(
                                 receivable.getId(),
                                 org.getId(),
+                                loan.getId(),
                                 loan.getReferenceNumber());
 
                 if (lines == null
@@ -3015,8 +3025,8 @@ public class AccountingService {
                         return ZERO;
                 }
 
-                List<JournalLine> lines = lineRepo.findReceivableLinesForLoan(
-                                receivable.getId(), org.getId(), loan.getReferenceNumber());
+                List<JournalLine> lines = lineRepo.findReceivableLinesForLoanIdentity(
+                                receivable.getId(), org.getId(), loan.getId(), loan.getReferenceNumber());
                 if (lines == null || lines.isEmpty()) {
                         return ZERO;
                 }
@@ -3053,8 +3063,8 @@ public class AccountingService {
                 if (loan == null || loan.getReferenceNumber() == null)
                         return ZERO;
 
-                List<JournalLine> lines = lineRepo.findReceivableLinesForLoan(
-                                receivable.getId(), org.getId(), loan.getReferenceNumber());
+                List<JournalLine> lines = lineRepo.findReceivableLinesForLoanIdentity(
+                                receivable.getId(), org.getId(), loan.getId(), loan.getReferenceNumber());
                 if (lines == null || lines.isEmpty())
                         return ZERO;
 

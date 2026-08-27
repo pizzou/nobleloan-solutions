@@ -379,7 +379,7 @@ public class LegacyLoanImportService {
                         } catch (Exception e) {
 
                                 log.error(
-                                                "Unexpected exception while application legacy loan import row. " +
+                                                "Unexpected exception while processing legacy loan import row. " +
                                                                 "organizationId={}, batchId={}, rowNumber={}",
                                                 org.getId(),
                                                 batchId,
@@ -390,7 +390,7 @@ public class LegacyLoanImportService {
                                                 .rowNumber(rowNumber)
                                                 .success(false)
                                                 .error(
-                                                                "Unexpected error while application this row. " +
+                                                                "Unexpected error while processing this row. " +
                                                                                 "The row was not imported.")
                                                 .build();
                         }
