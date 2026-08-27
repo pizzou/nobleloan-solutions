@@ -669,7 +669,35 @@ public class PaymentService {
                 BigDecimal paymentRemaining = amount;
 
                 // ============================================================
-                // 1. EXTENSION / RESTRUCTURING FEE
+                // 1. INTEREST
+                // ============================================================
+
+                BigDecimal interestPaidThisPayment = roundMoney(
+                                paymentRemaining.min(
+                                                remainingInterestBeforePayment));
+
+                paymentRemaining = roundMoney(
+                                paymentRemaining
+                                                .subtract(
+                                                                interestPaidThisPayment)
+                                                .max(ZERO));
+
+                // ============================================================
+                // 2. MANAGEMENT FEE
+                // ============================================================
+
+                BigDecimal managementFeePaidThisPayment = roundMoney(
+                                paymentRemaining.min(
+                                                remainingManagementFeeBeforePayment));
+
+                paymentRemaining = roundMoney(
+                                paymentRemaining
+                                                .subtract(
+                                                                managementFeePaidThisPayment)
+                                                .max(ZERO));
+
+                // ============================================================
+                // 3. EXTENSION / RESTRUCTURING FEE
                 // ============================================================
 
                 BigDecimal extensionFeeOutstandingBeforePayment = roundMoney(
@@ -694,7 +722,7 @@ public class PaymentService {
                                                 .add(extensionFeePaidThisPayment));
 
                 // ============================================================
-                // 2. PENALTY
+                // 4. PENALTY
                 // ============================================================
 
                 BigDecimal penaltyPaidThisPayment = roundMoney(
@@ -722,35 +750,7 @@ public class PaymentService {
                                                 .max(ZERO));
 
                 // ============================================================
-                // 2. INTEREST
-                // ============================================================
-
-                BigDecimal interestPaidThisPayment = roundMoney(
-                                paymentRemaining.min(
-                                                remainingInterestBeforePayment));
-
-                paymentRemaining = roundMoney(
-                                paymentRemaining
-                                                .subtract(
-                                                                interestPaidThisPayment)
-                                                .max(ZERO));
-
-                // ============================================================
-                // 3. MANAGEMENT FEE
-                // ============================================================
-
-                BigDecimal managementFeePaidThisPayment = roundMoney(
-                                paymentRemaining.min(
-                                                remainingManagementFeeBeforePayment));
-
-                paymentRemaining = roundMoney(
-                                paymentRemaining
-                                                .subtract(
-                                                                managementFeePaidThisPayment)
-                                                .max(ZERO));
-
-                // ============================================================
-                // 4. PRINCIPAL
+                // 5. PRINCIPAL
                 // ============================================================
 
                 BigDecimal principalPaidThisPayment = roundMoney(
@@ -764,7 +764,7 @@ public class PaymentService {
                                                 .max(ZERO));
 
                 // ============================================================
-                // 5. OVERPAYMENT
+                // 6. OVERPAYMENT
                 // ============================================================
 
                 BigDecimal overpayment = roundMoney(
@@ -909,14 +909,11 @@ public class PaymentService {
                 // ============================================================
 
                 BigDecimal allocated = extensionFeePaidThisPayment
-                                .add(
-                                                penaltyPaidThisPayment)
-                                .add(
-                                                managementFeePaidThisPayment)
-                                .add(
-                                                principalPaidThisPayment)
-                                .add(
-                                                overpayment);
+                                .add(penaltyPaidThisPayment)
+                                .add(interestPaidThisPayment)
+                                .add(managementFeePaidThisPayment)
+                                .add(principalPaidThisPayment)
+                                .add(overpayment);
 
                 allocated = roundMoney(allocated);
 

@@ -154,11 +154,6 @@ public class DashboardService {
                         BigDecimal disbursedAmount = money(
                                         loan.getDisbursedAmountDecimal());
 
-                        if (disbursedAmount.compareTo(ZERO) <= 0 && (Boolean.TRUE.equals(loan.getImported())
-                                        || loan.getImportBatchId() != null)) {
-                                disbursedAmount = amount;
-                        }
-
                         BigDecimal outstanding = money(
                                         loan.getOutstandingBalanceDecimal());
 
@@ -166,9 +161,7 @@ public class DashboardService {
                          * A loan enters the financial portfolio only after an
                          * actual disbursement timestamp exists.
                          */
-                        boolean disbursed = loan.getDisbursedAt() != null
-                                        || Boolean.TRUE.equals(loan.getImported())
-                                        || loan.getImportBatchId() != null;
+                        boolean disbursed = loan.getDisbursedAt() != null;
 
                         if (disbursed) {
 
@@ -293,7 +286,7 @@ public class DashboardService {
                  * treated as a repayment Payment row.
                  */
                 for (Loan loan : loans) {
-                        if (loan == null || !Boolean.TRUE.equals(loan.getImported())) {
+                        if (!isLegacyImportedLoan(loan)) {
                                 continue;
                         }
 
@@ -438,6 +431,35 @@ public class DashboardService {
         // ================================================================
         // MONEY
         // ================================================================
+
+        /**
+         * Single legacy-portfolio identity rule used by dashboard historical
+         * collection aggregation. This also recognizes older imported rows
+         * where imported/importBatchId were not persisted but the importer
+         * provenance note was preserved.
+         */
+        private boolean isLegacyImportedLoan(Loan loan) {
+                if (loan == null) {
+                        return false;
+                }
+
+                if (Boolean.TRUE.equals(loan.getImported())
+                                || loan.getImportBatchId() != null) {
+                        return true;
+                }
+
+                String internalNotes = loan.getInternalNotes();
+                if (internalNotes != null
+                                && internalNotes.toLowerCase(java.util.Locale.ROOT)
+                                                .contains("imported from legacy ledger")) {
+                        return true;
+                }
+
+                String notes = loan.getNotes();
+                return notes != null
+                                && notes.toLowerCase(java.util.Locale.ROOT)
+                                                .contains("imported from noble loan historical portfolio workbook");
+        }
 
         private BigDecimal money(
                         BigDecimal value) {

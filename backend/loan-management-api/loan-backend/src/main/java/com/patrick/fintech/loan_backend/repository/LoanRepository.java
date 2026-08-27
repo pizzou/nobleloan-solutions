@@ -122,7 +122,12 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                         SELECT l
                         FROM Loan l
                         WHERE l.organization.id = :organizationId
-                          AND (l.imported = true OR l.importBatchId IS NOT NULL)
+                          AND (
+                              l.imported = true
+                              OR l.importBatchId IS NOT NULL
+                              OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+                              OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+                          )
                         ORDER BY l.id ASC
                         """)
         List<Loan> findHistoricalImportedLoans(
@@ -311,7 +316,8 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                             COALESCE(
                                 SUM(
                                     CASE
-                                        WHEN l.disbursedAmount IS NOT NULL
+                                        WHEN (l.imported = false OR l.imported IS NULL)
+                                         AND l.disbursedAmount IS NOT NULL
                                         THEN l.disbursedAmount
                                         ELSE 0
                                     END
@@ -638,6 +644,9 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                           AND (:branchId IS NULL OR l.branch.id = :branchId)
                           AND (
                               l.imported = true
+                              OR l.importBatchId IS NOT NULL
+                              OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+                              OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
                               OR (
                                   l.disbursedAt IS NOT NULL
                                   AND l.disbursedAt < :asOf

@@ -950,7 +950,7 @@ public class RegulatoryReportingService {
                 feesAccruedUnpaid = outstandingFees;
 
                 for (Loan loan : portfolioLoans) {
-                        if (loan == null || !Boolean.TRUE.equals(loan.getImported())) {
+                        if (!isLegacyImportedLoan(loan)) {
                                 continue;
                         }
 
@@ -989,19 +989,6 @@ public class RegulatoryReportingService {
 
                         historicalAmountCollected = moneyDecimal(historicalAmountCollected.add(historicalTotal));
                 }
-
-                /*
-                 * Imported loans carry their historical cumulative collection
-                 * state on Loan rather than fabricated Payment rows. The
-                 * primary report totals must therefore include those historical
-                 * amounts as well as retaining the explicit historical fields
-                 * above. This keeps the regulatory report complete without
-                 * double-counting post-migration Payment rows.
-                 */
-                principalCollected += historicalPrincipalCollected.doubleValue();
-                interestCollected += historicalInterestCollected.doubleValue();
-                feesCollected += historicalFeesCollected.doubleValue();
-                totalAmountCollected += historicalAmountCollected.doubleValue();
 
                 // ========================================================
                 // RATIOS
@@ -2538,6 +2525,34 @@ public class RegulatoryReportingService {
                                 + from
                                 + "-"
                                 + to;
+        }
+
+        /**
+         * Legacy portfolio identity boundary shared by BNR historical
+         * collection reporting. It preserves compatibility with older
+         * imported rows that predate the imported/importBatchId flags.
+         */
+        private boolean isLegacyImportedLoan(Loan loan) {
+                if (loan == null) {
+                        return false;
+                }
+
+                if (Boolean.TRUE.equals(loan.getImported())
+                                || loan.getImportBatchId() != null) {
+                        return true;
+                }
+
+                String internalNotes = loan.getInternalNotes();
+                if (internalNotes != null
+                                && internalNotes.toLowerCase(java.util.Locale.ROOT)
+                                                .contains("imported from legacy ledger")) {
+                        return true;
+                }
+
+                String notes = loan.getNotes();
+                return notes != null
+                                && notes.toLowerCase(java.util.Locale.ROOT)
+                                                .contains("imported from noble loan historical portfolio workbook");
         }
 
         // ============================================================
