@@ -947,7 +947,8 @@ public class AccountingService {
                 for (Loan loan : importedLoans) {
                         if (loan == null
                                         || loan.getId() == null
-                                        || !Boolean.TRUE.equals(loan.getImported())) {
+                                        || (!Boolean.TRUE.equals(loan.getImported())
+                                                        && loan.getImportBatchId() == null)) {
                                 continue;
                         }
 

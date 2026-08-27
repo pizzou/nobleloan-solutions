@@ -43,7 +43,7 @@ class FinancialReconciliationServiceTest {
         service = new FinancialReconciliationService(
                 journalEntryRepository,
                 chartOfAccountRepository,
-                loanRepository);
+                loanRepository, null);
 
         organization = new Organization();
         organization.setId(1L);

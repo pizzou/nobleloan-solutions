@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { get, post, put, del } from "../../../services/api";
 
@@ -80,7 +80,7 @@ export default function UsersPage() {
    * ============================================================
    */
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true);
 
     get("/users")
@@ -90,11 +90,11 @@ export default function UsersPage() {
         toast("error", getMsg(err));
       })
       .finally(() => setLoading(false));
-  };
+  }, []);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   /*
    * ============================================================

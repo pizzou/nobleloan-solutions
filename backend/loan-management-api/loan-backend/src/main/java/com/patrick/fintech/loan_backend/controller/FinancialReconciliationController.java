@@ -40,7 +40,8 @@ public class FinancialReconciliationController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<FinancialReconciliationService.ReconciliationReport>> reconcile(
-            @RequestParam(required = false) String asOf) {
+            @RequestParam(required = false) String asOf,
+            @RequestParam(required = false) String from) {
 
         Long organizationId = currentUserUtil.getCurrentOrganizationId();
         if (organizationId == null || organizationId <= 0) {
@@ -50,9 +51,12 @@ public class FinancialReconciliationController {
         LocalDate date = asOf == null || asOf.isBlank()
                 ? LocalDate.now()
                 : LocalDate.parse(asOf.trim());
+        LocalDate periodStart = from == null || from.isBlank()
+                ? null
+                : LocalDate.parse(from.trim());
 
-        FinancialReconciliationService.ReconciliationReport report = reconciliationService.reconcile(organizationId,
-                date);
+        FinancialReconciliationService.ReconciliationReport report = reconciliationService.reconcile(
+                organizationId, periodStart, date);
 
         return ResponseEntity.ok(ApiResponse.safe(report));
     }

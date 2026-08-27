@@ -22,25 +22,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
-/**
- * Authoritative financial reconciliation engine.
- *
- * This service is deliberately read-only. It never "fixes" accounting data
- * automatically. A reconciliation failure must remain visible until an
- * authorized accounting user investigates and posts a correcting journal or
- * reverses the originating transaction.
- *
- * The engine checks:
- * - every journal entry balances;
- * - every journal line is financially valid;
- * - the organization trial balance balances;
- * - active source events are not duplicated;
- * - the loan principal sub-ledger agrees with GL 1100;
- * - interest receivable agrees with GL 1150;
- * - management-fee receivable agrees with GL 1160;
- * - extension-fee receivable agrees with GL 1170;
- * - penalty receivable agrees with GL 1175.
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -54,17 +35,27 @@ public class FinancialReconciliationService {
     private final JournalEntryRepository journalEntryRepository;
     private final ChartOfAccountRepository chartOfAccountRepository;
     private final LoanRepository loanRepository;
+    private final RegulatoryReportingService regulatoryReportingService;
 
     @Transactional(readOnly = true)
     public ReconciliationReport reconcile(Long organizationId) {
-        return reconcile(organizationId, LocalDate.now());
+        return reconcile(organizationId, null, LocalDate.now());
     }
 
     @Transactional(readOnly = true)
     public ReconciliationReport reconcile(Long organizationId, LocalDate asOf) {
+        return reconcile(organizationId, null, asOf);
+    }
+
+    @Transactional(readOnly = true)
+    public ReconciliationReport reconcile(Long organizationId, LocalDate periodStart, LocalDate asOf) {
         requireOrganizationId(organizationId);
         if (asOf == null) {
             throw new IllegalArgumentException("As-of date is required");
+        }
+        LocalDate effectivePeriodStart = periodStart == null ? asOf : periodStart;
+        if (effectivePeriodStart.isAfter(asOf)) {
+            throw new IllegalArgumentException("Period start cannot be after the as-of date");
         }
 
         List<JournalEntry> entries = journalEntryRepository
@@ -89,28 +80,12 @@ public class FinancialReconciliationService {
             loans = List.of();
         }
 
-        /*
-         * The operational receivable sub-ledger is a DISBURSED-loan ledger,
-         * not an approval pipeline ledger. LoanService intentionally prepares
-         * a provisional outstanding balance while a loan is APPROVED so the
-         * repayment schedule can be displayed before disbursement. That
-         * provisional value must never enter GL reconciliation.
-         *
-         * Legacy imports are already-disbursed historical positions and are
-         * therefore eligible immediately. System-originated loans are eligible
-         * only from their actual disbursement date.
-         */
         loans = loans.stream()
                 .filter(loan -> isFinanciallyOriginated(loan, asOf))
                 .toList();
 
         List<Issue> issues = new ArrayList<>();
 
-        // ------------------------------------------------------------
-        // OPERATIONAL FINANCIAL INVARIANTS
-        // ------------------------------------------------------------
-        // These checks are deliberately read-only. Reconciliation must expose
-        // a bad source balance rather than silently rewriting customer debt.
         for (Loan loan : loans) {
             if (loan == null || loan.getId() == null) {
                 continue;
@@ -392,6 +367,77 @@ public class FinancialReconciliationService {
                 .max(BigDecimal::compareTo)
                 .orElse(ZERO);
 
+        // ------------------------------------------------------------
+        // OPENING BALANCE / PERIOD MOVEMENT CONTROL
+        // ------------------------------------------------------------
+        BigDecimal openingNet = ZERO;
+        BigDecimal movementNet = ZERO;
+        BigDecimal closingNet = ZERO;
+        for (JournalEntry entry : entries) {
+            if (entry == null || Boolean.TRUE.equals(entry.getReversed()) || entry.getLines() == null) {
+                continue;
+            }
+            BigDecimal debit = ZERO;
+            BigDecimal credit = ZERO;
+            for (JournalLine line : entry.getLines()) {
+                if (line == null)
+                    continue;
+                debit = debit.add(money(line.getDebitDecimal()));
+                credit = credit.add(money(line.getCreditDecimal()));
+            }
+            BigDecimal net = normalize(debit.subtract(credit));
+            if (entry.getEntryDate() != null && entry.getEntryDate().isBefore(effectivePeriodStart)) {
+                openingNet = openingNet.add(net);
+            } else {
+                movementNet = movementNet.add(net);
+            }
+        }
+        closingNet = normalize(openingNet.add(movementNet));
+        BigDecimal openingMovementDifference = normalize(closingNet.subtract(openingNet).subtract(movementNet));
+        boolean openingMovementReconciles = openingMovementDifference.abs().compareTo(TOLERANCE) < 0;
+        if (!openingMovementReconciles) {
+            issues.add(issue(
+                    "OPENING_BALANCE_MOVEMENT_FAILED",
+                    "Opening balance plus period movement does not equal the closing general-ledger balance.",
+                    openingMovementDifference.abs()));
+        }
+
+        // ------------------------------------------------------------
+        // BNR <-> PORTFOLIO CONTROL
+        // ------------------------------------------------------------
+        BigDecimal portfolioOutstanding = loans.stream()
+                .filter(this::isGrossPortfolioLoan)
+                .map(Loan::getOutstandingBalanceDecimal)
+                .map(this::money)
+                .reduce(ZERO, BigDecimal::add);
+        portfolioOutstanding = normalize(portfolioOutstanding);
+        BigDecimal bnrOutstanding = ZERO;
+        boolean bnrReconciles = true;
+        try {
+            var bnr = regulatoryReportingService.buildBnrSummary(
+                    organizationId, null, RegulatoryReportingService.ReportPeriod.CUSTOM, asOf, asOf);
+            bnrOutstanding = money(bnr.getOutstandingPrincipalDecimal());
+            BigDecimal bnrDifference = normalize(bnrOutstanding.subtract(portfolioOutstanding));
+            bnrReconciles = bnrDifference.abs().compareTo(TOLERANCE) < 0;
+            if (!bnrReconciles) {
+                issues.add(issue(
+                        "BNR_PORTFOLIO_MISMATCH",
+                        "BNR outstanding principal does not reconcile with the authoritative portfolio population. "
+                                + "BNR=" + bnrOutstanding.toPlainString()
+                                + ", portfolio=" + portfolioOutstanding.toPlainString(),
+                        bnrDifference.abs()));
+            }
+        } catch (RuntimeException ex) {
+            bnrReconciles = false;
+            issues.add(issue(
+                    "BNR_RECONCILIATION_UNAVAILABLE",
+                    "BNR reconciliation could not be completed: " + ex.getMessage(),
+                    ZERO));
+            log.error("BNR reconciliation failed for organization {} as of {}", organizationId, asOf, ex);
+        }
+
+        balanced = balanced && openingMovementReconciles && bnrReconciles;
+
         return new ReconciliationReport(
                 organizationId,
                 asOf,
@@ -408,6 +454,16 @@ public class FinancialReconciliationService {
                 invalidLineCount,
                 duplicateSourceCount,
                 maxDifference,
+                effectivePeriodStart,
+                openingNet,
+                movementNet,
+                closingNet,
+                openingMovementDifference,
+                openingMovementReconciles,
+                bnrOutstanding,
+                portfolioOutstanding,
+                normalize(bnrOutstanding.subtract(portfolioOutstanding)),
+                bnrReconciles,
                 subledger,
                 issues);
     }
@@ -600,6 +656,20 @@ public class FinancialReconciliationService {
      * Returns true only when the loan represents an accounting receivable as
      * of the supplied date. Approval alone does not create a receivable.
      */
+    private boolean isGrossPortfolioLoan(Loan loan) {
+        if (loan == null || loan.getStatus() == null) {
+            return false;
+        }
+        LoanStatus status = loan.getStatus();
+        return status != LoanStatus.WRITTEN_OFF
+                && status != LoanStatus.PAID
+                && status != LoanStatus.CLOSED
+                && status != LoanStatus.PENDING
+                && status != LoanStatus.UNDER_REVIEW
+                && status != LoanStatus.REJECTED
+                && status != LoanStatus.CANCELLED;
+    }
+
     private boolean isFinanciallyOriginated(Loan loan, LocalDate asOf) {
         if (loan == null || asOf == null) {
             return false;
@@ -767,6 +837,16 @@ public class FinancialReconciliationService {
             int invalidLineCount,
             int duplicateActiveSourceCount,
             BigDecimal maximumDifference,
+            LocalDate periodStart,
+            BigDecimal openingNet,
+            BigDecimal periodMovementNet,
+            BigDecimal closingNet,
+            BigDecimal openingMovementDifference,
+            boolean openingMovementReconciles,
+            BigDecimal bnrOutstandingPrincipal,
+            BigDecimal portfolioOutstandingPrincipal,
+            BigDecimal bnrPortfolioDifference,
+            boolean bnrReconciles,
             Map<String, ReconciliationLine> subledger,
             List<Issue> issues) {
     }

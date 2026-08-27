@@ -4,11 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
+    "build": "node ./node_modules/next/dist/bin/next build",
+    "start": "node ./node_modules/next/dist/bin/next start",
+    "lint": "node ./node_modules/next/dist/bin/next lint",
     "typecheck": "tsc --noEmit",
-    "lint:ci": "next lint --max-warnings=0",
+    "lint:ci": "node ./node_modules/next/dist/bin/next lint --max-warnings=0",
     "verify": "npm run typecheck && npm run lint:ci && npm run build"
   },
   "dependencies": {

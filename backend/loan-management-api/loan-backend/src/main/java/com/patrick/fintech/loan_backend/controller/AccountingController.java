@@ -357,7 +357,7 @@ public class AccountingController {
         // ============================================================
 
         @PostMapping("/legacy-loans/reconcile")
-        @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT')")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT')")
         public ResponseEntity<ApiResponse<Map<String, Object>>> reconcileLegacyLoanAccounting() {
 
                 Organization organization = orgRepo.findById(requireOrganizationId())
