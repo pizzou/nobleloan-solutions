@@ -670,6 +670,9 @@ public final class LedgerFileParser {
         }
         normalizeNamesAlias(row);
         normalizeHistoricalPortfolioAliases(row);
+        normalizeImportedRateField(row, "interest_rate");
+        normalizeImportedRateField(row, "management_fee_rate");
+        normalizeImportedRateField(row, "application_fee_rate");
         if (row.containsKey("start_date")) {
             row.put("start_date", normalizeDateString(row.get("start_date")));
         }
@@ -824,22 +827,48 @@ public final class LedgerFileParser {
         return null;
     }
 
+    private static void normalizeImportedRateField(Map<String, String> row, String key) {
+        if (row.containsKey(key)) {
+            row.put(key, normalizeImportedRate(row.get(key)));
+        }
+    }
+
     private static String normalizeImportedRate(String value) {
         String cleaned = cleanCell(value);
         if (cleaned.isBlank()) {
             return "5.00";
         }
+
+        String lower = cleaned.toLowerCase(Locale.ROOT);
+        boolean explicitPercent = lower.contains("%")
+                || lower.endsWith("percent")
+                || lower.endsWith("pct");
+
+        String numeric = cleaned
+                .replace("%", "")
+                .replace(",", "")
+                .replaceAll("(?i)percent\\s*$", "")
+                .replaceAll("(?i)pct\\s*$", "")
+                .trim();
+
         try {
-            BigDecimal rate = new BigDecimal(cleaned.replace("%", "").replace(",", ""));
+            BigDecimal rate = new BigDecimal(numeric);
             if (rate.compareTo(BigDecimal.ZERO) < 0) {
-                return "5.00";
+                // Keep invalid data visible to the row-level validator instead
+                // of silently turning it into the 5% default.
+                return cleaned;
             }
-            if (rate.compareTo(BigDecimal.ONE) <= 0) {
+            if (!explicitPercent && rate.compareTo(BigDecimal.ONE) <= 0) {
                 rate = rate.multiply(BigDecimal.valueOf(100));
             }
-            return rate.setScale(6, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
+            return rate.setScale(6, java.math.RoundingMode.HALF_UP)
+                    .stripTrailingZeros()
+                    .toPlainString();
         } catch (NumberFormatException e) {
-            return "5.00";
+            // Preserve invalid source text so LegacyLoanImportRowService can
+            // return a precise per-row validation error rather than corrupting
+            // the historical contract by silently defaulting it to 5%.
+            return cleaned;
         }
     }
 

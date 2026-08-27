@@ -513,7 +513,7 @@ public class LegacyLoanImportRowService {
                                  * +
                                  * management fee rate from the historical source, default 5% monthly.
                                  *
-                                 * Application fee is NOT included here because it is
+                                 * Processing fee is NOT included here because it is
                                  * a one-time fee deducted at disbursement.
                                  */
                                 BigDecimal calculationInterestRate = effectiveInterestRate;
@@ -593,11 +593,11 @@ public class LegacyLoanImportRowService {
                         }
 
                         // ========================================================
-                        // APPLICATION FEE
+                        // PROCESSING FEE
                         // ========================================================
 
                         /*
-                         * APPLICATION FEE is the one-time charge used by Noble
+                         * APPLICATION FEE and PROCESSING FEE are the same one-time charge in Noble
                          * Loan.
                          * Legacy imports preserve the historical Application Fee when the source
                          * workbook provides it. Otherwise the current Noble Loan default of 2%
@@ -970,7 +970,7 @@ public class LegacyLoanImportRowService {
                                                                         org))
 
                                         // ------------------------------------------------
-                                        // APPLICATION FEE
+                                        // APPLICATION / PROCESSING FEE
                                         // One-time fee; deducted from gross disbursement.
                                         // ------------------------------------------------
 
@@ -1258,7 +1258,7 @@ public class LegacyLoanImportRowService {
          * =
          * 10% monthly recurring charge.
          *
-         * Application fee is excluded because it is a one-time
+         * Processing fee is excluded because it is a one-time
          * disbursement deduction.
          *
          * Returns:
@@ -1587,25 +1587,75 @@ public class LegacyLoanImportRowService {
                         return fallback;
                 }
 
-                try {
-                        BigDecimal parsed = parseDecimalValue(value, key, true);
-                        if (parsed.compareTo(BigDecimal.ONE) <= 0) {
-                                parsed = parsed.multiply(ONE_HUNDRED);
-                        }
-                        return parsed.setScale(RATE_SCALE, RoundingMode.HALF_UP);
-                } catch (NumberFormatException e) {
-                        throw new IllegalArgumentException(
-                                        "\"" + key + "\" must be a valid interest rate. Got \"" + value + "\".");
-                }
+                return parseImportedRate(value, key);
         }
 
         private BigDecimal reqRate(
                         Map<String, String> row,
                         String key) {
+
                 String value = req(row, key);
+                return parseImportedRate(value, key);
+        }
+
+        /**
+         * Parses a historical percentage without conflating percent-points and
+         * decimal fractions. Supported examples:
+         *
+         * 5 -> 5%
+         * 5% -> 5%
+         * 0.05 -> 5% (Excel percentage value)
+         * 0.05% -> 0.05% (explicit percent-point value)
+         * 5.00 % -> 5%
+         *
+         * The percent sign is deliberately handled here instead of in the
+         * generic decimal parser because money and integer fields must remain
+         * strict and must not silently accept percentage notation.
+         */
+        private BigDecimal parseImportedRate(
+                        String value,
+                        String key) {
+
+                String normalized = normalizeImportedValue(value)
+                                .replace(",", "")
+                                .trim();
+
+                if (normalized.isBlank()) {
+                        throw new IllegalArgumentException(
+                                        "\"" + key + "\" must be a valid interest rate. Got a blank value.");
+                }
+
+                String lower = normalized.toLowerCase(Locale.ROOT);
+                boolean explicitPercent = lower.contains("%")
+                                || lower.endsWith("percent")
+                                || lower.endsWith("pct");
+
+                normalized = normalized
+                                .replace("%", "")
+                                .replaceAll("(?i)percent\\s*$", "")
+                                .replaceAll("(?i)pct\\s*$", "")
+                                .trim();
+
                 try {
-                        return parseDecimalValue(value, key, true)
-                                        .setScale(RATE_SCALE, RoundingMode.HALF_UP);
+                        BigDecimal parsed = new BigDecimal(normalized);
+
+                        if (parsed.compareTo(BigDecimal.ZERO) < 0) {
+                                throw new IllegalArgumentException(
+                                                "\"" + key + "\" cannot be negative. Got \"" + value + "\".");
+                        }
+
+                        // A value without an explicit percent marker in (0, 1]
+                        // is an Excel-style fraction (e.g. 0.05 = 5%).
+                        // An explicit percent marker always means percent points
+                        // (0.05% stays 0.05%).
+                        if (!explicitPercent && parsed.compareTo(BigDecimal.ONE) <= 0) {
+                                parsed = parsed.multiply(ONE_HUNDRED);
+                        }
+
+                        parsed = parsed.setScale(RATE_SCALE, RoundingMode.HALF_UP);
+                        validateInterestRate(parsed);
+                        return parsed;
+
                 } catch (NumberFormatException e) {
                         throw new IllegalArgumentException(
                                         "\"" + key + "\" must be a valid interest rate. Got \"" + value + "\".");

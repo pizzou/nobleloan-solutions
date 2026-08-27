@@ -480,8 +480,17 @@ public final class StreamingLedgerFileParser {
             BigDecimal interestPaid = decimal(row.get(25));
             BigDecimal managementPaid = decimal(row.get(23));
             BigDecimal managementOutstanding = decimal(row.get(21));
-            BigDecimal applicationOutstanding = decimal(row.get(22));
-            BigDecimal applicationPaid = decimal(row.get(24));
+
+            // IMPORTANT: columns V/W/X/Y in the historical workbook are
+            // TOTAL MANAGEMENT FEE BALANCE, TOTAL PROCESSING FEE BALANCE,
+            // PAID MANAGEMENT FEE and PAID PROCESSING FEE. The old processing
+            // columns are NOT Noble Loan application-fee paid/outstanding
+            // fields. The actual one-time application fee is column F.
+            // Keep preview and asynchronous commit financially identical by
+            // treating that historical application fee as paid at disbursement.
+            BigDecimal applicationOutstanding = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            BigDecimal applicationPaid = money(applicationFee);
+
             BigDecimal interestOutstanding = decimal(row.get(28));
             BigDecimal principalOutstanding = decimal(row.get(29));
             BigDecimal penalties = decimal(row.get(27));
@@ -729,6 +738,10 @@ public final class StreamingLedgerFileParser {
             row.putIfAbsent("currency", "RWF");
         }
 
+        normalizeRateField(row, "interest_rate");
+        normalizeRateField(row, "management_fee_rate");
+        normalizeRateField(row, "application_fee_rate");
+
         if (row.containsKey("start_date")) {
             row.put("start_date", normalizeDate(row.get("start_date")));
         }
@@ -804,22 +817,43 @@ public final class StreamingLedgerFileParser {
                 || "FEMALE".equalsIgnoreCase(value);
     }
 
+    private static void normalizeRateField(Map<String, String> row, String key) {
+        if (row.containsKey(key)) {
+            row.put(key, normalizeRate(row.get(key)));
+        }
+    }
+
     private static String normalizeRate(String value) {
         String normalized = clean(value);
         if (normalized.isBlank()) {
             return "5.00";
         }
+
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        boolean explicitPercent = lower.contains("%")
+                || lower.endsWith("percent")
+                || lower.endsWith("pct");
+
+        String numeric = normalized
+                .replace("%", "")
+                .replace(",", "")
+                .replaceAll("(?i)percent\\s*$", "")
+                .replaceAll("(?i)pct\\s*$", "")
+                .trim();
+
         try {
-            BigDecimal rate = new BigDecimal(normalized.replace("%", "").replace(",", ""));
+            BigDecimal rate = new BigDecimal(numeric);
             if (rate.compareTo(BigDecimal.ZERO) < 0) {
-                return "5.00";
+                return normalized;
             }
-            if (rate.compareTo(BigDecimal.ONE) <= 0) {
+            if (!explicitPercent && rate.compareTo(BigDecimal.ONE) <= 0) {
                 rate = rate.multiply(BigDecimal.valueOf(100));
             }
-            return rate.setScale(6, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
+            return rate.setScale(6, RoundingMode.HALF_UP)
+                    .stripTrailingZeros()
+                    .toPlainString();
         } catch (NumberFormatException e) {
-            return "5.00";
+            return normalized;
         }
     }
 
