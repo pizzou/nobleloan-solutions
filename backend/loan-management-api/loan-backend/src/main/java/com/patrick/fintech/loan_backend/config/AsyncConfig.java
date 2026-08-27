@@ -6,57 +6,35 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
 
+/**
+ * Executors used by the application for work that must never block an HTTP
+ * request, including historical loan imports.
+ */
 @Configuration
 @EnableAsync
 public class AsyncConfig {
 
         @Bean(name = "loansaasAsyncExecutor")
         public Executor loansaasAsyncExecutor() {
-
                 ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
 
-                /*
-                 * Number of threads available for asynchronous work.
-                 *
-                 * Webhooks are external HTTP calls, so we do not want
-                 * them executing on the payment request thread.
-                 */
-                executor.setCorePoolSize(4);
+                // Legacy imports are database-heavy. Keep concurrency bounded so a
+                // large import cannot exhaust the datasource connection pool.
+                executor.setCorePoolSize(2);
+                executor.setMaxPoolSize(4);
+                executor.setQueueCapacity(25);
+                executor.setThreadNamePrefix("loansaas-async-");
 
-                /*
-                 * Maximum number of concurrent asynchronous tasks.
-                 */
-                executor.setMaxPoolSize(12);
+                // Never execute a long import on the HTTP request thread when the
+                // executor is saturated. Reject it instead; the controller can report
+                // that the job could not be queued.
+                executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
 
-                /*
-                 * Tasks waiting for an available worker thread.
-                 */
-                executor.setQueueCapacity(100);
-
-                /*
-                 * Makes thread names easy to identify in production logs.
-                 */
-                executor.setThreadNamePrefix(
-                                "loansaas-async-");
-
-                /*
-                 * Finish already-submitted tasks during graceful
-                 * application shutdown.
-                 */
-                executor.setWaitForTasksToCompleteOnShutdown(
-                                true);
-
-                /*
-                 * Give existing asynchronous tasks time to finish
-                 * during shutdown.
-                 */
-                executor.setAwaitTerminationSeconds(
-                                30);
-
-                /*
-                 * Initialize the executor.
-                 */
+                executor.setWaitForTasksToCompleteOnShutdown(true);
+                executor.setAwaitTerminationSeconds(60);
+                executor.setAllowCoreThreadTimeOut(false);
                 executor.initialize();
 
                 return executor;

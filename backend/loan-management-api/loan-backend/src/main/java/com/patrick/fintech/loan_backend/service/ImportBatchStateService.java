@@ -104,4 +104,13 @@ public class ImportBatchStateService {
         batch.setErrorMessage(message);
         repo.save(batch);
     }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void setStatus(Long batchId, String status) {
+        ImportBatch batch = repo.findById(batchId)
+                .orElseThrow(() -> new IllegalArgumentException("Import batch not found: " + batchId));
+        batch.setStatus(status);
+        repo.save(batch);
+    }
+
 }

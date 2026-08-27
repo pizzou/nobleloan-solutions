@@ -1,11 +1,11 @@
 package com.patrick.fintech.loan_backend.service;
 
+import com.patrick.fintech.loan_backend.model.User;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.patrick.fintech.loan_backend.dto.ImportRowResult;
 import com.patrick.fintech.loan_backend.model.Borrower;
 import com.patrick.fintech.loan_backend.model.ImportBatch;
 import com.patrick.fintech.loan_backend.model.Organization;
-import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.ImportBatchRepository;
 import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.repository.UserRepository;
@@ -17,7 +17,6 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 import java.io.BufferedWriter;
 import java.io.InputStream;
@@ -34,15 +33,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Production asynchronous legacy-loan import coordinator.
- *
- * The HTTP request only stages the file and creates an ImportBatch. Workbook
- * parsing and row transactions happen in a background worker. Every imported
- * loan is marked as historical/imported by LegacyLoanImportRowService and is
- * posted to accounting as an opening balance, so financial reconciliation is
- * not asked to replay historical cash disbursements.
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -108,25 +98,12 @@ public class AsyncLegacyImportService {
         }
 
         @Async("loansaasAsyncExecutor")
-        @Transactional
         public CompletableFuture<Void> process(Long batchId) {
                 try {
                         doProcess(batchId);
                         return CompletableFuture.completedFuture(null);
                 } catch (Exception e) {
                         log.error("Asynchronous legacy import failed. batchId={}", batchId, e);
-
-                        // The import transaction must never commit a subset of the
-                        // workbook. Row service participates in this transaction, so a
-                        // failed batch is explicitly marked rollback-only here. The
-                        // FAILED batch status itself is persisted by ImportBatchStateService
-                        // in a separate transaction below.
-                        try {
-                                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-                        } catch (Exception transactionStateFailure) {
-                                log.error("Unable to mark legacy import transaction rollback-only. batchId={}",
-                                                batchId, transactionStateFailure);
-                        }
 
                         try {
                                 ImportBatch failedBatch = batchRepo.findById(batchId).orElse(null);
@@ -142,6 +119,8 @@ public class AsyncLegacyImportService {
                                 int failure = failedBatch != null && failedBatch.getFailureCount() != null
                                                 ? failedBatch.getFailureCount()
                                                 : 0;
+
+                                String status = success > 0 ? "PARTIAL" : "FAILED";
                                 stateService.fail(
                                                 batchId,
                                                 safeMessage(e),
@@ -150,6 +129,9 @@ public class AsyncLegacyImportService {
                                                 success,
                                                 failure,
                                                 failedBatch != null ? failedBatch.getRowResults() : null);
+                                if (!"FAILED".equals(status)) {
+                                        stateService.setStatus(batchId, status);
+                                }
                         } catch (Exception stateFailure) {
                                 log.error("Unable to persist failed import-batch state. batchId={}", batchId,
                                                 stateFailure);
@@ -309,17 +291,11 @@ public class AsyncLegacyImportService {
                         Files.deleteIfExists(stagedFile);
                 }
 
-                // A commit is all-or-nothing. Validation failures are not represented
-                // as a PARTIAL financial import: the transaction is aborted and the
-                // caller records the FAILED batch state after rollback.
-                if (failed.get() > 0) {
-                        throw new IllegalStateException(
-                                        "Legacy import validation failed for " + failed.get()
-                                                        + " of " + processed.get()
-                                                        + " rows. No loan or borrower data was committed.");
-                }
-
-                String status = "COMPLETED";
+                // Rows are intentionally committed independently by LegacyLoanImportRowService
+                // (REQUIRES_NEW). Therefore a bad row must not roll back successful financial
+                // migrations. The batch is COMPLETED only when every supported row succeeds;
+                // otherwise it is explicitly marked PARTIAL.
+                String status = failed.get() == 0 ? "COMPLETED" : "PARTIAL";
 
                 String rowResults = serializeResults(
                                 storedResults,
@@ -331,7 +307,7 @@ public class AsyncLegacyImportService {
                                 Math.toIntExact(totalRows),
                                 processed.get(),
                                 success.get(),
-                                0,
+                                failed.get(),
                                 rowResults);
 
                 // The error-report path is persisted separately after completion so the

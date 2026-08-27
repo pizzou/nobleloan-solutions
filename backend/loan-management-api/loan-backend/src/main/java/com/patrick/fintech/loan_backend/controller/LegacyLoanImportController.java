@@ -7,6 +7,7 @@ import com.patrick.fintech.loan_backend.repository.ImportBatchRepository;
 import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.service.AsyncLegacyImportService;
 import com.patrick.fintech.loan_backend.service.LegacyLoanImportService;
+import com.patrick.fintech.loan_backend.service.ImportBatchStateService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,6 +30,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * Controlled administrative entry point for historical loan migration.
@@ -49,6 +51,7 @@ public class LegacyLoanImportController {
         private final ImportBatchRepository importBatchRepo;
         private final OrganizationRepository orgRepo;
         private final CurrentUserUtil currentUserUtil;
+        private final ImportBatchStateService batchStateService;
 
         @Value("${app.import.staging-dir:${java.io.tmpdir}/loansaas-imports}")
         private String stagingDir;
@@ -131,7 +134,19 @@ public class LegacyLoanImportController {
                                         userId,
                                         file.getSize());
 
-                        asyncImportService.process(batch.getId());
+                        try {
+                                asyncImportService.process(batch.getId());
+                        } catch (RejectedExecutionException e) {
+                                batchStateService.fail(
+                                                batch.getId(),
+                                                "The import worker queue is currently full. Please retry the import.",
+                                                0, 0, 0, 0, null);
+                                Files.deleteIfExists(staged);
+                                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                                                .body(ApiResponse.safe(
+                                                                "The legacy import could not be queued because the background worker is busy. Please retry shortly.",
+                                                                null));
+                        }
 
                         return ResponseEntity.status(HttpStatus.ACCEPTED)
                                         .body(ApiResponse.safe(
