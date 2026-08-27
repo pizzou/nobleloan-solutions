@@ -5,6 +5,7 @@ import com.patrick.fintech.loan_backend.repository.ImportBatchRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 @Service
 @RequiredArgsConstructor
@@ -43,7 +44,7 @@ public class ImportBatchStateService {
         repo.save(batch);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void progress(Long batchId, int processed, int total, int success, int failure) {
         ImportBatch batch = repo.findById(batchId)
                 .orElseThrow(() -> new IllegalArgumentException("Import batch not found: " + batchId));
@@ -62,7 +63,7 @@ public class ImportBatchStateService {
         repo.save(batch);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void setErrorReportPath(Long batchId, String path) {
         ImportBatch batch = repo.findById(batchId)
                 .orElseThrow(() -> new IllegalArgumentException("Import batch not found: " + batchId));
@@ -70,7 +71,7 @@ public class ImportBatchStateService {
         repo.save(batch);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void complete(Long batchId, String status, int total, int processed, int success, int failure,
             String rowResults) {
         ImportBatch batch = repo.findById(batchId)
@@ -87,7 +88,7 @@ public class ImportBatchStateService {
         repo.save(batch);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void fail(Long batchId, String message, int total, int processed, int success, int failure,
             String rowResults) {
         ImportBatch batch = repo.findById(batchId)

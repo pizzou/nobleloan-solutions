@@ -17,6 +17,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 import java.io.BufferedWriter;
 import java.io.InputStream;
@@ -107,12 +108,26 @@ public class AsyncLegacyImportService {
         }
 
         @Async("loansaasAsyncExecutor")
+        @Transactional
         public CompletableFuture<Void> process(Long batchId) {
                 try {
                         doProcess(batchId);
                         return CompletableFuture.completedFuture(null);
                 } catch (Exception e) {
                         log.error("Asynchronous legacy import failed. batchId={}", batchId, e);
+
+                        // The import transaction must never commit a subset of the
+                        // workbook. Row service participates in this transaction, so a
+                        // failed batch is explicitly marked rollback-only here. The
+                        // FAILED batch status itself is persisted by ImportBatchStateService
+                        // in a separate transaction below.
+                        try {
+                                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+                        } catch (Exception transactionStateFailure) {
+                                log.error("Unable to mark legacy import transaction rollback-only. batchId={}",
+                                                batchId, transactionStateFailure);
+                        }
+
                         try {
                                 ImportBatch failedBatch = batchRepo.findById(batchId).orElse(null);
                                 int total = failedBatch != null && failedBatch.getTotalRows() != null
@@ -294,11 +309,17 @@ public class AsyncLegacyImportService {
                         Files.deleteIfExists(stagedFile);
                 }
 
-                String status = failed.get() == 0
-                                ? "COMPLETED"
-                                : success.get() == 0
-                                                ? "FAILED"
-                                                : "PARTIAL";
+                // A commit is all-or-nothing. Validation failures are not represented
+                // as a PARTIAL financial import: the transaction is aborted and the
+                // caller records the FAILED batch state after rollback.
+                if (failed.get() > 0) {
+                        throw new IllegalStateException(
+                                        "Legacy import validation failed for " + failed.get()
+                                                        + " of " + processed.get()
+                                                        + " rows. No loan or borrower data was committed.");
+                }
+
+                String status = "COMPLETED";
 
                 String rowResults = serializeResults(
                                 storedResults,
@@ -310,7 +331,7 @@ public class AsyncLegacyImportService {
                                 Math.toIntExact(totalRows),
                                 processed.get(),
                                 success.get(),
-                                failed.get(),
+                                0,
                                 rowResults);
 
                 // The error-report path is persisted separately after completion so the

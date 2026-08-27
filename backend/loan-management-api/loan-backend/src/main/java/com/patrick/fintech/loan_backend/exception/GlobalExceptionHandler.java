@@ -17,7 +17,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.hibernate.LazyInitializationException;
+import com.patrick.fintech.loan_backend.service.IdempotencyService;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -191,19 +192,30 @@ public class GlobalExceptionHandler {
         }
 
         // ============================================================
-        // CLIENT ABORT / BROKEN PIPE
+        // IDEMPOTENCY CONFLICT
         // ============================================================
 
-        /**
-         * A browser, proxy, or download timeout can close the TCP connection
-         * while Spring is still writing a large XLSX/PDF response. Tomcat then
-         * raises AsyncRequestNotUsableException / ClientAbortException. This is
-         * not an application failure and there is no HTTP response left to send.
-         */
-        @ExceptionHandler(AsyncRequestNotUsableException.class)
-        public ResponseEntity<Void> handleClientAbort(AsyncRequestNotUsableException ex) {
-                log.debug("Client disconnected while the server was writing the response: {}", ex.getMessage());
-                return ResponseEntity.noContent().build();
+        @ExceptionHandler(IdempotencyService.IdempotencyConflictException.class)
+        public ResponseEntity<Map<String, Object>> handleIdempotencyConflict(
+                        IdempotencyService.IdempotencyConflictException ex) {
+                log.warn("Idempotency conflict: {}", ex.getMessage());
+                return json(HttpStatus.CONFLICT, error(
+                                safeClientMessage(ex.getMessage(),
+                                                "The request is already being processed or the idempotency key was reused."),
+                                null));
+        }
+
+        // ============================================================
+        // LAZY LOADING / DETACHED ENTITY
+        // ============================================================
+
+        @ExceptionHandler(LazyInitializationException.class)
+        public ResponseEntity<Map<String, Object>> handleLazyInitialization(
+                        LazyInitializationException ex) {
+                log.error("Lazy-loading failure crossed the API boundary", ex);
+                return json(HttpStatus.INTERNAL_SERVER_ERROR, error(
+                                "The server could not prepare the requested response. Please retry the request.",
+                                null));
         }
 
         // ============================================================

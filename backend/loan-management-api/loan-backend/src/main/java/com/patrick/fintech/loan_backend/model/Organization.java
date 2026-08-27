@@ -233,6 +233,10 @@ public class Organization {
 
         LocalDateTime now = LocalDateTime.now();
 
+        if (slug == null || slug.isBlank()) {
+            slug = buildDefaultSlug(name);
+        }
+
         if (createdAt == null) {
             createdAt = now;
         }
@@ -277,7 +281,23 @@ public class Organization {
     @PreUpdate
     protected void onUpdate() {
 
+        if (slug == null || slug.isBlank()) {
+            slug = buildDefaultSlug(name);
+        }
         updatedAt = LocalDateTime.now();
+    }
+
+    private static String buildDefaultSlug(String value) {
+        String normalizedName = value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
+        if (normalizedName.equals("noble loan solutions ltd")
+                || normalizedName.equals("noble loan solutions")) {
+            return "nobleloansolutions";
+        }
+        String base = normalizedName.replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-+|-+$", "");
+        if (base.isBlank())
+            base = "tenant";
+        return base.substring(0, Math.min(120, base.length()));
     }
 
     /*

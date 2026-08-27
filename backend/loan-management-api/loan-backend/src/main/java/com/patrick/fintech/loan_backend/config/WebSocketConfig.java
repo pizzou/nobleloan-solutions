@@ -1,5 +1,6 @@
 package com.patrick.fintech.loan_backend.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
@@ -10,29 +11,38 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    @Override
-    public void configureMessageBroker(MessageBrokerRegistry registry) {
+        @Value("${app.cors.allowed-origins:https://nobleloan-solutions.vercel.app}")
+        private String allowedOrigins;
 
-        registry.enableSimpleBroker(
-                "/topic",
-                "/queue"
-        );
+        @Override
+        public void configureMessageBroker(MessageBrokerRegistry registry) {
 
-        registry.setApplicationDestinationPrefixes(
-                "/app"
-        );
+                registry.enableSimpleBroker(
+                                "/topic",
+                                "/queue");
 
-        registry.setUserDestinationPrefix(
-                "/user"
-        );
-    }
+                registry.setApplicationDestinationPrefixes(
+                                "/app");
 
-    @Override
-    public void registerStompEndpoints(
-            StompEndpointRegistry registry
-    ) {
+                registry.setUserDestinationPrefix(
+                                "/user");
+        }
 
-        registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*");
-    }
+        @Override
+        public void registerStompEndpoints(
+                        StompEndpointRegistry registry) {
+
+                String[] origins = java.util.Arrays.stream(allowedOrigins.split(","))
+                                .map(String::trim)
+                                .filter(origin -> !origin.isBlank())
+                                .toArray(String[]::new);
+
+                if (origins.length == 0) {
+                        throw new IllegalStateException(
+                                        "WebSocket allowed origins are not configured. Set app.cors.allowed-origins.");
+                }
+
+                registry.addEndpoint("/ws")
+                                .setAllowedOrigins(origins);
+        }
 }
