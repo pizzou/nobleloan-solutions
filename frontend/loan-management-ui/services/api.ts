@@ -975,6 +975,8 @@ export const importApi = {
   },
 
   batches: () => get("/import/legacy-loans/batches"),
+
+  batch: (id: number) => get(`/import/legacy-loans/batches/${id}`),
 };
 
 /**

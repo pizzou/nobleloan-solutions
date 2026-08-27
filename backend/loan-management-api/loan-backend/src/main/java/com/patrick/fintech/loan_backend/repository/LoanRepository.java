@@ -137,6 +137,19 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                         Long organizationId);
 
         /**
+         * Returns loans actually persisted by one legacy import batch.
+         * This is the authoritative post-commit persistence count.
+         */
+        @EntityGraph(attributePaths = {
+                        "borrower",
+                        "organization",
+                        "branch"
+        })
+        List<Loan> findByOrganization_IdAndImportBatchId(
+                        Long organizationId,
+                        Long importBatchId);
+
+        /**
          * Find all loans belonging to a borrower within an organization.
          */
         @EntityGraph(attributePaths = {

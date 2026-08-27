@@ -263,8 +263,37 @@ export default function ImportLegacyLoansPage() {
   };
 
   /* ==========================================================
-     COMMIT
+     COMMIT / AUTHORITATIVE COMPLETION
      ========================================================== */
+
+  const waitForBatchCompletion = async (batchId: number): Promise<Batch> => {
+    const timeoutAt = Date.now() + 10 * 60 * 1000;
+
+    while (Date.now() < timeoutAt) {
+      const current: any = await importApi.batch(batchId);
+      const batch = current as Batch;
+
+      setBatches((previous) => {
+        const next = previous.filter((item) => item.id !== batch.id);
+        return [batch, ...next];
+      });
+
+      const status = String(batch.status || "").toUpperCase();
+      if (
+        status === "COMPLETED" ||
+        status === "PARTIAL" ||
+        status === "FAILED"
+      ) {
+        return batch;
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+    }
+
+    throw new Error(
+      "The import is still processing. Refresh Import History to see the authoritative final result.",
+    );
+  };
 
   const handleCommit = async () => {
     if (!file || !preview) return;
@@ -291,12 +320,45 @@ export default function ImportLegacyLoansPage() {
     setBusy(true);
 
     try {
-      const batch: any = await importApi.commit(file);
+      const queuedBatch: any = await importApi.commit(file);
+      const batchId = Number(queuedBatch?.id);
+
+      if (!Number.isInteger(batchId) || batchId <= 0) {
+        throw new Error(
+          "The import was accepted but no valid batch ID was returned.",
+        );
+      }
 
       toast(
         "success",
-        `Import completed: ${batch.successCount ?? successfulRows.length}/${batch.totalRows ?? preview.length} rows processed.`,
+        "Import accepted. Processing and verifying production records…",
       );
+
+      const completedBatch = await waitForBatchCompletion(batchId);
+      const finalStatus = String(completedBatch.status || "").toUpperCase();
+      const finalSuccess = Number(completedBatch.successCount ?? 0);
+      const finalTotal = Number(
+        completedBatch.totalRows ?? successfulRows.length,
+      );
+
+      if (finalStatus === "FAILED") {
+        throw new Error(
+          (completedBatch as any).errorMessage ||
+            `The import failed after processing ${finalSuccess}/${finalTotal} rows.`,
+        );
+      }
+
+      if (finalStatus === "PARTIAL") {
+        toast(
+          "error",
+          `Import completed partially: ${finalSuccess}/${finalTotal} rows were committed. Review failed rows before retrying.`,
+        );
+      } else {
+        toast(
+          "success",
+          `Import completed and verified: ${finalSuccess}/${finalTotal} loan records are persisted.`,
+        );
+      }
 
       setFile(null);
 

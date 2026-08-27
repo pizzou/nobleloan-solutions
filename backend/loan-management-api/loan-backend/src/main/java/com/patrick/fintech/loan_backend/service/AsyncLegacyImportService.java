@@ -7,6 +7,7 @@ import com.patrick.fintech.loan_backend.model.ImportBatch;
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.ImportBatchRepository;
+import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.repository.UserRepository;
 import com.patrick.fintech.loan_backend.util.StreamingLedgerFileParser;
@@ -61,6 +62,8 @@ public class AsyncLegacyImportService {
         private final AuditService auditService;
         private final ImportBatchStateService stateService;
         private final ObjectMapper objectMapper;
+        private final LoanRepository loanRepository;
+        private final AccountingService accountingService;
 
         @Transactional
         public ImportBatch stage(
@@ -301,9 +304,56 @@ public class AsyncLegacyImportService {
                 }
 
                 // Rows are intentionally committed independently by LegacyLoanImportRowService
-                // (REQUIRES_NEW). Therefore a bad row must not roll back successful financial
-                // migrations. The batch is COMPLETED only when every supported row succeeds;
-                // otherwise it is explicitly marked PARTIAL.
+                // (REQUIRES_NEW). Verify the actual persisted loan count before reporting the
+                // migration as complete, then run the idempotent accounting opening
+                // reconciliation
+                // for exactly this batch.
+                List<com.patrick.fintech.loan_backend.model.Loan> persistedLoans = loanRepository
+                                .findByOrganization_IdAndImportBatchId(
+                                                organization.getId(), batchId);
+
+                int persistedLoanCount = persistedLoans == null ? 0 : persistedLoans.size();
+
+                if (persistedLoanCount != success.get()) {
+                        String integrityMessage = "Legacy import persistence verification failed: successful rows="
+                                        + success.get()
+                                        + ", persisted loan records=" + persistedLoanCount
+                                        + ". The batch is not marked completed.";
+
+                        log.error("{} batchId={}, organizationId={}", integrityMessage, batchId,
+                                        organization.getId());
+                        stateService.fail(
+                                        batchId,
+                                        integrityMessage,
+                                        Math.toIntExact(totalRows),
+                                        processed.get(),
+                                        persistedLoanCount,
+                                        failed.get(),
+                                        serializeResults(storedResults, processed.get() > MAX_STORED_ROW_RESULTS));
+                        return;
+                }
+
+                if (persistedLoans != null && !persistedLoans.isEmpty()) {
+                        try {
+                                accountingService.reconcileLegacyLoanOpeningBalances(persistedLoans);
+                        } catch (Exception accountingFailure) {
+                                String accountingMessage = "Legacy loans were persisted, but accounting opening reconciliation failed. "
+                                                + "The batch is marked PARTIAL until reconciliation succeeds.";
+                                log.error("{} batchId={}, organizationId={}", accountingMessage, batchId,
+                                                organization.getId(), accountingFailure);
+                                stateService.fail(
+                                                batchId,
+                                                accountingMessage,
+                                                Math.toIntExact(totalRows),
+                                                processed.get(),
+                                                persistedLoanCount,
+                                                failed.get(),
+                                                serializeResults(storedResults,
+                                                                processed.get() > MAX_STORED_ROW_RESULTS));
+                                return;
+                        }
+                }
+
                 String status = failed.get() == 0 ? "COMPLETED" : "PARTIAL";
 
                 String rowResults = serializeResults(

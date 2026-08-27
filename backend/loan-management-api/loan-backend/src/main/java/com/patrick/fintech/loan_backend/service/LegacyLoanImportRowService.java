@@ -513,7 +513,7 @@ public class LegacyLoanImportRowService {
                                  * +
                                  * management fee rate from the historical source, default 5% monthly.
                                  *
-                                 * Processing fee is NOT included here because it is
+                                 * Application fee is NOT included here because it is
                                  * a one-time fee deducted at disbursement.
                                  */
                                 BigDecimal calculationInterestRate = effectiveInterestRate;
@@ -593,11 +593,11 @@ public class LegacyLoanImportRowService {
                         }
 
                         // ========================================================
-                        // PROCESSING FEE
+                        // APPLICATION FEE
                         // ========================================================
 
                         /*
-                         * APPLICATION FEE and PROCESSING FEE are the same one-time charge in Noble
+                         * APPLICATION FEE is the one-time charge used by Noble
                          * Loan.
                          * Legacy imports preserve the historical Application Fee when the source
                          * workbook provides it. Otherwise the current Noble Loan default of 2%
@@ -970,7 +970,7 @@ public class LegacyLoanImportRowService {
                                                                         org))
 
                                         // ------------------------------------------------
-                                        // APPLICATION / PROCESSING FEE
+                                        // APPLICATION FEE
                                         // One-time fee; deducted from gross disbursement.
                                         // ------------------------------------------------
 
@@ -1258,7 +1258,7 @@ public class LegacyLoanImportRowService {
          * =
          * 10% monthly recurring charge.
          *
-         * Processing fee is excluded because it is a one-time
+         * Application fee is excluded because it is a one-time
          * disbursement deduction.
          *
          * Returns:
