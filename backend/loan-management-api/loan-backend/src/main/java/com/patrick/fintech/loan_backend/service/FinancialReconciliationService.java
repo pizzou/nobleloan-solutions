@@ -325,9 +325,23 @@ public class FinancialReconciliationService {
                     .findFirst()
                     .orElse(null);
 
-            BigDecimal glBalance = account == null
-                    ? ZERO
-                    : accountBalance(account, accountTotals.get(account.getId()));
+            BigDecimal glBalance;
+            if (account == null) {
+                glBalance = ZERO;
+            } else if (isLoanReceivableAccount(code)) {
+                glBalance = ZERO;
+                for (Loan loan : loans) {
+                    if (loan == null || loan.getReferenceNumber() == null
+                            || loan.getReferenceNumber().isBlank()) {
+                        continue;
+                    }
+                    glBalance = glBalance.add(loanReceivableBalance(
+                            entries, account, loan));
+                }
+                glBalance = normalize(glBalance);
+            } else {
+                glBalance = accountBalance(account, accountTotals.get(account.getId()));
+            }
 
             BigDecimal difference = normalize(glBalance.subtract(operational));
             boolean reconciles = difference.abs().compareTo(TOLERANCE) < 0;
@@ -545,7 +559,7 @@ public class FinancialReconciliationService {
                 ChartOfAccount account = accountByCode.get(code);
                 gl.put(code, account == null
                         ? ZERO
-                        : loanReceivableBalance(entries, account, reference));
+                        : loanReceivableBalance(entries, account, loan));
             }
 
             BigDecimal principalDifference = normalize(gl.get("1100").subtract(operational.get("1100")));
@@ -589,9 +603,13 @@ public class FinancialReconciliationService {
     private BigDecimal loanReceivableBalance(
             List<JournalEntry> entries,
             ChartOfAccount account,
-            String loanReference) {
+            Loan loan) {
 
         BigDecimal balance = ZERO;
+        String loanReference = loan == null ? null : loan.getReferenceNumber();
+        if (loanReference == null || loanReference.isBlank()) {
+            return ZERO;
+        }
         String token = loanReference.toLowerCase(java.util.Locale.ROOT);
 
         for (JournalEntry entry : entries) {
@@ -624,6 +642,11 @@ public class FinancialReconciliationService {
                     || "LOAN_DISBURSEMENT".equals(sourceType);
 
             if (!relevantSource) {
+                continue;
+            }
+
+            if ((Boolean.TRUE.equals(loan.getImported()) || loan.getImportBatchId() != null)
+                    && "LOAN_DISBURSEMENT".equals(sourceType)) {
                 continue;
             }
 

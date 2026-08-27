@@ -154,6 +154,11 @@ public class DashboardService {
                         BigDecimal disbursedAmount = money(
                                         loan.getDisbursedAmountDecimal());
 
+                        if (disbursedAmount.compareTo(ZERO) <= 0 && (Boolean.TRUE.equals(loan.getImported())
+                                        || loan.getImportBatchId() != null)) {
+                                disbursedAmount = amount;
+                        }
+
                         BigDecimal outstanding = money(
                                         loan.getOutstandingBalanceDecimal());
 
@@ -161,7 +166,9 @@ public class DashboardService {
                          * A loan enters the financial portfolio only after an
                          * actual disbursement timestamp exists.
                          */
-                        boolean disbursed = loan.getDisbursedAt() != null;
+                        boolean disbursed = loan.getDisbursedAt() != null
+                                        || Boolean.TRUE.equals(loan.getImported())
+                                        || loan.getImportBatchId() != null;
 
                         if (disbursed) {
 

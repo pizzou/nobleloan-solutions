@@ -990,6 +990,19 @@ public class RegulatoryReportingService {
                         historicalAmountCollected = moneyDecimal(historicalAmountCollected.add(historicalTotal));
                 }
 
+                /*
+                 * Imported loans carry their historical cumulative collection
+                 * state on Loan rather than fabricated Payment rows. The
+                 * primary report totals must therefore include those historical
+                 * amounts as well as retaining the explicit historical fields
+                 * above. This keeps the regulatory report complete without
+                 * double-counting post-migration Payment rows.
+                 */
+                principalCollected += historicalPrincipalCollected.doubleValue();
+                interestCollected += historicalInterestCollected.doubleValue();
+                feesCollected += historicalFeesCollected.doubleValue();
+                totalAmountCollected += historicalAmountCollected.doubleValue();
+
                 // ========================================================
                 // RATIOS
                 // ========================================================

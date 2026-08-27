@@ -1042,13 +1042,12 @@ public class AccountingService {
                                 glBalance = money(glBalance.max(ZERO));
                                 BigDecimal delta = money(expectedBalance.subtract(glBalance));
 
-                                // Positive delta means the operational imported opening
-                                // receivable is larger than the active GL balance. That is a
-                                // safe historical-opening correction. A negative delta means
-                                // GL is already larger than the operational state; that case
-                                // is handled by the conservative operational synchronization
-                                // instead of reducing accounting history automatically.
-                                if (delta.compareTo(new BigDecimal("0.01")) >= 0) {
+                                // Both directions are reconciled through an explicit,
+                                // auditable migration-equity journal. A positive delta means
+                                // the operational imported receivable is larger than GL; a
+                                // negative delta means the GL receivable is overstated.
+                                // Historical journals are never edited or deleted.
+                                if (delta.abs().compareTo(TOLERANCE) >= 0) {
                                         deltas.put(code, delta);
                                 }
                         }

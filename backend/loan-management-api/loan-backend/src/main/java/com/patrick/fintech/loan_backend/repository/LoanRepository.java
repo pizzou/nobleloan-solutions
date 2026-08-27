@@ -311,8 +311,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                             COALESCE(
                                 SUM(
                                     CASE
-                                        WHEN (l.imported = false OR l.imported IS NULL)
-                                         AND l.disbursedAmount IS NOT NULL
+                                        WHEN l.disbursedAmount IS NOT NULL
                                         THEN l.disbursedAmount
                                         ELSE 0
                                     END
