@@ -670,9 +670,6 @@ public final class LedgerFileParser {
         }
         normalizeNamesAlias(row);
         normalizeHistoricalPortfolioAliases(row);
-        normalizeImportedRateField(row, "interest_rate");
-        normalizeImportedRateField(row, "management_fee_rate");
-        normalizeImportedRateField(row, "application_fee_rate");
         if (row.containsKey("start_date")) {
             row.put("start_date", normalizeDateString(row.get("start_date")));
         }
@@ -808,6 +805,14 @@ public final class LedgerFileParser {
             return "";
         }
 
+        // Historical monthly portfolio files may contain a status marker
+        // such as "loan restructure" in the next-due-date column. Preserve
+        // status detection separately, but never send this marker to the
+        // date parser/service as if it were an actual date.
+        if (cleaned.toUpperCase(Locale.ROOT).contains("RESTRUCTURE")) {
+            return "";
+        }
+
         LocalDate parsed = parseDate(cleaned);
         return parsed == null ? cleaned : parsed.toString();
     }
@@ -827,12 +832,6 @@ public final class LedgerFileParser {
         return null;
     }
 
-    private static void normalizeImportedRateField(Map<String, String> row, String key) {
-        if (row.containsKey(key)) {
-            row.put(key, normalizeImportedRate(row.get(key)));
-        }
-    }
-
     private static String normalizeImportedRate(String value) {
         String cleaned = cleanCell(value);
         if (cleaned.isBlank()) {
@@ -846,16 +845,14 @@ public final class LedgerFileParser {
 
         String numeric = cleaned
                 .replace("%", "")
-                .replace(",", "")
                 .replaceAll("(?i)percent\\s*$", "")
                 .replaceAll("(?i)pct\\s*$", "")
+                .replace(",", "")
                 .trim();
 
         try {
             BigDecimal rate = new BigDecimal(numeric);
             if (rate.compareTo(BigDecimal.ZERO) < 0) {
-                // Keep invalid data visible to the row-level validator instead
-                // of silently turning it into the 5% default.
                 return cleaned;
             }
             if (!explicitPercent && rate.compareTo(BigDecimal.ONE) <= 0) {
@@ -865,9 +862,8 @@ public final class LedgerFileParser {
                     .stripTrailingZeros()
                     .toPlainString();
         } catch (NumberFormatException e) {
-            // Preserve invalid source text so LegacyLoanImportRowService can
-            // return a precise per-row validation error rather than corrupting
-            // the historical contract by silently defaulting it to 5%.
+            // Do not hide bad source data behind a silent 5% default. Let the
+            // row-level validator report the exact original value.
             return cleaned;
         }
     }

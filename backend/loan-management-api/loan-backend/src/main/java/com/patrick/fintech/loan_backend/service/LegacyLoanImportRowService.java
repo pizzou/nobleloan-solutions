@@ -1594,71 +1594,59 @@ public class LegacyLoanImportRowService {
                         Map<String, String> row,
                         String key) {
 
-                String value = req(row, key);
-                return parseImportedRate(value, key);
+                return parseImportedRate(req(row, key), key);
         }
 
         /**
-         * Parses a historical percentage without conflating percent-points and
-         * decimal fractions. Supported examples:
-         *
-         * 5 -> 5%
-         * 5% -> 5%
-         * 0.05 -> 5% (Excel percentage value)
-         * 0.05% -> 0.05% (explicit percent-point value)
-         * 5.00 % -> 5%
-         *
-         * The percent sign is deliberately handled here instead of in the
-         * generic decimal parser because money and integer fields must remain
-         * strict and must not silently accept percentage notation.
+         * Parse imported rates consistently across CSV, Excel, preview and
+         * asynchronous commit paths. Historical workbooks commonly represent
+         * 5% as either 5, 5%, or Excel's fractional 0.05 value.
          */
         private BigDecimal parseImportedRate(
-                        String value,
+                        String rawValue,
                         String key) {
 
-                String normalized = normalizeImportedValue(value)
-                                .replace(",", "")
-                                .trim();
+                String value = normalizeImportedValue(rawValue);
 
-                if (normalized.isBlank()) {
+                if (value.isBlank()) {
                         throw new IllegalArgumentException(
                                         "\"" + key + "\" must be a valid interest rate. Got a blank value.");
                 }
 
-                String lower = normalized.toLowerCase(Locale.ROOT);
+                String lower = value.toLowerCase(Locale.ROOT);
                 boolean explicitPercent = lower.contains("%")
                                 || lower.endsWith("percent")
                                 || lower.endsWith("pct");
 
-                normalized = normalized
+                String numeric = value
                                 .replace("%", "")
                                 .replaceAll("(?i)percent\\s*$", "")
                                 .replaceAll("(?i)pct\\s*$", "")
+                                .replace(",", "")
                                 .trim();
 
                 try {
-                        BigDecimal parsed = new BigDecimal(normalized);
+                        BigDecimal parsed = new BigDecimal(numeric);
 
-                        if (parsed.compareTo(BigDecimal.ZERO) < 0) {
+                        if (parsed.compareTo(ZERO) < 0) {
                                 throw new IllegalArgumentException(
-                                                "\"" + key + "\" cannot be negative. Got \"" + value + "\".");
+                                                "\"" + key + "\" cannot be negative. Got \"" + rawValue + "\".");
                         }
 
-                        // A value without an explicit percent marker in (0, 1]
-                        // is an Excel-style fraction (e.g. 0.05 = 5%).
-                        // An explicit percent marker always means percent points
-                        // (0.05% stays 0.05%).
-                        if (!explicitPercent && parsed.compareTo(BigDecimal.ONE) <= 0) {
+                        // A bare value between 0 and 1 is interpreted as an
+                        // Excel-style percentage fraction (0.05 = 5%).
+                        if (!explicitPercent
+                                        && parsed.compareTo(BigDecimal.ONE) <= 0) {
                                 parsed = parsed.multiply(ONE_HUNDRED);
                         }
 
-                        parsed = parsed.setScale(RATE_SCALE, RoundingMode.HALF_UP);
-                        validateInterestRate(parsed);
-                        return parsed;
+                        return parsed.setScale(
+                                        RATE_SCALE,
+                                        RoundingMode.HALF_UP);
 
                 } catch (NumberFormatException e) {
                         throw new IllegalArgumentException(
-                                        "\"" + key + "\" must be a valid interest rate. Got \"" + value + "\".");
+                                        "\"" + key + "\" must be a valid interest rate. Got \"" + rawValue + "\".");
                 }
         }
 
@@ -1754,6 +1742,15 @@ public class LegacyLoanImportRowService {
                                                 + "\".");
         }
 
+        private boolean isHistoricalStatusMarker(String value) {
+                if (value == null) {
+                        return false;
+                }
+
+                String normalized = value.trim().toUpperCase(Locale.ROOT);
+                return normalized.contains("RESTRUCTURE");
+        }
+
         // ================================================================
         // OPTIONAL DATE
         // ================================================================
@@ -1770,6 +1767,14 @@ public class LegacyLoanImportRowService {
                 }
 
                 String value = normalizeImportedValue(raw);
+
+                // Historical monthly portfolio sheets sometimes store a
+                // status marker such as "loan restructure" in the next-due-date
+                // column. It is not a date. The parser separately derives
+                // RESTRUCTURED status from the same historical columns.
+                if (isHistoricalStatusMarker(value)) {
+                        return fallback;
+                }
 
                 for (DateTimeFormatter formatter : DATE_FORMATS) {
                         try {

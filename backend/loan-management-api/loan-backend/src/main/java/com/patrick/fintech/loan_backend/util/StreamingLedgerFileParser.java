@@ -480,17 +480,11 @@ public final class StreamingLedgerFileParser {
             BigDecimal interestPaid = decimal(row.get(25));
             BigDecimal managementPaid = decimal(row.get(23));
             BigDecimal managementOutstanding = decimal(row.get(21));
-
-            // IMPORTANT: columns V/W/X/Y in the historical workbook are
-            // TOTAL MANAGEMENT FEE BALANCE, TOTAL PROCESSING FEE BALANCE,
-            // PAID MANAGEMENT FEE and PAID PROCESSING FEE. The old processing
-            // columns are NOT Noble Loan application-fee paid/outstanding
-            // fields. The actual one-time application fee is column F.
-            // Keep preview and asynchronous commit financially identical by
-            // treating that historical application fee as paid at disbursement.
-            BigDecimal applicationOutstanding = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            // Historical columns 22/24 are old processing-fee balance and
+            // paid amounts. They are not Noble Loan's one-time application fee
+            // fields. The actual historical application fee is column 5.
+            BigDecimal applicationOutstanding = BigDecimal.ZERO;
             BigDecimal applicationPaid = money(applicationFee);
-
             BigDecimal interestOutstanding = decimal(row.get(28));
             BigDecimal principalOutstanding = decimal(row.get(29));
             BigDecimal penalties = decimal(row.get(27));
@@ -738,10 +732,6 @@ public final class StreamingLedgerFileParser {
             row.putIfAbsent("currency", "RWF");
         }
 
-        normalizeRateField(row, "interest_rate");
-        normalizeRateField(row, "management_fee_rate");
-        normalizeRateField(row, "application_fee_rate");
-
         if (row.containsKey("start_date")) {
             row.put("start_date", normalizeDate(row.get("start_date")));
         }
@@ -817,12 +807,6 @@ public final class StreamingLedgerFileParser {
                 || "FEMALE".equalsIgnoreCase(value);
     }
 
-    private static void normalizeRateField(Map<String, String> row, String key) {
-        if (row.containsKey(key)) {
-            row.put(key, normalizeRate(row.get(key)));
-        }
-    }
-
     private static String normalizeRate(String value) {
         String normalized = clean(value);
         if (normalized.isBlank()) {
@@ -836,9 +820,9 @@ public final class StreamingLedgerFileParser {
 
         String numeric = normalized
                 .replace("%", "")
-                .replace(",", "")
                 .replaceAll("(?i)percent\\s*$", "")
                 .replaceAll("(?i)pct\\s*$", "")
+                .replace(",", "")
                 .trim();
 
         try {
@@ -853,6 +837,8 @@ public final class StreamingLedgerFileParser {
                     .stripTrailingZeros()
                     .toPlainString();
         } catch (NumberFormatException e) {
+            // Preserve the bad source value so the row validator reports it;
+            // never silently change invalid contractual rates to 5%.
             return normalized;
         }
     }
@@ -884,9 +870,7 @@ public final class StreamingLedgerFileParser {
         // blank here and let the row service apply its normal historical
         // fallback date.
         String statusMarker = normalized.toUpperCase(Locale.ROOT);
-        if (statusMarker.contains("RESTRUCTURE")
-                || statusMarker.equals("RESTRUCTURED")
-                || statusMarker.equals("RESTRUCTURE")) {
+        if (statusMarker.contains("RESTRUCTURE")) {
             return "";
         }
 

@@ -6,7 +6,9 @@ import com.patrick.fintech.loan_backend.model.Borrower;
 import com.patrick.fintech.loan_backend.model.ImportBatch;
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.User;
+import com.patrick.fintech.loan_backend.repository.BorrowerRepository;
 import com.patrick.fintech.loan_backend.repository.ImportBatchRepository;
+import com.patrick.fintech.loan_backend.security.HmacIndexer;
 import com.patrick.fintech.loan_backend.util.LedgerFileParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +19,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -99,6 +102,8 @@ public class LegacyLoanImportService {
 
         private final ImportBatchRepository importBatchRepo;
 
+        private final BorrowerRepository borrowerRepo;
+
         private final AuditService auditService;
 
         private final ObjectMapper objectMapper;
@@ -158,6 +163,11 @@ public class LegacyLoanImportService {
                 validateParsedRows(rows);
 
                 Map<String, Borrower> sessionBorrowers = new HashMap<>();
+
+                // Preview validates the same row business rules as commit, but
+                // it should not perform one borrower SELECT per workbook row.
+                // Preload all existing borrowers referenced by this file once.
+                preloadPreviewBorrowers(rows, org, sessionBorrowers);
 
                 List<ImportRowResult> results = new ArrayList<>(
                                 Math.min(
@@ -763,6 +773,97 @@ public class LegacyLoanImportService {
                         throw new IllegalArgumentException(
                                         "The importing user must have a valid ID.");
                 }
+        }
+
+        /**
+         * Preload existing borrowers for preview in chunked bulk queries.
+         * This removes the preview N+1 borrower lookup while leaving commit
+         * row transactions/concurrency behavior unchanged.
+         */
+        private void preloadPreviewBorrowers(
+                        List<Map<String, String>> rows,
+                        Organization org,
+                        Map<String, Borrower> sessionBorrowers) {
+
+                if (rows == null || rows.isEmpty() || org == null || org.getId() == null) {
+                        return;
+                }
+
+                HashSet<String> hashes = new HashSet<>();
+
+                for (Map<String, String> row : rows) {
+                        if (row == null) {
+                                continue;
+                        }
+
+                        String nationalId = normalizePreviewNationalId(row.get("national_id"));
+
+                        if (!nationalId.isBlank()) {
+                                String hash = HmacIndexer.index(nationalId);
+                                if (hash != null && !hash.isBlank()) {
+                                        hashes.add(hash);
+                                }
+                        }
+                }
+
+                if (hashes.isEmpty()) {
+                        return;
+                }
+
+                final int chunkSize = 500;
+                List<String> allHashes = new ArrayList<>(hashes);
+
+                for (int start = 0; start < allHashes.size(); start += chunkSize) {
+                        int end = Math.min(start + chunkSize, allHashes.size());
+                        List<Borrower> borrowers = borrowerRepo
+                                        .findByOrganization_IdAndNationalIdHashIn(
+                                                        org.getId(),
+                                                        allHashes.subList(start, end));
+
+                        for (Borrower borrower : borrowers) {
+                                if (borrower == null) {
+                                        continue;
+                                }
+
+                                String hash = borrower.getNationalIdHash();
+                                if (hash != null && !hash.isBlank()) {
+                                        sessionBorrowers.put(hash, borrower);
+                                }
+                        }
+                }
+
+                log.info(
+                                "Legacy loan preview borrower preload complete. "
+                                                + "organizationId={}, sourceRows={}, candidateHashes={}, matchedBorrowers={}",
+                                org.getId(),
+                                rows.size(),
+                                hashes.size(),
+                                sessionBorrowers.size());
+        }
+
+        private String normalizePreviewNationalId(String value) {
+                if (value == null) {
+                        return "";
+                }
+
+                String normalized = value
+                                .replace("\uFEFF", "")
+                                .trim();
+
+                if (normalized.startsWith("'") || normalized.startsWith("’")
+                                || normalized.startsWith("‘") || normalized.startsWith("`")) {
+                        normalized = normalized.substring(1).trim();
+                }
+
+                normalized = normalized.replaceAll("\\s+", "");
+
+                if (normalized.length() >= 2
+                                && ((normalized.startsWith("\"") && normalized.endsWith("\""))
+                                                || (normalized.startsWith("'") && normalized.endsWith("'")))) {
+                        normalized = normalized.substring(1, normalized.length() - 1).trim();
+                }
+
+                return normalized;
         }
 
         /*

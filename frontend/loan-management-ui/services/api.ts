@@ -956,6 +956,10 @@ export const importApi = {
     form.append("file", file);
 
     return API.post("/import/legacy-loans/preview", form, {
+      // Legacy workbook preview is a deliberate bulk operation. Keep the
+      // normal API timeout unchanged and give only this endpoint enough
+      // time for Render cold start + workbook parsing/validation.
+      timeout: 120000,
       headers: {
         "Content-Type": "multipart/form-data",
       },
@@ -974,9 +978,25 @@ export const importApi = {
     }).then((response) => unwrap(response.data));
   },
 
+  /**
+   * Lists import batches for the current organization.
+   */
   batches: () => get("/import/legacy-loans/batches"),
 
-  batch: (id: number) => get(`/import/legacy-loans/batches/${id}`),
+  /**
+   * Loads one import batch by ID.
+   *
+   * Keep this separate from batches() so TypeScript makes the two backend
+   * endpoints explicit and callers cannot accidentally pass an ID to the
+   * collection endpoint.
+   */
+  batch: (batchId: number) => {
+    if (!Number.isInteger(batchId) || batchId <= 0) {
+      return Promise.reject(new Error("Invalid import batch ID."));
+    }
+
+    return get(`/import/legacy-loans/batches/${batchId}`);
+  },
 };
 
 /**
