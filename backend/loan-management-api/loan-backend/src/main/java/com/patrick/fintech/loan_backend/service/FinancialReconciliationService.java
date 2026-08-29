@@ -768,14 +768,41 @@ public class FinancialReconciliationService {
 
         // Never treat APPROVED/PENDING pipeline balances as GL receivables.
         LoanStatus status = loan.getStatus();
-        return status == LoanStatus.DISBURSED
-                || status == LoanStatus.ACTIVE
-                || status == LoanStatus.OVERDUE
-                || status == LoanStatus.DEFAULTED
-                || status == LoanStatus.RESTRUCTURED
-                || status == LoanStatus.WRITTEN_OFF
-                || status == LoanStatus.PAID
-                || status == LoanStatus.CLOSED;
+        if (status != null) {
+            return status == LoanStatus.DISBURSED
+                    || status == LoanStatus.ACTIVE
+                    || status == LoanStatus.OVERDUE
+                    || status == LoanStatus.DEFAULTED
+                    || status == LoanStatus.RESTRUCTURED
+                    || status == LoanStatus.WRITTEN_OFF
+                    || status == LoanStatus.PAID
+                    || status == LoanStatus.CLOSED;
+        }
+
+        /*
+         * A malformed legacy row with no status must not silently disappear
+         * from reconciliation if it already carries financial balances.
+         */
+        return hasFinancialEvidence(loan);
+    }
+
+    private boolean hasFinancialEvidence(Loan loan) {
+        if (loan == null) {
+            return false;
+        }
+        return money(loan.getAmountDecimal()).signum() > 0
+                || money(loan.getPrincipalPaidDecimal()).signum() > 0
+                || money(loan.getOutstandingBalanceDecimal()).signum() > 0
+                || money(loan.getTotalInterestDecimal()).signum() > 0
+                || money(loan.getInterestPaidDecimal()).signum() > 0
+                || money(loan.getInterestOutstandingDecimal()).signum() > 0
+                || money(loan.getManagementFeeDecimal()).signum() > 0
+                || money(loan.getManagementFeePaidDecimal()).signum() > 0
+                || money(loan.getManagementFeeOutstandingDecimal()).signum() > 0
+                || money(loan.getApplicationFeeDecimal()).signum() > 0
+                || money(loan.getApplicationFeePaidDecimal()).signum() > 0
+                || money(loan.getPenaltiesAssessedDecimal()).signum() > 0
+                || money(loan.getPenaltiesPaidDecimal()).signum() > 0;
     }
 
     private BigDecimal accountBalance(ChartOfAccount account, BigDecimal[] totals) {

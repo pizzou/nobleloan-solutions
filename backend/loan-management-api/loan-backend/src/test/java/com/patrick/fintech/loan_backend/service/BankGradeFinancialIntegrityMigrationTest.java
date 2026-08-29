@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -11,8 +12,8 @@ class BankGradeFinancialIntegrityMigrationTest {
 
     @Test
     void v86CreatesUniquenessBoundariesAndFinancialInvariantGuard() throws Exception {
-        Path migration = Path.of(
-                "src/main/resources/db/migration/V86__bank_grade_financial_integrity.sql");
+        Path migration = Paths.get("src", "main", "resources", "db", "migration",
+                "V86__bank_grade_financial_integrity.sql");
         String sql = Files.readString(migration).toLowerCase();
 
         assertTrue(sql.contains("uq_loans_org_reference_bank_grade"));

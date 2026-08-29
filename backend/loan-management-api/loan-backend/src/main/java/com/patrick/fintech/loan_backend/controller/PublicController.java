@@ -62,7 +62,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-
+import java.util.Locale;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -1156,10 +1156,6 @@ public class PublicController {
 
                 PaymentGatewayRequest req = new PaymentGatewayRequest();
 
-                /*
-                 * PaymentGatewayRequest currently uses numeric gateway
-                 * amount values, so convert only here.
-                 */
                 req.setAmount(
                                 dueAmount.doubleValue());
 
@@ -1928,8 +1924,10 @@ public class PublicController {
         // ============================================================
 
         private String value(String currency) {
-
-                throw new UnsupportedOperationException("Unimplemented method 'value'");
+                if (currency == null || currency.isBlank()) {
+                        return "RWF";
+                }
+                return currency.trim().toUpperCase(Locale.ROOT);
         }
 
         private List<Map<String, Object>> receiptRows(

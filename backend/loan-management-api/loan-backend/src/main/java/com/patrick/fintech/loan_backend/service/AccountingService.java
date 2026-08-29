@@ -1563,7 +1563,10 @@ public class AccountingService {
                                                 .credit(
                                                                 netCashDisbursed)
                                                 .description(
-                                                                "Net cash disbursed after 2% application fee — "
+                                                                "Net cash disbursed after "
+                                                                                + money(loan.getApplicationFeeRateDecimal())
+                                                                                                .toPlainString()
+                                                                                + "% application fee — "
                                                                                 + reference)
                                                 .build());
 
@@ -1585,7 +1588,10 @@ public class AccountingService {
                                                         .credit(
                                                                         applicationFee)
                                                         .description(
-                                                                        "One-time 2% application fee income — "
+                                                                        "One-time "
+                                                                                        + money(loan.getApplicationFeeRateDecimal())
+                                                                                                        .toPlainString()
+                                                                                        + "% application fee income — "
                                                                                         + reference)
                                                         .build());
                 }
