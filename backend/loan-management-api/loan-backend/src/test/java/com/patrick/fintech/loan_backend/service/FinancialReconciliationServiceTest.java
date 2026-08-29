@@ -1,5 +1,6 @@
 package com.patrick.fintech.loan_backend.service;
 
+import com.patrick.fintech.loan_backend.dto.regulatory.BnrSummaryReport;
 import com.patrick.fintech.loan_backend.model.ChartOfAccount;
 import com.patrick.fintech.loan_backend.model.JournalEntry;
 import com.patrick.fintech.loan_backend.model.JournalLine;
@@ -35,6 +36,9 @@ class FinancialReconciliationServiceTest {
     @Mock
     LoanRepository loanRepository;
 
+    @Mock
+    RegulatoryReportingService regulatoryReportingService;
+
     private FinancialReconciliationService service;
     private Organization organization;
 
@@ -43,7 +47,7 @@ class FinancialReconciliationServiceTest {
         service = new FinancialReconciliationService(
                 journalEntryRepository,
                 chartOfAccountRepository,
-                loanRepository, null);
+                loanRepository, regulatoryReportingService);
 
         organization = new Organization();
         organization.setId(1L);
@@ -211,7 +215,7 @@ class FinancialReconciliationServiceTest {
         entry.addLine(line(cash, "0.00", "1000.00"));
 
         Loan loan = new Loan();
-        loan.setStatus(com.patrick.fintech.loan_backend.model.LoanStatus.PENDING);
+        loan.setStatus(com.patrick.fintech.loan_backend.model.LoanStatus.ACTIVE);
         loan.setImportBatchId(77L);
         loan.setAmount(new BigDecimal("1000.00"));
         loan.setPrincipalPaid(new BigDecimal("0.00"));
@@ -246,6 +250,97 @@ class FinancialReconciliationServiceTest {
         assertTrue(report.balanced());
     }
 
+    @Test
+    void numericLoanReferencesDoNotCrossMatchInLoanDiagnostic() {
+        ChartOfAccount loansReceivable = account("1100", "Loans Receivable");
+        ChartOfAccount cash = account("1000", "Cash and Bank");
+
+        JournalEntry loanTenPayment = entry(11L, "PAYMENT_RECEIVED", "PAYMENT-10", false);
+        loanTenPayment.setReference("PAYMENT-10");
+        loanTenPayment.addLine(line(cash, "100.00", "0.00"));
+        JournalLine repayment = line(loansReceivable, "0.00", "100.00");
+        repayment.setDescription("Principal repayment — 10");
+        loanTenPayment.addLine(repayment);
+
+        Loan loanOne = activeLoan(1L, "1", new BigDecimal("500.00"), new BigDecimal("500.00"));
+        Loan loanTen = activeLoan(10L, "10", new BigDecimal("900.00"), new BigDecimal("900.00"));
+
+        when(chartOfAccountRepository.findByOrganization_IdOrderByCodeAsc(1L))
+                .thenReturn(List.of(loansReceivable, cash));
+        when(journalEntryRepository.findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAscIdAsc(
+                org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.any(LocalDate.class),
+                org.mockito.ArgumentMatchers.eq(LocalDate.now())))
+                .thenReturn(List.of(loanTenPayment));
+        when(loanRepository.findByOrganization_Id(1L))
+                .thenReturn(List.of(loanOne, loanTen));
+
+        var diagnostics = service.diagnoseLoanSubledger(1L);
+
+        var loanOneDiagnostic = diagnostics.stream()
+                .filter(item -> Long.valueOf(1L).equals(item.loanId()))
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(new BigDecimal("0.00"), loanOneDiagnostic.glPrincipal());
+        assertEquals(new BigDecimal("-500.00"), loanOneDiagnostic.principalDifference());
+    }
+
+    @Test
+    void organizationReceivableReconciliationUsesActualGlAccountBalance() {
+        ChartOfAccount loansReceivable = account("1100", "Loans Receivable");
+        ChartOfAccount cash = account("1000", "Cash and Bank");
+
+        JournalEntry openingOne = entry(12L, "LEGACY_LOAN_OPENING", "LOAN:1", false);
+        openingOne.setReference("1");
+        JournalLine onePrincipal = line(loansReceivable, "100.00", "0.00");
+        onePrincipal.setDescription("Opening loan principal receivable — 1");
+        openingOne.addLine(onePrincipal);
+        openingOne.addLine(line(cash, "0.00", "100.00"));
+
+        JournalEntry openingTen = entry(13L, "LEGACY_LOAN_OPENING", "LOAN:10", false);
+        openingTen.setReference("10");
+        JournalLine tenPrincipal = line(loansReceivable, "900.00", "0.00");
+        tenPrincipal.setDescription("Opening loan principal receivable — 10");
+        openingTen.addLine(tenPrincipal);
+        openingTen.addLine(line(cash, "0.00", "900.00"));
+
+        Loan loanOne = activeLoan(1L, "1", new BigDecimal("100.00"), new BigDecimal("100.00"));
+        Loan loanTen = activeLoan(10L, "10", new BigDecimal("900.00"), new BigDecimal("900.00"));
+
+        stub(List.of(loansReceivable, cash), List.of(openingOne, openingTen), List.of(loanOne, loanTen));
+
+        var report = service.reconcile(1L, LocalDate.of(2026, 8, 24));
+
+        assertTrue(report.subledger().get("1100").reconciles());
+        assertEquals(new BigDecimal("1000.00"), report.subledger().get("1100").glBalance());
+        assertEquals(new BigDecimal("1000.00"), report.subledger().get("1100").operationalBalance());
+    }
+
+    private Loan activeLoan(
+            Long id,
+            String reference,
+            BigDecimal amount,
+            BigDecimal outstanding) {
+        Loan loan = new Loan();
+        loan.setId(id);
+        loan.setOrganization(organization);
+        loan.setReferenceNumber(reference);
+        loan.setStatus(com.patrick.fintech.loan_backend.model.LoanStatus.ACTIVE);
+        loan.setAmount(amount);
+        loan.setPrincipalPaid(BigDecimal.ZERO);
+        loan.setOutstandingBalance(outstanding);
+        loan.setTotalInterest(BigDecimal.ZERO);
+        loan.setInterestPaid(BigDecimal.ZERO);
+        loan.setInterestOutstanding(BigDecimal.ZERO);
+        loan.setManagementFee(BigDecimal.ZERO);
+        loan.setManagementFeePaid(BigDecimal.ZERO);
+        loan.setManagementFeeOutstanding(BigDecimal.ZERO);
+        loan.setApplicationFee(BigDecimal.ZERO);
+        loan.setApplicationFeePaid(BigDecimal.ZERO);
+        return loan;
+    }
+
     private void stub(
             List<ChartOfAccount> accounts,
             List<JournalEntry> entries,
@@ -258,6 +353,26 @@ class FinancialReconciliationServiceTest {
                 org.mockito.ArgumentMatchers.eq(LocalDate.of(2026, 8, 24))))
                 .thenReturn(entries);
         when(loanRepository.findByOrganization_Id(1L)).thenReturn(loans);
+
+        BigDecimal bnrOutstanding = loans.stream()
+                .filter(loan -> loan != null
+                        && loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.PENDING
+                        && loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.UNDER_REVIEW
+                        && loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.REJECTED
+                        && loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.CANCELLED)
+                .map(Loan::getOutstandingBalanceDecimal)
+                .filter(value -> value != null)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        when(regulatoryReportingService.buildBnrSummary(
+                org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.eq(RegulatoryReportingService.ReportPeriod.CUSTOM),
+                org.mockito.ArgumentMatchers.any(LocalDate.class),
+                org.mockito.ArgumentMatchers.eq(LocalDate.of(2026, 8, 24))))
+                .thenReturn(BnrSummaryReport.builder()
+                        .outstandingPrincipal(bnrOutstanding)
+                        .build());
     }
 
     private ChartOfAccount account(String code, String name) {

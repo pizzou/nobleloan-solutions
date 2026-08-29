@@ -328,19 +328,25 @@ public class FinancialReconciliationService {
             BigDecimal glBalance;
             if (account == null) {
                 glBalance = ZERO;
-            } else if (isLoanReceivableAccount(code)) {
-                glBalance = ZERO;
-                for (Loan loan : loans) {
-                    if (loan == null || loan.getReferenceNumber() == null
-                            || loan.getReferenceNumber().isBlank()) {
-                        continue;
-                    }
-                    glBalance = glBalance.add(loanReceivableBalance(
-                            entries, account, loan));
-                }
-                glBalance = normalize(glBalance);
             } else {
-                glBalance = accountBalance(account, accountTotals.get(account.getId()));
+                /*
+                 * The organization-level reconciliation MUST compare the
+                 * authoritative GL account balance against the aggregate
+                 * operational sub-ledger.
+                 *
+                 * Do not reconstruct a GL account total by summing
+                 * loanReceivableBalance(...) for every loan. A loan reference
+                 * is not a globally unique token inside free-form journal
+                 * descriptions (for example loan references 1 and 10).
+                 * Reconstructing the GL this way can attribute the same journal
+                 * line to multiple loans and produces large false variances.
+                 *
+                 * The detailed per-loan diagnostic below still performs
+                 * attribution, but it uses exact identity/reference matching.
+                 */
+                glBalance = accountBalance(
+                        account,
+                        accountTotals.get(account.getId()));
             }
 
             BigDecimal difference = normalize(glBalance.subtract(operational));
@@ -676,9 +682,12 @@ public class FinancialReconciliationService {
 
                 String description = line.getDescription() == null
                         ? ""
-                        : line.getDescription().toLowerCase(java.util.Locale.ROOT);
+                        : line.getDescription().trim();
 
-                boolean descriptionMatch = !token.isBlank() && description.contains(token);
+                boolean descriptionMatch = loanDescriptionMatchesReference(
+                        description,
+                        loanReference);
+
                 if (!identityMatch && !referenceMatch && !descriptionMatch) {
                     continue;
                 }
@@ -690,6 +699,36 @@ public class FinancialReconciliationService {
         }
 
         return normalize(balance);
+    }
+
+    /**
+     * Matches the loan reference only in the structured suffix used by the
+     * accounting layer. Free-form substring matching is forbidden because a
+     * numeric reference such as "1" would otherwise match "10", "11", etc.
+     */
+    private boolean loanDescriptionMatchesReference(
+            String description,
+            String loanReference) {
+
+        if (description == null || loanReference == null) {
+            return false;
+        }
+
+        String normalizedDescription = description
+                .trim()
+                .toLowerCase(java.util.Locale.ROOT);
+        String normalizedReference = loanReference
+                .trim()
+                .toLowerCase(java.util.Locale.ROOT);
+
+        if (normalizedDescription.isBlank()
+                || normalizedReference.isBlank()) {
+            return false;
+        }
+
+        return normalizedDescription.endsWith("— " + normalizedReference)
+                || normalizedDescription.endsWith("- " + normalizedReference)
+                || normalizedDescription.endsWith(" - " + normalizedReference);
     }
 
     /**

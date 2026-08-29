@@ -104,8 +104,9 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
         AND e.organization.id = :organizationId
         AND e.sourceType IN ('INTEREST_ACCRUAL', 'PAYMENT_RECEIVED')
         AND (
-              l.description LIKE CONCAT('%', :loanReference, '%')
-              OR e.reference = :loanReference
+              e.reference = :loanReference
+              OR l.description LIKE CONCAT('% — ', :loanReference)
+              OR l.description LIKE CONCAT('% - ', :loanReference)
         )
       ORDER BY e.entryDate ASC, e.id ASC, l.id ASC
       """)
@@ -164,6 +165,8 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
               'MANAGEMENT_FEE_ACCRUAL',
               'PENALTY_ACCRUAL',
               'LOAN_EXTENSION_FEE',
+              'LOAN_EXTENSION_FEE_COLLECTION',
+              'LOAN_PAYMENT',
               'LOAN_DISBURSEMENT',
               'SCHEDULED_INTEREST_ACCRUAL',
               'SCHEDULED_MANAGEMENT_FEE_ACCRUAL',
@@ -176,8 +179,9 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
               'PAYMENT_RECEIVED'
         )
         AND (
-              l.description LIKE CONCAT('%', :loanReference, '%')
-              OR e.reference = :loanReference
+              e.reference = :loanReference
+              OR l.description LIKE CONCAT('% — ', :loanReference)
+              OR l.description LIKE CONCAT('% - ', :loanReference)
         )
       ORDER BY e.entryDate ASC, e.id ASC, l.id ASC
       """)
@@ -205,6 +209,8 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
               'MANAGEMENT_FEE_ACCRUAL',
               'PENALTY_ACCRUAL',
               'LOAN_EXTENSION_FEE',
+              'LOAN_EXTENSION_FEE_COLLECTION',
+              'LOAN_PAYMENT',
               'LOAN_DISBURSEMENT',
               'SCHEDULED_INTEREST_ACCRUAL',
               'SCHEDULED_MANAGEMENT_FEE_ACCRUAL',
@@ -214,13 +220,13 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
               'LEGACY_LOAN_OPENING',
               'LEGACY_LOAN_RECONCILIATION',
               'LEGACY_LOAN_OPENING_DATE_REPAIR',
-              'PAYMENT_RECEIVED',
-              'LOAN_PAYMENT'
+              'PAYMENT_RECEIVED'
         )
         AND (
               e.sourceId = CONCAT('LOAN:', :loanId)
               OR e.reference = :loanReference
-              OR l.description LIKE CONCAT('%', :loanReference, '%')
+              OR l.description LIKE CONCAT('% — ', :loanReference)
+              OR l.description LIKE CONCAT('% - ', :loanReference)
         )
       ORDER BY e.entryDate ASC, e.id ASC, l.id ASC
       """)
