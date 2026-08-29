@@ -390,12 +390,16 @@ export default function ImportLegacyLoansPage() {
 
   const failedRows = previewRows.filter((row) => !row.success);
 
-  const newBorrowers = successfulRows.filter(
-    (row) => row.borrowerAction === "CREATED_NEW_BORROWER",
+  const isNewBorrowerAction = (action?: string) =>
+    action === "CREATED_NEW_BORROWER" ||
+    action === "CREATED_NEW_BORROWER_PREVIEW";
+
+  const newBorrowers = successfulRows.filter((row) =>
+    isNewBorrowerAction(row.borrowerAction),
   );
 
   const matchedBorrowers = successfulRows.filter(
-    (row) => row.borrowerAction !== "CREATED_NEW_BORROWER",
+    (row) => !isNewBorrowerAction(row.borrowerAction),
   );
 
   const visiblePreviewRows = showFailedOnly ? failedRows : previewRows;
@@ -924,8 +928,7 @@ export default function ImportLegacyLoansPage() {
 
                                 {row.success && (
                                   <div className="mt-1 text-[11px] text-gray-400">
-                                    {row.borrowerAction ===
-                                    "CREATED_NEW_BORROWER"
+                                    {isNewBorrowerAction(row.borrowerAction)
                                       ? "New borrower"
                                       : "Existing borrower matched"}
                                   </div>
@@ -940,8 +943,7 @@ export default function ImportLegacyLoansPage() {
 
                               <td className="max-w-md px-4 py-3 text-xs leading-5 text-gray-600">
                                 {row.success
-                                  ? row.borrowerAction ===
-                                    "CREATED_NEW_BORROWER"
+                                  ? isNewBorrowerAction(row.borrowerAction)
                                     ? "Borrower will be created and the loan record will be imported."
                                     : "Existing borrower matched and loan record is ready for import."
                                   : row.error || "Validation failed."}

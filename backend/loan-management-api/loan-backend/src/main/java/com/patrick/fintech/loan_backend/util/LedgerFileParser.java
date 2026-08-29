@@ -37,7 +37,7 @@ public final class LedgerFileParser {
     private static final int CREDIT_MIN_COLUMNS = 35;
 
     private static final List<DateTimeFormatter> DATE_FORMATS = List.of(
-            DateTimeFormatter.ISO_LOCAL_DATE,
+            DateTimeFormatter.ISO_LOCAL_DATE.withResolverStyle(ResolverStyle.STRICT),
             DateTimeFormatter.ofPattern("dd/MM/uuuu").withResolverStyle(ResolverStyle.STRICT),
             DateTimeFormatter.ofPattern("d/M/uuuu").withResolverStyle(ResolverStyle.STRICT),
             DateTimeFormatter.ofPattern("dd-MM-uuuu").withResolverStyle(ResolverStyle.STRICT),
@@ -45,8 +45,18 @@ public final class LedgerFileParser {
             DateTimeFormatter.ofPattern("M/d/uuuu").withResolverStyle(ResolverStyle.STRICT),
             DateTimeFormatter.ofPattern("M/d/uu").withResolverStyle(ResolverStyle.SMART),
             DateTimeFormatter.ofPattern("d/M/uu").withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("dd-MM-uu").withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("d-M-uu").withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("dd-MMM-uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("d-MMM-uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("dd-MMM-uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("d-MMM-uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
             DateTimeFormatter.ofPattern("dd MMM uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
-            DateTimeFormatter.ofPattern("d MMM uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART));
+            DateTimeFormatter.ofPattern("d MMM uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("dd MMM uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("d MMM uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("MMM d, uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("MMM d, uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART));
 
     private LedgerFileParser() {
     }
@@ -805,10 +815,6 @@ public final class LedgerFileParser {
             return "";
         }
 
-        // Historical monthly portfolio files may contain a status marker
-        // such as "loan restructure" in the next-due-date column. Preserve
-        // status detection separately, but never send this marker to the
-        // date parser/service as if it were an actual date.
         if (cleaned.toUpperCase(Locale.ROOT).contains("RESTRUCTURE")) {
             return "";
         }
@@ -829,6 +835,21 @@ public final class LedgerFileParser {
             } catch (DateTimeParseException ignored) {
             }
         }
+
+        // Defensive support for Excel serial dates that arrive as text in a
+        // standard/header-driven workbook. POI normally converts date cells
+        // before this helper is reached, but this fallback prevents a valid
+        // Excel serial from being reported as a missing/invalid date.
+        try {
+            BigDecimal serial = new BigDecimal(cleaned);
+            if (serial.compareTo(BigDecimal.ONE) >= 0
+                    && serial.compareTo(BigDecimal.valueOf(2958465)) <= 0
+                    && serial.stripTrailingZeros().scale() <= 0) {
+                return LocalDate.of(1899, 12, 30).plusDays(serial.longValueExact());
+            }
+        } catch (NumberFormatException | ArithmeticException ignored) {
+        }
+
         return null;
     }
 

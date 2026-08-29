@@ -41,7 +41,7 @@ public final class StreamingLedgerFileParser {
     private static final int CREDIT_MIN_COLUMNS = 35;
 
     private static final List<DateTimeFormatter> DATE_FORMATS = List.of(
-            DateTimeFormatter.ISO_LOCAL_DATE,
+            DateTimeFormatter.ISO_LOCAL_DATE.withResolverStyle(ResolverStyle.STRICT),
             DateTimeFormatter.ofPattern("dd/MM/uuuu").withResolverStyle(ResolverStyle.STRICT),
             DateTimeFormatter.ofPattern("d/M/uuuu").withResolverStyle(ResolverStyle.STRICT),
             DateTimeFormatter.ofPattern("dd-MM-uuuu").withResolverStyle(ResolverStyle.STRICT),
@@ -49,8 +49,18 @@ public final class StreamingLedgerFileParser {
             DateTimeFormatter.ofPattern("M/d/uuuu").withResolverStyle(ResolverStyle.STRICT),
             DateTimeFormatter.ofPattern("M/d/uu").withResolverStyle(ResolverStyle.SMART),
             DateTimeFormatter.ofPattern("d/M/uu").withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("dd-MM-uu").withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("d-M-uu").withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("dd-MMM-uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("d-MMM-uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("dd-MMM-uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("d-MMM-uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
             DateTimeFormatter.ofPattern("dd MMM uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
-            DateTimeFormatter.ofPattern("d MMM uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART));
+            DateTimeFormatter.ofPattern("d MMM uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("dd MMM uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("d MMM uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("MMM d, uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("MMM d, uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART));
 
     private StreamingLedgerFileParser() {
     }
@@ -864,23 +874,12 @@ public final class StreamingLedgerFileParser {
             return "";
         }
 
-        // Historical Noble Loan sheets may contain a status marker such as
-        // "loan restructure" in the next-due-date column. It is not a date.
-        // Status detection still reads the original row, so normalize it to
-        // blank here and let the row service apply its normal historical
-        // fallback date.
-        String statusMarker = normalized.toUpperCase(Locale.ROOT);
-        if (statusMarker.contains("RESTRUCTURE")) {
+        if (normalized.toUpperCase(Locale.ROOT).contains("RESTRUCTURE")) {
             return "";
         }
 
-        for (DateTimeFormatter formatter : DATE_FORMATS) {
-            try {
-                return LocalDate.parse(normalized, formatter).toString();
-            } catch (DateTimeParseException ignored) {
-            }
-        }
-        return normalized;
+        LocalDate parsed = parseDate(normalized);
+        return parsed == null ? normalized : parsed.toString();
     }
 
     private static LocalDate parseDate(String value) {
@@ -888,12 +887,24 @@ public final class StreamingLedgerFileParser {
         if (normalized.isBlank()) {
             return null;
         }
+
         for (DateTimeFormatter formatter : DATE_FORMATS) {
             try {
                 return LocalDate.parse(normalized, formatter);
             } catch (DateTimeParseException ignored) {
             }
         }
+
+        try {
+            BigDecimal serial = new BigDecimal(normalized);
+            if (serial.compareTo(BigDecimal.ONE) >= 0
+                    && serial.compareTo(BigDecimal.valueOf(2958465)) <= 0
+                    && serial.stripTrailingZeros().scale() <= 0) {
+                return LocalDate.of(1899, 12, 30).plusDays(serial.longValueExact());
+            }
+        } catch (NumberFormatException | ArithmeticException ignored) {
+        }
+
         return null;
     }
 }

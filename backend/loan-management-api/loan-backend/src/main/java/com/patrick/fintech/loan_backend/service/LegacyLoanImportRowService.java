@@ -94,24 +94,32 @@ public class LegacyLoanImportRowService {
                         "RESTRUCTURED");
 
         private static final List<DateTimeFormatter> DATE_FORMATS = List.of(
-                        DateTimeFormatter.ISO_LOCAL_DATE
-                                        .withResolverStyle(
-                                                        ResolverStyle.STRICT),
-
-                        DateTimeFormatter.ofPattern(
-                                        "dd/MM/uuuu")
-                                        .withResolverStyle(
-                                                        ResolverStyle.STRICT),
-
-                        DateTimeFormatter.ofPattern(
-                                        "d/M/uuuu")
-                                        .withResolverStyle(
-                                                        ResolverStyle.STRICT),
-
-                        DateTimeFormatter.ofPattern(
-                                        "dd-MM-uuuu")
-                                        .withResolverStyle(
-                                                        ResolverStyle.STRICT));
+                        DateTimeFormatter.ISO_LOCAL_DATE.withResolverStyle(ResolverStyle.STRICT),
+                        DateTimeFormatter.ofPattern("dd/MM/uuuu").withResolverStyle(ResolverStyle.STRICT),
+                        DateTimeFormatter.ofPattern("d/M/uuuu").withResolverStyle(ResolverStyle.STRICT),
+                        DateTimeFormatter.ofPattern("dd-MM-uuuu").withResolverStyle(ResolverStyle.STRICT),
+                        DateTimeFormatter.ofPattern("d-M-uuuu").withResolverStyle(ResolverStyle.STRICT),
+                        DateTimeFormatter.ofPattern("M/d/uuuu").withResolverStyle(ResolverStyle.STRICT),
+                        DateTimeFormatter.ofPattern("M/d/uu").withResolverStyle(ResolverStyle.SMART),
+                        DateTimeFormatter.ofPattern("d/M/uu").withResolverStyle(ResolverStyle.SMART),
+                        DateTimeFormatter.ofPattern("dd-MM-uu").withResolverStyle(ResolverStyle.SMART),
+                        DateTimeFormatter.ofPattern("d-M-uu").withResolverStyle(ResolverStyle.SMART),
+                        DateTimeFormatter.ofPattern("dd-MMM-uuuu", Locale.ENGLISH)
+                                        .withResolverStyle(ResolverStyle.SMART),
+                        DateTimeFormatter.ofPattern("d-MMM-uuuu", Locale.ENGLISH)
+                                        .withResolverStyle(ResolverStyle.SMART),
+                        DateTimeFormatter.ofPattern("dd-MMM-uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+                        DateTimeFormatter.ofPattern("d-MMM-uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+                        DateTimeFormatter.ofPattern("dd MMM uuuu", Locale.ENGLISH)
+                                        .withResolverStyle(ResolverStyle.SMART),
+                        DateTimeFormatter.ofPattern("d MMM uuuu", Locale.ENGLISH)
+                                        .withResolverStyle(ResolverStyle.SMART),
+                        DateTimeFormatter.ofPattern("dd MMM uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+                        DateTimeFormatter.ofPattern("d MMM uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+                        DateTimeFormatter.ofPattern("MMM d, uuuu", Locale.ENGLISH)
+                                        .withResolverStyle(ResolverStyle.SMART),
+                        DateTimeFormatter.ofPattern("MMM d, uu", Locale.ENGLISH)
+                                        .withResolverStyle(ResolverStyle.SMART));
 
         private final BorrowerRepository borrowerRepo;
 
@@ -1716,30 +1724,16 @@ public class LegacyLoanImportRowService {
                         Map<String, String> row,
                         String key) {
 
-                String value = req(
-                                row,
-                                key);
+                String value = normalizeImportedValue(req(row, key));
+                LocalDate parsed = parseFlexibleDate(value);
 
-                for (DateTimeFormatter formatter : DATE_FORMATS) {
-
-                        try {
-
-                                return LocalDate.parse(
-                                                value,
-                                                formatter);
-
-                        } catch (DateTimeParseException ignored) {
-                                // Try next format.
-                        }
+                if (parsed != null) {
+                        return parsed;
                 }
 
                 throw new IllegalArgumentException(
-                                "\""
-                                                + key
-                                                + "\" isn't a recognized date. "
-                                                + "Preferred format is YYYY-MM-DD. Got \""
-                                                + value
-                                                + "\".");
+                                "\"" + key + "\" isn't a recognized date. "
+                                                + "Preferred format is YYYY-MM-DD. Got \"" + value + "\".");
         }
 
         private boolean isHistoricalStatusMarker(String value) {
@@ -1749,6 +1743,33 @@ public class LegacyLoanImportRowService {
 
                 String normalized = value.trim().toUpperCase(Locale.ROOT);
                 return normalized.contains("RESTRUCTURE");
+        }
+
+        private LocalDate parseFlexibleDate(String rawValue) {
+                String value = normalizeImportedValue(rawValue);
+                if (value.isBlank() || isHistoricalStatusMarker(value)) {
+                        return null;
+                }
+
+                for (DateTimeFormatter formatter : DATE_FORMATS) {
+                        try {
+                                return LocalDate.parse(value, formatter);
+                        } catch (DateTimeParseException ignored) {
+                        }
+                }
+
+                try {
+                        BigDecimal serial = new BigDecimal(value);
+                        if (serial.compareTo(BigDecimal.ONE) >= 0
+                                        && serial.compareTo(BigDecimal.valueOf(2958465)) <= 0
+                                        && serial.stripTrailingZeros().scale() <= 0) {
+                                return LocalDate.of(1899, 12, 30)
+                                                .plusDays(serial.longValueExact());
+                        }
+                } catch (NumberFormatException | ArithmeticException ignored) {
+                }
+
+                return null;
         }
 
         // ================================================================
@@ -1776,12 +1797,9 @@ public class LegacyLoanImportRowService {
                         return fallback;
                 }
 
-                for (DateTimeFormatter formatter : DATE_FORMATS) {
-                        try {
-                                return LocalDate.parse(value, formatter);
-                        } catch (DateTimeParseException ignored) {
-                                // Try the next supported format.
-                        }
+                LocalDate parsed = parseFlexibleDate(value);
+                if (parsed != null) {
+                        return parsed;
                 }
 
                 throw new IllegalArgumentException(
