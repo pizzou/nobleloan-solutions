@@ -25,6 +25,46 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+/**
+ * ================================================================
+ * LEGACY LOAN IMPORT SERVICE
+ * ================================================================
+ *
+ * Production-oriented entry point for importing historical loan
+ * ledgers from CSV / Excel files.
+ *
+ * Responsibilities:
+ *
+ * 1. Parse uploaded CSV / Excel ledger files.
+ * 2. Validate import context.
+ * 3. Clean Excel-specific values such as leading apostrophes.
+ * 4. Normalize headers and cell values.
+ * 5. Support safe preview mode.
+ * 6. Create an auditable ImportBatch for committed imports.
+ * 7. Delegate each row to LegacyLoanImportRowService.
+ * 8. Keep individual rows transactionally independent.
+ * 9. Record successful and failed rows.
+ * 10. Update import batch status correctly.
+ * 11. Produce an audit trail.
+ *
+ * IMPORTANT:
+ *
+ * LegacyLoanImportRowService owns the REQUIRES_NEW transaction
+ * for each individual row.
+ *
+ * Therefore:
+ *
+ * Row 1 succeeds
+ * Row 2 succeeds
+ * Row 3 fails
+ * Row 4 succeeds
+ *
+ * Rows 1, 2 and 4 remain committed.
+ *
+ * Row 3 is reported as failed.
+ *
+ * ================================================================
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -36,12 +76,24 @@ public class LegacyLoanImportService {
          * ================================================================
          */
 
+        /**
+         * Maximum number of rows allowed in one import.
+         */
         private static final int MAX_IMPORT_ROWS = 10_000;
 
+        /**
+         * Maximum filename length stored in the database.
+         */
         private static final int MAX_FILENAME_LENGTH = 255;
 
+        /**
+         * Maximum number of results retained in memory.
+         */
         private static final int MAX_RESULTS = MAX_IMPORT_ROWS;
 
+        /**
+         * Import batch statuses.
+         */
         public static final String STATUS_PROCESSING = "PROCESSING";
         public static final String STATUS_COMPLETED = "COMPLETED";
         public static final String STATUS_PARTIAL = "PARTIAL";
@@ -57,6 +109,16 @@ public class LegacyLoanImportService {
 
         private final ObjectMapper objectMapper;
 
+        /*
+         * ================================================================
+         * PREVIEW
+         * ================================================================
+         *
+         * Preview performs the same validation/business logic as commit,
+         * but does not persist borrowers or loans.
+         *
+         * It does NOT create an ImportBatch.
+         */
         @Transactional(readOnly = true)
         public List<ImportRowResult> preview(
                         String filename,
@@ -72,48 +134,29 @@ public class LegacyLoanImportService {
                 String safeFilename = normalizeFilename(filename);
 
                 /*
-                 * IMPORTANT:
-                 *
                  * parsedRows is captured by the XLSX streaming lambda.
-                 * Therefore it must never be reassigned after the lambda
+                 * It therefore MUST NOT be reassigned after the lambda
                  * is created.
                  */
                 final List<Map<String, String>> parsedRows = new ArrayList<>();
 
                 /*
-                 * Preserve the physical Excel row number when the streaming
-                 * parser provides it.
-                 *
-                 * This is important for errors such as:
-                 *
-                 * rowNumber=94
-                 * start_date is required but was blank
+                 * Physical worksheet row numbers for XLSX.
                  */
                 final List<Integer> parsedRowNumbers = new ArrayList<>();
 
                 try {
-
                         if (safeFilename.toLowerCase(Locale.ROOT).endsWith(".xlsx")) {
-
                                 StreamingLedgerFileParser.stream(
                                                 safeFilename,
                                                 in,
                                                 MAX_IMPORT_ROWS,
                                                 (sourceRowNumber, row) -> {
-
                                                         parsedRows.add(row);
-
                                                         parsedRowNumbers.add(
                                                                         Math.toIntExact(sourceRowNumber));
                                                 });
-
                         } else {
-
-                                /*
-                                 * Do not reassign parsedRows.
-                                 *
-                                 * Add the CSV/XLS parser result into the same collection.
-                                 */
                                 List<Map<String, String>> parsedFileRows = LedgerFileParser.parse(
                                                 safeFilename,
                                                 in);
@@ -139,24 +182,19 @@ public class LegacyLoanImportService {
                 }
 
                 /*
-                 * Clean Excel / CSV values before validation.
-                 *
-                 * sanitizeParsedRows() is allowed to return a new list because
-                 * we are assigning it to a DIFFERENT variable.
+                 * Clean Excel / CSV values before validation and application.
+                 * Keep this as a different variable so the streaming list
+                 * remains effectively final for the lambda above.
                  */
                 final List<Map<String, String>> rows = sanitizeParsedRows(parsedRows);
 
                 validateParsedRows(rows);
 
-                /*
-                 * Borrowers discovered during this preview are kept in-memory
-                 * only. Nothing is persisted by this map.
-                 */
                 Map<String, Borrower> sessionBorrowers = new HashMap<>();
 
                 /*
-                 * Preload existing borrowers referenced by this file once
-                 * instead of performing one borrower SELECT per workbook row.
+                 * Preload all existing borrowers referenced by this file once.
+                 * This avoids one borrower SELECT per workbook row during preview.
                  */
                 preloadPreviewBorrowers(
                                 rows,
@@ -170,12 +208,6 @@ public class LegacyLoanImportService {
 
                 long startedAt = System.currentTimeMillis();
 
-                /*
-                 * CSV/non-streaming parser does not currently provide physical
-                 * row numbers, so preserve the existing row-number behavior:
-                 *
-                 * first data row = 2
-                 */
                 int fallbackRowNumber = 1;
 
                 for (int index = 0; index < rows.size(); index++) {
@@ -185,17 +217,12 @@ public class LegacyLoanImportService {
                         final int rowNumber;
 
                         /*
-                         * XLSX streaming parser gives us the actual physical
-                         * spreadsheet row number.
-                         *
-                         * Otherwise use the existing sequential fallback.
+                         * For XLSX, preserve the physical Excel row number.
+                         * For CSV, retain the historical sequential behavior.
                          */
                         if (parsedRowNumbers.size() == rows.size()) {
-
                                 rowNumber = parsedRowNumbers.get(index);
-
                         } else {
-
                                 rowNumber = fallbackRowNumber + 1;
                         }
 
@@ -210,11 +237,8 @@ public class LegacyLoanImportService {
                                         sessionBorrowers);
 
                         if (result != null) {
-
                                 results.add(result);
-
                         } else {
-
                                 results.add(
                                                 ImportRowResult.builder()
                                                                 .rowNumber(rowNumber)
@@ -235,8 +259,7 @@ public class LegacyLoanImportService {
 
                 log.info(
                                 "Legacy loan preview completed. " +
-                                                "organizationId={}, filename={}, rows={}, " +
-                                                "successful={}, failed={}, durationMs={}",
+                                                "organizationId={}, filename={}, rows={}, successful={}, failed={}, durationMs={}",
                                 org.getId(),
                                 safeFilename,
                                 results.size(),
@@ -251,6 +274,13 @@ public class LegacyLoanImportService {
          * ================================================================
          * COMMIT
          * ================================================================
+         *
+         * Creates an ImportBatch as PROCESSING.
+         *
+         * Each row is then processed by LegacyLoanImportRowService.
+         *
+         * LegacyLoanImportRowService should use REQUIRES_NEW for the
+         * individual row transaction.
          */
         public ImportBatch commit(
                         String filename,

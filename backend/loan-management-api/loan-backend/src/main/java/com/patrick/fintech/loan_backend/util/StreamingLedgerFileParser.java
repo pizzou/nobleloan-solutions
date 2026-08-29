@@ -187,6 +187,15 @@ public final class StreamingLedgerFileParser {
     // XLSX
     // ---------------------------------------------------------------------
 
+    /**
+     * Streams only the authoritative monthly portfolio worksheet when one is
+     * present. The supplied NLS workbook contains several derived/snapshot
+     * worksheets which repeat historical loans; importing every monthly sheet
+     * produces duplicate/repeated loan candidates (for example 243 rows from
+     * the supplied workbook). The authoritative portfolio worksheet is selected
+     * structurally as the monthly sheet with the largest number of valid loan
+     * rows, with a portfolio-named sheet preferred on ties.
+     */
     private static long streamXlsx(
             String filename,
             InputStream input,
@@ -198,14 +207,68 @@ public final class StreamingLedgerFileParser {
             StylesTable styles = reader.getStylesTable();
             ReadOnlySharedStringsTable sharedStrings = new ReadOnlySharedStringsTable(packageHandle);
 
+            String authoritativeSheet = findAuthoritativeMonthlySheet(
+                    reader,
+                    styles,
+                    sharedStrings);
+
             Set<String> seen = new HashSet<>();
             List<PendingRecord> pendingCreditRows = new ArrayList<>();
-            boolean[] authoritativeLedgerSeen = { false };
             long[] emitted = { 0L };
 
+            if (authoritativeSheet != null && !authoritativeSheet.isBlank()) {
+
+                XSSFReader.SheetIterator sheets = (XSSFReader.SheetIterator) reader.getSheetsData();
+
+                while (sheets.hasNext()) {
+
+                    String sheetName = sheets.getSheetName();
+
+                    try (InputStream sheetInput = sheets.next()) {
+
+                        if (!authoritativeSheet.equals(sheetName)) {
+                            continue;
+                        }
+
+                        StreamingHandler handler = new StreamingHandler(
+                                maxRows,
+                                consumer,
+                                seen,
+                                emitted,
+                                pendingCreditRows,
+                                new boolean[] { true });
+
+                        XMLReader xmlReader = XMLReaderFactory.createXMLReader();
+                        xmlReader.setContentHandler(
+                                new XSSFSheetXMLHandler(
+                                        styles,
+                                        sharedStrings,
+                                        handler,
+                                        new org.apache.poi.ss.usermodel.DataFormatter(
+                                                Locale.ROOT,
+                                                true),
+                                        false));
+
+                        xmlReader.parse(new InputSource(sheetInput));
+                        break;
+                    }
+                }
+
+                return emitted[0];
+            }
+
+            /*
+             * No monthly worksheet was detected. Preserve the previous generic
+             * fallback behaviour for standard/credit workbooks.
+             */
+            boolean[] authoritativeLedgerSeen = { false };
+
             XSSFReader.SheetIterator sheets = (XSSFReader.SheetIterator) reader.getSheetsData();
+
             while (sheets.hasNext()) {
+
                 try (InputStream sheetInput = sheets.next()) {
+
                     StreamingHandler handler = new StreamingHandler(
                             maxRows,
                             consumer,
@@ -218,18 +281,17 @@ public final class StreamingLedgerFileParser {
                     xmlReader.setContentHandler(
                             new XSSFSheetXMLHandler(
                                     styles,
-                                    null,
                                     sharedStrings,
                                     handler,
-                                    new org.apache.poi.ss.usermodel.DataFormatter(Locale.ROOT, true),
+                                    new org.apache.poi.ss.usermodel.DataFormatter(
+                                            Locale.ROOT,
+                                            true),
                                     false));
 
                     xmlReader.parse(new InputSource(sheetInput));
                 }
             }
 
-            // Credit/portfolio worksheets are a fallback source only. If the
-            // workbook has no real loan-ledger sheet, emit their rows now.
             if (!authoritativeLedgerSeen[0]) {
                 for (PendingRecord pending : pendingCreditRows) {
                     emitPending(
@@ -242,10 +304,138 @@ public final class StreamingLedgerFileParser {
             }
 
             return emitted[0];
+
         } catch (IOException e) {
             throw e;
         } catch (Exception e) {
             throw new IOException("Streaming XLSX parsing failed.", e);
+        }
+    }
+
+    /**
+     * Finds the monthly worksheet that should be treated as the authoritative
+     * legacy loan ledger.
+     */
+    private static String findAuthoritativeMonthlySheet(
+            XSSFReader reader,
+            StylesTable styles,
+            ReadOnlySharedStringsTable sharedStrings) throws Exception {
+
+        String bestSheet = null;
+        int bestMonthlyRows = -1;
+        boolean bestHasPortfolioName = false;
+
+        XSSFReader.SheetIterator sheets = (XSSFReader.SheetIterator) reader.getSheetsData();
+
+        while (sheets.hasNext()) {
+
+            String sheetName = sheets.getSheetName();
+
+            try (InputStream sheetInput = sheets.next()) {
+
+                MonthlySheetProbeHandler probe = new MonthlySheetProbeHandler(LAYOUT_SCAN_ROWS);
+
+                XMLReader xmlReader = XMLReaderFactory.createXMLReader();
+                xmlReader.setContentHandler(
+                        new XSSFSheetXMLHandler(
+                                styles,
+                                sharedStrings,
+                                probe,
+                                new org.apache.poi.ss.usermodel.DataFormatter(
+                                        Locale.ROOT,
+                                        true),
+                                false));
+
+                xmlReader.parse(new InputSource(sheetInput));
+
+                int monthlyRows = probe.getMonthlyRows();
+                if (monthlyRows <= 0) {
+                    continue;
+                }
+
+                boolean hasPortfolioName = clean(sheetName)
+                        .toUpperCase(Locale.ROOT)
+                        .contains("PORTFOLIO");
+
+                boolean replace = monthlyRows > bestMonthlyRows
+                        || (monthlyRows == bestMonthlyRows
+                                && hasPortfolioName
+                                && !bestHasPortfolioName);
+
+                if (replace) {
+                    bestSheet = sheetName;
+                    bestMonthlyRows = monthlyRows;
+                    bestHasPortfolioName = hasPortfolioName;
+                }
+            }
+        }
+
+        return bestSheet;
+    }
+
+    /**
+     * Lightweight first-pass classifier. It intentionally does not map or
+     * retain rows; it only counts rows that structurally match the Noble Loan
+     * monthly portfolio layout.
+     */
+    private static final class MonthlySheetProbeHandler
+            implements XSSFSheetXMLHandler.SheetContentsHandler {
+
+        private final int maxProbeRows;
+        private Map<Integer, String> current;
+        private int inspectedRows;
+        private int monthlyRows;
+
+        private MonthlySheetProbeHandler(int maxProbeRows) {
+            this.maxProbeRows = Math.max(1, maxProbeRows);
+        }
+
+        @Override
+        public void startRow(int rowNum) {
+            current = new LinkedHashMap<>();
+        }
+
+        @Override
+        public void cell(
+                String cellReference,
+                String formattedValue,
+                XSSFComment comment) {
+
+            int column = columnIndex(cellReference);
+            if (column < 0 || column >= MAX_COLUMNS || current == null) {
+                return;
+            }
+
+            current.put(
+                    column,
+                    normalizeStreamValue(formattedValue));
+        }
+
+        @Override
+        public void endRow(int rowNum) {
+            if (current == null || current.isEmpty()) {
+                return;
+            }
+
+            if (inspectedRows < maxProbeRows
+                    && looksLikeMonthlyRow(current)) {
+                monthlyRows++;
+            }
+
+            inspectedRows++;
+            current = null;
+        }
+
+        @Override
+        public void headerFooter(
+                String text,
+                boolean isHeader,
+                String tagName) {
+            // Not relevant.
+        }
+
+        int getMonthlyRows() {
+            return monthlyRows;
         }
     }
 
@@ -287,6 +477,7 @@ public final class StreamingLedgerFileParser {
         private final boolean[] authoritativeLedgerSeen;
 
         private final List<Map<Integer, String>> probeRows = new ArrayList<>();
+        private final List<Long> probeRowNumbers = new ArrayList<>();
         private Map<Integer, String> current;
         private long physicalRow;
         private Layout layout = Layout.UNKNOWN;
@@ -323,6 +514,7 @@ public final class StreamingLedgerFileParser {
 
             if (!probeComplete) {
                 probeRows.add(new LinkedHashMap<>(current));
+                probeRowNumbers.add(physicalRow);
                 determineLayout(false);
 
                 if (layout != Layout.UNKNOWN || probeRows.size() >= LAYOUT_SCAN_ROWS) {
@@ -335,10 +527,11 @@ public final class StreamingLedgerFileParser {
                     // to 60 rows and therefore remains safe for large workbooks.
                     for (int i = 0; i < probeRows.size(); i++) {
                         Map<Integer, String> probe = probeRows.get(i);
-                        long rowNumber = i + 1L;
+                        long rowNumber = probeRowNumbers.get(i);
                         emitMapped(rowNumber, probe);
                     }
                     probeRows.clear();
+                    probeRowNumbers.clear();
                 }
                 return;
             }
@@ -368,7 +561,7 @@ public final class StreamingLedgerFileParser {
             // Prefer positional Noble Loan layouts over generic headers.
             for (int i = 0; i < probeRows.size(); i++) {
                 Map<Integer, String> row = probeRows.get(i);
-                if (looksLikeMonthly(row)) {
+                if (looksLikeMonthlyRow(row)) {
                     layout = Layout.MONTHLY;
                     authoritativeLedgerSeen[0] = true;
                     return;
@@ -405,7 +598,7 @@ public final class StreamingLedgerFileParser {
 
             switch (layout) {
                 case MONTHLY -> {
-                    if (!looksLikeMonthly(indexed)) {
+                    if (!looksLikeMonthlyRow(indexed)) {
                         return;
                     }
                     mapped = mapMonthly(indexed);
@@ -461,25 +654,6 @@ public final class StreamingLedgerFileParser {
                 out.put(headers.get(i), normalizeStreamValue(row.getOrDefault(i, "")));
             }
             return out;
-        }
-
-        private boolean looksLikeMonthly(Map<Integer, String> row) {
-            if (maxIndex(row) + 1 < MONTHLY_MIN_COLUMNS) {
-                return false;
-            }
-            String name = clean(row.get(1));
-            String nationalId = clean(row.get(2)).replaceAll("\\s+", "");
-            String phone = clean(row.get(3));
-            String amount = clean(row.get(4));
-            String duration = clean(row.get(7));
-            String startDate = clean(row.get(14));
-            return !name.isBlank()
-                    && !"TOTAL".equalsIgnoreCase(name)
-                    && nationalId.length() >= 8
-                    && !phone.isBlank()
-                    && positiveDecimal(amount)
-                    && integerInRange(duration, 1, 6)
-                    && parseDate(startDate) != null;
         }
 
         private Map<String, String> mapMonthly(Map<Integer, String> row) {
@@ -693,6 +867,33 @@ public final class StreamingLedgerFileParser {
             case "application_fee_outstanding", "applicationfee_outstanding" -> "application_fee_outstanding";
             default -> normalized;
         };
+    }
+
+    /**
+     * Returns true when a row matches the positional Noble Loan monthly
+     * portfolio layout. This is shared by both the worksheet probe and the
+     * actual streaming handler so they cannot drift apart.
+     */
+    private static boolean looksLikeMonthlyRow(Map<Integer, String> row) {
+        if (row == null || maxIndex(row) + 1 < MONTHLY_MIN_COLUMNS) {
+            return false;
+        }
+
+        String name = clean(row.get(1));
+        String nationalId = clean(row.get(2)).replaceAll("\\s+", "");
+        String phone = clean(row.get(3));
+        String amount = clean(row.get(4));
+        String duration = clean(row.get(7));
+        String startDate = clean(row.get(14));
+
+        return !name.isBlank()
+                && !"TOTAL".equalsIgnoreCase(name)
+                && !"CUMULATIVE TOTAL".equalsIgnoreCase(name)
+                && nationalId.length() >= 8
+                && !phone.isBlank()
+                && positiveDecimal(amount)
+                && integerInRange(duration, 1, 6)
+                && parseDate(startDate) != null;
     }
 
     private static int headerScore(List<String> headers) {
