@@ -148,9 +148,6 @@ public class DashboardService {
 
                         LoanStatus status = loan.getStatus();
 
-                        BigDecimal amount = money(
-                                        loan.getAmountDecimal());
-
                         BigDecimal disbursedAmount = money(
                                         loan.getDisbursedAmountDecimal());
 
@@ -158,12 +155,13 @@ public class DashboardService {
                                         loan.getOutstandingBalanceDecimal());
 
                         /*
-                         * A loan enters the financial portfolio only after an
-                         * actual disbursement timestamp exists.
+                         * Gross disbursement is derived from the persisted
+                         * disbursedAmount field, which is the same source used
+                         * by LoanService.sumGrossDisbursedPrincipal(). A
+                         * historical imported loan may legitimately have no
+                         * disbursedAt timestamp.
                          */
-                        boolean disbursed = loan.getDisbursedAt() != null;
-
-                        if (disbursed) {
+                        if (disbursedAmount.compareTo(ZERO) > 0) {
 
                                 totalDisbursed = money(
                                                 totalDisbursed.add(
@@ -171,16 +169,12 @@ public class DashboardService {
                         }
 
                         /*
-                         * Current outstanding portfolio.
-                         *
-                         * Only genuinely disbursed active/overdue/restructured
-                         * loans contribute to outstanding principal.
+                         * Use the same current-portfolio definition as the
+                         * regulatory portfolio and LoanRepository aggregate:
+                         * imported historical loans remain financially relevant
+                         * even when the legacy source lacks disbursedAt.
                          */
-                        boolean outstandingLoan = disbursed
-                                        && (status == LoanStatus.ACTIVE
-                                                        || status == LoanStatus.OVERDUE
-                                                        || status == LoanStatus.DEFAULTED
-                                                        || status == LoanStatus.RESTRUCTURED);
+                        boolean outstandingLoan = isCurrentPortfolioLoan(loan);
 
                         if (outstandingLoan) {
 
@@ -191,21 +185,23 @@ public class DashboardService {
                                 activePortfolioPrincipal = money(
                                                 activePortfolioPrincipal.add(
                                                                 outstanding));
-                        }
 
-                        /*
-                         * Portfolio at risk is the outstanding amount of loans
-                         * that are overdue, defaulted, or restructured.
-                         */
-                        boolean atRisk = status == LoanStatus.OVERDUE
-                                        || status == LoanStatus.DEFAULTED
-                                        || status == LoanStatus.RESTRUCTURED;
+                                /*
+                                 * Portfolio at risk must be a subset of the
+                                 * current outstanding portfolio. This prevents
+                                 * old/non-financial pipeline rows from inflating
+                                 * PAR.
+                                 */
+                                boolean atRisk = status == LoanStatus.OVERDUE
+                                                || status == LoanStatus.DEFAULTED
+                                                || status == LoanStatus.RESTRUCTURED;
 
-                        if (atRisk) {
+                                if (atRisk) {
 
-                                atRiskPrincipal = money(
-                                                atRiskPrincipal.add(
-                                                                outstanding));
+                                        atRiskPrincipal = money(
+                                                        atRiskPrincipal.add(
+                                                                        outstanding));
+                                }
                         }
                 }
 
@@ -426,6 +422,54 @@ public class DashboardService {
                                                 recentLoans)
 
                                 .build();
+        }
+
+        /**
+         * Current portfolio identity used by dashboard balances.
+         *
+         * This intentionally mirrors the population rule used by
+         * LoanRepository.sumOutstandingBalance() and the BNR portfolio query.
+         * Do not require disbursedAt for imported historical loans because
+         * legacy ledgers often contain an opening position without a precise
+         * timestamp.
+         */
+        private boolean isCurrentPortfolioLoan(Loan loan) {
+                if (loan == null || loan.getStatus() == null) {
+                        return false;
+                }
+
+                LoanStatus status = loan.getStatus();
+
+                boolean receivableStatus = status == LoanStatus.ACTIVE
+                                || status == LoanStatus.DISBURSED
+                                || status == LoanStatus.OVERDUE
+                                || status == LoanStatus.DEFAULTED
+                                || status == LoanStatus.RESTRUCTURED;
+
+                if (!receivableStatus) {
+                        return false;
+                }
+
+                if (Boolean.TRUE.equals(loan.getImported())
+                                || loan.getImportBatchId() != null) {
+                        return true;
+                }
+
+                String internalNotes = loan.getInternalNotes();
+                if (internalNotes != null
+                                && internalNotes.toLowerCase(java.util.Locale.ROOT)
+                                                .contains("imported from legacy ledger")) {
+                        return true;
+                }
+
+                String notes = loan.getNotes();
+                if (notes != null
+                                && notes.toLowerCase(java.util.Locale.ROOT)
+                                                .contains("imported from noble loan historical portfolio workbook")) {
+                        return true;
+                }
+
+                return loan.getDisbursedAt() != null;
         }
 
         // ================================================================

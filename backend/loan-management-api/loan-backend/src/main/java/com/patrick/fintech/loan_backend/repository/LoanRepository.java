@@ -473,14 +473,39 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
         BigDecimal sumImportedPaymentRows(
                         @Param("org") Organization org);
 
+        /**
+         * Authoritative current portfolio principal outstanding.
+         *
+         * This deliberately mirrors the population used by regulatory
+         * portfolio reporting:
+         *
+         * - current receivable statuses only;
+         * - imported/import-batch loans remain portfolio loans even when the
+         * historical source did not contain a disbursement timestamp;
+         * - system-originated loans require a real disbursement timestamp.
+         *
+         * Keeping this definition here makes /loans/dashboard agree with the
+         * dashboard service and BNR outstanding principal instead of silently
+         * dropping imported DEFAULTED/RESTRUCTURED or timestamp-less rows.
+         */
         @Query("""
                         SELECT COALESCE(SUM(l.outstandingBalance), 0)
                         FROM Loan l
                         WHERE l.organization = :org
+                          AND COALESCE(l.outstandingBalance, 0) > 0
                           AND l.status IN (
                               'ACTIVE',
                               'DISBURSED',
-                              'OVERDUE'
+                              'OVERDUE',
+                              'DEFAULTED',
+                              'RESTRUCTURED'
+                          )
+                          AND (
+                              l.imported = true
+                              OR l.importBatchId IS NOT NULL
+                              OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+                              OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+                              OR l.disbursedAt IS NOT NULL
                           )
                         """)
         BigDecimal sumOutstandingBalance(

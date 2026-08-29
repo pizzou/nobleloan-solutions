@@ -6,7 +6,6 @@ import Link from "next/link";
 import API from "../../../services/api";
 import { getDashboardStats } from "../../../services/dashboardService";
 import { getOverduePayments } from "../../../services/paymentService";
-import { getLoans } from "../../../services/loanService";
 
 import { PageSpinner } from "../../../components/ui/Skeleton";
 
@@ -77,8 +76,10 @@ interface MonthlyAccountingReport {
 }
 
 interface DashboardStatsLike {
+  totalLoans?: Numeric;
   totalDisbursed?: Numeric;
   totalCollected?: Numeric;
+  outstandingBalance?: Numeric;
   activeLoans?: Numeric;
   pendingLoans?: Numeric;
   overdueLoans?: Numeric;
@@ -245,6 +246,52 @@ const normalizeArray = <T,>(value: unknown): T[] => {
   }
 
   return [];
+};
+
+const getAllReportLoans = async (): Promise<LoanLike[]> => {
+  const pageSize = 100;
+  const maxPages = 100;
+  const allLoans: LoanLike[] = [];
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const response = await API.get("/loans", {
+      params: {
+        page,
+        size: pageSize,
+      },
+    });
+
+    const payload = unwrap<unknown>(response);
+
+    let content: LoanLike[] = [];
+    let last = false;
+
+    if (Array.isArray(payload)) {
+      content = payload as LoanLike[];
+      last = content.length < pageSize;
+    } else if (payload && typeof payload === "object") {
+      const pageData = payload as {
+        content?: unknown;
+        last?: unknown;
+        totalPages?: unknown;
+      };
+
+      content = normalizeArray<LoanLike>(pageData.content);
+      last =
+        pageData.last === true ||
+        (typeof pageData.totalPages === "number" &&
+          page + 1 >= pageData.totalPages) ||
+        content.length < pageSize;
+    }
+
+    allLoans.push(...content);
+
+    if (last || content.length === 0) {
+      break;
+    }
+  }
+
+  return allLoans;
 };
 
 const filenamePart = (value: string): string =>
@@ -721,7 +768,7 @@ export default function ReportsPage() {
           await Promise.allSettled([
             getDashboardStats(),
             getOverduePayments(),
-            getLoans(),
+            getAllReportLoans(),
           ]);
 
         if (!mounted) return;
@@ -940,12 +987,22 @@ export default function ReportsPage() {
   }, [stats]);
 
   const outstandingPortfolio = useMemo(() => {
-    const disbursed = numberValue(stats?.totalDisbursed);
-
-    const collected = numberValue(stats?.totalCollected);
-
-    if (disbursed > 0) {
-      return Math.max(0, disbursed - collected);
+    /*
+     * Outstanding portfolio is an operational receivable balance, not
+     * "gross disbursements minus all collections". Collections can contain
+     * principal, interest, management fees, penalties and one-time fees, so
+     * subtracting the entire collection total from principal disbursements
+     * produces a false figure (for example RF 242,025,800 in the previous
+     * report).
+     *
+     * Use the authoritative DashboardStats outstandingBalance, which is now
+     * aligned with the Loan Portfolio, BNR portfolio population and GL 1100.
+     */
+    if (
+      stats?.outstandingBalance !== undefined &&
+      stats?.outstandingBalance !== null
+    ) {
+      return numberValue(stats.outstandingBalance);
     }
 
     return loans.reduce(
@@ -989,10 +1046,9 @@ export default function ReportsPage() {
   ).length;
 
   const portfolioCount =
-    numberValue(stats?.activeLoans) +
-    numberValue(stats?.pendingLoans) +
-    numberValue(stats?.completedLoans) +
-    rejectedCount;
+    stats?.totalLoans !== undefined && stats?.totalLoans !== null
+      ? numberValue(stats.totalLoans)
+      : loans.length;
 
   const currentLoans = loans.filter(
     (loan) => String(loan.status ?? "").toUpperCase() === "ACTIVE",
