@@ -263,7 +263,7 @@ public class MailService {
     @Async
     public void sendPasswordResetEmail(User user, String resetLink) {
         if (!mailEnabled) {
-            log.info("[EMAIL] Password reset for {}: {}", user.getEmail(), resetLink);
+            log.info("[EMAIL] Password reset notification requested for {} (email delivery disabled)", user.getEmail());
             return;
         }
         send(user.getEmail(), "Reset Your LoanSaaS Pro Password",
@@ -286,7 +286,8 @@ public class MailService {
     @Async
     public void sendESignatureRequest(Borrower borrower, String orgName, String signLink) {
         if (!mailEnabled) {
-            log.info("[EMAIL] E-signature link for {}: {}", borrower.getEmail(), signLink);
+            log.info("[EMAIL] E-signature notification requested for {} (email delivery disabled)",
+                    borrower.getEmail());
             return;
         }
         if (borrower.getEmail() == null || borrower.getEmail().isBlank())
@@ -318,7 +319,7 @@ public class MailService {
     @Async
     public void sendNewUserCredentials(User user, String tempPassword, String loginLink) {
         if (!mailEnabled) {
-            log.info("[EMAIL] New account for {}: temp password {}", user.getEmail(), tempPassword);
+            log.info("[EMAIL] New account notification requested for {} (email delivery disabled)", user.getEmail());
             return;
         }
         send(user.getEmail(), "Your LoanSaaS Pro Account Has Been Created",

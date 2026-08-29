@@ -725,11 +725,23 @@ export const accountingApi = {
     ),
 
   /**
-   * Reconcile opening accounting journals for historical loans imported
-   * from the legacy portfolio. The backend operation is idempotent, so
-   * running it again does not duplicate an existing opening journal.
+   * Starts the long-running imported-loan accounting reconciliation.
+   * The backend returns HTTP 202 with a durable job id; callers must poll
+   * reconcileLegacyLoansStatus(jobId) until the job is COMPLETED or FAILED.
    */
   reconcileLegacyLoans: () => post("/accounting/legacy-loans/reconcile"),
+
+  /**
+   * Reads the durable reconciliation job for the current organization.
+   */
+  reconcileLegacyLoansStatus: (jobId: number) =>
+    get(`/accounting/legacy-loans/reconcile/${jobId}`),
+
+  /**
+   * Lists reconciliation history for the current organization.
+   * Kept available for audit/history screens.
+   */
+  reconciliationJobs: () => get("/accounting/legacy-loans/reconcile/jobs"),
 };
 
 /**

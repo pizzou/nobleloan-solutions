@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { accountingApi, bankAccountApi, branchApi } from "@/services/api";
 import { PageSpinner } from "@/components/ui/Skeleton";
 import { useAuth } from "@/hooks/useAuth";
+import { toast } from "@/hooks/useToast";
 
 /* =========================================================
    TYPES
@@ -170,15 +171,17 @@ export default function AccountingPage() {
   const [reconcilingLegacy, setReconcilingLegacy] = useState(false);
 
   const [reconciliationSummary, setReconciliationSummary] = useState<{
-    processed: number;
-    created: number;
-    beforeBalanced: boolean;
-    afterBalanced: boolean;
+    id: number;
+    status: string;
+    phase: string;
+    processedLoans: number;
+    journalAdjustmentsCreated: number;
+    beforeBalanced: boolean | null;
+    afterBalanced: boolean | null;
     beforeMaximumDifference: number;
     afterMaximumDifference: number;
-    operationalUpdatedLoans: number;
-    operationalUpdatedComponents: number;
-    unresolvedOperationalDifferences: string[];
+    errorMessage?: string | null;
+    result?: any;
   } | null>(null);
 
   const [showBankAccountForm, setShowBankAccountForm] = useState(false);
@@ -253,37 +256,100 @@ export default function AccountingPage() {
      RECONCILE HISTORICAL LOAN ACCOUNTING
   ======================================================= */
 
+  const applyReconciliationJob = (job: any) => {
+    const payload = job?.data ?? job ?? {};
+
+    setReconciliationSummary({
+      id: Number(payload?.id ?? 0),
+      status: String(payload?.status ?? "UNKNOWN").toUpperCase(),
+      phase: String(payload?.phase ?? "").toUpperCase(),
+      processedLoans: Number(payload?.processedLoans ?? 0),
+      journalAdjustmentsCreated: Number(
+        payload?.journalAdjustmentsCreated ?? 0,
+      ),
+      beforeBalanced:
+        payload?.beforeBalanced == null
+          ? null
+          : Boolean(payload.beforeBalanced),
+      afterBalanced:
+        payload?.afterBalanced == null ? null : Boolean(payload.afterBalanced),
+      beforeMaximumDifference: Number(payload?.beforeMaximumDifference ?? 0),
+      afterMaximumDifference: Number(payload?.afterMaximumDifference ?? 0),
+      errorMessage: payload?.errorMessage ?? null,
+      result: payload?.result ?? null,
+    });
+
+    return payload;
+  };
+
+  const waitForLegacyReconciliation = async (jobId: number) => {
+    const deadline = Date.now() + 15 * 60 * 1000;
+
+    while (Date.now() < deadline) {
+      const current = await accountingApi.reconcileLegacyLoansStatus(jobId);
+      const payload = applyReconciliationJob(current);
+      const status = String(payload?.status ?? "").toUpperCase();
+
+      if (status === "COMPLETED" || status === "FAILED") {
+        return payload;
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+    }
+
+    throw new Error(
+      "Financial reconciliation is still processing. Open Accounting again to see the authoritative result.",
+    );
+  };
+
   const handleLegacyReconciliation = async () => {
     try {
       setReconcilingLegacy(true);
       setError("");
 
-      const result = await accountingApi.reconcileLegacyLoans();
-      const payload = (result as any)?.data ?? result;
-      const created = Number(payload?.created ?? 0);
-      const processed = Number(payload?.processed ?? 0);
+      const accepted = await accountingApi.reconcileLegacyLoans();
+      const queued = applyReconciliationJob(accepted);
+      const jobId = Number(queued?.id);
 
-      setReconciliationSummary({
-        processed,
-        created,
-        beforeBalanced: Boolean(payload?.beforeBalanced),
-        afterBalanced: Boolean(payload?.afterBalanced),
-        beforeMaximumDifference: Number(payload?.beforeMaximumDifference ?? 0),
-        afterMaximumDifference: Number(payload?.afterMaximumDifference ?? 0),
-        operationalUpdatedLoans: Number(payload?.operationalUpdatedLoans ?? 0),
-        operationalUpdatedComponents: Number(
-          payload?.operationalUpdatedComponents ?? 0,
-        ),
-        unresolvedOperationalDifferences: Array.isArray(
-          payload?.unresolvedOperationalDifferences,
-        )
-          ? payload.unresolvedOperationalDifferences.map(String)
-          : [],
-      });
+      if (!Number.isInteger(jobId) || jobId <= 0) {
+        throw new Error(
+          "The reconciliation request was accepted but no valid job ID was returned.",
+        );
+      }
+
+      toast(
+        "success",
+        "Financial reconciliation queued. The accounting work is running in the background.",
+      );
+
+      const completed = await waitForLegacyReconciliation(jobId);
+      const finalStatus = String(completed?.status ?? "").toUpperCase();
+      const balanced = completed?.afterBalanced === true;
+
+      if (finalStatus === "FAILED") {
+        throw new Error(
+          completed?.errorMessage ||
+            "Financial reconciliation failed. Review the reconciliation job before retrying.",
+        );
+      }
+
+      if (balanced) {
+        toast(
+          "success",
+          `Financial reconciliation completed and is BALANCED. Maximum difference: ${fmt(
+            Number(completed?.afterMaximumDifference ?? 0),
+          )}.`,
+        );
+      } else {
+        toast(
+          "error",
+          `Financial reconciliation completed but is NOT BALANCED. Maximum difference: ${fmt(
+            Number(completed?.afterMaximumDifference ?? 0),
+          )}.`,
+        );
+      }
 
       await loadAll();
-
-      setError("");
     } catch (err) {
       setError(
         err instanceof Error
@@ -422,66 +488,91 @@ export default function AccountingPage() {
       {reconciliationSummary && (
         <div
           className={`rounded-2xl border p-5 shadow-sm ${
-            reconciliationSummary.afterBalanced
+            reconciliationSummary.status === "COMPLETED" &&
+            reconciliationSummary.afterBalanced === true
               ? "border-emerald-200 bg-emerald-50"
-              : "border-amber-200 bg-amber-50"
+              : reconciliationSummary.status === "FAILED"
+                ? "border-red-200 bg-red-50"
+                : "border-amber-200 bg-amber-50"
           }`}
         >
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
                 <span
                   className={`inline-flex h-2.5 w-2.5 rounded-full ${
-                    reconciliationSummary.afterBalanced
+                    reconciliationSummary.status === "COMPLETED" &&
+                    reconciliationSummary.afterBalanced === true
                       ? "bg-emerald-500"
-                      : "bg-amber-500"
+                      : reconciliationSummary.status === "FAILED"
+                        ? "bg-red-500"
+                        : "bg-amber-500"
                   }`}
                 />
                 <h2 className="text-sm font-bold text-slate-900">
-                  Imported Loan Reconciliation
+                  Imported Loan Financial Reconciliation
                 </h2>
+                <span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                  Job #{reconciliationSummary.id}
+                </span>
               </div>
+
               <p className="mt-1 text-xs text-slate-600">
-                {reconciliationSummary.processed} imported loans processed ·{" "}
-                {reconciliationSummary.created} journal adjustments created ·{" "}
-                {reconciliationSummary.operationalUpdatedLoans} loan operational
-                balances synchronized.
+                {reconciliationSummary.status === "COMPLETED"
+                  ? reconciliationSummary.afterBalanced
+                    ? "All reconciliation controls passed within the approved RF 0.01 tolerance."
+                    : "The financial control completed, but one or more operational-to-GL balances still differ."
+                  : reconciliationSummary.status === "FAILED"
+                    ? reconciliationSummary.errorMessage ||
+                      "The reconciliation job failed before a final control result was recorded."
+                    : `Status: ${reconciliationSummary.status} · Phase: ${reconciliationSummary.phase}`}
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div className="rounded-xl border border-white/80 bg-white/80 px-4 py-3">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Before
+                  Control
                 </p>
-                <p className="mt-1 text-sm font-bold text-slate-900">
-                  {reconciliationSummary.beforeBalanced
-                    ? "Balanced"
-                    : "Mismatch"}
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-white/80 bg-white/80 px-4 py-3">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  After
-                </p>
-                <p className="mt-1 text-sm font-bold text-slate-900">
-                  {reconciliationSummary.afterBalanced ? "Balanced" : "Review"}
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-white/80 bg-white/80 px-4 py-3">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Before Difference
-                </p>
-                <p className="mt-1 text-sm font-bold text-slate-900">
-                  {fmt(reconciliationSummary.beforeMaximumDifference)}
+                <p
+                  className={`mt-1 text-sm font-bold ${
+                    reconciliationSummary.status === "COMPLETED" &&
+                    reconciliationSummary.afterBalanced === true
+                      ? "text-emerald-700"
+                      : reconciliationSummary.status === "FAILED"
+                        ? "text-red-700"
+                        : "text-amber-700"
+                  }`}
+                >
+                  {reconciliationSummary.status === "COMPLETED"
+                    ? reconciliationSummary.afterBalanced
+                      ? "BALANCED"
+                      : "NOT BALANCED"
+                    : reconciliationSummary.status}
                 </p>
               </div>
 
               <div className="rounded-xl border border-white/80 bg-white/80 px-4 py-3">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  After Difference
+                  Loans
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {reconciliationSummary.processedLoans}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-white/80 bg-white/80 px-4 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Adjustments
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {reconciliationSummary.journalAdjustmentsCreated}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-white/80 bg-white/80 px-4 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Max Difference
                 </p>
                 <p className="mt-1 text-sm font-bold text-slate-900">
                   {fmt(reconciliationSummary.afterMaximumDifference)}
@@ -490,21 +581,24 @@ export default function AccountingPage() {
             </div>
           </div>
 
-          {reconciliationSummary.unresolvedOperationalDifferences.length >
-            0 && (
-            <div className="mt-4 rounded-xl border border-amber-200 bg-white/80 p-4">
-              <p className="text-xs font-bold uppercase tracking-wider text-amber-700">
-                Manual review required
-              </p>
-              <ul className="mt-2 space-y-1 text-xs text-slate-600">
-                {reconciliationSummary.unresolvedOperationalDifferences
-                  .slice(0, 8)
-                  .map((item, index) => (
-                    <li key={`${item}-${index}`}>• {item}</li>
-                  ))}
-              </ul>
-            </div>
-          )}
+          {reconciliationSummary.status === "COMPLETED" &&
+            reconciliationSummary.result?.afterReconciliation?.issues?.length >
+              0 && (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-white/80 p-4">
+                <p className="text-xs font-bold uppercase tracking-wider text-amber-700">
+                  Reconciliation exceptions
+                </p>
+                <ul className="mt-2 space-y-1 text-xs text-slate-600">
+                  {reconciliationSummary.result.afterReconciliation.issues
+                    .slice(0, 8)
+                    .map((issue: any, index: number) => (
+                      <li key={`${issue?.code ?? "issue"}-${index}`}>
+                        • {String(issue?.message ?? issue ?? "Review required")}
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
         </div>
       )}
 

@@ -12,13 +12,13 @@ import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.service.AccountingService;
 import com.patrick.fintech.loan_backend.service.AuditService;
 import com.patrick.fintech.loan_backend.service.ReportExportService;
-import com.patrick.fintech.loan_backend.service.FinancialReconciliationService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -47,7 +47,8 @@ public class AccountingController {
         private final CurrentUserUtil currentUserUtil;
         private final AuditService auditService;
         private final ReportExportService exportService;
-        private final FinancialReconciliationService financialReconciliationService;
+        private final com.patrick.fintech.loan_backend.service.FinancialReconciliationJobService financialReconciliationJobService;
+        private final com.patrick.fintech.loan_backend.service.LegacyLoanAccountingReconciliationJobRunner reconciliationJobRunner;
 
         // ============================================================
         // ORGANIZATION / SECURITY
@@ -358,65 +359,55 @@ public class AccountingController {
 
         @PostMapping("/legacy-loans/reconcile")
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT')")
-        public ResponseEntity<ApiResponse<Map<String, Object>>> reconcileLegacyLoanAccounting() {
+        public ResponseEntity<ApiResponse<Object>> startLegacyLoanAccountingReconciliation() {
 
                 Organization organization = orgRepo.findById(requireOrganizationId())
                                 .orElseThrow(() -> new IllegalStateException(
                                                 "Organization not found: " + requireOrganizationId()));
 
-                List<com.patrick.fintech.loan_backend.model.Loan> importedLoans = loanRepo
-                                .findHistoricalImportedLoans(
-                                                organization.getId());
+                com.patrick.fintech.loan_backend.model.FinancialReconciliationJob job = financialReconciliationJobService
+                                .create(
+                                                organization,
+                                                currentUserUtil.getCurrentUser());
 
-                FinancialReconciliationService.ReconciliationReport before = financialReconciliationService
-                                .reconcile(organization.getId());
+                try {
+                        reconciliationJobRunner.runAsync(job.getId());
+                } catch (java.util.concurrent.RejectedExecutionException e) {
+                        try {
+                                financialReconciliationJobService.markFailed(
+                                                job.getId(),
+                                                "The reconciliation worker queue is full. No accounting work was executed. Please retry shortly.");
+                        } catch (Exception stateFailure) {
+                                log.error("Unable to mark rejected reconciliation job failed. jobId={}",
+                                                job.getId(), stateFailure);
+                        }
+                        throw new IllegalStateException(
+                                        "The reconciliation worker is busy. Please retry shortly.", e);
+                }
 
-                int repaired = accountingService.reconcileLegacyLoanOpeningBalances(
-                                importedLoans);
+                return ResponseEntity.status(HttpStatus.ACCEPTED)
+                                .body(ApiResponse.safe(
+                                                "Financial reconciliation accepted and queued. The browser will not wait for the accounting work to finish.",
+                                                financialReconciliationJobService.toResponse(job)));
+        }
 
-                /*
-                 * Reconciliation is intentionally read/repair controlled.
-                 * Never overwrite operational loan balances from GL during a
-                 * reconciliation button click. The AccountingService now
-                 * returns diagnostic differences instead of mutating loans.
-                 */
-                AccountingService.OperationalReceivableSyncResult operationalSync = accountingService
-                                .synchronizeOperationalReceivables(
-                                                organization.getId());
+        @GetMapping("/legacy-loans/reconcile/{jobId}")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT')")
+        public ResponseEntity<ApiResponse<Object>> getLegacyLoanAccountingReconciliation(
+                        @PathVariable Long jobId) {
 
-                FinancialReconciliationService.ReconciliationReport after = financialReconciliationService
-                                .reconcile(organization.getId());
+                Long organizationId = requireOrganizationId();
 
-                auditService.log(
-                                organization,
-                                currentUserUtil.getCurrentUser(),
-                                "LEGACY_LOAN_ACCOUNTING_RECONCILED",
-                                "ACCOUNTING",
-                                String.valueOf(organization.getId()),
-                                "Reconciled historical loan opening accounting balances. " +
-                                                "processed=" + importedLoans.size() +
-                                                ", created=" + repaired,
-                                null,
-                                null,
-                                "Accounting");
+                return ResponseEntity.ok(ApiResponse.safe(
+                                financialReconciliationJobService.get(organizationId, jobId)));
+        }
 
-                Map<String, Object> result = new LinkedHashMap<>();
-
-                result.put("processed", importedLoans.size());
-                result.put("created", repaired);
-                result.put("beforeBalanced", before.balanced());
-                result.put("afterBalanced", after.balanced());
-                result.put("beforeMaximumDifference", before.maximumDifference());
-                result.put("afterMaximumDifference", after.maximumDifference());
-                result.put("operationalUpdatedLoans", operationalSync.updatedLoans());
-                result.put("operationalUpdatedComponents", operationalSync.updatedComponents());
-                result.put("unresolvedOperationalDifferences", operationalSync.unresolved());
-                result.put("afterReconciliation", after);
-
-                return ResponseEntity.ok(
-                                ApiResponse.safe(
-                                                "Historical loan accounting reconciliation completed",
-                                                result));
+        @GetMapping("/legacy-loans/reconcile/jobs")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT')")
+        public ResponseEntity<ApiResponse<Object>> listLegacyLoanAccountingReconciliations() {
+                Long organizationId = requireOrganizationId();
+                return ResponseEntity.ok(ApiResponse.safe(
+                                financialReconciliationJobService.list(organizationId)));
         }
 
         // ============================================================
