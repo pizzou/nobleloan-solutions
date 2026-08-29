@@ -2144,10 +2144,6 @@ export default function ReportsPage() {
           </div>
         </section>
 
-        {/* ==================================================================
-           FOOTER
-           ================================================================== */}
-
         <footer className="mt-8 flex flex-col gap-2 border-t border-slate-300 pt-5 text-[10px] text-slate-400 sm:flex-row sm:items-center sm:justify-between">
           <p>Noble Loan Management Information System</p>
 
