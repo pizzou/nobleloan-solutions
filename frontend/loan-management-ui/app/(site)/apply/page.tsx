@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { publicApi } from "../../../services/api";
+import { useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTenant } from "../layout";
 import { useOnlineStatus } from "../../../hooks/useOnlineStatus";
@@ -23,9 +22,6 @@ export default function ApplyPage() {
   const [queuedOffline, setQueuedOffline] = useState(false);
   const [error, setError] = useState("");
   const [docsComplete, setDocsComplete] = useState(false);
-  const [quote, setQuote] = useState<any>(null);
-  const [quoteLoading, setQuoteLoading] = useState(false);
-  const [quoteError, setQuoteError] = useState("");
 
   const idempotencyKeyRef = useRef<string | null>(null);
 
@@ -92,66 +88,6 @@ export default function ApplyPage() {
   const primary = tenant.primaryColor;
   const accent = tenant.accentColor;
 
-  // The backend is the authoritative source for all public loan calculations.
-  // This prevents the application screen from drifting from the actual loan
-  // schedule/contractual calculation used by the lending system.
-  useEffect(() => {
-    const principal = Number(form.amount);
-    const months = Number(form.durationMonths);
-
-    if (
-      !Number.isFinite(principal) ||
-      principal <= 0 ||
-      !Number.isInteger(months) ||
-      months < minimumTermMonths ||
-      months > maximumTermMonths
-    ) {
-      setQuote(null);
-      setQuoteError("");
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      setQuoteLoading(true);
-      setQuoteError("");
-
-      try {
-        const result = await publicApi.calculateLoan({
-          tenantSlug: slug,
-          loanType: selectedService?.loanType || form.loanType,
-          amount: principal,
-          durationMonths: months,
-        });
-
-        if (!cancelled) setQuote(result);
-      } catch (err: any) {
-        if (!cancelled) {
-          setQuote(null);
-          setQuoteError(
-            err?.message ||
-              "Unable to calculate the current repayment estimate.",
-          );
-        }
-      } finally {
-        if (!cancelled) setQuoteLoading(false);
-      }
-    }, 250);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [
-    form.amount,
-    form.durationMonths,
-    form.loanType,
-    selectedService?.loanType,
-    slug,
-    minimumTermMonths,
-    maximumTermMonths,
-  ]);
-
   // ============================================================
   // GENERIC FORM SETTER
   // ============================================================
@@ -170,11 +106,6 @@ export default function ApplyPage() {
         [k]: target.type === "checkbox" ? target.checked : target.value,
       }));
     };
-
-  // ============================================================
-  // NATIONAL ID VALIDATION
-  // Rwanda national IDs are exactly 16 digits.
-  // ============================================================
 
   const NATIONAL_ID_REGEX = /^\d{16}$/;
 
@@ -238,20 +169,6 @@ export default function ApplyPage() {
     return `${year}-${month}-${day}`;
   };
 
-  /**
-   * Checks whether the applicant is at least 18 years old.
-   *
-   * The birthday itself counts.
-   *
-   * Example:
-   *
-   * Today: 2026-08-11
-   * DOB:   2008-08-11
-   * Age:   18 -> VALID
-   *
-   * DOB:   2008-08-12
-   * Age:   17 -> INVALID
-   */
   const isAtLeast18 = (dateOfBirth: string): boolean => {
     if (!dateOfBirth) {
       return false;
@@ -1176,60 +1093,117 @@ export default function ApplyPage() {
                 </Field>
               </div>
 
-              {/* MINI LOAN SUMMARY — SERVER AUTHORITATIVE */}
+              {/* MINI LOAN SUMMARY */}
 
               {form.amount && (
                 <div className="mt-4 bg-gray-50 rounded-2xl p-4 border border-gray-100">
-                  <div className="flex items-center justify-between gap-3 mb-3">
-                    <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-                      Repayment Estimate
-                    </div>
-                    {quoteLoading && (
-                      <span className="text-[11px] font-semibold text-gray-400">
-                        Calculating…
-                      </span>
-                    )}
+                  <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+                    Estimated Repayment
                   </div>
 
-                  {quote ? (
-                    <div className="grid grid-cols-2 gap-3 text-center text-sm">
-                      {[
+                  <div className="grid grid-cols-2 gap-3 text-center text-sm">
+                    {(() => {
+                      const principal = Number(form.amount);
+                      const months = Number(form.durationMonths);
+                      const interestRate = Number(
+                        selectedService?.interestRate ??
+                          selectedService?.rate ??
+                          5,
+                      );
+                      const managementRate = Number(
+                        selectedService?.managementFeeRate ?? 5,
+                      );
+                      const applicationRate = Number(
+                        selectedService?.applicationFeeRate ?? 2,
+                      );
+
+                      let balance = Math.max(0, principal);
+                      let interest = 0;
+                      let management = 0;
+                      let firstInstallment = 0;
+
+                      for (let i = 1; i <= months; i += 1) {
+                        const remaining = months - i + 1;
+                        const principalComponent =
+                          remaining === 1
+                            ? balance
+                            : Math.round((balance / remaining) * 100) / 100;
+                        const monthInterest =
+                          Math.round(balance * (interestRate / 100) * 100) /
+                          100;
+                        const monthManagement =
+                          Math.round(balance * (managementRate / 100) * 100) /
+                          100;
+                        const installment =
+                          Math.round(
+                            (principalComponent +
+                              monthInterest +
+                              monthManagement) *
+                              100,
+                          ) / 100;
+
+                        if (i === 1) firstInstallment = installment;
+                        interest =
+                          Math.round((interest + monthInterest) * 100) / 100;
+                        management =
+                          Math.round((management + monthManagement) * 100) /
+                          100;
+                        balance = Math.max(
+                          0,
+                          Math.round((balance - principalComponent) * 100) /
+                            100,
+                        );
+                      }
+
+                      const application =
+                        Math.round(principal * (applicationRate / 100) * 100) /
+                        100;
+                      const contractualTotal =
+                        Math.round((principal + interest + management) * 100) /
+                        100;
+
+                      return [
                         [
                           "First installment",
-                          `${tenant.currency} ${Number(quote.firstInstallment ?? 0).toLocaleString("en-RW", { maximumFractionDigits: 0 })}`,
+                          `${tenant.currency} ${firstInstallment.toLocaleString(
+                            "en",
+                            {
+                              maximumFractionDigits: 0,
+                            },
+                          )}`,
                         ],
                         [
                           "Repayment total",
-                          `${tenant.currency} ${Number(quote.contractualRepaymentTotal ?? 0).toLocaleString("en-RW", { maximumFractionDigits: 0 })}`,
+                          `${tenant.currency} ${contractualTotal.toLocaleString(
+                            "en",
+                            {
+                              maximumFractionDigits: 0,
+                            },
+                          )}`,
                         ],
                         [
-                          "Application fee",
-                          `${tenant.currency} ${Number(quote.applicationFee ?? 0).toLocaleString("en-RW", { maximumFractionDigits: 0 })}`,
+                          "Processing fee",
+                          `${tenant.currency} ${application.toLocaleString(
+                            "en",
+                            {
+                              maximumFractionDigits: 0,
+                            },
+                          )}`,
                         ],
-                        [
-                          "Total cost",
-                          `${tenant.currency} ${Number(quote.totalCostIncludingApplicationFee ?? 0).toLocaleString("en-RW", { maximumFractionDigits: 0 })}`,
-                        ],
-                      ].map(([label, value]) => (
-                        <div key={label}>
-                          <div className="text-gray-400 text-[10px]">
-                            {label}
-                          </div>
+                        ["Rate", `${interestRate}% / mo`],
+                      ].map(([l, v]) => (
+                        <div key={l}>
+                          <div className="text-gray-400 text-[10px]">{l}</div>
                           <div
                             className="font-extrabold"
                             style={{ color: primary }}
                           >
-                            {value}
+                            {v}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-xs text-gray-500">
-                      {quoteError ||
-                        "Enter a valid amount and term to calculate your repayment."}
-                    </div>
-                  )}
+                      ));
+                    })()}
+                  </div>
                 </div>
               )}
             </div>

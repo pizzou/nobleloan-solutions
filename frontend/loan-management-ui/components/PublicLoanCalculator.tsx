@@ -73,11 +73,36 @@ function calculateSchedule(
   interestRate: number,
   managementRate: number,
 ) {
-  let balance = Math.max(0, principal);
+  /*
+   * Work in integer RWF cents instead of ordinary decimal amounts. This keeps
+   * every intermediate monetary value at cent precision and mirrors the
+   * backend's HALF_UP contractual schedule without binary-fraction drift.
+   *
+   * Rates are represented as basis points (1/100 of a percentage point).
+   * The public product rates are small enough that these integer operations
+   * remain within JavaScript's safe-integer range for normal loan limits.
+   */
+  const toCents = (value: number): number =>
+    Math.max(0, Math.round(value * 100));
+
+  const toRateBasisPoints = (value: number): number =>
+    Math.max(0, Math.round(value * 100));
+
+  const roundHalfUp = (numerator: number, denominator: number): number => {
+    if (denominator <= 0) return 0;
+    return Math.floor(numerator / denominator + 0.5);
+  };
+
+  const fromCents = (value: number): number => value / 100;
+
+  let balance = toCents(principal);
   let totalInterest = 0;
   let totalManagement = 0;
   let firstInstallment = 0;
   let lastInstallment = 0;
+
+  const interestBasisPoints = toRateBasisPoints(interestRate);
+  const managementBasisPoints = toRateBasisPoints(managementRate);
 
   for (
     let installmentNumber = 1;
@@ -89,33 +114,32 @@ function calculateSchedule(
     const principalComponent =
       remainingInstallments === 1
         ? balance
-        : Math.round((balance / remainingInstallments) * 100) / 100;
+        : roundHalfUp(balance, remainingInstallments);
 
-    const interest = Math.round(balance * (interestRate / 100) * 100) / 100;
-    const management = Math.round(balance * (managementRate / 100) * 100) / 100;
+    // interest = balance * rate / 100, rounded to cents.
+    const interest = roundHalfUp(balance * interestBasisPoints, 10000);
 
-    const installment =
-      Math.round((principalComponent + interest + management) * 100) / 100;
+    const management = roundHalfUp(balance * managementBasisPoints, 10000);
 
-    totalInterest = Math.round((totalInterest + interest) * 100) / 100;
-    totalManagement = Math.round((totalManagement + management) * 100) / 100;
+    const installment = principalComponent + interest + management;
+
+    totalInterest += interest;
+    totalManagement += management;
 
     if (installmentNumber === 1) firstInstallment = installment;
     if (installmentNumber === months) lastInstallment = installment;
 
-    balance = Math.max(
-      0,
-      Math.round((balance - principalComponent) * 100) / 100,
-    );
+    balance = Math.max(0, balance - principalComponent);
   }
 
+  const principalCents = toCents(principal);
+
   return {
-    interest: totalInterest,
-    management: totalManagement,
-    total:
-      Math.round((principal + totalInterest + totalManagement) * 100) / 100,
-    firstInstallment,
-    lastInstallment,
+    interest: fromCents(totalInterest),
+    management: fromCents(totalManagement),
+    total: fromCents(principalCents + totalInterest + totalManagement),
+    firstInstallment: fromCents(firstInstallment),
+    lastInstallment: fromCents(lastInstallment),
   };
 }
 

@@ -1,5 +1,3 @@
-import { TENANT_SLUG } from "@/lib/tenant";
-
 import axios, {
   AxiosError,
   AxiosHeaders,
@@ -13,81 +11,34 @@ import axios, {
  * ============================================================
  */
 
-// Authentication is cookie-based and must stay same-origin in the browser.
-// Do not allow a Vercel build-time NEXT_PUBLIC_API_URL value to turn these
-// requests into cross-site calls to the Render API, otherwise the HttpOnly
-// session cookie cannot reliably be used by the browser.
-const API_BASE_URL = "/api";
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 
 const API: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000,
-  withCredentials: true,
-  xsrfCookieName: "XSRF-TOKEN",
-  xsrfHeaderName: "X-XSRF-TOKEN",
+  timeout: 20000,
   headers: {
+    "Content-Type": "application/json",
     Accept: "application/json",
   },
 });
 
-function createRequestId(): string {
-  if (
-    typeof crypto !== "undefined" &&
-    typeof crypto.randomUUID === "function"
-  ) {
-    return crypto.randomUUID();
-  }
-
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
 API.interceptors.request.use(
-  async (config) => {
-    const headers =
-      config.headers instanceof AxiosHeaders
-        ? config.headers
-        : new AxiosHeaders(config.headers);
+  (config) => {
+    if (typeof window !== "undefined") {
+      const token = localStorage.getItem("token");
 
-    headers.set("Accept", "application/json");
+      if (token) {
+        const headers =
+          config.headers instanceof AxiosHeaders
+            ? config.headers
+            : new AxiosHeaders(config.headers);
 
-    // Let Axios/browser create the multipart boundary for FormData.
-    // A global application/json Content-Type would break multipart uploads.
-    if (typeof FormData !== "undefined" && config.data instanceof FormData) {
-      headers.delete("Content-Type");
-    } else if (!headers.has("Content-Type")) {
-      headers.set("Content-Type", "application/json");
-    }
+        headers.set("Authorization", `Bearer ${token}`);
 
-    if (!headers.has("X-Request-Id")) {
-      headers.set("X-Request-Id", createRequestId());
-    }
-
-    headers.set("X-Tenant-Slug", TENANT_SLUG);
-
-    const method = String(config.method || "get").toUpperCase();
-    const isUnsafeMethod = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
-    const requestUrl = String(config.url || "");
-    const csrfExempt =
-      requestUrl === "/auth/login" ||
-      requestUrl === "/auth/register" ||
-      requestUrl.startsWith("/public/") ||
-      requestUrl === "/auth/csrf";
-
-    // Spring Security protects unsafe requests with CSRF. Bootstrap the
-    // browser token before protected mutations instead of disabling CSRF.
-    if (isUnsafeMethod && !csrfExempt && typeof window !== "undefined") {
-      const csrfToken = await ensureCsrfToken();
-
-      if (csrfToken) {
-        headers.set("X-XSRF-TOKEN", csrfToken);
+        config.headers = headers;
       }
     }
-
-    // Tenant context is explicit on every API request. This prevents the
-    // frontend from depending on a hidden/default organization and allows the
-    // backend to enforce tenant isolation at the authentication boundary.
-    config.headers = headers;
-    config.withCredentials = true;
 
     return config;
   },
@@ -97,62 +48,20 @@ API.interceptors.request.use(
 );
 
 API.interceptors.response.use(
-  (response) => response,
-  async (error: AxiosError<unknown>) => {
+  (response) => {
+    return response;
+  },
+
+  (error: AxiosError<unknown>) => {
     const status = error.response?.status;
+
     const responseData = error.response?.data;
-    const requestConfig = error.config as
-      (AxiosRequestConfig & { _csrfRetried?: boolean }) | undefined;
 
-    const code =
-      responseData &&
-      typeof responseData === "object" &&
-      "code" in responseData &&
-      typeof (responseData as Record<string, unknown>).code === "string"
-        ? String((responseData as Record<string, unknown>).code)
-        : "";
+    if (status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("token");
 
-    if (
-      status === 403 &&
-      code === "CSRF_TOKEN_INVALID" &&
-      requestConfig &&
-      !requestConfig._csrfRetried &&
-      typeof window !== "undefined"
-    ) {
-      requestConfig._csrfRetried = true;
-      clearCsrfToken();
-
-      try {
-        const freshToken = await ensureCsrfToken(true);
-        const retryHeaders = new AxiosHeaders();
-
-        if (requestConfig.headers) {
-          const existingHeaders = AxiosHeaders.from(
-            requestConfig.headers as Record<string, string>,
-          );
-
-          existingHeaders.forEach((value: string, key: string) => {
-            if (value !== undefined && value !== null) {
-              retryHeaders.set(key, value);
-            }
-          });
-        }
-
-        retryHeaders.set("X-XSRF-TOKEN", freshToken);
-        requestConfig.headers = retryHeaders;
-
-        return API.request(requestConfig);
-      } catch {
-        clearCsrfToken();
-      }
-    }
-
-    if (
-      status === 401 &&
-      typeof window !== "undefined" &&
-      !window.location.pathname.startsWith("/login")
-    ) {
       localStorage.removeItem("user");
+
       window.location.href = "/login";
     }
 
@@ -169,6 +78,7 @@ API.interceptors.response.use(
     };
 
     enhancedError.status = status;
+
     enhancedError.data = responseData;
 
     return Promise.reject(enhancedError);
@@ -275,78 +185,18 @@ export function isRetryableRequestError(error: unknown): boolean {
   return error instanceof TypeError;
 }
 
-let csrfBootstrapPromise: Promise<string> | null = null;
-let cachedCsrfToken: string | null = null;
-
-function clearCsrfToken(): void {
-  cachedCsrfToken = null;
-}
-
-/**
- * Bootstrap the Spring Security CSRF token and return the exact token value
- * that must be sent in X-XSRF-TOKEN for unsafe requests.
- *
- * The token is deliberately obtained from the same-origin /api/auth/csrf
- * endpoint instead of relying only on Axios' automatic cookie/header behavior.
- * This is important when the browser is calling the Next.js /api rewrite and
- * the backend itself is running on another origin.
- */
-export async function ensureCsrfToken(forceRefresh = false): Promise<string> {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  if (cachedCsrfToken && !forceRefresh) {
-    return cachedCsrfToken;
-  }
-
-  if (!csrfBootstrapPromise) {
-    csrfBootstrapPromise = API.get("/auth/csrf", {
-      headers: {
-        Accept: "application/json",
-        "X-Skip-CSRF-Bootstrap": "true",
-      },
-    })
-      .then((response) => {
-        const responseData = response?.data;
-        const token =
-          responseData &&
-          typeof responseData === "object" &&
-          typeof responseData.token === "string"
-            ? responseData.token.trim()
-            : "";
-
-        if (!token) {
-          throw new Error("The server did not return a valid CSRF token.");
-        }
-
-        cachedCsrfToken = token;
-        return token;
-      })
-      .finally(() => {
-        csrfBootstrapPromise = null;
-      });
-  }
-
-  return csrfBootstrapPromise;
-}
-
 export const authApi = {
   login: (email: string, password: string, mfaCode?: string, otp?: string) =>
     post("/auth/login", {
-      email: email.trim().toLowerCase(),
+      email,
       password,
-      mfaCode: mfaCode?.trim() || undefined,
-      otp: otp?.trim() || undefined,
+      mfaCode,
+      otp,
     }),
 
   register: (data: unknown) => post("/auth/register", data),
 
   me: () => get("/auth/me"),
-
-  csrf: () => get("/auth/csrf"),
-
-  logout: () => post("/auth/logout"),
 };
 
 /**
@@ -605,9 +455,11 @@ export const expenseApi = {
       form.append("receipt", data.receipt);
     }
 
-    return API.post("/expenses", form).then((response) =>
-      unwrap(response.data),
-    );
+    return API.post("/expenses", form, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    }).then((response) => unwrap(response.data));
   },
 };
 
@@ -957,21 +809,7 @@ export const publicApi = {
   getProducts: (slug: string) =>
     get(`/public/tenant/${encodeURIComponent(slug)}/products`),
 
-  apply: (data: unknown, idempotencyKey?: string) =>
-    post(
-      "/public/loan-application",
-      data,
-      idempotencyKey
-        ? { headers: { "Idempotency-Key": idempotencyKey } }
-        : undefined,
-    ),
-
-  calculateLoan: (data: {
-    tenantSlug: string;
-    loanType?: string;
-    amount: number | string;
-    durationMonths: number | string;
-  }) => post("/public/loan-calculation", data),
+  apply: (data: unknown) => post("/public/loan-application", data),
 
   trackApplication: (reference: string, phone: string) =>
     get(
@@ -1006,18 +844,19 @@ export const publicApi = {
       email?: string;
     },
     idempotencyKey?: string,
-  ) =>
-    post(
+  ) => {
+    const key = idempotencyKey || createIdempotencyKey();
+
+    return post(
       `/public/applications/${encodeURIComponent(reference.trim())}/payments/initiate?phone=${encodeURIComponent(phone.trim())}`,
       data,
-      idempotencyKey
-        ? {
-            headers: {
-              "Idempotency-Key": idempotencyKey,
-            },
-          }
-        : undefined,
-    ),
+      {
+        headers: {
+          "Idempotency-Key": key,
+        },
+      },
+    );
+  },
 
   trackComments: (reference: string, phone: string) =>
     get(
@@ -1027,11 +866,6 @@ export const publicApi = {
   listDocuments: (reference: string, phone: string) =>
     get(
       `/public/applications/${encodeURIComponent(reference.trim())}/documents?phone=${encodeURIComponent(phone.trim())}`,
-    ),
-
-  documentRequirements: (reference: string, phone: string) =>
-    get(
-      `/public/applications/${encodeURIComponent(reference.trim())}/documents/requirements?phone=${encodeURIComponent(phone.trim())}`,
     ),
 
   downloadDocument: (
@@ -1134,20 +968,15 @@ export const importApi = {
 
     form.append("file", file);
 
-    // Preview is queued server-side. The HTTP request only uploads the
-    // workbook and creates a durable batch; parsing/validation happens
-    // in the background worker.
-    return API.post("/import/legacy-loans/preview", form).then((response) =>
-      unwrap(response.data),
-    );
-  },
-
-  previewResults: (batchId: number) => {
-    if (!Number.isInteger(batchId) || batchId <= 0) {
-      return Promise.reject(new Error("Invalid preview batch ID."));
-    }
-
-    return get(`/import/legacy-loans/batches/${batchId}/preview-results`);
+    return API.post("/import/legacy-loans/preview", form, {
+      // Legacy workbook preview is a deliberate bulk operation. Keep the
+      // normal API timeout unchanged and give only this endpoint enough
+      // time for Render cold start + workbook parsing/validation.
+      timeout: 120000,
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    }).then((response) => unwrap(response.data));
   },
 
   commit: (file: File) => {
@@ -1155,9 +984,11 @@ export const importApi = {
 
     form.append("file", file);
 
-    return API.post("/import/legacy-loans/commit", form).then((response) =>
-      unwrap(response.data),
-    );
+    return API.post("/import/legacy-loans/commit", form, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    }).then((response) => unwrap(response.data));
   },
 
   /**
