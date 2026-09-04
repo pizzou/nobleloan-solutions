@@ -12,6 +12,8 @@ interface DocItem {
   verificationStatus?: string;
   uploadedByApplicant?: boolean;
   officerComment?: string;
+  verifiedByName?: string;
+  verifiedAt?: string;
 }
 
 interface RequiredDoc {
@@ -39,80 +41,51 @@ const OPTIONAL_DOC_TYPES: { type: string; label: string }[] = [
   { type: "OTHER", label: "Other Document" },
 ];
 
-const DOCUMENT_LABELS: Record<string, string> = {
-  NATIONAL_ID: "National ID",
-  SELFIE: "Selfie (for identity verification)",
-  PROOF_OF_ADDRESS: "Proof of Address",
-  PASSPORT: "Passport",
-  DRIVING_LICENSE: "Driving License",
-  PAYSLIP: "Payslip",
-  EMPLOYMENT_LETTER: "Employment Letter",
-  BUSINESS_REGISTRATION: "Business Registration Certificate",
-  COLLATERAL_DOCUMENT: "Collateral Document",
-  MARRIAGE_CERTIFICATE: "Marriage Certificate",
-  SINGLE_CERTIFICATE: "Single Status Certificate",
-  BANK_STATEMENT: "Bank Statements",
-  OTHER: "Other Document",
-};
-
 function documentLabel(type: string): string {
-  return DOCUMENT_LABELS[type] || type.replace(/_/g, " ");
+  const labels: Record<string, string> = {
+    NATIONAL_ID: "National ID",
+    SELFIE: "Selfie (for identity verification)",
+    PROOF_OF_ADDRESS: "Proof of Address",
+    BANK_STATEMENT: "Bank Statements",
+    MARRIAGE_CERTIFICATE: "Marriage Certificate",
+    SINGLE_CERTIFICATE: "Single Status Certificate",
+    PASSPORT: "Passport",
+    DRIVING_LICENSE: "Driving License",
+    PAYSLIP: "Payslip",
+    EMPLOYMENT_LETTER: "Employment Letter",
+    BUSINESS_REGISTRATION: "Business Registration Certificate",
+    COLLATERAL_DOCUMENT: "Collateral Document",
+  };
+
+  return (
+    labels[type] ||
+    type
+      .toLowerCase()
+      .split("_")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ")
+  );
 }
 
-function requiredDocsFor(maritalStatus?: string): RequiredDoc[] {
-  const docs: RequiredDoc[] = [
-    {
-      type: "NATIONAL_ID",
-      label: "National ID",
-      count: 1,
-      accept: ".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf",
-    },
-  ];
+function requiredDocsFor(types?: string[]): RequiredDoc[] {
+  const resolved = types?.length
+    ? types
+    : ["NATIONAL_ID", "SELFIE", "PROOF_OF_ADDRESS"];
 
-  if ((maritalStatus || "").toLowerCase() === "married") {
-    docs.push({
-      type: "MARRIAGE_CERTIFICATE",
-      label: "Marriage Certificate",
-      count: 1,
-      accept: ".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf",
-    });
-  } else {
-    docs.push({
-      type: "SINGLE_CERTIFICATE",
-      label: "Single Status Certificate",
-      count: 1,
-      accept: ".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf",
-    });
-  }
-
-  docs.push({
-    type: "BANK_STATEMENT",
-    label: "Bank Statements (last 3 months)",
+  return resolved.map((type) => ({
+    type,
+    label: documentLabel(type),
     count: 1,
-    accept: ".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf",
-  });
-
-  /*
-   * SELFIE IS CAMERA ONLY.
-   *
-   * There is intentionally NO file input for SELFIE.
-   * The applicant must capture a live image using CameraCapture.
-   */
-  docs.push({
-    type: "SELFIE",
-    label: "Selfie (for identity verification)",
-    count: 1,
-    camera: true,
-    accept: "image/png,image/jpeg",
-  });
-
-  return docs;
+    camera: type === "SELFIE",
+    accept:
+      ".png,.jpg,.jpeg,.webp,.pdf,image/png,image/jpeg,image/webp,application/pdf",
+  }));
 }
 
 export default function DocumentUploadPanel({
   reference,
   phone,
-  maritalStatus,
+  maritalStatus: _maritalStatus,
   primary = "#0D6B3E",
   onStatusChange,
 }: {
@@ -129,70 +102,47 @@ export default function DocumentUploadPanel({
   const [cameraFor, setCameraFor] = useState<string | null>(null);
   const [cameraReplaceId, setCameraReplaceId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [required, setRequired] = useState<RequiredDoc[]>(requiredDocsFor());
 
-  const [required, setRequired] = useState<RequiredDoc[]>(() =>
-    requiredDocsFor(maritalStatus),
-  );
-
-  const refresh = useCallback(() => {
-    setLoading(true);
+  const refresh = useCallback(async () => {
     setError("");
 
-    Promise.allSettled([
-      publicApi.listDocuments(reference, phone),
-      publicApi.documentRequirements(reference, phone),
-    ])
-      .then(([documentsResult, requirementsResult]) => {
-        if (documentsResult.status === "fulfilled") {
-          setUploaded(documentsResult.value as DocItem[]);
-        } else {
-          throw documentsResult.reason;
-        }
+    try {
+      const [documents, application] = await Promise.all([
+        publicApi.listDocuments(reference, phone),
+        publicApi.trackApplication(reference, phone),
+      ]);
 
-        if (requirementsResult.status === "fulfilled") {
-          const raw = (requirementsResult.value as any)?.required;
-          if (Array.isArray(raw) && raw.length > 0) {
-            setRequired(
-              raw.map((type: string) => ({
-                type,
-                label: documentLabel(type),
-                count: 1,
-                camera: type === "SELFIE",
-                accept:
-                  type === "SELFIE"
-                    ? "image/png,image/jpeg"
-                    : ".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf",
-              })),
-            );
-          } else {
-            setRequired(requiredDocsFor(maritalStatus));
-          }
-        } else {
-          // Keep the panel usable during a rolling frontend/backend deployment.
-          // The next refresh will pick up the authoritative product checklist.
-          setRequired(requiredDocsFor(maritalStatus));
-        }
-      })
-      .catch((err: any) => {
-        setError(
-          err?.message ||
-            "Could not load your uploaded documents. Please refresh and try again.",
-        );
-      })
-      .finally(() => setLoading(false));
-  }, [reference, phone, maritalStatus]);
+      setUploaded(documents as DocItem[]);
+
+      const configuredRequired =
+        application &&
+        typeof application === "object" &&
+        application.documentsRequired &&
+        typeof application.documentsRequired === "object" &&
+        Array.isArray(application.documentsRequired.required)
+          ? application.documentsRequired.required.filter(
+              (type: unknown): type is string =>
+                typeof type === "string" && type.trim().length > 0,
+            )
+          : [];
+
+      setRequired(requiredDocsFor(configuredRequired));
+    } catch {
+      setError(
+        "Could not load your document checklist. Please refresh and try again.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [reference, phone]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
   const countFor = (type: string) =>
-    uploaded.filter(
-      (d) =>
-        d.documentType === type &&
-        d.verificationStatus !== "REJECTED" &&
-        d.verificationStatus !== "REPLACEMENT_REQUESTED",
-    ).length;
+    uploaded.filter((d) => d.documentType === type).length;
 
   const filesFor = (type: string) =>
     uploaded.filter((d) => d.documentType === type);
@@ -270,7 +220,7 @@ export default function DocumentUploadPanel({
       const file = e.target.files?.[0];
 
       if (file) {
-        void doReplace(doc, file);
+        doReplace(doc, file);
       }
 
       e.target.value = "";
@@ -375,24 +325,33 @@ export default function DocumentUploadPanel({
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    openCameraForDocument("SELFIE", latestSelfie?.id)
-                  }
-                  disabled={busy}
-                  className="text-xs font-bold px-3 py-2 rounded-md border shrink-0 disabled:opacity-50"
-                  style={{
-                    borderColor: primary,
-                    color: primary,
-                  }}
-                >
-                  {busy
-                    ? "Uploading…"
-                    : complete
-                      ? "Retake Selfie"
-                      : "Open Camera"}
-                </button>
+                {latestSelfie?.verificationStatus === "VERIFIED" ? (
+                  <span className="text-xs font-bold text-green-600 shrink-0">
+                    Verified
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openCameraForDocument("SELFIE", latestSelfie?.id)
+                    }
+                    disabled={busy}
+                    className="text-xs font-bold px-3 py-2 rounded-md border shrink-0 disabled:opacity-50"
+                    style={{
+                      borderColor: primary,
+                      color: primary,
+                    }}
+                  >
+                    {busy
+                      ? "Uploading…"
+                      : latestSelfie?.verificationStatus ===
+                          "REPLACEMENT_REQUESTED"
+                        ? "Capture Replacement"
+                        : complete
+                          ? "Retake Selfie"
+                          : "Open Camera"}
+                  </button>
+                )}
               </div>
             );
           }
@@ -488,31 +447,36 @@ export default function DocumentUploadPanel({
                        * SELFIE NEVER gets a file-picker replacement.
                        * Clicking Replace/Retake opens the camera.
                        */}
-                      {f.documentType === "SELFIE" ? (
-                        <button
-                          type="button"
-                          onClick={() => openCameraForDocument("SELFIE", f.id)}
-                          disabled={uploadingType === f.documentType}
-                          className="text-slate-700 hover:text-slate-950 font-semibold disabled:opacity-50"
-                        >
-                          {uploadingType === f.documentType
-                            ? "Opening…"
-                            : "Retake Selfie"}
-                        </button>
-                      ) : (
-                        f.uploadedByApplicant !== false && (
-                          <label className="text-slate-700 hover:text-slate-950 font-semibold cursor-pointer">
-                            Replace
-                            <input
-                              type="file"
-                              accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
-                              className="hidden"
+                      {f.documentType === "SELFIE"
+                        ? f.verificationStatus !== "VERIFIED" && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openCameraForDocument("SELFIE", f.id)
+                              }
                               disabled={uploadingType === f.documentType}
-                              onChange={handleReplaceFileInput(f)}
-                            />
-                          </label>
-                        )
-                      )}
+                              className="text-slate-700 hover:text-slate-950 font-semibold disabled:opacity-50"
+                            >
+                              {uploadingType === f.documentType
+                                ? "Opening…"
+                                : f.verificationStatus ===
+                                    "REPLACEMENT_REQUESTED"
+                                  ? "Capture Replacement"
+                                  : "Retake Selfie"}
+                            </button>
+                          )
+                        : f.uploadedByApplicant === true && (
+                            <label className="text-slate-700 hover:text-slate-950 font-semibold cursor-pointer">
+                              Replace
+                              <input
+                                type="file"
+                                accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
+                                className="hidden"
+                                disabled={uploadingType === f.documentType}
+                                onChange={handleReplaceFileInput(f)}
+                              />
+                            </label>
+                          )}
 
                       {f.verificationStatus !== "VERIFIED" && (
                         <button
