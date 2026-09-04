@@ -39,6 +39,26 @@ const OPTIONAL_DOC_TYPES: { type: string; label: string }[] = [
   { type: "OTHER", label: "Other Document" },
 ];
 
+const DOCUMENT_LABELS: Record<string, string> = {
+  NATIONAL_ID: "National ID",
+  SELFIE: "Selfie (for identity verification)",
+  PROOF_OF_ADDRESS: "Proof of Address",
+  PASSPORT: "Passport",
+  DRIVING_LICENSE: "Driving License",
+  PAYSLIP: "Payslip",
+  EMPLOYMENT_LETTER: "Employment Letter",
+  BUSINESS_REGISTRATION: "Business Registration Certificate",
+  COLLATERAL_DOCUMENT: "Collateral Document",
+  MARRIAGE_CERTIFICATE: "Marriage Certificate",
+  SINGLE_CERTIFICATE: "Single Status Certificate",
+  BANK_STATEMENT: "Bank Statements",
+  OTHER: "Other Document",
+};
+
+function documentLabel(type: string): string {
+  return DOCUMENT_LABELS[type] || type.replace(/_/g, " ");
+}
+
 function requiredDocsFor(maritalStatus?: string): RequiredDoc[] {
   const docs: RequiredDoc[] = [
     {
@@ -110,22 +130,69 @@ export default function DocumentUploadPanel({
   const [cameraReplaceId, setCameraReplaceId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  const required = requiredDocsFor(maritalStatus);
+  const [required, setRequired] = useState<RequiredDoc[]>(() =>
+    requiredDocsFor(maritalStatus),
+  );
 
   const refresh = useCallback(() => {
-    publicApi
-      .listDocuments(reference, phone)
-      .then((data) => setUploaded(data as DocItem[]))
-      .catch(() => setError("Could not load your uploaded documents."))
+    setLoading(true);
+    setError("");
+
+    Promise.allSettled([
+      publicApi.listDocuments(reference, phone),
+      publicApi.documentRequirements(reference, phone),
+    ])
+      .then(([documentsResult, requirementsResult]) => {
+        if (documentsResult.status === "fulfilled") {
+          setUploaded(documentsResult.value as DocItem[]);
+        } else {
+          throw documentsResult.reason;
+        }
+
+        if (requirementsResult.status === "fulfilled") {
+          const raw = (requirementsResult.value as any)?.required;
+          if (Array.isArray(raw) && raw.length > 0) {
+            setRequired(
+              raw.map((type: string) => ({
+                type,
+                label: documentLabel(type),
+                count: 1,
+                camera: type === "SELFIE",
+                accept:
+                  type === "SELFIE"
+                    ? "image/png,image/jpeg"
+                    : ".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf",
+              })),
+            );
+          } else {
+            setRequired(requiredDocsFor(maritalStatus));
+          }
+        } else {
+          // Keep the panel usable during a rolling frontend/backend deployment.
+          // The next refresh will pick up the authoritative product checklist.
+          setRequired(requiredDocsFor(maritalStatus));
+        }
+      })
+      .catch((err: any) => {
+        setError(
+          err?.message ||
+            "Could not load your uploaded documents. Please refresh and try again.",
+        );
+      })
       .finally(() => setLoading(false));
-  }, [reference, phone]);
+  }, [reference, phone, maritalStatus]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
   const countFor = (type: string) =>
-    uploaded.filter((d) => d.documentType === type).length;
+    uploaded.filter(
+      (d) =>
+        d.documentType === type &&
+        d.verificationStatus !== "REJECTED" &&
+        d.verificationStatus !== "REPLACEMENT_REQUESTED",
+    ).length;
 
   const filesFor = (type: string) =>
     uploaded.filter((d) => d.documentType === type);
@@ -203,7 +270,7 @@ export default function DocumentUploadPanel({
       const file = e.target.files?.[0];
 
       if (file) {
-        doReplace(doc, file);
+        void doReplace(doc, file);
       }
 
       e.target.value = "";

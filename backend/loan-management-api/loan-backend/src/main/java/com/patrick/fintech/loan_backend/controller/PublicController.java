@@ -41,6 +41,7 @@ import com.patrick.fintech.loan_backend.service.MtnMobileMoneyService;
 import com.patrick.fintech.loan_backend.service.NotificationService;
 import com.patrick.fintech.loan_backend.service.PaymentService;
 import com.patrick.fintech.loan_backend.service.ReportExportService;
+import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 import com.patrick.fintech.loan_backend.service.SmsService;
 
 import jakarta.transaction.Transactional;
@@ -342,6 +343,24 @@ public class PublicController {
         }
 
         // ============================================================
+        // APPLICATION DOCUMENT REQUIREMENTS
+        // ============================================================
+
+        @GetMapping("/applications/{reference}/documents/requirements")
+        @Transactional
+        public ResponseEntity<ApiResponse<Map<String, Object>>> applicationDocumentRequirements(
+                        @PathVariable String reference,
+                        @RequestParam String phone) {
+
+                Loan loan = verifyOwnership(reference, phone);
+                Map<String, Object> requirements = loanService.getDocumentRequirements(
+                                loan.getId(),
+                                loan.getOrganization().getId());
+
+                return ResponseEntity.ok(ApiResponse.ok(requirements));
+        }
+
+        // ============================================================
         // APPLICATION DOCUMENT UPLOAD
         // ============================================================
 
@@ -356,6 +375,20 @@ public class PublicController {
                 Loan loan = verifyOwnership(
                                 reference,
                                 phone);
+
+                if (loan.getStatus() == LoanStatus.DISBURSED
+                                || loan.getStatus() == LoanStatus.ACTIVE
+                                || loan.getStatus() == LoanStatus.OVERDUE
+                                || loan.getStatus() == LoanStatus.DEFAULTED
+                                || loan.getStatus() == LoanStatus.PAID
+                                || loan.getStatus() == LoanStatus.CLOSED
+                                || loan.getStatus() == LoanStatus.CANCELLED
+                                || loan.getStatus() == LoanStatus.REJECTED
+                                || loan.getStatus() == LoanStatus.WRITTEN_OFF) {
+                        throw new RuntimeException(
+                                        "Documents can no longer be uploaded for an application in status "
+                                                        + loan.getStatus() + ".");
+                }
 
                 if (loan.getBorrower() == null) {
 
@@ -484,6 +517,76 @@ public class PublicController {
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
                                                 docs));
+        }
+
+        // ============================================================
+        // REPLACE APPLICATION DOCUMENT
+        // ============================================================
+
+        @PostMapping("/applications/{reference}/documents/{fileId}/replace")
+        @Transactional
+        public ResponseEntity<ApiResponse<Map<String, Object>>> replaceApplicationDocument(
+                        @PathVariable String reference,
+                        @PathVariable Long fileId,
+                        @RequestParam String phone,
+                        @RequestPart("file") MultipartFile file) throws Exception {
+
+                Loan loan = verifyOwnership(reference, phone);
+
+                if (loan.getStatus() == LoanStatus.DISBURSED
+                                || loan.getStatus() == LoanStatus.ACTIVE
+                                || loan.getStatus() == LoanStatus.OVERDUE
+                                || loan.getStatus() == LoanStatus.DEFAULTED
+                                || loan.getStatus() == LoanStatus.PAID
+                                || loan.getStatus() == LoanStatus.CLOSED
+                                || loan.getStatus() == LoanStatus.CANCELLED
+                                || loan.getStatus() == LoanStatus.REJECTED
+                                || loan.getStatus() == LoanStatus.WRITTEN_OFF) {
+                        throw new RuntimeException(
+                                        "Documents can no longer be replaced for an application in status "
+                                                        + loan.getStatus() + ".");
+                }
+
+                if (loan.getBorrower() == null) {
+                        throw new RuntimeException("This application has no borrower associated with it.");
+                }
+                if (file == null || file.isEmpty()) {
+                        throw new RuntimeException("Please select a replacement document.");
+                }
+
+                BorrowerFile existing = fileService.getById(fileId);
+                if (existing.getBorrower() == null
+                                || !loan.getBorrower().getId().equals(existing.getBorrower().getId())
+                                || !existing.isUploadedByApplicant()) {
+                        throw new RuntimeException("Document not found.");
+                }
+                if (existing.getVerificationStatus() == VerificationStatus.VERIFIED) {
+                        throw new RuntimeException("A verified document cannot be replaced by the applicant.");
+                }
+
+                BorrowerFile saved = fileService.replaceApplicantDocument(
+                                loan.getBorrower().getId(),
+                                fileId,
+                                file,
+                                existing.getDocumentType());
+
+                auditService.log(
+                                loan.getBorrower().getOrganization(),
+                                null,
+                                "APPLICANT_DOCUMENT_REPLACED",
+                                "BORROWER_FILE",
+                                saved.getId().toString(),
+                                saved.getDocumentType() + " replacement uploaded for application "
+                                                + loan.getReferenceNumber());
+
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("id", saved.getId());
+                result.put("documentType", saved.getDocumentType());
+                result.put("fileName", saved.getFileName());
+                result.put("fileSize", saved.getFileSize());
+                result.put("verificationStatus", saved.getVerificationStatus());
+
+                return ResponseEntity.ok(ApiResponse.ok("Replacement document uploaded", result));
         }
 
         // ============================================================
@@ -2394,6 +2497,170 @@ public class PublicController {
         }
 
         // ============================================================
+        // PUBLIC LOAN CALCULATION / QUOTE
+        // ============================================================
+
+        /**
+         * Authoritative public loan quote.
+         *
+         * This endpoint deliberately does not create a borrower or loan. It uses
+         * the same FinancialPolicy contractual schedule calculation used by the
+         * lending backend, so the public calculator cannot silently drift from
+         * the eventual repayment schedule.
+         */
+        @PostMapping("/loan-calculation")
+        public ResponseEntity<ApiResponse<Map<String, Object>>> calculatePublicLoan(
+                        @RequestBody Map<String, Object> body) {
+
+                if (body == null) {
+                        throw new IllegalArgumentException("Calculation request is required");
+                }
+
+                Organization org = resolveOrg(str(body.get("tenantSlug")));
+                if (org == null) {
+                        throw new IllegalArgumentException("We couldn't identify this lender.");
+                }
+
+                BigDecimal principal = decimal(body.get("amount"));
+                if (principal == null || principal.compareTo(ZERO) <= 0) {
+                        throw new IllegalArgumentException("Loan amount must be greater than zero.");
+                }
+                principal = money(principal);
+
+                BigDecimal configuredMinimum = org.getMinLoanAmountDecimal() != null
+                                ? money(org.getMinLoanAmountDecimal())
+                                : MIN_LOAN_AMOUNT;
+                if (principal.compareTo(configuredMinimum) < 0) {
+                        throw new IllegalArgumentException("Minimum loan amount is " + formatMoney(configuredMinimum));
+                }
+
+                Loan.LoanType loanType = mapLoanType(str(body.get("loanType")));
+                LoanProduct product = loanProductRepo
+                                .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(org.getId(), loanType)
+                                .orElse(null);
+
+                if (product != null) {
+                        BigDecimal productMin = product.getMinAmountDecimal();
+                        BigDecimal productMax = product.getMaxAmountDecimal();
+                        if (productMin != null && principal.compareTo(money(productMin)) < 0) {
+                                throw new IllegalArgumentException(
+                                                "Minimum amount for " + product.getName() + " is "
+                                                                + formatMoney(money(productMin)));
+                        }
+                        if (productMax != null && principal.compareTo(money(productMax)) > 0) {
+                                throw new IllegalArgumentException(
+                                                "Maximum amount for " + product.getName() + " is "
+                                                                + formatMoney(money(productMax)));
+                        }
+                }
+
+                int months = 1;
+                if (body.get("durationMonths") != null) {
+                        try {
+                                months = Integer.parseInt(String.valueOf(body.get("durationMonths")).trim());
+                        } catch (NumberFormatException ex) {
+                                throw new IllegalArgumentException("Duration must be a valid number of months.");
+                        }
+                }
+
+                int minTerm = product != null && product.getMinTermMonths() != null
+                                ? product.getMinTermMonths() : MIN_LOAN_DURATION_MONTHS;
+                int maxTerm = product != null && product.getMaxTermMonths() != null
+                                ? product.getMaxTermMonths() : MAX_LOAN_DURATION_MONTHS;
+
+                if (months < minTerm || months > maxTerm) {
+                        throw new IllegalArgumentException(
+                                        "Loan duration must be between " + minTerm + " and " + maxTerm + " months.");
+                }
+
+                BigDecimal interestRate = product != null && product.getInterestRateDecimal() != null
+                                ? money(product.getInterestRateDecimal()) : MONTHLY_INTEREST_RATE;
+                BigDecimal managementRate = product != null && product.getManagementFeePercentDecimal() != null
+                                ? money(product.getManagementFeePercentDecimal()) : MONTHLY_MANAGEMENT_FEE_RATE;
+                BigDecimal applicationRate = product != null && product.getApplicationFeePercentDecimal() != null
+                                ? money(product.getApplicationFeePercentDecimal()) : APPLICATION_FEE_RATE;
+
+                if (interestRate.compareTo(ZERO) < 0 || managementRate.compareTo(ZERO) < 0
+                                || applicationRate.compareTo(ZERO) < 0) {
+                        throw new IllegalStateException("Loan product pricing cannot contain negative rates.");
+                }
+
+                BigDecimal balance = principal;
+                BigDecimal totalInterest = ZERO;
+                BigDecimal totalManagement = ZERO;
+                BigDecimal firstInstallment = ZERO;
+                BigDecimal lastInstallment = ZERO;
+                List<Map<String, Object>> schedule = new ArrayList<>();
+
+                for (int i = 1; i <= months; i++) {
+                        FinancialPolicy.ScheduleLine line = FinancialPolicy.contractualScheduleLine(
+                                        balance,
+                                        months - i + 1,
+                                        interestRate,
+                                        managementRate);
+
+                        BigDecimal principalComponent = money(line.principal());
+                        BigDecimal interest = money(line.interest());
+                        BigDecimal management = money(line.managementFee());
+                        BigDecimal installment = money(line.installment());
+                        BigDecimal remaining = money(line.remainingBalance());
+
+                        if (i == 1) {
+                                firstInstallment = installment;
+                        }
+                        if (i == months) {
+                                lastInstallment = installment;
+                        }
+
+                        totalInterest = money(totalInterest.add(interest));
+                        totalManagement = money(totalManagement.add(management));
+
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("installmentNumber", i);
+                        row.put("principal", principalComponent);
+                        row.put("interest", interest);
+                        row.put("managementFee", management);
+                        row.put("installmentAmount", installment);
+                        row.put("remainingPrincipal", remaining);
+                        schedule.add(row);
+
+                        balance = remaining;
+                }
+
+                BigDecimal applicationFee = money(
+                                principal.multiply(applicationRate).divide(ONE_HUNDRED, 16, RoundingMode.HALF_UP));
+                BigDecimal contractualRepayment = money(
+                                principal.add(totalInterest).add(totalManagement));
+                BigDecimal totalCostIncludingApplicationFee = money(
+                                contractualRepayment.add(applicationFee));
+                BigDecimal netDisbursementIfFeeDeducted = money(
+                                principal.subtract(applicationFee).max(ZERO));
+
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("currency", org.getDefaultCurrency());
+                result.put("loanType", loanType);
+                result.put("principal", principal);
+                result.put("durationMonths", months);
+                result.put("interestRate", interestRate);
+                result.put("interestRateType", "MONTHLY");
+                result.put("managementFeeRate", managementRate);
+                result.put("applicationFeeRate", applicationRate);
+                result.put("totalInterest", totalInterest);
+                result.put("totalManagementFee", totalManagement);
+                result.put("applicationFee", applicationFee);
+                result.put("firstInstallment", firstInstallment);
+                result.put("lastInstallment", lastInstallment);
+                result.put("contractualRepaymentTotal", contractualRepayment);
+                result.put("totalCostIncludingApplicationFee", totalCostIncludingApplicationFee);
+                result.put("netDisbursementIfFeeDeducted", netDisbursementIfFeeDeducted);
+                result.put("schedule", schedule);
+                result.put("disclaimer",
+                                "Indicative quote only. Final approval, pricing and disbursement are subject to credit assessment and approved contractual terms.");
+
+                return ResponseEntity.ok(ApiResponse.ok("Loan calculation completed", result));
+        }
+
+        // ============================================================
         // LOAN APPLICATION
         // ============================================================
 
@@ -2434,15 +2701,21 @@ public class PublicController {
                                 body.toString());
 
                 if (idempotency.isReplay()) {
-
-                        return ResponseEntity.ok(
-                                        ApiResponse.ok(
-                                                        "Application received",
-                                                        Map.of(
-                                                                        "status",
-                                                                        "RECEIVED",
-                                                                        "message",
-                                                                        "Already submitted")));
+                        try {
+                                @SuppressWarnings("unchecked")
+                                ApiResponse<Map<String, Object>> cached = objectMapper.readValue(
+                                                idempotency.cachedResponseBody(),
+                                                new TypeReference<ApiResponse<Map<String, Object>>>() { });
+                                return ResponseEntity
+                                                .status(idempotency.cachedStatusCode() != null
+                                                                ? idempotency.cachedStatusCode()
+                                                                : 200)
+                                                .body(cached);
+                        } catch (Exception ex) {
+                                log.error("Could not restore cached public application response for idempotency key", ex);
+                                throw new RuntimeException(
+                                                "The previous application submission was recorded, but its reference could not be restored. Please use Track Your Application with the original reference.");
+                        }
                 }
 
                 String phone = str(body.get("phone"));
@@ -2563,29 +2836,70 @@ public class PublicController {
                                         "Single Status Certificate number is required for single applicants");
                 }
 
+                String lastName = str(body.get("lastName"));
+                if (lastName == null || lastName.isBlank()) {
+                        throw new IllegalArgumentException("Last name is required");
+                }
+                lastName = lastName.trim();
+
+                String normalizedEmail = inputEmail.trim().toLowerCase(Locale.ROOT);
+                if (normalizedEmail.length() > 254
+                                || !normalizedEmail.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) {
+                        throw new IllegalArgumentException("A valid email address is required");
+                }
+
+                String phoneHash = HmacIndexer.index(phone);
+                String nationalIdHash = HmacIndexer.index(nationalId);
+
                 Borrower borrower = borrowerRepo
-                                .findByPhoneHashAndOrganization_Id(
-                                                HmacIndexer.index(
-                                                                phone),
-                                                org.getId())
-                                .orElseGet(
-                                                () -> Borrower.builder()
-                                                                .organization(org)
-                                                                .build());
+                                .findByPhoneHashAndOrganization_Id(phoneHash, org.getId())
+                                .orElse(null);
+
+                if (borrower != null) {
+                        String existingNationalIdHash = borrower.getNationalIdHash();
+                        if (existingNationalIdHash != null && !existingNationalIdHash.equals(nationalIdHash)) {
+                                throw new IllegalArgumentException(
+                                                "The phone number is already registered to another borrower identity. Please contact the lender.");
+                        }
+
+                        String existingEmail = borrower.getEmail();
+                        if (existingEmail != null && !existingEmail.isBlank()
+                                        && !existingEmail.trim().equalsIgnoreCase(normalizedEmail)) {
+                                throw new IllegalArgumentException(
+                                                "The email address does not match the existing borrower record for this phone number.");
+                        }
+                } else {
+                        borrower = borrowerRepo
+                                        .findByNationalIdHashAndOrganization_Id(nationalIdHash, org.getId())
+                                        .orElse(null);
+
+                        if (borrower != null) {
+                                throw new IllegalArgumentException(
+                                                "This National ID is already registered with this lender. Please use your registered phone number or contact the lender.");
+                        }
+
+                        Borrower emailBorrower = borrowerRepo
+                                        .findByEmailAndOrganization_Id(normalizedEmail, org.getId())
+                                        .orElse(null);
+                        if (emailBorrower != null) {
+                                throw new IllegalArgumentException(
+                                                "This email address is already registered with this lender. Please use your registered phone number or contact the lender.");
+                        }
+
+                        borrower = Borrower.builder()
+                                        .organization(org)
+                                        .build();
+                }
 
                 borrower.setFirstName(
                                 firstName);
 
-                borrower.setLastName(
-                                str(
-                                                body.get(
-                                                                "lastName")));
+                borrower.setLastName(lastName);
 
                 borrower.setPhone(
                                 phone);
 
-                borrower.setEmail(
-                                inputEmail.trim());
+                borrower.setEmail(normalizedEmail);
 
                 borrower.setNationalId(
                                 nationalId);
@@ -2872,6 +3186,11 @@ public class PublicController {
 
                                                 "status",
                                                 "RECEIVED",
+
+                                                "documentRequirements",
+                                                loanService.getDocumentRequirements(
+                                                                loan.getId(),
+                                                                org.getId()),
 
                                                 "monthlyInterestRate",
                                                 MONTHLY_INTEREST_RATE,
