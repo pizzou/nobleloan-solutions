@@ -1037,9 +1037,19 @@ public class RegulatoryReportingService {
                 // OUTSTANDING
                 // ========================================================
 
-                double totalOutstanding = outstandingPrincipal
-                                + outstandingInterest
-                                + outstandingFees;
+                /*
+                 * BNR gross portfolio outstanding is principal outstanding.
+                 * Interest, management fees, penalties, extension fees and
+                 * application fees are separate receivable metrics above.
+                 *
+                 * This is intentionally the same balance represented by GL
+                 * account 1100 (Loans Receivable) and by the operational
+                 * dashboard/loan portfolio outstanding balance. Keeping the
+                 * headline portfolio balance on one basis prevents the
+                 * dashboard, accounting and BNR totals from disagreeing merely
+                 * because accrued charges are included in one report.
+                 */
+                double totalOutstanding = outstandingPrincipal;
 
                 // ========================================================
                 // CREDIT METRICS
