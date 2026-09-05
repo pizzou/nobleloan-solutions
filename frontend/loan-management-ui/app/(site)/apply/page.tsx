@@ -4,7 +4,6 @@ import { useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTenant } from "../layout";
 import { useOnlineStatus } from "../../../hooks/useOnlineStatus";
-import { queueAction } from "../../../lib/offlineDb";
 import { TENANT_SLUG } from "../../../lib/tenant";
 import DocumentUploadPanel from "../../../components/DocumentUploadPanel";
 
@@ -19,7 +18,6 @@ export default function ApplyPage() {
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [reference, setReference] = useState("");
-  const [queuedOffline, setQueuedOffline] = useState(false);
   const [error, setError] = useState("");
   const [docsComplete, setDocsComplete] = useState(false);
 
@@ -107,6 +105,11 @@ export default function ApplyPage() {
       }));
     };
 
+  // ============================================================
+  // NATIONAL ID VALIDATION
+  // Rwanda national IDs are exactly 16 digits.
+  // ============================================================
+
   const NATIONAL_ID_REGEX = /^\d{16}$/;
 
   const isNationalIdValid = (value: string) => {
@@ -169,6 +172,20 @@ export default function ApplyPage() {
     return `${year}-${month}-${day}`;
   };
 
+  /**
+   * Checks whether the applicant is at least 18 years old.
+   *
+   * The birthday itself counts.
+   *
+   * Example:
+   *
+   * Today: 2026-08-11
+   * DOB:   2008-08-11
+   * Age:   18 -> VALID
+   *
+   * DOB:   2008-08-12
+   * Age:   17 -> INVALID
+   */
   const isAtLeast18 = (dateOfBirth: string): boolean => {
     if (!dateOfBirth) {
       return false;
@@ -243,37 +260,17 @@ export default function ApplyPage() {
     const idempotencyKey = idempotencyKeyRef.current;
 
     // ----------------------------------------------------------
-    // OFFLINE SUBMISSION
+    // PUBLIC APPLICATIONS ARE ONLINE-ONLY
     // ----------------------------------------------------------
-
+    // A public loan application is a two-stage workflow: application
+    // creation followed by applicant-controlled document upload. It must
+    // never enter the generic offline mutation queue because background
+    // replay can create a loan without the applicant completing documents.
     if (!online) {
-      try {
-        await queueAction({
-          url: "/public/loan-application",
-          method: "POST",
-          body: {
-            ...form,
-            tenantSlug: slug,
-          },
-          headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": idempotencyKey,
-          },
-          label: `Loan application — ${form.firstName} ${form.lastName} (${form.amount} ${tenant.currency})`,
-        });
-
-        setReference("Will be assigned once submitted");
-
-        setQueuedOffline(true);
-        setSubmitted(true);
-      } catch (e: any) {
-        setError(
-          "Could not save your application on this device. Please try again once you&apos;re back online.",
-        );
-      } finally {
-        setSaving(false);
-      }
-
+      setError(
+        "Loan applications require an active internet connection. Please reconnect and submit again. Your application has not been submitted.",
+      );
+      setSaving(false);
       return;
     }
 
@@ -316,44 +313,27 @@ export default function ApplyPage() {
       idempotencyKeyRef.current = null;
     } catch (e: any) {
       // --------------------------------------------------------
-      // NETWORK FAILURE
+      // NO AUTOMATIC PUBLIC-APPLICATION RETRY
       // --------------------------------------------------------
-
-      if (
+      // Never queue this workflow for background replay. If the request
+      // reached the server before the connection failed, the same
+      // Idempotency-Key lets the applicant intentionally submit again and
+      // receive the original response instead of creating a duplicate loan.
+      const networkFailure =
         e instanceof TypeError ||
         responseStatus === 408 ||
         responseStatus === 425 ||
         responseStatus === 429 ||
-        (responseStatus !== null && responseStatus >= 500)
-      ) {
-        try {
-          await queueAction({
-            url: "/public/loan-application",
-            method: "POST",
-            body: {
-              ...form,
-              tenantSlug: slug,
-            },
-            headers: {
-              "Content-Type": "application/json",
-              "Idempotency-Key": idempotencyKey,
-            },
-            label: `Loan application — ${form.firstName} ${form.lastName} (${form.amount} ${tenant.currency})`,
-          });
+        (responseStatus !== null && responseStatus >= 500);
 
-          setReference("Will be assigned once submitted");
-
-          setQueuedOffline(true);
-          setSubmitted(true);
-        } catch {
-          setError(
-            "Lost connection and could not save on this device. Please try again.",
-          );
-        }
+      if (networkFailure) {
+        setError(
+          "We could not confirm your application because the server or internet connection is unavailable. No automatic submission will be retried. Please reconnect and press Submit again.",
+        );
       } else {
         setError(
           e.message ||
-            "Something went wrong. Please check your connection and try again.",
+            "Something went wrong. Please check your information and try again.",
         );
       }
     } finally {
@@ -398,27 +378,17 @@ export default function ApplyPage() {
               backgroundColor: primary + "10",
             }}
           >
-            {queuedOffline ? "📡" : docsComplete ? "🎉" : "📎"}
+            {docsComplete ? "🎉" : "📎"}
           </div>
 
           <h2 className="text-3xl font-extrabold text-gray-900 mb-4">
-            {queuedOffline
-              ? "Saved — Will Submit Automatically"
-              : docsComplete
-                ? "All Set — Application Complete!"
-                : "One More Step — Upload Your Documents"}
+            {docsComplete
+              ? "All Set — Application Complete!"
+              : "One More Step — Upload Your Documents"}
           </h2>
 
           <p className="text-gray-600 mb-6 text-lg">
-            {queuedOffline ? (
-              <>
-                Thanks <strong>{form.firstName}</strong> — you&apos;re offline
-                right now, so we&apos;ve saved your application on this device.
-                It will submit itself the moment this device reconnects to the
-                internet. You don&apos;t need to do anything else — just
-                don&apos;t clear your browser data before then.
-              </>
-            ) : docsComplete ? (
+            {docsComplete ? (
               <>
                 Thank you <strong>{form.firstName}</strong>! Your application
                 and all required documents have been received. We will review
@@ -464,7 +434,7 @@ export default function ApplyPage() {
             </div>
           </div>
 
-          {!queuedOffline && reference && !docsComplete && (
+          {reference && !docsComplete && (
             <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl px-4 py-3 mb-6 text-left">
               ⚠️ <strong>Your application is not yet complete.</strong> Upload
               the documents below to send it for review. You can safely bookmark
@@ -473,7 +443,7 @@ export default function ApplyPage() {
             </div>
           )}
 
-          {!queuedOffline && reference && (
+          {reference && (
             <div className="text-left mb-8">
               <DocumentUploadPanel
                 reference={reference}
@@ -490,7 +460,7 @@ export default function ApplyPage() {
             email <strong>{tenant.contactEmail}</strong>
           </p>
 
-          {!queuedOffline && reference && (
+          {reference && (
             <a
               href="/track"
               className="inline-block px-6 py-2.5 rounded-md text-sm font-bold text-white shadow-sm hover:opacity-90 transition-opacity"

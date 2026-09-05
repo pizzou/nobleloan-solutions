@@ -8,6 +8,7 @@ import {
   pendingCount,
   releasePendingActionsForImmediateSync,
   retryAllFailedActions,
+  purgeQueuedPublicLoanApplications,
 } from "./offlineDb";
 
 /**
@@ -44,11 +45,7 @@ export default function SyncProvider() {
     }
   }, []);
 
-  const getAuthHeader = useCallback((): Record<string, string> => {
-    if (typeof window === "undefined") return {};
-    const token = localStorage.getItem("token");
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  }, []);
+  const getAuthHeader = useCallback((): Record<string, string> => ({}), []);
 
   const syncNow = useCallback(async () => {
     if (
@@ -151,8 +148,16 @@ export default function SyncProvider() {
       if (mounted.current) setBackendOnline(false);
     };
 
-    void probeAndSync();
-    void refreshState();
+    const initializeSynchronization = async () => {
+      // Remove legacy public-application mutations before ANY synchronization
+      // can replay them. A public application must never be auto-submitted
+      // later without the applicant completing the document step.
+      await purgeQueuedPublicLoanApplications();
+      await probeAndSync();
+      await refreshState();
+    };
+
+    void initializeSynchronization();
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
@@ -172,6 +177,9 @@ export default function SyncProvider() {
   }, [probeAndSync, refreshState]);
 
   const handleRetryFailed = async () => {
+    // Never revive a legacy public-application mutation from the manual Retry
+    // button. It is not a valid offline financial workflow.
+    await purgeQueuedPublicLoanApplications();
     await retryAllFailedActions();
     await refreshState();
     await probeAndSync();
@@ -208,6 +216,8 @@ export default function SyncProvider() {
             Noble Loan server unavailable — {pending} saved change
             {pending === 1 ? "" : "s"} are securely queued on this device.
           </span>
+        ) : failed > 0 ? (
+          <span>Some saved changes could not be synchronized.</span>
         ) : syncing ? (
           <span>
             Synchronizing {pending} saved change{pending === 1 ? "" : "s"}…
@@ -222,7 +232,7 @@ export default function SyncProvider() {
             onClick={handleRetryFailed}
             className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-bold text-slate-700 transition hover:bg-slate-50"
           >
-            {failed} attention item{failed === 1 ? "" : "s"} · Retry
+            Retry {failed} failed item{failed === 1 ? "" : "s"}
           </button>
         )}
       </div>

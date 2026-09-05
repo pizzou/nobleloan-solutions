@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
-import SyncProvider from "@/lib/SyncProvider";
 import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 
 export const metadata: Metadata = {
@@ -31,8 +30,7 @@ export const metadata: Metadata = {
   },
 
   metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL ||
-      "https://nobleloan-fev7-one.vercel.app"
+    process.env.NEXT_PUBLIC_SITE_URL || "https://nobleloansolutions.rw",
   ),
 };
 
@@ -51,9 +49,6 @@ export default function RootLayout({
       >
         {/* Registers the Service Worker */}
         <ServiceWorkerRegistration />
-
-        {/* Automatically synchronizes queued offline requests */}
-        <SyncProvider />
 
         {children}
       </body>

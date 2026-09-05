@@ -158,6 +158,18 @@ export function createIdempotencyKey(): string {
 export async function queueAction(
   action: Omit<PendingAction, "id" | "createdAt" | "attempts">,
 ): Promise<PendingAction> {
+  const normalizedUrl = String(action.url || "").toLowerCase();
+
+  // Public loan applications are intentionally NOT offline-queueable. They
+  // are a two-stage workflow (application -> required document upload), and
+  // replaying the application later can create a loan without the applicant
+  // being present to complete the document step.
+  if (normalizedUrl.includes("/public/loan-application")) {
+    throw new Error(
+      "Public loan applications require a live connection and cannot be queued for background synchronization.",
+    );
+  }
+
   const actionId = createIdempotencyKey();
 
   const fullAction: PendingAction = {
@@ -310,6 +322,26 @@ export async function releasePendingActionsForImmediateSync(): Promise<number> {
   }
 
   return pending.length;
+}
+
+/**
+ * Removes legacy public-loan application mutations queued by older frontend
+ * versions. Those mutations are unsafe to replay because application
+ * creation must be followed by applicant-controlled document upload.
+ */
+export async function purgeQueuedPublicLoanApplications(): Promise<number> {
+  const actions = await getAllPendingActions();
+  const legacyPublicApplications = actions.filter((action) =>
+    String(action.url || "")
+      .toLowerCase()
+      .includes("/public/loan-application"),
+  );
+
+  for (const action of legacyPublicApplications) {
+    await removePendingAction(action.id);
+  }
+
+  return legacyPublicApplications.length;
 }
 
 export async function retryFailedAction(

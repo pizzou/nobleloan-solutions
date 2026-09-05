@@ -9,6 +9,9 @@ import com.patrick.fintech.loan_backend.repository.BorrowerRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.security.HmacIndexer;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -128,6 +131,8 @@ public class LegacyLoanImportRowService {
         private final LoanService loanService;
 
         private final AccountingService accountingService;
+
+        private final Validator validator;
 
         // ================================================================
         // IMPORT ROW
@@ -778,6 +783,35 @@ public class LegacyLoanImportRowService {
                                 if (commit) {
 
                                         try {
+
+                                                /*
+                                                 * Validate the borrower explicitly before persistence.
+                                                 *
+                                                 * Hibernate's Bean Validation normally runs at flush/commit.
+                                                 * In an async REQUIRES_NEW import transaction that can happen
+                                                 * after this method has left the row-level try/catch, turning
+                                                 * one bad legacy row into an unexpected worker failure.
+                                                 *
+                                                 * Running the same Bean Validation contract here keeps
+                                                 * validation failures row-scoped and prevents malformed
+                                                 * borrowers from reaching the database transaction.
+                                                 */
+                                                Set<ConstraintViolation<Borrower>> borrowerViolations =
+                                                                validator.validate(borrower);
+
+                                                if (!borrowerViolations.isEmpty()) {
+                                                        String validationMessage = borrowerViolations.stream()
+                                                                        .map(ConstraintViolation::getMessage)
+                                                                        .filter(message -> message != null && !message.isBlank())
+                                                                        .distinct()
+                                                                        .sorted()
+                                                                        .reduce((left, right) -> left + "; " + right)
+                                                                        .orElse("Borrower validation failed.");
+
+                                                        return fail(
+                                                                        rowNumber,
+                                                                        validationMessage);
+                                                }
 
                                                 borrower = borrowerRepo.save(
                                                                 borrower);
@@ -1455,6 +1489,22 @@ public class LegacyLoanImportRowService {
 
                         throw new IllegalArgumentException(
                                         "national_id is required.");
+                }
+
+                /*
+                 * Borrower.nationalId is a contractual/KYC field and the entity
+                 * requires exactly 16 digits. Validate the same rule here, before
+                 * Hibernate attempts to persist the Borrower. This prevents a
+                 * malformed legacy row from reaching the JPA Bean Validation
+                 * event at transaction commit time, where it previously escaped
+                 * the row-level error handling and failed the async import worker.
+                 */
+                if (!nationalId.matches("\\d{16}")) {
+
+                        throw new IllegalArgumentException(
+                                        "national_id must contain exactly 16 digits. Got "
+                                                        + nationalId.length()
+                                                        + " digits.");
                 }
 
                 if (nationalId.length() > MAX_NATIONAL_ID_LENGTH) {

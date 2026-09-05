@@ -1440,11 +1440,15 @@ public class LoanService {
                 // REAL KYC / AML GATE
                 // ============================================================
 
-                // if (!complianceService.isKycCurrentlyClear(loan.getBorrower().getId())) {
-                // throw new IllegalStateException(
-                // "Cannot disburse this loan — the borrower does not have a current, real
-                // provider-backed KYC/AML clearance.");
-                // }
+                if (loan.getBorrower() == null || loan.getBorrower().getId() == null) {
+                        throw new IllegalStateException(
+                                        "Cannot disburse this loan — borrower KYC/AML identity is missing.");
+                }
+
+                if (!complianceService.isKycCurrentlyClear(loan.getBorrower().getId())) {
+                        throw new IllegalStateException(
+                                        "Cannot disburse this loan — the borrower does not have a current, provider-backed KYC/AML clearance.");
+                }
 
                 // ============================================================
                 // PRESERVE CONTRACTUAL PRICING
