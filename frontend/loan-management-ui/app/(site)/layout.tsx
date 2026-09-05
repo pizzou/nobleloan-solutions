@@ -138,8 +138,8 @@ function NobleLogo({
       {/* Shield */}
       <svg
         viewBox="0 0 90 100"
-        width="52"
-        height="58"
+        width="46"
+        height="51"
         role="img"
         aria-label="Noble Loan Solutions logo"
         className="flex-shrink-0"
@@ -197,7 +197,7 @@ function NobleLogo({
             className="font-bold tracking-[0.08em]"
             style={{
               color: BRAND_NAVY,
-              fontSize: "20px",
+              fontSize: "18px",
             }}
           >
             NOBLE
@@ -207,7 +207,7 @@ function NobleLogo({
             className="font-light tracking-[0.04em]"
             style={{
               color: BRAND_NAVY,
-              fontSize: "14px",
+              fontSize: "12px",
             }}
           >
             LOAN SOLUTIONS
@@ -217,7 +217,7 @@ function NobleLogo({
             className="mt-1 font-semibold uppercase tracking-[0.18em]"
             style={{
               color: BRAND_GOLD_DARK,
-              fontSize: "7px",
+              fontSize: "6px",
             }}
           >
             Financial Support Partner
@@ -446,7 +446,7 @@ export default function SiteLayout({
             ==================================================== */}
 
         <div
-          className="border-b border-white/10 px-4 py-2 text-xs text-white/80"
+          className="border-b border-white/10 px-4 py-1.5 text-[11px] text-white/80"
           style={{
             backgroundColor: BRAND_NAVY_DARK,
           }}
@@ -485,7 +485,7 @@ export default function SiteLayout({
             ==================================================== */}
 
         <nav className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 shadow-sm backdrop-blur">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-2">
             {/* BRAND */}
 
             <Link
