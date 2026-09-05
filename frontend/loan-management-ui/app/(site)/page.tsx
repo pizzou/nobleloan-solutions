@@ -125,7 +125,7 @@ export default function HomePage() {
             backgroundSize: "auto,auto,42px 42px,42px 42px",
           }}
         />
-        <div className="relative mx-auto grid max-w-7xl gap-7 px-5 py-8 sm:px-8 sm:py-10 lg:grid-cols-[1.03fr_.97fr] lg:items-center lg:gap-10 lg:py-12">
+        <div className="relative mx-auto grid max-w-7xl gap-8 px-5 py-8 sm:px-8 sm:py-10 lg:grid-cols-[1fr_.92fr] lg:items-center lg:gap-12 lg:py-12">
           <div className="text-white">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[.07] px-4 py-2 text-[10px] font-black uppercase tracking-[.18em] text-white/80 backdrop-blur">
               <span
@@ -134,12 +134,12 @@ export default function HomePage() {
               />
               {tenant.name}
             </div>
-            <h1 className="mt-4 max-w-3xl text-4xl font-black leading-[1.02] tracking-[-.045em] sm:text-5xl lg:text-[4.45rem]">
+            <h1 className="mt-4 max-w-3xl text-4xl font-black leading-[1.02] tracking-[-.045em] sm:text-5xl lg:text-[4rem]">
               {tenant.hero?.headline ||
                 tenant.tagline ||
                 "Finance built around your next step."}
             </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-white/70 sm:text-lg">
+            <p className="mt-4 max-w-2xl text-base leading-6 text-white/70 sm:text-lg">
               {tenant.hero?.subtext ||
                 tenant.mission ||
                 "Clear, responsible lending with transparent terms and a straightforward digital application journey."}
@@ -159,7 +159,7 @@ export default function HomePage() {
                 Explore loan products
               </Link>
             </div>
-            <div className="mt-7 grid max-w-3xl gap-3 sm:grid-cols-3">
+            <div className="mt-6 grid max-w-3xl gap-3 sm:grid-cols-3">
               {trustPoints.map(([title, text]) => (
                 <div
                   key={title}
@@ -187,8 +187,8 @@ export default function HomePage() {
               style={{ backgroundColor: accent }}
               aria-hidden="true"
             />
-            <div className="relative overflow-hidden rounded-[26px] border border-white/10 bg-white p-1.5 shadow-[0_30px_90px_rgba(0,0,0,.30)]">
-              <div className="rounded-[20px] bg-slate-50 p-0.5">
+            <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-white p-1.5 shadow-[0_24px_70px_rgba(0,0,0,.30)]">
+              <div className="rounded-[23px] bg-slate-50 p-1">
                 <PublicLoanCalculator
                   products={products}
                   currency={tenant.currency}
@@ -197,7 +197,7 @@ export default function HomePage() {
                 />
               </div>
             </div>
-            <div className="relative mt-2 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-[.12em] text-white/40">
+            <div className="relative mt-4 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-[.12em] text-white/40">
               <ShieldIcon className="h-3.5 w-3.5" />
               Indicative calculation · subject to assessment and approval
             </div>

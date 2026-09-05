@@ -186,57 +186,57 @@ export default function PublicLoanCalculator({
   const managementRate = product?.managementFeeRate ?? "5.00";
   const applicationRate = product?.applicationFeeRate ?? "2.00";
 
-  const [amountInput, setAmountInput] = useState(String(Math.round(minAmount)));
+  const [amount, setAmount] = useState(minAmount);
+  const [amountInput, setAmountInput] = useState(String(minAmount));
+  const [amountError, setAmountError] = useState("");
   const [months, setMonths] = useState(terms.min);
 
   function switchProduct(index: number) {
     const next = products[index];
     const nextMin = numeric(next?.minAmount, 500000);
     setProductIndex(index);
-    setAmountInput(String(Math.round(nextMin)));
+    setAmount(nextMin);
+    setAmountInput(String(nextMin));
+    setAmountError("");
     setMonths(parseTerm(next).min);
   }
 
-  const parsedAmount = amountInput === "" ? 0 : Number(amountInput);
-  const amountIsNumeric = Number.isFinite(parsedAmount);
-  const amountBelowMinimum =
-    amountInput !== "" && amountIsNumeric && parsedAmount < minAmount;
-  const amountAboveMaximum =
-    configuredMax !== null &&
-    amountInput !== "" &&
-    amountIsNumeric &&
-    parsedAmount > configuredMax;
-  const effectiveAmount =
-    amountInput === "" || !amountIsNumeric ? minAmount : parsedAmount;
-
-  function handleAmountChange(value: string) {
-    const normalized = value.replace(/[^0-9]/g, "");
-    setAmountInput(normalized);
-  }
-
-  function normalizeAmountOnBlur() {
-    if (amountInput === "") {
-      setAmountInput(String(Math.round(minAmount)));
-      return;
-    }
-
-    const value = Number(amountInput);
+  function commitAmount(value: number) {
     if (!Number.isFinite(value)) {
-      setAmountInput(String(Math.round(minAmount)));
+      setAmountError(`Enter a valid ${currency} loan amount.`);
+      setAmountInput(String(amount));
       return;
     }
 
-    const clamped = Math.min(
-      configuredMax !== null ? configuredMax : Number.MAX_SAFE_INTEGER,
-      Math.max(minAmount, value),
+    if (value < minAmount) {
+      setAmountError(`Minimum loan amount is ${currency} ${fmt(minAmount)}.`);
+      setAmountInput(String(minAmount));
+      setAmount(minAmount);
+      return;
+    }
+
+    if (configuredMax !== null && value > configuredMax) {
+      setAmountError(
+        `Maximum loan amount is ${currency} ${fmt(configuredMax)}.`,
+      );
+      setAmountInput(String(configuredMax));
+      setAmount(configuredMax);
+      return;
+    }
+
+    const normalized = Math.round(value / amountStep) * amountStep;
+    const bounded = Math.max(
+      minAmount,
+      configuredMax === null ? normalized : Math.min(configuredMax, normalized),
     );
-    setAmountInput(String(Math.round(clamped)));
+    setAmount(bounded);
+    setAmountInput(String(bounded));
+    setAmountError("");
   }
 
   const estimate = useMemo(
-    () =>
-      calculateSchedule(effectiveAmount, months, interestRate, managementRate),
-    [effectiveAmount, months, interestRate, managementRate],
+    () => calculateSchedule(amount, months, interestRate, managementRate),
+    [amount, months, interestRate, managementRate],
   );
 
   const fmt = (value: number) =>
@@ -325,37 +325,48 @@ export default function PublicLoanCalculator({
                   </span>
                   <input
                     id="loan-amount"
-                    type="number"
-                    min={minAmount}
-                    max={configuredMax ?? undefined}
-                    step={amountStep}
-                    value={amountInput}
-                    onChange={(event) => handleAmountChange(event.target.value)}
-                    onBlur={normalizeAmountOnBlur}
                     inputMode="numeric"
-                    pattern="[0-9]*"
-                    placeholder={fmt(minAmount)}
+                    type="text"
+                    minLength={1}
                     aria-describedby="loan-amount-help loan-amount-error"
-                    className="w-full min-w-0 bg-transparent text-2xl font-black tracking-tight text-slate-950 outline-none placeholder:text-slate-300"
+                    value={amountInput}
+                    onChange={(event) => {
+                      const raw = event.target.value.replace(/[^0-9]/g, "");
+                      setAmountInput(raw);
+                      setAmountError("");
+                      if (raw !== "") {
+                        const parsed = Number(raw);
+                        if (Number.isFinite(parsed)) setAmount(parsed);
+                      }
+                    }}
+                    onBlur={() => commitAmount(Number(amountInput))}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        commitAmount(Number(amountInput));
+                        (event.currentTarget as HTMLInputElement).blur();
+                      }
+                    }}
+                    className="w-full min-w-0 bg-transparent text-2xl font-black tracking-tight text-slate-950 outline-none"
+                    placeholder={String(minAmount)}
+                    aria-label={`Loan amount in ${currency}`}
                   />
                 </div>
 
                 <div
                   id="loan-amount-help"
-                  className="mt-2 flex items-center justify-between gap-3 text-[10px] font-semibold text-slate-400"
+                  className="mt-2 flex items-center justify-between text-[10px] font-semibold text-slate-400"
                 >
                   <span>Enter the amount you need</span>
-                  <span>Use whole RWF amounts</span>
+                  <span>Use numbers only</span>
                 </div>
-                {(amountBelowMinimum || amountAboveMaximum) && (
+                {amountError && (
                   <p
                     id="loan-amount-error"
-                    className="mt-2 text-xs font-semibold text-rose-600"
+                    className="mt-2 text-xs font-bold text-red-600"
                     role="alert"
                   >
-                    {amountBelowMinimum
-                      ? `Minimum available amount is ${currency} ${fmt(minAmount)}.`
-                      : `Maximum available amount is ${currency} ${fmt(configuredMax ?? minAmount)}.`}
+                    {amountError}
                   </p>
                 )}
 
@@ -366,12 +377,13 @@ export default function PublicLoanCalculator({
                       min={minAmount}
                       max={configuredMax}
                       step={amountStep}
-                      value={Math.min(effectiveAmount, configuredMax)}
-                      onChange={(event) =>
-                        setAmountInput(
-                          String(Math.round(Number(event.target.value))),
-                        )
-                      }
+                      value={Math.min(amount, configuredMax)}
+                      onChange={(event) => {
+                        const next = Number(event.target.value);
+                        setAmount(next);
+                        setAmountInput(String(next));
+                        setAmountError("");
+                      }}
                       className="mt-4 w-full"
                       style={{ accentColor: primary }}
                       aria-label="Loan amount range"
@@ -478,7 +490,7 @@ export default function PublicLoanCalculator({
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white/60">Principal</span>
                   <strong className="text-white">
-                    {currency} {fmt(effectiveAmount)}
+                    {currency} {fmt(amount)}
                   </strong>
                 </div>
                 <div className="flex items-center justify-between text-sm">
@@ -500,8 +512,7 @@ export default function PublicLoanCalculator({
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white/60">Processing fee</span>
                   <strong className="text-white">
-                    {currency}{" "}
-                    {fmt(percentageCharge(effectiveAmount, applicationRate))}
+                    {currency} {fmt(percentageCharge(amount, applicationRate))}
                   </strong>
                 </div>
                 <div className="flex items-center justify-between text-sm">

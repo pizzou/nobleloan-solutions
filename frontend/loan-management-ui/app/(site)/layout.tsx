@@ -446,7 +446,7 @@ export default function SiteLayout({
             ==================================================== */}
 
         <div
-          className="border-b border-white/10 px-4 py-1.5 text-[11px] text-white/80"
+          className="border-b border-white/10 px-4 py-2 text-xs text-white/80"
           style={{
             backgroundColor: BRAND_NAVY_DARK,
           }}
@@ -485,7 +485,7 @@ export default function SiteLayout({
             ==================================================== */}
 
         <nav className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 shadow-sm backdrop-blur">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-2">
+          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
             {/* BRAND */}
 
             <Link
