@@ -324,6 +324,23 @@ class LoanServiceTest {
                 assertThat(result.getStatus())
                                 .isEqualTo(LoanStatus.APPROVED);
 
+                assertThat(result.getTotalInterestDecimal())
+                                .isEqualByComparingTo("87500.00");
+                assertThat(result.getInterestPaidDecimal())
+                                .isEqualByComparingTo("0.00");
+                assertThat(result.getInterestOutstandingDecimal())
+                                .isEqualByComparingTo("87500.00");
+                assertThat(result.getManagementFeeDecimal())
+                                .isEqualByComparingTo("87500.00");
+                assertThat(result.getManagementFeePaidDecimal())
+                                .isEqualByComparingTo("0.00");
+                assertThat(result.getManagementFeeOutstandingDecimal())
+                                .isEqualByComparingTo("87500.00");
+                assertThat(result.getApplicationFeeDecimal())
+                                .isEqualByComparingTo("10000.00");
+                assertThat(result.getTotalRepayableDecimal())
+                                .isEqualByComparingTo("675000.00");
+
                 verify(paymentRepository, times(6))
                                 .save(any());
         }

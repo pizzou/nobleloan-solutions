@@ -280,10 +280,10 @@ public class PaymentScheduleService {
                                         "Management fee rate cannot be negative");
                 }
 
-                BigDecimal monthlyManagementFee = money(
-                                principal
-                                                .multiply(managementFeeRate)
-                                                .divide(ONE_HUNDRED, CALCULATION_SCALE, RoundingMode.HALF_UP));
+                // Management fee is a monthly contractual charge on the
+                // opening outstanding principal of each installment. It must
+                // decline as principal is repaid; it is never a flat fee on
+                // the original principal for every month.
 
                 // ------------------------------------------------------------
                 // CALCULATE MONTHLY PAYMENT
@@ -322,10 +322,13 @@ public class PaymentScheduleService {
                                         balance.multiply(
                                                         monthlyRate));
 
-                        // Management fee is scheduled separately from interest.
-                        // It is charged against the original contractual principal,
-                        // not against the declining principal balance.
-                        BigDecimal managementFeeAmount = monthlyManagementFee;
+                        // Management fee is scheduled separately from interest
+                        // and is calculated on the opening outstanding principal
+                        // for this installment.
+                        BigDecimal managementFeeAmount = money(
+                                        balance
+                                                        .multiply(managementFeeRate)
+                                                        .divide(ONE_HUNDRED, CALCULATION_SCALE, RoundingMode.HALF_UP));
 
                         BigDecimal principalComponent;
 
@@ -447,22 +450,49 @@ public class PaymentScheduleService {
                 // ------------------------------------------------------------
                 // SYNCHRONIZE CONTRACTUAL FEE TOTALS
                 // ------------------------------------------------------------
-                BigDecimal totalScheduledManagementFee = money(
-                                monthlyManagementFee.multiply(
-                                                BigDecimal.valueOf(months)));
+                BigDecimal totalScheduledManagementFee = ZERO;
+                BigDecimal scheduledBalance = principal;
+                for (int i = 1; i <= months; i++) {
+                        BigDecimal fee = money(
+                                        scheduledBalance
+                                                        .multiply(managementFeeRate)
+                                                        .divide(ONE_HUNDRED, CALCULATION_SCALE, RoundingMode.HALF_UP));
+                        totalScheduledManagementFee = money(
+                                        totalScheduledManagementFee.add(fee));
+
+                        BigDecimal principalComponent = (i == months)
+                                        ? scheduledBalance
+                                        : money(monthlyPayment.subtract(
+                                                        money(scheduledBalance.multiply(monthlyRate))));
+                        principalComponent = principalComponent.max(ZERO).min(scheduledBalance);
+                        scheduledBalance = money(scheduledBalance.subtract(principalComponent));
+                }
 
                 loan.setManagementFee(totalScheduledManagementFee);
                 if (loan.getManagementFeePaidDecimal() == null) {
                         loan.setManagementFeePaid(ZERO);
                 }
+                loan.setManagementFeeOutstanding(
+                                totalScheduledManagementFee.subtract(
+                                                money(loan.getManagementFeePaidDecimal()))
+                                                .max(ZERO));
 
                 // Contractual total repayable = principal + contractual interest
                 // + recurring management fees.
-                BigDecimal totalScheduledInterest = existingSchedules.isEmpty()
-                                ? calculateScheduledInterestTotal(principal, monthlyRate, months)
-                                : ZERO;
+                // Recalculate the contractual interest total from the final
+                // schedule every time. Existing unpaid schedules may have been
+                // deleted/rebuilt above, so their prior existence must never
+                // cause the aggregate interest total to become zero.
+                BigDecimal totalScheduledInterest = calculateScheduledInterestTotal(
+                                principal,
+                                monthlyRate,
+                                months);
 
                 loan.setTotalInterest(totalScheduledInterest);
+                loan.setInterestOutstanding(
+                                totalScheduledInterest.subtract(
+                                                money(loan.getInterestPaidDecimal()))
+                                                .max(ZERO));
                 loan.setTotalRepayable(
                                 money(
                                                 principal

@@ -2136,8 +2136,21 @@ public class PaymentService {
                                 .filter(java.util.Objects::nonNull)
                                 .reduce(ZERO, BigDecimal::add);
 
-                loan.setTotalInterest(roundMoney(scheduledInterestTotal));
-                loan.setManagementFee(roundMoney(scheduledManagementFeeTotal));
+                BigDecimal refreshedTotalInterest = roundMoney(scheduledInterestTotal);
+                BigDecimal refreshedManagementFee = roundMoney(scheduledManagementFeeTotal);
+
+                loan.setTotalInterest(refreshedTotalInterest);
+                loan.setInterestOutstanding(
+                                roundMoney(
+                                                refreshedTotalInterest
+                                                                .subtract(safe(loan.getInterestPaidDecimal()))
+                                                                .max(ZERO)));
+                loan.setManagementFee(refreshedManagementFee);
+                loan.setManagementFeeOutstanding(
+                                roundMoney(
+                                                refreshedManagementFee
+                                                                .subtract(safe(loan.getManagementFeePaidDecimal()))
+                                                                .max(ZERO)));
                 loan.setTotalRepayable(
                                 roundMoney(
                                                 safe(loan.getAmountDecimal())

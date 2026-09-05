@@ -77,6 +77,30 @@ class FinancialPolicyTest {
         }
 
         @Test
+        void threeMonthLoanCalculatesInterestAndManagementFeeOnDecliningOutstandingPrincipal() {
+                BigDecimal balance = new BigDecimal("10000000.00");
+                BigDecimal totalInterest = BigDecimal.ZERO;
+                BigDecimal totalManagementFee = BigDecimal.ZERO;
+
+                for (int installment = 1; installment <= 3; installment++) {
+                        FinancialPolicy.ScheduleLine line =
+                                        FinancialPolicy.contractualScheduleLine(
+                                                        balance,
+                                                        3 - installment + 1,
+                                                        FinancialPolicy.MONTHLY_INTEREST_RATE,
+                                                        FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE);
+
+                        totalInterest = totalInterest.add(line.interest());
+                        totalManagementFee = totalManagementFee.add(line.managementFee());
+                        balance = line.remainingBalance();
+                }
+
+                assertEquals(new BigDecimal("1000000.00"), totalInterest);
+                assertEquals(new BigDecimal("1000000.00"), totalManagementFee);
+                assertEquals(new BigDecimal("0.00"), balance);
+        }
+
+        @Test
         void contractualMonthlyInterestDoesNotDependOnCalendarDayCount() {
                 BigDecimal january = FinancialPolicy.contractualMonthlyCharge(
                                 new BigDecimal("5000000.00"),

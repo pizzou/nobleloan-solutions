@@ -578,7 +578,11 @@ public class LoanRestructuringService {
                 loan.setManagementFeeRate(managementRate);
                 loan.setInterestRateType("MONTHLY");
                 loan.setTotalInterest(newTotalInterest);
+                loan.setInterestOutstanding(
+                                money(newTotalInterest.subtract(historicalInterestPaid).max(ZERO)));
                 loan.setManagementFee(newTotalManagementFee);
+                loan.setManagementFeeOutstanding(
+                                money(newTotalManagementFee.subtract(historicalManagementPaid).max(ZERO)));
                 loan.setTotalRepayable(
                                 money(
                                                 loan.getAmountDecimal()
