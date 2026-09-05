@@ -7,7 +7,6 @@ import Sidebar from "@/components/Sidebar";
 import { AuthContext, useAuthState } from "@/hooks/useAuth";
 import { ToastContainer } from "@/components/ui/ToastContainer";
 import ForcedPasswordChange from "@/components/ForcedPasswordChange";
-import SyncProvider from "@/lib/SyncProvider";
 
 /* ============================================================
    NOBLE LOAN SOLUTIONS BRAND
@@ -24,6 +23,22 @@ const YELLOW_DARK = "#C99A00";
 /* ============================================================
    AUTH HEADER
    ============================================================ */
+
+const authHeader = (): Record<string, string> => {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  const token = localStorage.getItem("token");
+
+  if (!token) {
+    return {};
+  }
+
+  return {
+    Authorization: `Bearer ${token}`,
+  };
+};
 
 /* ============================================================
    DASHBOARD LAYOUT
@@ -151,8 +166,6 @@ export default function DashboardLayout({
 
   return (
     <AuthContext.Provider value={auth}>
-      <SyncProvider />
-
       <div className="min-h-screen bg-[#F4F7FB] text-gray-900">
         <div className="flex min-h-screen">
           {/* ==================================================
