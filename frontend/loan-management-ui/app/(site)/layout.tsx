@@ -40,6 +40,10 @@ interface TenantConfig {
 
   mapUrl?: string;
 
+  monthlyInterestRate?: string | number;
+  monthlyManagementFeeRate?: string | number;
+  applicationFeeRate?: string | number;
+
   services?: {
     title: string;
     description: string;
@@ -94,7 +98,7 @@ export const useTenant = () => useContext(TenantCtx);
    API
    ============================================================ */
 
-const API_BASE = "/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 /* ============================================================
    BRAND COLORS
@@ -308,6 +312,8 @@ export default function SiteLayout({
 
   const [notFound, setNotFound] = useState(false);
 
+  const [serviceError, setServiceError] = useState(false);
+
   const [menuOpen, setMenuOpen] = useState(false);
 
   /* ==========================================================
@@ -319,22 +325,44 @@ export default function SiteLayout({
 
     setLoading(true);
     setNotFound(false);
+    setServiceError(false);
 
-    fetch(`${API_BASE}/public/tenant/${slug}`)
+    fetch(`${API_BASE}/public/tenant/${encodeURIComponent(slug)}`, {
+      method: "GET",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    })
       .then(async (response) => {
+        if (response.status === 404) {
+          if (!cancelled) {
+            setNotFound(true);
+          }
+
+          return null;
+        }
+
         if (!response.ok) {
-          throw new Error(`Tenant request failed: ${response.status}`);
+          throw new Error(`Tenant service unavailable: ${response.status}`);
         }
 
         return response.json();
       })
       .then((configRes) => {
-        if (cancelled) return;
+        if (cancelled || configRes == null) {
+          return;
+        }
 
         const data = configRes?.data;
 
+        /*
+         * A malformed successful response is treated as a service
+         * configuration error, never as a missing tenant.
+         */
         if (!data || configRes?.success === false) {
-          setNotFound(true);
+          setServiceError(true);
           return;
         }
 
@@ -346,7 +374,7 @@ export default function SiteLayout({
       })
       .catch(() => {
         if (!cancelled) {
-          setNotFound(true);
+          setServiceError(true);
         }
       })
       .finally(() => {
@@ -384,7 +412,7 @@ export default function SiteLayout({
      NOT FOUND
      ========================================================== */
 
-  if (notFound || !tenant) {
+  if (notFound) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
         <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
@@ -393,13 +421,45 @@ export default function SiteLayout({
           </div>
 
           <h1 className="mb-2 text-xl font-bold text-gray-900">
-            Site temporarily unavailable
+            Site not found
           </h1>
 
           <p className="text-sm leading-6 text-gray-500">
-            We couldn't reach our services. Please try again shortly, or contact
-            us directly if this persists.
+            The requested organization site could not be found. Please verify
+            the address or contact Noble Loan Solutions.
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (serviceError || !tenant) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
+        <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+          <div className="mb-6 flex justify-center">
+            <NobleLogo showText={false} />
+          </div>
+
+          <h1 className="mb-2 text-xl font-bold text-gray-900">
+            Service temporarily unavailable
+          </h1>
+
+          <p className="mb-6 text-sm leading-6 text-gray-500">
+            We are temporarily unable to load the organization configuration.
+            Please try again shortly.
+          </p>
+
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-lg px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+            style={{
+              backgroundColor: BRAND_NAVY,
+            }}
+          >
+            Try Again
+          </button>
         </div>
       </div>
     );
