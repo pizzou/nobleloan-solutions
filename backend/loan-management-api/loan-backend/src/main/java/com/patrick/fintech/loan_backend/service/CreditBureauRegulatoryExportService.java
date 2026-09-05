@@ -12,6 +12,7 @@ import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.Font;
@@ -22,7 +23,6 @@ import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.springframework.stereotype.Service;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
@@ -157,23 +157,32 @@ public class CreditBureauRegulatoryExportService {
         LocalDate reportDate = to != null ? to : LocalDate.now();
         List<Loan> loans = loadLoans(organizationId, branchId, borrowerId, from, to, reportDate);
 
-        try (XSSFWorkbook workbook = loadCrbTemplate();
+        try (XSSFWorkbook workbook = new XSSFWorkbook();
                 ByteArrayOutputStream output = new ByteArrayOutputStream(128 * 1024)) {
 
-            // The supplied CRB workbook is the regulatory submission template.
-            // Never rebuild its headers/styles in Java: the template controls
-            // mandatory-field colours, column order, wording and workbook layout.
-            clearTemplateDataRows(workbook);
-
-            Sheet consumer = workbook.getSheet("Consumer");
-            Sheet corporate = workbook.getSheet("Corporate");
-            Sheet shareholders = workbook.getSheet("Shareholders");
-            Sheet directors = workbook.getSheet("Directors");
-            Sheet guarantors = workbook.getSheet("Guarantors");
-            Sheet collateral = workbook.getSheet("Collateral");
-            Sheet bounced = workbook.getSheet("Bounced Cheques");
-
             Styles styles = new Styles(workbook);
+
+            Sheet consumer = workbook.createSheet("Consumer");
+            Sheet corporate = workbook.createSheet("Corporate");
+            Sheet shareholders = workbook.createSheet("Shareholders");
+            Sheet directors = workbook.createSheet("Directors");
+            Sheet guarantors = workbook.createSheet("Guarantors");
+            Sheet collateral = workbook.createSheet("Collateral");
+            Sheet bounced = workbook.createSheet("Bounced Cheques");
+
+            createHeader(consumer, CONSUMER_HEADERS, styles);
+            createHeader(corporate, CORPORATE_HEADERS, styles);
+            createHeader(shareholders, SHAREHOLDER_HEADERS, styles);
+            createHeader(directors, DIRECTOR_HEADERS, styles);
+            createHeader(guarantors, GUARANTOR_HEADERS, styles);
+            createHeader(collateral, COLLATERAL_HEADERS, styles);
+            createHeader(bounced, BOUNCED_CHEQUE_HEADERS, styles);
+
+            // The supplied workbook is a seven-sheet submission structure.
+            // Noble Loan currently has individual Borrower records and does
+            // not have separate corporate/shareholder/director/bounced-cheque
+            // entities. Those sheets therefore remain structurally present but
+            // contain no fabricated rows.
             Map<Long, List<Payment>> paymentCache = new HashMap<>();
             Map<Long, List<Guarantor>> guarantorCache = new HashMap<>();
             Map<Long, List<Collateral>> collateralCache = new HashMap<>();
@@ -191,92 +200,61 @@ public class CreditBureauRegulatoryExportService {
                 List<Payment> payments = paymentCache.computeIfAbsent(
                         loan.getId(), id -> safePayments(id, loan));
 
-                Row consumerDataRow = getOrCreateStyledRow(consumer, consumerRow++, 1);
-                writeConsumerRow(consumerDataRow, loan, borrower, payments, reportDate, styles);
+                writeConsumerRow(
+                        consumer.createRow(consumerRow++),
+                        loan,
+                        borrower,
+                        payments,
+                        reportDate,
+                        styles);
 
                 List<Guarantor> guarantorsForLoan = guarantorCache.computeIfAbsent(
                         loan.getId(), id -> safeGuarantors(id));
                 for (Guarantor guarantor : guarantorsForLoan) {
-                    if (guarantor == null) continue;
+                    if (guarantor == null) {
+                        continue;
+                    }
                     writeGuarantorRow(
-                            getOrCreateStyledRow(guarantors, guarantorRow++, 1),
-                            loan, guarantor, styles);
+                            guarantors.createRow(guarantorRow++),
+                            loan,
+                            guarantor,
+                            styles);
                 }
 
                 List<Collateral> collateralsForLoan = collateralCache.computeIfAbsent(
                         loan.getId(), id -> safeCollaterals(id));
                 if (collateralsForLoan.isEmpty() && hasLoanCollateral(loan)) {
                     writeLoanCollateralFallback(
-                            getOrCreateStyledRow(collateral, collateralRow++, 1),
-                            loan, styles);
+                            collateral.createRow(collateralRow++),
+                            loan,
+                            styles);
                 } else {
                     for (Collateral item : collateralsForLoan) {
-                        if (item == null) continue;
+                        if (item == null) {
+                            continue;
+                        }
                         writeCollateralRow(
-                                getOrCreateStyledRow(collateral, collateralRow++, 1),
-                                loan, item, styles);
+                                collateral.createRow(collateralRow++),
+                                loan,
+                                item,
+                                styles);
                     }
                 }
             }
 
-            // Keep the exact supplied template layout. The exporter does not
-            // resize columns, rebuild headers or add non-template worksheets.
-            workbook.getProperties().getCoreProperties().setCreator("Noble Loan Solutions");
-            workbook.getProperties().getCoreProperties().setTitle("Credit Bureau Regulatory Report");
-            workbook.getProperties().getCoreProperties().setDescription(
-                    "Credit Bureau regulatory submission generated from Noble Loan operational data");
+            finishSheet(consumer, CONSUMER_HEADERS.length);
+            finishSheet(corporate, CORPORATE_HEADERS.length);
+            finishSheet(shareholders, SHAREHOLDER_HEADERS.length);
+            finishSheet(directors, DIRECTOR_HEADERS.length);
+            finishSheet(guarantors, GUARANTOR_HEADERS.length);
+            finishSheet(collateral, COLLATERAL_HEADERS.length);
+            finishSheet(bounced, BOUNCED_CHEQUE_HEADERS.length);
+
             workbook.write(output);
             return output.toByteArray();
         } catch (IOException e) {
             throw new IllegalStateException("Unable to generate CRB regulatory Excel workbook", e);
         }
-    }
-
-    private XSSFWorkbook loadCrbTemplate() throws IOException {
-        ClassPathResource resource = new ClassPathResource("creditbureau_report_template.xlsx");
-        if (!resource.exists()) {
-            throw new IllegalStateException(
-                    "Credit Bureau reporting template is missing: creditbureau_report_template.xlsx");
-        }
-        try (var input = resource.getInputStream()) {
-            return new XSSFWorkbook(input);
-        }
-    }
-
-    private void clearTemplateDataRows(XSSFWorkbook workbook) {
-        for (String sheetName : List.of(
-                "Consumer", "Corporate", "Shareholders", "Directors",
-                "Guarantors", "Collateral", "Bounced Cheques")) {
-            Sheet sheet = workbook.getSheet(sheetName);
-            if (sheet == null) continue;
-            for (int r = 1; r <= sheet.getLastRowNum(); r++) {
-                Row row = sheet.getRow(r);
-                if (row == null) continue;
-                for (int c = 0; c < sheet.getRow(0).getLastCellNum(); c++) {
-                    Cell cell = row.getCell(c, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
-                    cell.setBlank();
-                }
-            }
-        }
-    }
-
-    private Row getOrCreateStyledRow(Sheet sheet, int rowIndex, int styleSourceRowIndex) {
-        Row row = sheet.getRow(rowIndex);
-        if (row == null) row = sheet.createRow(rowIndex);
-
-        Row source = sheet.getRow(styleSourceRowIndex);
-        if (source != null) {
-            short lastCell = source.getLastCellNum();
-            if (lastCell > 0) {
-                for (int c = 0; c < lastCell; c++) {
-                    Cell sourceCell = source.getCell(c);
-                    if (sourceCell == null) continue;
-                    Cell targetCell = row.getCell(c, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
-                    targetCell.setCellStyle(sourceCell.getCellStyle());
-                }
-            }
-        }
-        return row;
     }
 
     private List<Loan> loadLoans(
@@ -486,7 +464,7 @@ public class CreditBureauRegulatoryExportService {
             return !contains(optional, column);
         }
         if ("Corporate".equals(sheet)) {
-            int[] optional = { 3, 6, 8, 9, 12, 13, 21, 22, 23, 24, 25, 26, 27, 42 };
+            int[] optional = { 3, 6, 8, 9, 12, 13, 19, 21, 22, 23, 24, 25, 26, 27 };
             return !contains(optional, column);
         }
         if ("Shareholders".equals(sheet)) {
@@ -505,15 +483,37 @@ public class CreditBureauRegulatoryExportService {
     }
 
     private void finishSheet(Sheet sheet, int columnCount) {
-        sheet.setDefaultRowHeightInPoints(14.5f);
+        double[] widths = referenceWidths(sheet.getSheetName(), columnCount);
+        sheet.setDefaultRowHeightInPoints(15f);
         for (int i = 0; i < columnCount; i++) {
-            String header = sheet.getRow(0).getCell(i).getStringCellValue();
-            int width = Math.max(10, Math.min(45, header.length() + 2));
-            sheet.setColumnWidth(i, width * 256);
+            double width = i < widths.length ? widths[i] : 12.0d;
+            sheet.setColumnWidth(i, (int) Math.round(Math.min(255d, Math.max(5d, width)) * 256d));
         }
         sheet.createFreezePane(0, 1);
         sheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(
                 0, Math.max(0, sheet.getLastRowNum()), 0, columnCount - 1));
+        sheet.setDisplayGridlines(false);
+        sheet.getRow(0).setHeightInPoints(48f);
+    }
+
+    private double[] referenceWidths(String sheetName, int columnCount) {
+        double[] widths;
+        if ("Consumer".equals(sheetName)) {
+            widths = new double[] {9.08,8.26,18.35,13,13,18.99,10.53,9.62,6.53,16.08,20.17,22.17,12.17,15.44,6.81,11.26,11.9,25.62,28.72,19.99,13,24.81,25.44,22.17,20.9,20.35,18.17,7.53,12.35,13.72,14.26,14.81,15.17,8.35,14.08,21.35,13,13.62,15.81,9.81,6.99,16.08,11.17,12.99,14.35,17.72,11.72,13.72,18.17,13.17,19.35,12.9,19.17,12.08,13.72,15.26,26.26,14.08,13.9,33.08,31.35,20.72,15.44,19.81,13.62,10.81,16.53,11.72,16.72,6.35,8.35,14.9,12.53,17.08};
+        } else if ("Corporate".equals(sheetName)) {
+            widths = new double[] {14.62,12.35,6.53,6.72,15.17,23.81,18.81,20.81,25.62,28.72,19.99,13,24.81,25.44,22.17,20.9,20.35,18.17,7.35,12.35,18.08,10.26,13,13,13,13,9.35,13,14.35,17.72,11.72,12.99,11.44,13.17,19.35,12.9,11.53,12.08,13.72,15.26,26.26,14.08,13.9,22.17,31.35,20.72,15.08,19.81,13.62,10.72,16.53,11.72,16.72,6.35,14.9,12.53,17.08};
+        } else if ("Shareholders".equals(sheetName)) {
+            widths = new double[] {14.35,15.44,15.72,18.44,23.53,31.44,18.35,13,33.17,10.53,9.62,35.81,11.9,25.62,28.72,5.17,7.35};
+        } else if ("Directors".equals(sheetName)) {
+            widths = new double[] {15.72,10.17,13,19.99,13,13,18.81,11.99,10.53,12.26,13.17,28.53,32.53,5.81,8.17,15.17};
+        } else if ("Guarantors".equals(sheetName)) {
+            widths = new double[] {14.35,13.81,23.53,31.44,18.35,13,33.17,10.53,9.62,11.26,36.44,25.62,28.72,5.17,7.35,14.26,14.81,15.17};
+        } else if ("Collateral".equals(sheetName)) {
+            widths = new double[] {15.72,14.53,15.26,28.44,20.72};
+        } else {
+            widths = new double[] {14.35,8.81,22.99,30.9,18.35,13,32.62,16.99,9.62,35.81,11.9,25.62,28.72,5.17,7.35,14.17,11.44,12.9,8.26,7.81,21.9,23.44};
+        }
+        return widths;
     }
 
     private void writeStringCells(Row row, String[] values, CellStyle style) {
@@ -522,9 +522,7 @@ public class CreditBureauRegulatoryExportService {
             if (values[i] != null) {
                 cell.setCellValue(values[i]);
             }
-            if (cell.getCellStyle().getIndex() == 0 && style != null) {
-                cell.setCellStyle(style);
-            }
+            cell.setCellStyle(style);
         }
     }
 
@@ -537,12 +535,7 @@ public class CreditBureauRegulatoryExportService {
             cell = row.createCell(column);
         }
         cell.setCellValue(value.doubleValue());
-        // Preserve the template's font/borders/alignment and only apply the
-        // numeric format required by the CRB field.
-        CellStyle numericStyle = row.getSheet().getWorkbook().createCellStyle();
-        numericStyle.cloneStyleFrom(cell.getCellStyle());
-        numericStyle.setDataFormat(style.getDataFormat());
-        cell.setCellStyle(numericStyle);
+        cell.setCellStyle(style);
     }
 
     private String date(LocalDate value) {
@@ -747,28 +740,38 @@ public class CreditBureauRegulatoryExportService {
             Font bodyFont = workbook.createFont();
             bodyFont.setFontName("Calibri");
             bodyFont.setFontHeightInPoints((short) 11);
+            bodyFont.setColor(IndexedColors.BLACK.getIndex());
 
-            mandatory = workbook.createCellStyle();
-            mandatory.setFont(mandatoryFont);
-            mandatory.setVerticalAlignment(VerticalAlignment.TOP);
-            mandatory.setWrapText(false);
-
-            optional = workbook.createCellStyle();
-            optional.setFont(optionalFont);
-            optional.setVerticalAlignment(VerticalAlignment.TOP);
-            optional.setWrapText(false);
+            mandatory = headerStyle(workbook, mandatoryFont, false);
+            optional = headerStyle(workbook, optionalFont, false);
 
             body = workbook.createCellStyle();
             body.setFont(bodyFont);
-            body.setVerticalAlignment(VerticalAlignment.TOP);
-            body.setAlignment(HorizontalAlignment.LEFT);
-            body.setWrapText(false);
+            body.setVerticalAlignment(VerticalAlignment.BOTTOM);
+            body.setAlignment(HorizontalAlignment.GENERAL);
+            body.setBorderTop(BorderStyle.THIN);
+            body.setBorderBottom(BorderStyle.THIN);
+            body.setBorderLeft(BorderStyle.THIN);
+            body.setBorderRight(BorderStyle.THIN);
 
             number = workbook.createCellStyle();
-            number.setFont(bodyFont);
-            number.setVerticalAlignment(VerticalAlignment.TOP);
+            number.cloneStyleFrom(body);
             number.setAlignment(HorizontalAlignment.RIGHT);
             number.setDataFormat(workbook.createDataFormat().getFormat("0.00"));
         }
+
+        private static CellStyle headerStyle(Workbook workbook, Font font, boolean wrap) {
+            CellStyle style = workbook.createCellStyle();
+            style.setFont(font);
+            style.setVerticalAlignment(VerticalAlignment.TOP);
+            style.setWrapText(wrap);
+            style.setBorderTop(BorderStyle.THIN);
+            style.setBorderBottom(BorderStyle.THIN);
+            style.setBorderLeft(BorderStyle.THIN);
+            style.setBorderRight(BorderStyle.THIN);
+            style.setDataFormat(workbook.createDataFormat().getFormat("@"));
+            return style;
+        }
     }
+
 }
