@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { accountingApi, bankAccountApi, branchApi } from "@/services/api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  accountingApi,
+  bankAccountApi,
+  branchApi,
+  loanApi,
+} from "@/services/api";
 import { PageSpinner } from "@/components/ui/Skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/useToast";
@@ -161,6 +166,13 @@ export default function AccountingPage() {
   const [pnl, setPnl] = useState<ProfitAndLoss | null>(null);
   const [cashFlow, setCashFlow] = useState<CashFlow | null>(null);
   const [branchSummary, setBranchSummary] = useState<BranchSummaryRow[]>([]);
+  const [controlTotals, setControlTotals] = useState<{
+    totalDisbursed?: number | string;
+    totalCollected?: number | string;
+    outstandingBalance?: number | string;
+    totalReceivables?: number | string;
+    applicationFeesCollected?: number | string;
+  } | null>(null);
   const [bankAccounts, setBankAccounts] = useState<BankAccountRow[]>([]);
   const [branches, setBranches] = useState<BranchRow[]>([]);
 
@@ -197,7 +209,7 @@ export default function AccountingPage() {
      LOAD ACCOUNTING DATA
   ======================================================= */
 
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     setLoading(true);
     setError("");
 
@@ -212,6 +224,7 @@ export default function AccountingPage() {
         branchSummaryResponse,
         bankAccountsResponse,
         branchesResponse,
+        dashboardResponse,
       ] = await Promise.all([
         accountingApi.chartOfAccounts().catch(() => []),
         accountingApi.journal().catch(() => []),
@@ -222,6 +235,7 @@ export default function AccountingPage() {
         accountingApi.branchSummary().catch(() => []),
         bankAccountApi.list().catch(() => []),
         branchApi.list().catch(() => []),
+        loanApi.dashboard().catch(() => null),
       ]);
 
       setAccounts(accountsResponse as Account[]);
@@ -239,6 +253,7 @@ export default function AccountingPage() {
       setBankAccounts(bankAccountsResponse as BankAccountRow[]);
 
       setBranches(branchesResponse as BranchRow[]);
+      setControlTotals(dashboardResponse as typeof controlTotals);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Could not load accounting data.",
@@ -246,11 +261,11 @@ export default function AccountingPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void loadAll();
-  }, []);
+  }, [loadAll]);
 
   /* =======================================================
      RECONCILE HISTORICAL LOAN ACCOUNTING
@@ -619,6 +634,40 @@ export default function AccountingPage() {
           </button>
         </div>
       )}
+
+      {/* ===================================================
+          OPERATIONAL CONTROL TOTALS
+      =================================================== */}
+      {controlTotals ? (
+        <section className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {[
+            ["Gross disbursed", controlTotals.totalDisbursed],
+            ["Cash collected", controlTotals.totalCollected],
+            ["Outstanding principal", controlTotals.outstandingBalance],
+            ["Total receivables", controlTotals.totalReceivables],
+            [
+              "Application fees collected",
+              controlTotals.applicationFeesCollected,
+            ],
+          ].map(([label, value]) => (
+            <div
+              key={String(label)}
+              className="rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm"
+            >
+              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">
+                {label as string}
+              </div>
+              <div className="mt-2 text-xl font-black text-gray-950">
+                {fmt(value as number)}
+              </div>
+              <div className="mt-1 text-[11px] text-gray-500">
+                Canonical operational control total used across portfolio and
+                reporting.
+              </div>
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       {/* ===================================================
           TABS

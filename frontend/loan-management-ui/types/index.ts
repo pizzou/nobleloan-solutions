@@ -721,6 +721,8 @@ export interface DashboardStats {
 
   outstandingBalance: number;
 
+  totalReceivables?: number;
+
   collectedThisMonth: number;
 
   totalBorrowers: number;

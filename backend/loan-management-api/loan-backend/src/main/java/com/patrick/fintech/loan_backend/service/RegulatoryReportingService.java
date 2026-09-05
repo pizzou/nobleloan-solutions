@@ -55,7 +55,12 @@ public class RegulatoryReportingService {
         private static final BigDecimal ZERO = BigDecimal.ZERO;
 
         private static BigDecimal moneyDecimal(BigDecimal value) {
-                return value == null ? ZERO : value;
+                return value == null ? ZERO : value.setScale(2, java.math.RoundingMode.HALF_UP);
+        }
+
+        private BigDecimal add(BigDecimal first, BigDecimal second) {
+                return moneyDecimal((first == null ? ZERO : first)
+                                .add(second == null ? ZERO : second));
         }
 
         // ============================================================
@@ -555,10 +560,10 @@ public class RegulatoryReportingService {
                         // OUTSTANDING PRINCIPAL
                         // ----------------------------------------------------
 
-                        BigDecimal outstanding = numberDecimal(
+                        BigDecimal outstanding = number(
                                         loan.getOutstandingBalance());
 
-                        if (outstanding.compareTo(ZERO) < 0) {
+                        if (outstanding.signum() < 0) {
                                 outstanding = ZERO;
                         }
 
@@ -567,33 +572,25 @@ public class RegulatoryReportingService {
                          * performing/outstanding loan portfolio. They are
                          * reported separately through the written-off metrics.
                          */
-                        boolean includedInGrossPortfolio = status != LoanStatus.WRITTEN_OFF
-                                        && status != LoanStatus.PAID
-                                        && status != LoanStatus.CLOSED
-                                        && status != LoanStatus.PENDING
-                                        && status != LoanStatus.UNDER_REVIEW
-                                        && status != LoanStatus.REJECTED
-                                        && status != LoanStatus.CANCELLED;
+                        boolean includedInGrossPortfolio = isCurrentPortfolioLoan(loan);
 
                         if (includedInGrossPortfolio) {
-                                outstandingPrincipal = moneyDecimal(outstandingPrincipal.add(outstanding));
+                                outstandingPrincipal = add(outstandingPrincipal, outstanding);
 
                                 // The loan balance is principal only. Interest,
                                 // management fee, penalty and extension fee are
                                 // separate receivables.
-                                outstandingInterest = moneyDecimal(
-                                                outstandingInterest.add(
-                                                                numberDecimal(loan.getInterestOutstandingDecimal())));
-                                outstandingFees = moneyDecimal(
-                                                outstandingFees
-                                                                .add(numberDecimal(loan.getManagementFeeOutstandingDecimal()))
-                                                                .add(numberDecimal(loan.getPenaltiesAssessedDecimal())
-                                                                                .subtract(numberDecimal(loan.getPenaltiesPaidDecimal()))
-                                                                                .max(ZERO))
-                                                                .add(numberDecimal(loan.getExtensionFeeOutstandingDecimal()))
-                                                                .add(numberDecimal(loan.getApplicationFee())
-                                                                                .subtract(numberDecimal(loan.getApplicationFeePaid()))
-                                                                                .max(ZERO)));
+                                outstandingInterest = add(outstandingInterest, number(loan.getInterestOutstandingDecimal()));
+                                BigDecimal penaltyOutstanding = number(loan.getPenaltiesAssessedDecimal())
+                                                .subtract(number(loan.getPenaltiesPaidDecimal()))
+                                                .max(ZERO);
+                                BigDecimal applicationFeeOutstanding = number(loan.getApplicationFee())
+                                                .subtract(number(loan.getApplicationFeePaid()))
+                                                .max(ZERO);
+                                outstandingFees = add(outstandingFees, number(loan.getManagementFeeOutstandingDecimal()));
+                                outstandingFees = add(outstandingFees, penaltyOutstanding);
+                                outstandingFees = add(outstandingFees, number(loan.getExtensionFeeOutstandingDecimal()));
+                                outstandingFees = add(outstandingFees, applicationFeeOutstanding);
                         }
 
                         // ----------------------------------------------------
@@ -606,35 +603,35 @@ public class RegulatoryReportingService {
                                                         0,
                                                         loan.getDaysOverdue());
 
-                        if (dpd > 0 && outstanding.compareTo(ZERO) > 0) {
+                        if (dpd > 0 && outstanding.signum() > 0) {
 
                                 overdueLoans++;
 
-                                parAmount = moneyDecimal(parAmount.add(outstanding));
+                                parAmount = add(parAmount, outstanding);
 
                                 if (dpd <= 30) {
 
-                                        par1To30 = moneyDecimal(par1To30.add(outstanding));
+                                        par1To30 = add(par1To30, outstanding);
 
                                 } else if (dpd <= 60) {
 
-                                        par31To60 = moneyDecimal(par31To60.add(outstanding));
+                                        par31To60 = add(par31To60, outstanding);
 
                                 } else if (dpd <= 90) {
 
-                                        par61To90 = moneyDecimal(par61To90.add(outstanding));
+                                        par61To90 = add(par61To90, outstanding);
 
                                 } else if (dpd <= 180) {
 
-                                        par91To180 = moneyDecimal(par91To180.add(outstanding));
+                                        par91To180 = add(par91To180, outstanding);
 
                                 } else if (dpd <= 365) {
 
-                                        par181To365 = moneyDecimal(par181To365.add(outstanding));
+                                        par181To365 = add(par181To365, outstanding);
 
                                 } else {
 
-                                        parOver365 = moneyDecimal(parOver365.add(outstanding));
+                                        parOver365 = add(parOver365, outstanding);
                                 }
                         }
 
@@ -666,7 +663,7 @@ public class RegulatoryReportingService {
 
                                 nplLoanCount++;
 
-                                nplAmount = moneyDecimal(nplAmount.add(outstanding));
+                                nplAmount = add(nplAmount, outstanding);
                         }
 
                         // ----------------------------------------------------
@@ -675,7 +672,7 @@ public class RegulatoryReportingService {
 
                         if (status == LoanStatus.DEFAULTED) {
 
-                                defaultedAmount = moneyDecimal(defaultedAmount.add(outstanding));
+                                defaultedAmount = add(defaultedAmount, outstanding);
                         }
 
                         // ----------------------------------------------------
@@ -684,7 +681,7 @@ public class RegulatoryReportingService {
 
                         if (status == LoanStatus.WRITTEN_OFF) {
 
-                                writtenOffAmount = moneyDecimal(writtenOffAmount.add(outstanding));
+                                writtenOffAmount = add(writtenOffAmount, outstanding);
                         }
 
                         // ----------------------------------------------------
@@ -819,28 +816,29 @@ public class RegulatoryReportingService {
                                 continue;
                         }
 
-                        BigDecimal requested = numberDecimal(
+                        BigDecimal requested = number(
                                         loan.getAmount());
 
-                        BigDecimal disbursed = numberDecimal(
+                        BigDecimal disbursed = number(
                                         loan.getDisbursedAmount());
 
-                        if (requested.compareTo(ZERO) > 0) {
+                        if (requested.signum() > 0) {
 
-                                totalApprovedAmount = moneyDecimal(totalApprovedAmount.add(requested));
+                                totalApprovedAmount = add(totalApprovedAmount, requested);
                         }
 
-                        if (disbursed.compareTo(ZERO) > 0) {
+                        if (disbursed.signum() > 0) {
 
-                                totalPrincipalDisbursed = moneyDecimal(totalPrincipalDisbursed.add(disbursed));
+                                totalPrincipalDisbursed = add(totalPrincipalDisbursed, disbursed);
 
                                 // Processing fee is collected once, at disbursement. It is
                                 // therefore part of period fee collections, not principal.
-                                BigDecimal applicationFeeCollected = numberDecimal(loan.getApplicationFeePaid()).compareTo(ZERO) > 0
-                                                ? numberDecimal(loan.getApplicationFeePaid())
-                                                : numberDecimal(loan.getApplicationFee());
-                                feesCollected = moneyDecimal(feesCollected.add(applicationFeeCollected));
-                                applicationFeesCollected = moneyDecimal(applicationFeesCollected.add(applicationFeeCollected));
+                                // Application fee is cash collected only when the
+                                // disbursement transaction has actually posted it.
+                                // Never infer collection merely from an assessed fee.
+                                BigDecimal applicationFeeCollected = number(loan.getApplicationFeePaid());
+                                feesCollected = add(feesCollected, applicationFeeCollected);
+                                applicationFeesCollected = add(applicationFeesCollected, applicationFeeCollected);
 
                                 actualDisbursementCount++;
 
@@ -849,7 +847,7 @@ public class RegulatoryReportingService {
                                         largestLoanAmount = disbursed;
                                 }
 
-                                if (smallestLoanAmount.compareTo(ZERO) == 0
+                                if (smallestLoanAmount.signum() == 0
                                                 ||
                                                 disbursed.compareTo(smallestLoanAmount) < 0) {
 
@@ -860,10 +858,8 @@ public class RegulatoryReportingService {
 
                 BigDecimal averageLoanSize = actualDisbursementCount == 0
                                 ? ZERO
-                                : moneyDecimal(totalPrincipalDisbursed.divide(
-                                                BigDecimal.valueOf(actualDisbursementCount),
-                                                16,
-                                                RoundingMode.HALF_UP));
+                                : totalPrincipalDisbursed
+                                                .divide(BigDecimal.valueOf(actualDisbursementCount), 2, RoundingMode.HALF_UP);
 
                 // ========================================================
                 // PAYMENTS
@@ -903,36 +899,31 @@ public class RegulatoryReportingService {
 
                         if (completed) {
 
-                                BigDecimal principal = numberDecimal(
+                                BigDecimal principal = number(
                                                 payment.getPrincipalComponent());
 
-                                BigDecimal interest = numberDecimal(
+                                BigDecimal interest = number(
                                                 payment.getInterestComponent());
 
-                                BigDecimal amountPaid = numberDecimal(
+                                BigDecimal amountPaid = number(
                                                 payment.getAmountPaid());
 
-                                BigDecimal penalty = numberDecimal(
+                                BigDecimal penalty = number(
                                                 payment.getPenalty());
 
-                                principalCollected = moneyDecimal(principalCollected.add(principal));
+                                principalCollected = add(principalCollected, principal);
 
-                                interestCollected = moneyDecimal(interestCollected.add(interest));
+                                interestCollected = add(interestCollected, interest);
 
-                                feesCollected = moneyDecimal(
-                                                feesCollected
-                                                                .add(numberDecimal(payment.getManagementFeeComponent()))
-                                                                .add(numberDecimal(payment.getExtensionFeeComponent()))
-                                                                .add(numberDecimal(payment.getPenaltyPaid())));
+                                feesCollected = add(feesCollected, number(payment.getManagementFeeComponent()));
+                                feesCollected = add(feesCollected, number(payment.getExtensionFeeComponent()));
+                                feesCollected = add(feesCollected, number(payment.getPenaltyPaid()));
 
-                                totalAmountCollected = moneyDecimal(totalAmountCollected.add(
-                                                amountPaid.compareTo(ZERO) > 0
-                                                                ? amountPaid
-                                                                : principal
-                                                                                .add(interest)
-                                                                                .add(numberDecimal(payment.getManagementFeeComponent()))
-                                                                                .add(numberDecimal(payment.getExtensionFeeComponent()))
-                                                                                .add(penalty)));
+                                // DashboardService uses Payment.amountPaid as the
+                                // authoritative cash amount. Keep BNR on exactly the
+                                // same basis; component reconstruction can accidentally
+                                // include assessed-but-unpaid penalty amounts.
+                                totalAmountCollected = add(totalAmountCollected, amountPaid);
 
                         } else {
 
@@ -950,14 +941,15 @@ public class RegulatoryReportingService {
                                         }
                                 }
 
-                                interestAccruedUnpaid = moneyDecimal(interestAccruedUnpaid.add(numberDecimal(
-                                                payment.getInterestComponent())));
+                                interestAccruedUnpaid = add(interestAccruedUnpaid, number(
+                                                payment.getInterestComponent()));
                         }
                 }
 
                 // One-time application fees are collected at disbursement, not as
-                // Payment rows. Include them in the reporting-period cash collected.
-                totalAmountCollected = moneyDecimal(totalAmountCollected.add(applicationFeesCollected));
+                // Payment rows. Include them in the institution-wide cash collected
+                // total using the same basis as DashboardService.
+                totalAmountCollected = add(totalAmountCollected, applicationFeesCollected);
                 interestAccruedUnpaid = outstandingInterest;
                 feesAccruedUnpaid = outstandingFees;
 
@@ -1002,37 +994,51 @@ public class RegulatoryReportingService {
                         historicalAmountCollected = moneyDecimal(historicalAmountCollected.add(historicalTotal));
                 }
 
+                // Legacy imported collections are stored on the loan opening
+                // balances rather than as fabricated Payment rows. Add them once
+                // so BNR cash collections reconcile with DashboardService.
+                totalAmountCollected = add(totalAmountCollected, historicalAmountCollected);
+
                 // ========================================================
                 // RATIOS
                 // ========================================================
 
-                BigDecimal parRatio = ratioDecimal(
+                BigDecimal parRatio = ratio(
                                 parAmount,
                                 outstandingPrincipal);
 
-                BigDecimal par30Amount = moneyDecimal(par31To60.add(par61To90).add(par91To180).add(par181To365).add(parOver365));
+                BigDecimal par30Amount = par31To60
+                                .add(par61To90)
+                                .add(par91To180)
+                                .add(par181To365)
+                                .add(parOver365);
 
-                BigDecimal par60Amount = moneyDecimal(par61To90.add(par91To180).add(par181To365).add(parOver365));
+                BigDecimal par60Amount = par61To90
+                                .add(par91To180)
+                                .add(par181To365)
+                                .add(parOver365);
 
-                BigDecimal par90Amount = moneyDecimal(par91To180.add(par181To365).add(parOver365));
+                BigDecimal par90Amount = par91To180
+                                .add(par181To365)
+                                .add(parOver365);
 
-                BigDecimal par1Ratio = ratioDecimal(
+                BigDecimal par1Ratio = ratio(
                                 parAmount,
                                 outstandingPrincipal);
 
-                BigDecimal par30Ratio = ratioDecimal(
+                BigDecimal par30Ratio = ratio(
                                 par30Amount,
                                 outstandingPrincipal);
 
-                BigDecimal par60Ratio = ratioDecimal(
+                BigDecimal par60Ratio = ratio(
                                 par60Amount,
                                 outstandingPrincipal);
 
-                BigDecimal par90Ratio = ratioDecimal(
+                BigDecimal par90Ratio = ratio(
                                 par90Amount,
                                 outstandingPrincipal);
 
-                BigDecimal nplRatio = ratioDecimal(
+                BigDecimal nplRatio = ratio(
                                 nplAmount,
                                 outstandingPrincipal);
 
@@ -1040,7 +1046,20 @@ public class RegulatoryReportingService {
                 // OUTSTANDING
                 // ========================================================
 
-                BigDecimal totalOutstanding = moneyDecimal(outstandingPrincipal.add(outstandingInterest).add(outstandingFees));
+                /*
+                 * FINANCIAL CONTROL BASIS
+                 *
+                 * The portfolio headline outstanding balance is principal only.
+                 * This is the same balance represented by Loan.outstandingBalance
+                 * and GL 1100 Loans Receivable. Interest and fees are separately
+                 * reported as receivables so the headline cannot disagree with
+                 * the dashboard/portfolio merely because accrued charges exist.
+                 */
+                BigDecimal totalOutstanding = moneyDecimal(outstandingPrincipal);
+                BigDecimal totalReceivables = moneyDecimal(outstandingPrincipal)
+                                .add(moneyDecimal(outstandingInterest))
+                                .add(moneyDecimal(outstandingFees))
+                                .setScale(2, RoundingMode.HALF_UP);
 
                 // ========================================================
                 // CREDIT METRICS
@@ -1240,6 +1259,9 @@ public class RegulatoryReportingService {
 
                                 .totalOutstanding(
                                                 totalOutstanding)
+
+                                .totalReceivables(
+                                                totalReceivables)
 
                                 .totalPrincipalCollected(
                                                 principalCollected)
@@ -1504,19 +1526,19 @@ public class RegulatoryReportingService {
                 // BALANCE SHEET
                 // ========================================================
 
-                BigDecimal totalAssets = numberDecimal(
+                BigDecimal totalAssets = decimalValue(
                                 financialPosition.get(
                                                 "totalAssets"));
 
-                BigDecimal totalLiabilities = numberDecimal(
+                BigDecimal totalLiabilities = decimalValue(
                                 financialPosition.get(
                                                 "totalLiabilities"));
 
-                BigDecimal totalEquity = numberDecimal(
+                BigDecimal totalEquity = decimalValue(
                                 financialPosition.get(
                                                 "totalEquity"));
 
-                BigDecimal currentPeriodNetIncome = numberDecimal(
+                BigDecimal currentPeriodNetIncome = decimalValue(
                                 financialPosition.get(
                                                 "currentPeriodNetIncome"));
 
@@ -1528,15 +1550,15 @@ public class RegulatoryReportingService {
                 // INCOME STATEMENT
                 // ========================================================
 
-                BigDecimal totalIncome = numberDecimal(
+                BigDecimal totalIncome = decimalValue(
                                 incomeStatement.get(
                                                 "totalIncome"));
 
-                BigDecimal totalExpenses = numberDecimal(
+                BigDecimal totalExpenses = decimalValue(
                                 incomeStatement.get(
                                                 "totalExpenses"));
 
-                BigDecimal netIncome = numberDecimal(
+                BigDecimal netIncome = decimalValue(
                                 incomeStatement.get(
                                                 "netIncome"));
 
@@ -1544,11 +1566,11 @@ public class RegulatoryReportingService {
                 // TRIAL BALANCE
                 // ========================================================
 
-                BigDecimal trialBalanceDebit = numberDecimal(
+                BigDecimal trialBalanceDebit = decimalValue(
                                 accountingReport.get(
                                                 "trialBalanceDebit"));
 
-                BigDecimal trialBalanceCredit = numberDecimal(
+                BigDecimal trialBalanceCredit = decimalValue(
                                 accountingReport.get(
                                                 "trialBalanceCredit"));
 
@@ -1560,23 +1582,23 @@ public class RegulatoryReportingService {
                 // CASH FLOW
                 // ========================================================
 
-                BigDecimal cashUsedForLending = numberDecimal(
+                BigDecimal cashUsedForLending = decimalValue(
                                 accountingReport.get(
                                                 "cashUsedForLending"));
 
-                BigDecimal cashFromCollections = numberDecimal(
+                BigDecimal cashFromCollections = decimalValue(
                                 accountingReport.get(
                                                 "cashFromCollections"));
 
-                BigDecimal cashFromFees = numberDecimal(
+                BigDecimal cashFromFees = decimalValue(
                                 accountingReport.get(
                                                 "cashFromFees"));
 
-                BigDecimal otherCashMovement = numberDecimal(
+                BigDecimal otherCashMovement = decimalValue(
                                 accountingReport.get(
                                                 "otherCashMovement"));
 
-                BigDecimal netChangeInCash = numberDecimal(
+                BigDecimal netChangeInCash = decimalValue(
                                 accountingReport.get(
                                                 "netChangeInCash"));
 
@@ -1798,11 +1820,11 @@ public class RegulatoryReportingService {
                                 borrowerIds.get(label).add(borrower.getId());
                         }
 
-                        BigDecimal amount = numberDecimal(loan.getDisbursedAmount());
-                        if (amount.compareTo(ZERO) == 0) {
-                                amount = numberDecimal(loan.getAmount());
+                        BigDecimal amount = number(loan.getDisbursedAmount());
+                        if (amount.signum() == 0) {
+                                amount = number(loan.getAmount());
                         }
-                        loanAmounts.merge(label, amount, (left, right) -> moneyDecimal(left.add(right)));
+                        loanAmounts.merge(label, amount, RegulatoryReportingService::addMoney);
                 }
 
                 return borrowerIds.entrySet().stream()
@@ -1854,19 +1876,19 @@ public class RegulatoryReportingService {
                                         1L,
                                         Long::sum);
 
-                        BigDecimal amount = numberDecimal(
+                        BigDecimal amount = number(
                                         loan.getDisbursedAmount());
 
-                        if (amount.compareTo(ZERO) == 0) {
+                        if (amount.signum() == 0) {
 
-                                amount = numberDecimal(
+                                amount = number(
                                                 loan.getAmount());
                         }
 
                         amounts.merge(
                                         key,
                                         amount,
-                                        (left, right) -> moneyDecimal(left.add(right)));
+                                        RegulatoryReportingService::addMoney);
                 }
 
                 return counts.entrySet()
@@ -2074,7 +2096,7 @@ public class RegulatoryReportingService {
                                                                         loan))
 
                                         .outstandingBalance(
-                                                        numberDecimal(
+                                                        number(
                                                                         loan.getOutstandingBalance()))
 
                                         .daysPastDue(
@@ -2370,10 +2392,11 @@ public class RegulatoryReportingService {
         }
 
         // ============================================================
-        // DOUBLE VALUE
+        // DECIMAL VALUE
         // ============================================================
 
-        private BigDecimal numberDecimal(Object value) {
+        private BigDecimal decimalValue(
+                        Object value) {
 
                 if (value == null) {
                         return ZERO;
@@ -2384,7 +2407,7 @@ public class RegulatoryReportingService {
                 }
 
                 if (value instanceof Number number) {
-                        return moneyDecimal(BigDecimal.valueOf(number.doubleValue()));
+                        return moneyDecimal(new BigDecimal(number.toString()));
                 }
 
                 try {
@@ -2394,7 +2417,12 @@ public class RegulatoryReportingService {
                 }
         }
 
-        private boolean booleanValue(Object value) {
+        // ============================================================
+        // BOOLEAN VALUE
+        // ============================================================
+
+        private boolean booleanValue(
+                        Object value) {
 
                 if (value == null) {
                         return false;
@@ -2404,49 +2432,49 @@ public class RegulatoryReportingService {
                         return bool;
                 }
 
-                if (value instanceof Number number) {
-                        return number.doubleValue() != 0.0d;
-                }
-
-                String text = value.toString().trim();
-
-                if (text.isEmpty()) {
-                        return false;
-                }
-
-                return Boolean.parseBoolean(text);
+                return Boolean.parseBoolean(
+                                value.toString());
         }
 
-        private BigDecimal ratioDecimal(BigDecimal numerator, BigDecimal denominator) {
+        // ============================================================
+        // NUMBER / LOAN AMOUNT / RATIO
+        // ============================================================
 
-                numerator = moneyDecimal(numerator);
-                denominator = moneyDecimal(denominator);
-
-                if (denominator.compareTo(ZERO) <= 0) {
-                        return ZERO;
-                }
-
-                return moneyDecimal(numerator
-                                .divide(denominator, 16, RoundingMode.HALF_UP)
-                                .multiply(BigDecimal.valueOf(100)));
+        private BigDecimal number(
+                        Number value) {
+                return value == null
+                                ? ZERO
+                                : moneyDecimal(new BigDecimal(value.toString()));
         }
 
         private BigDecimal loanAmount(
                         Loan loan) {
-
                 if (loan == null) {
                         return ZERO;
                 }
 
-                BigDecimal disbursed = numberDecimal(
-                                loan.getDisbursedAmount());
-
-                if (disbursed.compareTo(ZERO) > 0) {
+                BigDecimal disbursed = number(loan.getDisbursedAmount());
+                if (disbursed.signum() > 0) {
                         return disbursed;
                 }
 
-                return numberDecimal(
-                                loan.getAmount());
+                return number(loan.getAmount());
+        }
+
+        private BigDecimal ratio(
+                        BigDecimal numerator,
+                        BigDecimal denominator) {
+                if (denominator == null || denominator.signum() == 0) {
+                        return ZERO;
+                }
+                return numerator == null
+                                ? ZERO
+                                : numerator.divide(denominator, 8, RoundingMode.HALF_UP);
+        }
+
+        private static BigDecimal addMoney(BigDecimal first, BigDecimal second) {
+                return (first == null ? ZERO : first).add(second == null ? ZERO : second)
+                                .setScale(2, RoundingMode.HALF_UP);
         }
 
         // ============================================================
@@ -2508,6 +2536,25 @@ public class RegulatoryReportingService {
                                 + from
                                 + "-"
                                 + to;
+        }
+
+        /**
+         * Canonical gross loan-receivable population.
+         * Approval/pipeline records are deliberately excluded because no
+         * principal receivable is created until the loan is disbursed.
+         */
+        private boolean isCurrentPortfolioLoan(Loan loan) {
+                if (loan == null || loan.getStatus() == null) {
+                        return false;
+                }
+
+                LoanStatus status = loan.getStatus();
+
+                return status == LoanStatus.DISBURSED
+                                || status == LoanStatus.ACTIVE
+                                || status == LoanStatus.OVERDUE
+                                || status == LoanStatus.DEFAULTED
+                                || status == LoanStatus.RESTRUCTURED;
         }
 
         /**

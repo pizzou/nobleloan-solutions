@@ -135,6 +135,8 @@ public class DashboardService {
                 BigDecimal totalDisbursed = ZERO;
 
                 BigDecimal totalOutstanding = ZERO;
+                BigDecimal outstandingInterest = ZERO;
+                BigDecimal outstandingFees = ZERO;
 
                 BigDecimal activePortfolioPrincipal = ZERO;
 
@@ -181,6 +183,27 @@ public class DashboardService {
                                 totalOutstanding = money(
                                                 totalOutstanding.add(
                                                                 outstanding));
+
+                                outstandingInterest = money(
+                                                outstandingInterest.add(
+                                                                money(loan.getInterestOutstandingDecimal()).max(ZERO)));
+
+                                BigDecimal penaltyOutstanding = money(
+                                                money(loan.getPenaltiesAssessedDecimal())
+                                                                .subtract(money(loan.getPenaltiesPaidDecimal()))
+                                                                .max(ZERO));
+
+                                BigDecimal applicationFeeOutstanding = money(
+                                                money(loan.getApplicationFee())
+                                                                .subtract(money(loan.getApplicationFeePaidDecimal()))
+                                                                .max(ZERO));
+
+                                outstandingFees = money(
+                                                outstandingFees
+                                                                .add(money(loan.getManagementFeeOutstandingDecimal()))
+                                                                .add(money(loan.getExtensionFeeOutstandingDecimal()))
+                                                                .add(penaltyOutstanding)
+                                                                .add(applicationFeeOutstanding));
 
                                 activePortfolioPrincipal = money(
                                                 activePortfolioPrincipal.add(
@@ -234,6 +257,8 @@ public class DashboardService {
                  * This prevents double-counting current Payment rows.
                  */
                 BigDecimal legacyHistoricalCollected = ZERO;
+                BigDecimal currentApplicationFeesCollected = ZERO;
+                BigDecimal legacyApplicationFeesCollected = ZERO;
 
                 for (Payment payment : organizationPayments) {
 
@@ -268,6 +293,25 @@ public class DashboardService {
                 }
 
                 /*
+                 * Current application/processing fees are cash collections at
+                 * disbursement and are not represented by Payment rows. Keep
+                 * them in the institution-wide collected KPI while keeping
+                 * legacy application fees inside the legacy historical bucket
+                 * so they are never counted twice.
+                 */
+                for (Loan loan : loans) {
+                        if (loan == null || isLegacyImportedLoan(loan)) {
+                                continue;
+                        }
+                        if (money(loan.getDisbursedAmountDecimal()).compareTo(ZERO) <= 0) {
+                                continue;
+                        }
+                        currentApplicationFeesCollected = money(
+                                        currentApplicationFeesCollected.add(
+                                                        money(loan.getApplicationFeePaidDecimal())));
+                }
+
+                /*
                  * Historical imported collection basis:
                  *
                  * principal paid
@@ -286,17 +330,23 @@ public class DashboardService {
                                 continue;
                         }
 
+                        BigDecimal applicationFeePaid = money(loan.getApplicationFeePaidDecimal());
                         BigDecimal historical = money(loan.getPrincipalPaidDecimal())
                                         .add(money(loan.getInterestPaidDecimal()))
                                         .add(money(loan.getManagementFeePaidDecimal()))
                                         .add(money(loan.getExtensionFeePaidDecimal()))
                                         .add(money(loan.getPenaltiesPaidDecimal()))
-                                        .add(money(loan.getApplicationFeePaidDecimal()));
+                                        .add(applicationFeePaid);
 
                         legacyHistoricalCollected = money(legacyHistoricalCollected.add(historical));
+                        legacyApplicationFeesCollected = money(
+                                        legacyApplicationFeesCollected.add(applicationFeePaid));
                 }
 
-                totalCollected = money(totalCollected.add(legacyHistoricalCollected));
+                totalCollected = money(
+                                totalCollected
+                                                .add(currentApplicationFeesCollected)
+                                                .add(legacyHistoricalCollected));
 
                 // Historical legacy collections have no reliable current-period
                 // payment date. They must NEVER be added to collectedThisMonth.
@@ -353,6 +403,11 @@ public class DashboardService {
                 // LOG
                 // ============================================================
 
+                BigDecimal totalReceivables = money(
+                                totalOutstanding
+                                                .add(outstandingInterest)
+                                                .add(outstandingFees));
+
                 log.debug(
                                 "Dashboard calculated. " +
                                                 "orgId={}, totalLoans={}, activeLoans={}, " +
@@ -401,22 +456,35 @@ public class DashboardService {
                                                 totalBorrowers)
 
                                 .totalDisbursed(
-                                                totalDisbursed.doubleValue())
+                                                totalDisbursed)
 
                                 .totalCollected(
-                                                totalCollected.doubleValue())
+                                                totalCollected)
+
+                                .historicalCollected(
+                                                legacyHistoricalCollected)
+
+                                .applicationFeesCollected(
+                                                money(currentApplicationFeesCollected
+                                                                .add(legacyApplicationFeesCollected)))
 
                                 .outstandingBalance(
-                                                totalOutstanding.doubleValue())
+                                                totalOutstanding)
+
+                                .totalReceivables(
+                                                totalReceivables)
 
                                 .collectedThisMonth(
-                                                collectedThisMonth.doubleValue())
+                                                collectedThisMonth)
 
                                 .latePaymentsCount(
                                                 latePaymentsCount)
 
                                 .portfolioAtRiskPct(
-                                                portfolioAtRiskPct.doubleValue())
+                                                portfolioAtRiskPct)
+
+                                .portfolioAtRiskAmount(
+                                                atRiskPrincipal)
 
                                 .recentLoans(
                                                 recentLoans)

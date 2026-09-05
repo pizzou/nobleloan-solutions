@@ -7,6 +7,7 @@ import com.patrick.fintech.loan_backend.service.CurrencyService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -27,9 +28,9 @@ public class CurrencyController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> convert(
             @RequestParam String from,
             @RequestParam String to,
-            @RequestParam double amount) {
-        double converted = currencyService.convert(amount, from, to);
-        double rate = currencyService.getRate(from, to);
+            @RequestParam BigDecimal amount) {
+        BigDecimal converted = currencyService.convert(amount, from, to);
+        BigDecimal rate = currencyService.getRate(from, to);
         return ResponseEntity.ok(ApiResponse.safe(Map.of(
                 "from", from, "to", to,
                 "amount", amount, "converted", converted, "rate", rate)));

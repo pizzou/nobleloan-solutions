@@ -5,10 +5,12 @@ import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.LoanStatus;
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.Payment;
+import com.patrick.fintech.loan_backend.model.PaymentTransaction;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.AuditLogRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
+import com.patrick.fintech.loan_backend.repository.PaymentTransactionRepository;
 import com.patrick.fintech.loan_backend.repository.UserRepository;
 import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 
@@ -29,6 +31,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -36,6 +39,7 @@ import java.util.Optional;
 public class PaymentService {
 
         private final PaymentRepository paymentRepo;
+        private final PaymentTransactionRepository paymentTransactionRepo;
         private final LoanRepository loanRepo;
         private final AuditLogRepository auditRepo;
         private final AuditService auditService;
@@ -1255,6 +1259,47 @@ public class PaymentService {
                                 penaltyPaidThisPayment,
                                 extensionFeePaidThisPayment,
                                 overpayment);
+
+                // ============================================================
+                // IMMUTABLE PAYMENT TRANSACTION LEDGER
+                // ============================================================
+                // Payment rows are cumulative installment state.  The
+                // PaymentTransaction row is the immutable transaction event
+                // used by the business-owner payment ledger, audit views and
+                // downstream reconciliation.  Every successful posting gets
+                // exactly one transaction event in the same database
+                // transaction as the accounting journal.
+                String transactionReference = normalizedTxnId != null
+                                ? normalizedTxnId
+                                : "PAYTX-" + UUID.randomUUID();
+
+                PaymentTransaction transaction = PaymentTransaction.builder()
+                                .loan(loan)
+                                .organization(loan.getOrganization())
+                                .installment(installment)
+                                .recordedBy(recordedBy)
+                                .transactionReference(transactionReference)
+                                .amount(roundMoney(amount))
+                                .penaltyComponent(roundMoney(penaltyPaidThisPayment))
+                                .interestComponent(roundMoney(interestPaidThisPayment))
+                                .principalComponent(roundMoney(principalPaidThisPayment))
+                                .managementFeeComponent(roundMoney(managementFeePaidThisPayment))
+                                .extensionFeeComponent(roundMoney(extensionFeePaidThisPayment))
+                                .unappliedAmount(roundMoney(overpayment))
+                                .provider(channel)
+                                .currency(loan.getCurrency())
+                                .externalReference(normalizedTxnId)
+                                .gatewayStatus(installment.getStatus() != null
+                                                ? installment.getStatus().name()
+                                                : null)
+                                .paymentMethod(method)
+                                .channel(channel)
+                                .notes(notes)
+                                .status(PaymentTransaction.TransactionStatus.POSTED)
+                                .reversed(false)
+                                .build();
+
+                paymentTransactionRepo.save(transaction);
 
                 // ============================================================
                 // AUDIT

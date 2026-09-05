@@ -35,6 +35,10 @@ public class DashboardStats {
     @JsonProperty("outstandingBalance")
     private BigDecimal outstandingBalance;
 
+    /** Principal outstanding plus all currently unpaid contractual charges. */
+    @JsonProperty("totalReceivables")
+    private BigDecimal totalReceivables;
+
     @JsonProperty("collectedThisMonth")
     private BigDecimal collectedThisMonth;
     private long totalBorrowers;

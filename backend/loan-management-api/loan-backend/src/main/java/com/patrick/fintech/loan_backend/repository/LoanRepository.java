@@ -443,6 +443,17 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             SELECT COALESCE(SUM(l.applicationFeePaid), 0)
             FROM Loan l
             WHERE l.organization = :org
+              AND l.status IN (
+                  'DISBURSED',
+                  'ACTIVE',
+                  'OVERDUE',
+                  'DEFAULTED',
+                  'RESTRUCTURED',
+                  'PAID',
+                  'CLOSED',
+                  'WRITTEN_OFF'
+              )
+              AND COALESCE(l.disbursedAmount, 0) > 0
               AND COALESCE(l.applicationFeePaid, 0) > 0
             """)
     BigDecimal sumApplicationFeesCollected(

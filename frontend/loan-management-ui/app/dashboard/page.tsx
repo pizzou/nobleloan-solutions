@@ -230,6 +230,7 @@ export default function DashboardPage() {
         defaultedLoans: 0,
         totalDisbursed: 0,
         outstandingBalance: 0,
+        totalReceivables: 0,
         totalCollected: 0,
         historicalCollected: 0,
         applicationFeesCollected: 0,
@@ -254,6 +255,7 @@ export default function DashboardPage() {
       defaultedLoans: safeNumber(stats.defaultedLoans),
       totalDisbursed: safeNumber(stats.totalDisbursed),
       outstandingBalance: safeNumber(stats.outstandingBalance),
+      totalReceivables: safeNumber(stats.totalReceivables),
       totalCollected: safeNumber(stats.totalCollected),
       historicalCollected: safeNumber(stats.historicalCollected),
       applicationFeesCollected: safeNumber(stats.applicationFeesCollected),
@@ -843,10 +845,17 @@ export default function DashboardPage() {
                 />
 
                 <FinancialMetric
-                  label="Outstanding"
+                  label="Outstanding principal"
                   value={fc(portfolio.outstandingBalance)}
-                  description="Current balance"
+                  description="Principal balance in the loan portfolio"
                   tone="slate"
+                />
+
+                <FinancialMetric
+                  label="Total receivables"
+                  value={fc(portfolio.totalReceivables)}
+                  description="Principal plus unpaid contractual charges"
+                  tone="navy"
                 />
 
                 <FinancialMetric

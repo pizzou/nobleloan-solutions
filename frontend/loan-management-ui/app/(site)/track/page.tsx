@@ -190,9 +190,6 @@ export default function TrackPage() {
   const [paymentAmount, setPaymentAmount] = useState("");
 
   const [momoPhone, setMomoPhone] = useState("");
-  const [cardNumber, setCardNumber] = useState("");
-  const [cardExpiry, setCardExpiry] = useState("");
-  const [cardCvv, setCardCvv] = useState("");
 
   const [paying, setPaying] = useState(false);
   const [paySuccess, setPaySuccess] = useState(false);
@@ -379,42 +376,6 @@ export default function TrackPage() {
       return;
     }
 
-    /*
-     * -----------------------------------------------
-     * Card validation
-     * -----------------------------------------------
-     */
-
-    if (
-      choice.key === "CARD" &&
-      (!cardNumber.trim() || !cardExpiry.trim() || !cardCvv.trim())
-    ) {
-      setError("Please complete your card details.");
-      return;
-    }
-
-    /*
-     * Validate card expiry format.
-     */
-    let expiryMonth: string | undefined;
-    let expiryYear: string | undefined;
-
-    if (choice.key === "CARD") {
-      const parts = cardExpiry.split("/").map((s) => s.trim());
-
-      if (
-        parts.length !== 2 ||
-        !/^\d{2}$/.test(parts[0]) ||
-        !/^\d{2,4}$/.test(parts[1])
-      ) {
-        setError("Please enter card expiry as MM/YY.");
-        return;
-      }
-
-      expiryMonth = parts[0];
-      expiryYear = parts[1];
-    }
-
     setPaying(true);
     setError("");
     setPaySuccess(false);
@@ -425,10 +386,6 @@ export default function TrackPage() {
         paymentMethod: "MOBILE_MONEY" | "BANK_TRANSFER" | "CARD";
         phoneNumber?: string;
         network?: string;
-        cardNumber?: string;
-        cardCvv?: string;
-        cardExpiryMonth?: string;
-        cardExpiryYear?: string;
       } = {
         amount,
         paymentMethod: choice.key,
@@ -441,19 +398,6 @@ export default function TrackPage() {
         payload.phoneNumber = momoPhone.trim();
 
         payload.network = choice.networks?.[0];
-      }
-
-      /*
-       * Card.
-       */
-      if (choice.key === "CARD") {
-        payload.cardNumber = cardNumber.trim();
-
-        payload.cardCvv = cardCvv.trim();
-
-        payload.cardExpiryMonth = expiryMonth;
-
-        payload.cardExpiryYear = expiryYear;
       }
 
       /*
@@ -472,6 +416,19 @@ export default function TrackPage() {
       )) as any;
 
       const data = res?.data ?? res;
+
+      /*
+       * Card payments are completed on the provider's secure hosted/tokenized
+       * checkout. Raw PAN/CVV never enters Noble Loan Solutions servers.
+       */
+      if (
+        choice.key === "CARD" &&
+        typeof data?.redirectUrl === "string" &&
+        data.redirectUrl.trim()
+      ) {
+        window.location.assign(data.redirectUrl);
+        return;
+      }
 
       setPaySuccess(true);
 
@@ -2011,43 +1968,15 @@ export default function TrackPage() {
 
               {/*
                * ==================================================
-               * CARD
+               * CARD / HOSTED CHECKOUT
                * ==================================================
                */}
 
               {PAY_METHODS[payChoice]?.key === "CARD" && (
-                <div className="space-y-3">
-                  <input
-                    type="text"
-                    value={cardNumber}
-                    onChange={(e) => setCardNumber(e.target.value)}
-                    placeholder="Card number"
-                    autoComplete="cc-number"
-                    inputMode="numeric"
-                    className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-gray-50 text-sm font-bold font-mono focus:outline-none focus:ring-2 focus:ring-emerald-600/20 focus:border-emerald-600"
-                  />
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <input
-                      type="text"
-                      value={cardExpiry}
-                      onChange={(e) => setCardExpiry(e.target.value)}
-                      placeholder="MM/YY"
-                      autoComplete="cc-exp"
-                      inputMode="numeric"
-                      className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-gray-50 text-sm font-bold font-mono focus:outline-none focus:ring-2 focus:ring-emerald-600/20 focus:border-emerald-600"
-                    />
-
-                    <input
-                      type="password"
-                      value={cardCvv}
-                      onChange={(e) => setCardCvv(e.target.value)}
-                      placeholder="CVV"
-                      autoComplete="cc-csc"
-                      inputMode="numeric"
-                      className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-gray-50 text-sm font-bold font-mono focus:outline-none focus:ring-2 focus:ring-emerald-600/20 focus:border-emerald-600"
-                    />
-                  </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs text-slate-700 leading-5">
+                  Your card payment will open the payment provider's secure
+                  hosted checkout. Noble Loan Solutions does not collect or
+                  store your card number or CVV.
                 </div>
               )}
 

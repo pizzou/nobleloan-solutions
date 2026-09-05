@@ -26,6 +26,34 @@ type Loan = {
   nextInstallmentAmount?: number;
 };
 
+type PaymentTransaction = {
+  id?: number;
+  loanId?: number;
+  loanReference?: string;
+  borrowerId?: number;
+  borrowerName?: string;
+  recordedByName?: string;
+  transactionReference?: string;
+  amount?: number | string;
+  principalComponent?: number | string;
+  interestComponent?: number | string;
+  managementFeeComponent?: number | string;
+  extensionFeeComponent?: number | string;
+  penaltyComponent?: number | string;
+  unappliedAmount?: number | string;
+  provider?: string;
+  currency?: string;
+  externalReference?: string;
+  gatewayStatus?: string;
+  paymentMethod?: string;
+  channel?: string;
+  notes?: string;
+  status?: string;
+  reversed?: boolean;
+  createdAt?: string;
+  reversedAt?: string;
+};
+
 type Payment = {
   id?: number;
   installmentNumber?: number;
@@ -244,6 +272,8 @@ export default function PaymentsPage() {
   const [loanIdInput, setLoanIdInput] = useState("");
   const [loan, setLoan] = useState<Loan | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [transactions, setTransactions] = useState<PaymentTransaction[]>([]);
+  const [loadingTransactions, setLoadingTransactions] = useState(false);
 
   const [loadingLoan, setLoadingLoan] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -261,8 +291,26 @@ export default function PaymentsPage() {
   );
   const [confirming, setConfirming] = useState(false);
 
+  const loadTransactions = useCallback(async () => {
+    setLoadingTransactions(true);
+
+    try {
+      const result = await paymentApi.transactions();
+      setTransactions(
+        Array.isArray(result) ? (result as PaymentTransaction[]) : [],
+      );
+    } catch (err) {
+      console.warn("Unable to load payment transaction ledger", err);
+      setTransactions([]);
+    } finally {
+      setLoadingTransactions(false);
+    }
+  }, []);
+
   useEffect(() => {
     let mounted = true;
+
+    void loadTransactions();
 
     void loanApi
       .dashboard()
@@ -278,7 +326,7 @@ export default function PaymentsPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [loadTransactions]);
 
   const loadLoan = useCallback(async (id: number) => {
     setLoadingLoan(true);
@@ -389,6 +437,7 @@ export default function PaymentsPage() {
       setNotes("");
 
       await loadLoan(loan.id);
+      await loadTransactions();
     } catch (err: any) {
       setError(err?.message || "Payment could not be recorded.");
     } finally {
@@ -460,6 +509,144 @@ export default function PaymentsPage() {
             <span className="font-semibold">{success}</span>
           </div>
         ) : null}
+
+        {/* Immutable payment transaction ledger */}
+        <section className="mb-6 overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+          <div className="border-b border-slate-100 p-6">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-[0.16em] text-teal-700">
+                  Money movement ledger
+                </div>
+                <h2 className="mt-1 text-xl font-black text-slate-950">
+                  Payment transactions
+                </h2>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Every posted collection, showing the borrower, amount, exact
+                  posting time, method, channel and reference.
+                </p>
+              </div>
+              <div className="text-xs font-semibold text-slate-400">
+                {transactions.length.toLocaleString()} transaction
+                {transactions.length === 1 ? "" : "s"}
+              </div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-[1180px] w-full text-sm">
+              <thead className="border-b border-slate-100 bg-slate-50/80 text-left">
+                <tr>
+                  {[
+                    "Borrower",
+                    "Loan",
+                    "Amount paid",
+                    "Date & time",
+                    "Method",
+                    "Channel",
+                    "Reference",
+                    "Status",
+                  ].map((label) => (
+                    <th
+                      key={label}
+                      className="px-5 py-3 text-[10px] font-black uppercase tracking-[0.13em] text-slate-400"
+                    >
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {loadingTransactions ? (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className="px-5 py-10 text-center text-xs font-semibold text-slate-400"
+                    >
+                      Loading payment ledger…
+                    </td>
+                  </tr>
+                ) : transactions.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className="px-5 py-10 text-center text-xs font-semibold text-slate-400"
+                    >
+                      No posted payment transactions found.
+                    </td>
+                  </tr>
+                ) : (
+                  transactions.map((transaction) => (
+                    <tr
+                      key={transaction.id ?? transaction.transactionReference}
+                      className="hover:bg-slate-50/70"
+                    >
+                      <td className="px-5 py-4 align-top">
+                        <div className="font-black text-slate-900">
+                          {transaction.borrowerName ||
+                            "Borrower information unavailable"}
+                        </div>
+                        {transaction.borrowerId ? (
+                          <div className="mt-1 text-[10px] text-slate-400">
+                            Borrower #{transaction.borrowerId}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="px-5 py-4 align-top">
+                        <div className="font-semibold text-slate-700">
+                          {transaction.loanReference ||
+                            `Loan #${transaction.loanId ?? "—"}`}
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 align-top font-black text-slate-950">
+                        {money(
+                          transaction.amount,
+                          transaction.currency || currency,
+                        )}
+                      </td>
+                      <td className="px-5 py-4 align-top">
+                        <div className="font-semibold text-slate-700">
+                          {formatDateTime(transaction.createdAt)}
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 align-top">
+                        <div className="font-semibold text-slate-700">
+                          {humanize(transaction.paymentMethod)}
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 align-top">
+                        <div className="font-semibold text-slate-700">
+                          {humanize(transaction.channel)}
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 align-top">
+                        <div className="max-w-[180px] truncate font-mono text-[11px] text-slate-600">
+                          {transaction.transactionReference ||
+                            transaction.externalReference ||
+                            "—"}
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 align-top">
+                        <StatusBadge
+                          status={
+                            transaction.reversed
+                              ? "REVERSED"
+                              : transaction.status || "POSTED"
+                          }
+                        />
+                        {transaction.recordedByName ? (
+                          <div className="mt-1 text-[10px] text-slate-400">
+                            By {transaction.recordedByName}
+                          </div>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         {/* Loan lookup */}
         <section className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">

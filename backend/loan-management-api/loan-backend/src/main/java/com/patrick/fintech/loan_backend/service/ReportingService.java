@@ -1,5 +1,6 @@
 package com.patrick.fintech.loan_backend.service;
 
+import com.patrick.fintech.loan_backend.dto.DashboardStats;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.Payment;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
@@ -42,6 +43,7 @@ public class ReportingService {
 
         private final LoanRepository loanRepository;
         private final PaymentRepository paymentRepository;
+        private final DashboardService dashboardService;
 
         private static final int MONEY_SCALE = 2;
 
@@ -55,7 +57,8 @@ public class ReportingService {
 
         public ReportingService(
                         LoanRepository loanRepository,
-                        PaymentRepository paymentRepository) {
+                        PaymentRepository paymentRepository,
+                        DashboardService dashboardService) {
                 this.loanRepository = Objects.requireNonNull(
                                 loanRepository,
                                 "LoanRepository is required");
@@ -63,6 +66,9 @@ public class ReportingService {
                 this.paymentRepository = Objects.requireNonNull(
                                 paymentRepository,
                                 "PaymentRepository is required");
+                this.dashboardService = Objects.requireNonNull(
+                                dashboardService,
+                                "DashboardService is required");
         }
 
         // ============================================================
@@ -168,9 +174,19 @@ public class ReportingService {
                                                         .add(normalizeMoney(loan.getApplicationFeePaidDecimal())));
                 }
 
+                DashboardStats dashboard = dashboardService.getStats(organizationId);
+
                 Map<String, BigDecimal> result = new LinkedHashMap<>();
 
+                // totalPaid remains repayment-only (it excludes one-time application
+                // fees). totalCashCollected is the institution-wide cash KPI and is
+                // deliberately identical to the dashboard control total.
                 result.put("totalPaid", totalPaid);
+                result.put("totalCashCollected", dashboard.getTotalCollectedDecimal());
+                result.put("totalDisbursed", dashboard.getTotalDisbursedDecimal());
+                result.put("outstandingPrincipal", dashboard.getOutstandingBalanceDecimal());
+                result.put("totalReceivables", dashboard.getTotalReceivables());
+                result.put("applicationFeesCollected", dashboard.getApplicationFeesCollected());
                 result.put("legacyTotalPaid", legacyTotalPaid);
                 result.put("legacyPrincipalPaid", legacyPrincipalPaid);
                 result.put("legacyInterestPaid", legacyInterestPaid);

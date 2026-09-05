@@ -17,6 +17,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -205,13 +206,14 @@ public class BankAccountController {
                                         "amount is required");
                 }
 
-                double amount;
+                BigDecimal amount;
 
                 try {
 
-                        amount = Double.parseDouble(
+                        amount = new BigDecimal(
                                         body.get("amount")
-                                                        .toString());
+                                                        .toString().trim())
+                                        .setScale(2, java.math.RoundingMode.HALF_UP);
 
                 } catch (NumberFormatException ex) {
 
@@ -219,7 +221,7 @@ public class BankAccountController {
                                         "amount must be a valid number");
                 }
 
-                if (amount <= 0) {
+                if (amount.signum() <= 0) {
                         throw new IllegalArgumentException(
                                         "Amount must be positive");
                 }

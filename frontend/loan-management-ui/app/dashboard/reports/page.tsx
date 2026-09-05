@@ -80,6 +80,7 @@ interface DashboardStatsLike {
   totalDisbursed?: Numeric;
   totalCollected?: Numeric;
   outstandingBalance?: Numeric;
+  totalReceivables?: Numeric;
   activeLoans?: Numeric;
   pendingLoans?: Numeric;
   overdueLoans?: Numeric;
@@ -986,6 +987,8 @@ export default function ReportsPage() {
     return (collected / disbursed) * 100;
   }, [stats]);
 
+  const totalReceivables = numberValue(stats?.totalReceivables);
+
   const outstandingPortfolio = useMemo(() => {
     /*
      * Outstanding portfolio is an operational receivable balance, not
@@ -1298,7 +1301,7 @@ export default function ReportsPage() {
           />
 
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-            <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
+            <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-5 lg:divide-x">
               <ExecutiveMetric
                 label="Gross Disbursements"
                 value={fmt(stats?.totalDisbursed)}
@@ -1313,9 +1316,16 @@ export default function ReportsPage() {
               />
 
               <ExecutiveMetric
-                label="Outstanding Portfolio"
+                label="Outstanding Principal"
                 value={fmt(outstandingPortfolio)}
-                detail="Estimated remaining exposure"
+                detail="Principal balance in the current receivable population"
+                emphasis
+              />
+
+              <ExecutiveMetric
+                label="Total Receivables"
+                value={fmt(totalReceivables)}
+                detail="Principal plus unpaid contractual charges"
                 emphasis
               />
 

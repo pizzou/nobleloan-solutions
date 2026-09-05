@@ -1,8 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { publicApi } from "@/services/api";
-import { TENANT_SLUG } from "@/lib/tenant";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 
 type Product = {
@@ -69,6 +67,103 @@ function hasMaximum(
   );
 }
 
+function parseDecimal(value: number | string | undefined, scale: bigint) {
+  const text = String(value ?? "0")
+    .trim()
+    .replace(/,/g, "");
+  if (!/^\d+(?:\.\d+)?$/.test(text)) return 0n;
+  const [whole, fraction = ""] = text.split(".");
+  const digits = fraction.padEnd(Number(scale), "0").slice(0, Number(scale));
+  return BigInt(whole) * 10n ** scale + BigInt(digits || "0");
+}
+
+function halfUpDivide(numerator: bigint, denominator: bigint) {
+  if (denominator <= 0n) throw new Error("Invalid financial denominator");
+  const quotient = numerator / denominator;
+  const remainder = numerator % denominator;
+  return remainder * 2n >= denominator ? quotient + 1n : quotient;
+}
+
+function centsToNumber(cents: bigint) {
+  return Number(cents) / 100;
+}
+
+function percentageCharge(principal: number, rate: number | string) {
+  const principalCents = BigInt(Math.max(0, Math.round(principal * 100)));
+  const rateScale = 9n;
+  const rateUnits = parseDecimal(rate, rateScale);
+  const denominator = 100n * 10n ** rateScale;
+  return centsToNumber(halfUpDivide(principalCents * rateUnits, denominator));
+}
+
+/**
+ * Exact client-side mirror of FinancialPolicy.contractualScheduleLine().
+ * Monetary state is integer cents; rates are represented at the database's
+ * nine-decimal precision. No binary floating-point participates in money math.
+ */
+function calculateSchedule(
+  principal: number,
+  months: number,
+  interestRate: number | string,
+  managementRate: number | string,
+) {
+  let balanceCents = BigInt(Math.max(0, Math.round(principal * 100)));
+  let totalInterestCents = 0n;
+  let totalManagementCents = 0n;
+  let firstInstallmentCents = 0n;
+  let lastInstallmentCents = 0n;
+
+  const rateScale = 9n;
+  const rateDenominator = 100n * 10n ** rateScale;
+  const interestRateUnits = parseDecimal(interestRate, rateScale);
+  const managementRateUnits = parseDecimal(managementRate, rateScale);
+
+  for (
+    let installmentNumber = 1;
+    installmentNumber <= months;
+    installmentNumber += 1
+  ) {
+    const remainingInstallments = months - installmentNumber + 1;
+
+    const principalComponentCents =
+      remainingInstallments === 1
+        ? balanceCents
+        : halfUpDivide(balanceCents, BigInt(remainingInstallments));
+
+    const interestCents = halfUpDivide(
+      balanceCents * interestRateUnits,
+      rateDenominator,
+    );
+    const managementCents = halfUpDivide(
+      balanceCents * managementRateUnits,
+      rateDenominator,
+    );
+
+    const installmentCents =
+      principalComponentCents + interestCents + managementCents;
+
+    totalInterestCents += interestCents;
+    totalManagementCents += managementCents;
+
+    if (installmentNumber === 1) firstInstallmentCents = installmentCents;
+    if (installmentNumber === months) lastInstallmentCents = installmentCents;
+
+    balanceCents = balanceCents - principalComponentCents;
+  }
+
+  return {
+    interest: centsToNumber(totalInterestCents),
+    management: centsToNumber(totalManagementCents),
+    total: centsToNumber(
+      BigInt(Math.max(0, Math.round(principal * 100))) +
+        totalInterestCents +
+        totalManagementCents,
+    ),
+    firstInstallment: centsToNumber(firstInstallmentCents),
+    lastInstallment: centsToNumber(lastInstallmentCents),
+  };
+}
+
 export default function PublicLoanCalculator({
   products,
   currency,
@@ -87,9 +182,9 @@ export default function PublicLoanCalculator({
   const configuredMax = hasMaximum(product)
     ? numeric(product.maxAmount, minAmount)
     : null;
-  const interestRate = numeric(product?.interestRate ?? product?.rate, 5);
-  const managementRate = numeric(product?.managementFeeRate, 5);
-  const applicationRate = numeric(product?.applicationFeeRate, 2);
+  const interestRate = product?.interestRate ?? product?.rate ?? "5.00";
+  const managementRate = product?.managementFeeRate ?? "5.00";
+  const applicationRate = product?.applicationFeeRate ?? "2.00";
 
   const [amount, setAmount] = useState(minAmount);
   const [months, setMonths] = useState(terms.min);
@@ -116,69 +211,10 @@ export default function PublicLoanCalculator({
     setAmount(value);
   }
 
-  const [estimate, setEstimate] = useState({
-    interest: 0,
-    management: 0,
-    applicationFee: 0,
-    total: 0,
-    totalCostIncludingApplicationFee: 0,
-    firstInstallment: 0,
-    lastInstallment: 0,
-  });
-  const [quoteLoading, setQuoteLoading] = useState(false);
-  const [quoteError, setQuoteError] = useState("");
-
-  useEffect(() => {
-    if (
-      !product ||
-      !Number.isFinite(amount) ||
-      amount <= 0 ||
-      !Number.isFinite(months)
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      setQuoteLoading(true);
-      setQuoteError("");
-      try {
-        const quote = await publicApi.calculateLoan({
-          tenantSlug: TENANT_SLUG,
-          loanType: product.loanType || product.title,
-          amount,
-          durationMonths: months,
-        });
-        if (!cancelled) {
-          setEstimate({
-            interest: Number(quote.totalInterest ?? 0),
-            management: Number(quote.totalManagementFee ?? 0),
-            applicationFee: Number(quote.applicationFee ?? 0),
-            total: Number(quote.contractualRepaymentTotal ?? 0),
-            totalCostIncludingApplicationFee: Number(
-              quote.totalCostIncludingApplicationFee ?? 0,
-            ),
-            firstInstallment: Number(quote.firstInstallment ?? 0),
-            lastInstallment: Number(quote.lastInstallment ?? 0),
-          });
-        }
-      } catch (error: any) {
-        if (!cancelled) {
-          setQuoteError(
-            error?.message ||
-              "Unable to obtain the current lender calculation.",
-          );
-        }
-      } finally {
-        if (!cancelled) setQuoteLoading(false);
-      }
-    }, 250);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [product, amount, months]);
+  const estimate = useMemo(
+    () => calculateSchedule(amount, months, interestRate, managementRate),
+    [amount, months, interestRate, managementRate],
+  );
 
   const fmt = (value: number) =>
     value.toLocaleString("en-RW", { maximumFractionDigits: 0 });
@@ -360,7 +396,7 @@ export default function PublicLoanCalculator({
                 </div>
                 <div className="rounded-2xl bg-slate-50 p-4">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Application
+                    Processing
                   </div>
                   <div className="mt-1 text-sm font-black text-slate-900">
                     {applicationRate}% once
@@ -385,9 +421,7 @@ export default function PublicLoanCalculator({
                 First scheduled installment
               </div>
               <div className="mt-1 text-4xl font-black tracking-tight text-white">
-                {quoteLoading
-                  ? "Calculating…"
-                  : `${currency} ${fmt(estimate.firstInstallment)}`}
+                {currency} {fmt(estimate.firstInstallment)}
               </div>
               <div className="mt-1 text-xs text-white/60">
                 The installment normally reduces as principal declines.
@@ -419,7 +453,7 @@ export default function PublicLoanCalculator({
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white/60">Processing fee</span>
                   <strong className="text-white">
-                    {currency} {fmt(estimate.applicationFee)}
+                    {currency} {fmt(percentageCharge(amount, applicationRate))}
                   </strong>
                 </div>
                 <div className="flex items-center justify-between text-sm">
@@ -447,17 +481,6 @@ export default function PublicLoanCalculator({
               >
                 Start application
               </Link>
-
-              {quoteError && (
-                <div className="mt-4 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-center text-[11px] leading-4 text-white/70">
-                  {quoteError}
-                </div>
-              )}
-
-              <div className="mt-3 text-center text-[10px] text-white/50">
-                Total cost including the one-time application fee: {currency}{" "}
-                {fmt(estimate.totalCostIncludingApplicationFee)}
-              </div>
 
               <div className="mt-4 text-center text-[10px] leading-4 text-white/50">
                 Indicative only. The final agreement, eligibility, fees and

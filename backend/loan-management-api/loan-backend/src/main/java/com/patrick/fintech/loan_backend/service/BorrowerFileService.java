@@ -228,7 +228,7 @@ public class BorrowerFileService {
 
         if (existing.getVerificationStatus() == VerificationStatus.VERIFIED) {
             throw new RuntimeException(
-                    "A verified document cannot be replaced unless staff explicitly requests a new document.");
+                    "A verified document cannot be replaced by the applicant. A new replacement request must be created by staff.");
         }
 
         DocumentType effectiveType = documentType != null

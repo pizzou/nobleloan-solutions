@@ -84,6 +84,14 @@ public class BnrSummaryReport {
     @JsonProperty("totalOutstanding")
     private BigDecimal totalOutstanding;
 
+    /**
+     * Total gross receivables = principal + accrued interest + outstanding fees.
+     * Kept separate from totalOutstanding so the headline portfolio balance
+     * remains directly reconcilable with the loan portfolio and GL 1100.
+     */
+    @JsonProperty("totalReceivables")
+    private BigDecimal totalReceivables;
+
     @JsonProperty("totalPrincipalCollected")
     private BigDecimal totalPrincipalCollected;
 

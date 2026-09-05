@@ -744,6 +744,7 @@ public class FinancialReconciliationService {
                 && status != LoanStatus.PAID
                 && status != LoanStatus.CLOSED
                 && status != LoanStatus.PENDING
+                && status != LoanStatus.APPROVED
                 && status != LoanStatus.UNDER_REVIEW
                 && status != LoanStatus.REJECTED
                 && status != LoanStatus.CANCELLED;
