@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import org.springframework.core.io.ClassPathResource;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -77,7 +78,9 @@ public class BnrTemplateExportService {
                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
 
             configureWorkbook(workbook);
+            removeExternalTemplateLinks(workbook);
             populateMetadata(workbook, organizationId, branchId, period, window, loans);
+            populateClassificationMetadata(workbook, organizationId, branchId, window[1], loans);
 
             Map<String, List<Loan>> classified = classifyLoans(loans);
 
@@ -160,63 +163,18 @@ public class BnrTemplateExportService {
     }
 
     private XSSFWorkbook buildBnrWorkbook() {
-
-        XSSFWorkbook workbook = new XSSFWorkbook();
-
-        createExplanatoryNoteSheet(workbook);
-        createFinancialStatementSheet(workbook);
-
-        createClassificationSheet(
-                workbook,
-                "A1.3. Normal Loans",
-                "NORMAL",
-                "Loan Classification Report (NORMAL)",
-                10,
-                normalHeaders());
-
-        createClassificationSheet(
-                workbook,
-                "A1.4. Watch",
-                "WATCH",
-                "Loan Classification Report (WATCH)",
-                10,
-                normalHeaders());
-
-        createClassificationSheet(
-                workbook,
-                "A1.5. Substandard",
-                "SUBSTANDARD",
-                "Loan Classification Report (SUBSTANDARD)",
-                10,
-                substandardHeaders());
-
-        createClassificationSheet(
-                workbook,
-                "A1.6. Doubtful",
-                "DOUBTFUL",
-                "Loan Classification Report (DOUBTFUL)",
-                9,
-                normalHeaders());
-
-        createClassificationSheet(
-                workbook,
-                "A1.7 Loss",
-                "LOSS",
-                "Loan Classification Report (LOSS)",
-                9,
-                normalHeaders());
-
-        createClassificationSheet(
-                workbook,
-                "A1.8. Restructured loans",
-                "RESTRUCTURED",
-                "M.V.Loan Classification Report",
-                9,
-                restructuredHeaders());
-
-        createWrittenOffSheet(workbook);
-
-        return workbook;
+        // The supplied BNR workbook is the regulatory presentation template.
+        // Loading it instead of recreating the workbook in Java preserves the
+        // official sheet names, column widths, merged cells, fonts, colours,
+        // formulas, print settings and table layout.
+        ClassPathResource resource = new ClassPathResource("BNR_REPORTING_NEW_TEMPLATES.xlsx");
+        try (InputStream input = resource.getInputStream()) {
+            return new XSSFWorkbook(input);
+        } catch (IOException ex) {
+            throw new IllegalStateException(
+                    "BNR reporting template is missing or cannot be read: BNR_REPORTING_NEW_TEMPLATES.xlsx",
+                    ex);
+        }
     }
 
     private void createExplanatoryNoteSheet(XSSFWorkbook workbook) {
@@ -786,6 +744,72 @@ public class BnrTemplateExportService {
         }
     }
 
+    private void removeExternalTemplateLinks(XSSFWorkbook workbook) {
+        // The supplied workbook contains legacy formulas such as
+        // =[1]M.0.GInfo!B2. They are not valid references in a generated
+        // standalone regulatory submission. Clear only those external-link
+        // cells; formulas that are internal to this workbook are retained.
+        for (Sheet sheet : workbook) {
+            for (Row row : sheet) {
+                for (Cell cell : row) {
+                    if (cell.getCellType() == CellType.FORMULA) {
+                        String formula = cell.getCellFormula();
+                        if (formula.contains("[") && formula.contains("]")) {
+                            cell.setBlank();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void populateClassificationMetadata(
+            XSSFWorkbook workbook,
+            Long organizationId,
+            Long branchId,
+            LocalDate reportDate,
+            List<Loan> loans) {
+
+        String institutionName = "";
+        if (loans != null) {
+            institutionName = loans.stream()
+                    .filter(Objects::nonNull)
+                    .map(Loan::getOrganization)
+                    .filter(Objects::nonNull)
+                    .map(o -> o.getName())
+                    .filter(Objects::nonNull)
+                    .filter(v -> !v.isBlank())
+                    .findFirst()
+                    .orElse("");
+        }
+
+        for (String sheetName : CLASSIFICATION_SHEETS) {
+            Sheet sheet = workbook.getSheet(sheetName);
+            if (sheet == null) continue;
+
+            setCellValue(sheet, 2, 0, institutionName);
+            setCellValue(sheet, 3, 0, reportDate);
+            if (branchId != null) {
+                String branch = loans == null ? "" : loans.stream()
+                        .filter(Objects::nonNull)
+                        .map(Loan::getBranch)
+                        .filter(Objects::nonNull)
+                        .map(b -> b.getName())
+                        .filter(Objects::nonNull)
+                        .filter(v -> !v.isBlank())
+                        .findFirst()
+                        .orElse("");
+                setCellValue(sheet, 1, 7, branch);
+            }
+        }
+
+        Sheet writtenOff = workbook.getSheet("A1.9. Written off");
+        if (writtenOff != null) {
+            setCellValue(writtenOff, 2, 0, institutionName);
+            setCellValue(writtenOff, 3, 0, reportDate);
+        }
+    }
+
     private void writeLoanSheet(
             Sheet sheet,
             List<Loan> loans,
@@ -1130,7 +1154,7 @@ public class BnrTemplateExportService {
                 blankIfNull(loan.getCollateralDescription()),
                 collateral,
                 borrower == null ? null : borrower.getCity(),
-                null,
+                bnrEconomicSectorCode(loan.getPurpose()),
                 null,
                 null,
                 money(loan.getInterestRateDecimal() == null
@@ -1158,6 +1182,29 @@ public class BnrTemplateExportService {
                 loan.getStatus() == LoanStatus.WRITTEN_OFF
                         ? (loan.getDisbursedAt() == null ? loan.getStartDate() : loan.getDisbursedAt().toLocalDate())
                         : null);
+    }
+
+    private String bnrEconomicSectorCode(String purpose) {
+        if (purpose == null || purpose.isBlank()) {
+            return "0001";
+        }
+        String p = normalize(purpose);
+        if (contains(p, "agriculture") || contains(p, "farming") || contains(p, "coffee")
+                || contains(p, "tea") || contains(p, "livestock") || contains(p, "fishing")
+                || contains(p, "forestry")) return "1000";
+        if (contains(p, "mining") || contains(p, "quarry")) return "2000";
+        if (contains(p, "manufactur") || contains(p, "factory") || contains(p, "processing")) return "3000";
+        if (contains(p, "electricity") || contains(p, "energy") || contains(p, "water")) return "4000";
+        if (contains(p, "construction") || contains(p, "building") || contains(p, "house")
+                || contains(p, "public works")) return "5000";
+        if (contains(p, "trade") || contains(p, "commerce") || contains(p, "restaurant")
+                || contains(p, "hotel") || contains(p, "shop") || contains(p, "retail")) return "6000";
+        if (contains(p, "transport") || contains(p, "warehouse") || contains(p, "communication")
+                || contains(p, "logistics")) return "7000";
+        if (contains(p, "finance") || contains(p, "insurance") || contains(p, "financial")) return "8000";
+        if (contains(p, "education") || contains(p, "health") || contains(p, "professional")
+                || contains(p, "service") || contains(p, "administration")) return "9000";
+        return "0001";
     }
 
     private BigDecimal eligibleCollateral(
@@ -1319,14 +1366,19 @@ public class BnrTemplateExportService {
     }
 
     private String classificationLabel(String classification) {
+        // BNR classification codification supplied with the regulator
+        // template: 1 Normal, 2 Watch, 3 Substandard, 4 Doubtful,
+        // 5 Loss, 6 Written Off. Restructured loans remain on the
+        // dedicated restructured sheet and carry their underlying
+        // performance class.
         return switch (classification) {
-            case "NORMAL" -> "NORMAL";
-            case "WATCH" -> "WATCH";
-            case "SUBSTANDARD" -> "SUBSTANDARD";
-            case "DOUBTFUL" -> "DOUBTFUL";
-            case "LOSS" -> "LOSS";
-            case "RESTRUCTURED" -> "RESTRUCTURED";
-            default -> classification;
+            case "NORMAL" -> "1";
+            case "WATCH" -> "2";
+            case "SUBSTANDARD" -> "3";
+            case "DOUBTFUL" -> "4";
+            case "LOSS" -> "5";
+            case "RESTRUCTURED" -> "1";
+            default -> "1";
         };
     }
 

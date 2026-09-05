@@ -22,6 +22,7 @@ import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.springframework.stereotype.Service;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
@@ -156,32 +157,23 @@ public class CreditBureauRegulatoryExportService {
         LocalDate reportDate = to != null ? to : LocalDate.now();
         List<Loan> loans = loadLoans(organizationId, branchId, borrowerId, from, to, reportDate);
 
-        try (XSSFWorkbook workbook = new XSSFWorkbook();
+        try (XSSFWorkbook workbook = loadCrbTemplate();
                 ByteArrayOutputStream output = new ByteArrayOutputStream(128 * 1024)) {
 
+            // The supplied CRB workbook is the regulatory submission template.
+            // Never rebuild its headers/styles in Java: the template controls
+            // mandatory-field colours, column order, wording and workbook layout.
+            clearTemplateDataRows(workbook);
+
+            Sheet consumer = workbook.getSheet("Consumer");
+            Sheet corporate = workbook.getSheet("Corporate");
+            Sheet shareholders = workbook.getSheet("Shareholders");
+            Sheet directors = workbook.getSheet("Directors");
+            Sheet guarantors = workbook.getSheet("Guarantors");
+            Sheet collateral = workbook.getSheet("Collateral");
+            Sheet bounced = workbook.getSheet("Bounced Cheques");
+
             Styles styles = new Styles(workbook);
-
-            Sheet consumer = workbook.createSheet("Consumer");
-            Sheet corporate = workbook.createSheet("Corporate");
-            Sheet shareholders = workbook.createSheet("Shareholders");
-            Sheet directors = workbook.createSheet("Directors");
-            Sheet guarantors = workbook.createSheet("Guarantors");
-            Sheet collateral = workbook.createSheet("Collateral");
-            Sheet bounced = workbook.createSheet("Bounced Cheques");
-
-            createHeader(consumer, CONSUMER_HEADERS, styles);
-            createHeader(corporate, CORPORATE_HEADERS, styles);
-            createHeader(shareholders, SHAREHOLDER_HEADERS, styles);
-            createHeader(directors, DIRECTOR_HEADERS, styles);
-            createHeader(guarantors, GUARANTOR_HEADERS, styles);
-            createHeader(collateral, COLLATERAL_HEADERS, styles);
-            createHeader(bounced, BOUNCED_CHEQUE_HEADERS, styles);
-
-            // The supplied workbook is a seven-sheet submission structure.
-            // Noble Loan currently has individual Borrower records and does
-            // not have separate corporate/shareholder/director/bounced-cheque
-            // entities. Those sheets therefore remain structurally present but
-            // contain no fabricated rows.
             Map<Long, List<Payment>> paymentCache = new HashMap<>();
             Map<Long, List<Guarantor>> guarantorCache = new HashMap<>();
             Map<Long, List<Collateral>> collateralCache = new HashMap<>();
@@ -199,61 +191,92 @@ public class CreditBureauRegulatoryExportService {
                 List<Payment> payments = paymentCache.computeIfAbsent(
                         loan.getId(), id -> safePayments(id, loan));
 
-                writeConsumerRow(
-                        consumer.createRow(consumerRow++),
-                        loan,
-                        borrower,
-                        payments,
-                        reportDate,
-                        styles);
+                Row consumerDataRow = getOrCreateStyledRow(consumer, consumerRow++, 1);
+                writeConsumerRow(consumerDataRow, loan, borrower, payments, reportDate, styles);
 
                 List<Guarantor> guarantorsForLoan = guarantorCache.computeIfAbsent(
                         loan.getId(), id -> safeGuarantors(id));
                 for (Guarantor guarantor : guarantorsForLoan) {
-                    if (guarantor == null) {
-                        continue;
-                    }
+                    if (guarantor == null) continue;
                     writeGuarantorRow(
-                            guarantors.createRow(guarantorRow++),
-                            loan,
-                            guarantor,
-                            styles);
+                            getOrCreateStyledRow(guarantors, guarantorRow++, 1),
+                            loan, guarantor, styles);
                 }
 
                 List<Collateral> collateralsForLoan = collateralCache.computeIfAbsent(
                         loan.getId(), id -> safeCollaterals(id));
                 if (collateralsForLoan.isEmpty() && hasLoanCollateral(loan)) {
                     writeLoanCollateralFallback(
-                            collateral.createRow(collateralRow++),
-                            loan,
-                            styles);
+                            getOrCreateStyledRow(collateral, collateralRow++, 1),
+                            loan, styles);
                 } else {
                     for (Collateral item : collateralsForLoan) {
-                        if (item == null) {
-                            continue;
-                        }
+                        if (item == null) continue;
                         writeCollateralRow(
-                                collateral.createRow(collateralRow++),
-                                loan,
-                                item,
-                                styles);
+                                getOrCreateStyledRow(collateral, collateralRow++, 1),
+                                loan, item, styles);
                     }
                 }
             }
 
-            finishSheet(consumer, CONSUMER_HEADERS.length);
-            finishSheet(corporate, CORPORATE_HEADERS.length);
-            finishSheet(shareholders, SHAREHOLDER_HEADERS.length);
-            finishSheet(directors, DIRECTOR_HEADERS.length);
-            finishSheet(guarantors, GUARANTOR_HEADERS.length);
-            finishSheet(collateral, COLLATERAL_HEADERS.length);
-            finishSheet(bounced, BOUNCED_CHEQUE_HEADERS.length);
-
+            // Keep the exact supplied template layout. The exporter does not
+            // resize columns, rebuild headers or add non-template worksheets.
+            workbook.getProperties().getCoreProperties().setCreator("Noble Loan Solutions");
+            workbook.getProperties().getCoreProperties().setTitle("Credit Bureau Regulatory Report");
+            workbook.getProperties().getCoreProperties().setDescription(
+                    "Credit Bureau regulatory submission generated from Noble Loan operational data");
             workbook.write(output);
             return output.toByteArray();
         } catch (IOException e) {
             throw new IllegalStateException("Unable to generate CRB regulatory Excel workbook", e);
         }
+    }
+
+    private XSSFWorkbook loadCrbTemplate() throws IOException {
+        ClassPathResource resource = new ClassPathResource("creditbureau_report_template.xlsx");
+        if (!resource.exists()) {
+            throw new IllegalStateException(
+                    "Credit Bureau reporting template is missing: creditbureau_report_template.xlsx");
+        }
+        try (var input = resource.getInputStream()) {
+            return new XSSFWorkbook(input);
+        }
+    }
+
+    private void clearTemplateDataRows(XSSFWorkbook workbook) {
+        for (String sheetName : List.of(
+                "Consumer", "Corporate", "Shareholders", "Directors",
+                "Guarantors", "Collateral", "Bounced Cheques")) {
+            Sheet sheet = workbook.getSheet(sheetName);
+            if (sheet == null) continue;
+            for (int r = 1; r <= sheet.getLastRowNum(); r++) {
+                Row row = sheet.getRow(r);
+                if (row == null) continue;
+                for (int c = 0; c < sheet.getRow(0).getLastCellNum(); c++) {
+                    Cell cell = row.getCell(c, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+                    cell.setBlank();
+                }
+            }
+        }
+    }
+
+    private Row getOrCreateStyledRow(Sheet sheet, int rowIndex, int styleSourceRowIndex) {
+        Row row = sheet.getRow(rowIndex);
+        if (row == null) row = sheet.createRow(rowIndex);
+
+        Row source = sheet.getRow(styleSourceRowIndex);
+        if (source != null) {
+            short lastCell = source.getLastCellNum();
+            if (lastCell > 0) {
+                for (int c = 0; c < lastCell; c++) {
+                    Cell sourceCell = source.getCell(c);
+                    if (sourceCell == null) continue;
+                    Cell targetCell = row.getCell(c, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+                    targetCell.setCellStyle(sourceCell.getCellStyle());
+                }
+            }
+        }
+        return row;
     }
 
     private List<Loan> loadLoans(
@@ -499,7 +522,9 @@ public class CreditBureauRegulatoryExportService {
             if (values[i] != null) {
                 cell.setCellValue(values[i]);
             }
-            cell.setCellStyle(style);
+            if (cell.getCellStyle().getIndex() == 0 && style != null) {
+                cell.setCellStyle(style);
+            }
         }
     }
 
@@ -512,7 +537,12 @@ public class CreditBureauRegulatoryExportService {
             cell = row.createCell(column);
         }
         cell.setCellValue(value.doubleValue());
-        cell.setCellStyle(style);
+        // Preserve the template's font/borders/alignment and only apply the
+        // numeric format required by the CRB field.
+        CellStyle numericStyle = row.getSheet().getWorkbook().createCellStyle();
+        numericStyle.cloneStyleFrom(cell.getCellStyle());
+        numericStyle.setDataFormat(style.getDataFormat());
+        cell.setCellStyle(numericStyle);
     }
 
     private String date(LocalDate value) {
