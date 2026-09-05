@@ -94,7 +94,7 @@ export const useTenant = () => useContext(TenantCtx);
    API
    ============================================================ */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+const API_BASE = "/api";
 
 /* ============================================================
    BRAND COLORS
@@ -138,8 +138,8 @@ function NobleLogo({
       {/* Shield */}
       <svg
         viewBox="0 0 90 100"
-        width="46"
-        height="51"
+        width="52"
+        height="58"
         role="img"
         aria-label="Noble Loan Solutions logo"
         className="flex-shrink-0"
@@ -197,7 +197,7 @@ function NobleLogo({
             className="font-bold tracking-[0.08em]"
             style={{
               color: BRAND_NAVY,
-              fontSize: "18px",
+              fontSize: "20px",
             }}
           >
             NOBLE
@@ -207,7 +207,7 @@ function NobleLogo({
             className="font-light tracking-[0.04em]"
             style={{
               color: BRAND_NAVY,
-              fontSize: "12px",
+              fontSize: "14px",
             }}
           >
             LOAN SOLUTIONS
@@ -217,7 +217,7 @@ function NobleLogo({
             className="mt-1 font-semibold uppercase tracking-[0.18em]"
             style={{
               color: BRAND_GOLD_DARK,
-              fontSize: "6px",
+              fontSize: "7px",
             }}
           >
             Financial Support Partner

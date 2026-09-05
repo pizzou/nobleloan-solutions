@@ -125,7 +125,7 @@ export default function HomePage() {
             backgroundSize: "auto,auto,42px 42px,42px 42px",
           }}
         />
-        <div className="relative mx-auto grid max-w-7xl gap-8 px-5 py-8 sm:px-8 sm:py-10 lg:min-h-[calc(100vh-112px)] lg:grid-cols-[1fr_1fr] lg:items-center lg:gap-12 lg:py-10 xl:grid-cols-[.96fr_1.04fr]">
+        <div className="relative mx-auto grid max-w-7xl gap-7 px-5 py-8 sm:px-8 sm:py-10 lg:grid-cols-[1.03fr_.97fr] lg:items-center lg:gap-10 lg:py-12">
           <div className="text-white">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[.07] px-4 py-2 text-[10px] font-black uppercase tracking-[.18em] text-white/80 backdrop-blur">
               <span
@@ -134,17 +134,17 @@ export default function HomePage() {
               />
               {tenant.name}
             </div>
-            <h1 className="mt-5 max-w-3xl text-4xl font-black leading-[1.01] tracking-[-.045em] sm:text-5xl lg:text-[4rem] xl:text-[4.35rem]">
+            <h1 className="mt-4 max-w-3xl text-4xl font-black leading-[1.02] tracking-[-.045em] sm:text-5xl lg:text-[4.45rem]">
               {tenant.hero?.headline ||
                 tenant.tagline ||
                 "Finance built around your next step."}
             </h1>
-            <p className="mt-5 max-w-2xl text-base leading-7 text-white/70 sm:text-lg">
+            <p className="mt-4 max-w-2xl text-base leading-7 text-white/70 sm:text-lg">
               {tenant.hero?.subtext ||
                 tenant.mission ||
                 "Clear, responsible lending with transparent terms and a straightforward digital application journey."}
             </p>
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/apply"
                 className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-6 py-3.5 text-sm font-black shadow-2xl transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-slate-950"
@@ -181,14 +181,14 @@ export default function HomePage() {
               ))}
             </div>
           </div>
-          <div className="relative lg:pl-0">
+          <div className="relative lg:pl-4">
             <div
               className="pointer-events-none absolute -inset-5 rounded-[40px] opacity-25 blur-3xl"
               style={{ backgroundColor: accent }}
               aria-hidden="true"
             />
-            <div className="relative overflow-hidden rounded-[30px] border border-white/10 bg-white p-1.5 shadow-[0_30px_90px_rgba(0,0,0,.30)]">
-              <div className="rounded-[23px] bg-slate-50 p-1">
+            <div className="relative overflow-hidden rounded-[26px] border border-white/10 bg-white p-1.5 shadow-[0_30px_90px_rgba(0,0,0,.30)]">
+              <div className="rounded-[20px] bg-slate-50 p-0.5">
                 <PublicLoanCalculator
                   products={products}
                   currency={tenant.currency}
@@ -197,7 +197,7 @@ export default function HomePage() {
                 />
               </div>
             </div>
-            <div className="relative mt-4 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-[.12em] text-white/40">
+            <div className="relative mt-2 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-[.12em] text-white/40">
               <ShieldIcon className="h-3.5 w-3.5" />
               Indicative calculation · subject to assessment and approval
             </div>
