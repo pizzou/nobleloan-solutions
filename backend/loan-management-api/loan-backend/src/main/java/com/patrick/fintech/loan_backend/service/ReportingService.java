@@ -1071,7 +1071,7 @@ public class ReportingService {
                         String[] legacyHeaders = {
                                         "Loan Reference", "Borrower", "Original Principal",
                                         "Principal Paid", "Interest Paid", "Fees Paid",
-                                        "Penalties Paid", "Total Paid", "Cash Collected Including Processing Fee",
+                                        "Penalties Paid", "Total Paid", "Cash Collected Including Application Fee ",
                                         "Outstanding Principal", "Source"
                         };
                         setHeader(legacySheet.createRow(0), legacyHeaders, headerStyle);

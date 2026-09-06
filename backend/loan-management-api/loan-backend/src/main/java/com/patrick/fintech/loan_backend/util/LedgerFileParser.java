@@ -342,13 +342,20 @@ public final class LedgerFileParser {
         String duration = cleanCell(cellValue(row.getCell(7), formatter, evaluator));
         String startDate = cleanCell(cellValue(row.getCell(14), formatter, evaluator));
 
-        return !name.isBlank()
+        boolean validIdentityAndAmount = !name.isBlank()
                 && !"TOTAL".equalsIgnoreCase(name)
                 && nationalId.length() >= 8
                 && !phone.isBlank()
                 && isPositiveDecimalLike(amount)
-                && isIntegerInRange(duration, 1, 6)
-                && parseDate(startDate) != null;
+                && isIntegerInRange(duration, 1, 6);
+
+        // Historical monthly portfolio files can omit the start-date cell on
+        // older rows. The fixed positional columns are still sufficiently
+        // distinctive once the row has at least 30 columns. If a date is
+        // present, it must parse; if it is absent, let the import row service
+        // apply the historical fallback date rules.
+        return validIdentityAndAmount
+                && (startDate.isBlank() || parseDate(startDate) != null);
     }
 
     private static Map<String, String> mapMonthlyPortfolioRow(
@@ -649,7 +656,7 @@ public final class LedgerFileParser {
             case "period_of_the_loan", "loan_period", "period_months" -> "duration_months";
             case "disbursement_date", "date_disbursed" -> "start_date";
             case "rate", "monthly_interest_rate" -> "interest_rate";
-            case "application_fee", "applicationfee" -> "application_fee";
+            case "application_fee", "application_fees", "applicationfee", "applicationfees" -> "application_fee";
             case "application_fee_paid", "applicationfee_paid" -> "application_fee_paid";
             case "application_fee_outstanding", "applicationfee_outstanding" -> "application_fee_outstanding";
             default -> normalizeHeader(header);

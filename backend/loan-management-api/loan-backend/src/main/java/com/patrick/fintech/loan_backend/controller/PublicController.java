@@ -1990,7 +1990,7 @@ public class PublicController {
                                                 + "% per month");
 
                 add.accept(
-                                "Processing Fee",
+                                "Application Fee ",
                                 value(
                                                 loan.getCurrency())
                                                 + " "
@@ -1998,7 +1998,7 @@ public class PublicController {
                                                                 loan.getProcessingFeeDecimal()));
 
                 add.accept(
-                                "Processing Fee Paid",
+                                "Application Fee Paid",
                                 value(
                                                 loan.getCurrency())
                                                 + " "
@@ -2106,14 +2106,14 @@ public class PublicController {
                                                 + formatMoney(loan.getAmountDecimal()));
 
                 add.accept(
-                                "Processing Fee (2%)",
+                                "Application Fee  (2%)",
                                 value(loan.getCurrency())
                                                 + " "
                                                 + formatMoney(
                                                                 loan.getProcessingFeeDecimal()));
 
                 add.accept(
-                                "Processing Fee Paid",
+                                "Application Fee Paid",
                                 value(
                                                 loan.getCurrency())
                                                 + " "

@@ -469,13 +469,20 @@ public final class StreamingLedgerFileParser {
             String amount = clean(row.get(4));
             String duration = clean(row.get(7));
             String startDate = clean(row.get(14));
-            return !name.isBlank()
+            boolean validIdentityAndAmount = !name.isBlank()
                     && !"TOTAL".equalsIgnoreCase(name)
                     && nationalId.length() >= 8
                     && !phone.isBlank()
                     && positiveDecimal(amount)
-                    && integerInRange(duration, 1, 6)
-                    && parseDate(startDate) != null;
+                    && integerInRange(duration, 1, 6);
+
+            // Older monthly portfolio rows may omit the start-date cell.
+            // The positional Noble Loan columns remain distinctive because
+            // the row must contain at least 30 columns. When a date is
+            // present, require it to be parseable; when absent, leave it
+            // blank for the row service's historical fallback logic.
+            return validIdentityAndAmount
+                    && (startDate.isBlank() || parseDate(startDate) != null);
         }
 
         private Map<String, String> mapMonthly(Map<Integer, String> row) {
@@ -686,7 +693,7 @@ public final class StreamingLedgerFileParser {
             case "period_of_the_loan", "loan_period", "period_months" -> "duration_months";
             case "disbursement_date", "date_disbursed" -> "start_date";
             case "rate", "monthly_interest_rate" -> "interest_rate";
-            case "application_fee", "applicationfee" -> "application_fee";
+            case "application_fee", "application_fees", "applicationfee", "applicationfees" -> "application_fee";
             case "application_fee_paid", "applicationfee_paid" -> "application_fee_paid";
             case "application_fee_outstanding", "applicationfee_outstanding" -> "application_fee_outstanding";
             default -> normalized;
@@ -887,6 +894,22 @@ public final class StreamingLedgerFileParser {
             } catch (DateTimeParseException ignored) {
             }
         }
+
+        // XLSX streaming can expose an Excel date as its serial number rather
+        // than the display-formatted date. Handle that representation so
+        // layout detection and row mapping remain consistent with the
+        // non-streaming parser.
+        try {
+            BigDecimal serial = new BigDecimal(normalized);
+            if (serial.compareTo(BigDecimal.ONE) >= 0
+                    && serial.compareTo(BigDecimal.valueOf(2958465)) <= 0
+                    && serial.stripTrailingZeros().scale() <= 0) {
+                return LocalDate.of(1899, 12, 30)
+                        .plusDays(serial.longValueExact());
+            }
+        } catch (NumberFormatException | ArithmeticException ignored) {
+        }
+
         return null;
     }
 }

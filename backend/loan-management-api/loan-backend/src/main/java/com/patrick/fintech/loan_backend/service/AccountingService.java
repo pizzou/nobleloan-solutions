@@ -1520,7 +1520,7 @@ public class AccountingService {
                  *
                  * DR Loans Receivable 1,000,000
                  * CR Cash 980,000
-                 * CR Processing Fee Income 20,000
+                 * CR Application Fee  Income 20,000
                  *
                  * This is one balanced journal.
                  *

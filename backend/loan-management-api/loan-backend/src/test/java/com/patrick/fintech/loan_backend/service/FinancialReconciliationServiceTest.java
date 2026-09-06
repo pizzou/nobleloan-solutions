@@ -64,15 +64,6 @@ class FinancialReconciliationServiceTest {
         organization = new Organization();
         organization.setId(1L);
 
-        /*
-         * The production reconciliation service now reads accrued interest
-         * and management-fee receivables from payment schedules.
-         *
-         * Returning an empty list by default keeps tests that do not need
-         * scheduled receivables isolated from that behavior.
-         */
-        when(paymentRepository.findByLoanId(anyLong()))
-                .thenReturn(List.of());
     }
 
     @Test
@@ -642,6 +633,11 @@ class FinancialReconciliationServiceTest {
                 List.of(loanOne, loanTen)
         );
 
+        when(paymentRepository.findByLoanId(1L))
+                .thenReturn(List.of());
+        when(paymentRepository.findByLoanId(10L))
+                .thenReturn(List.of());
+
         var diagnostics = service.diagnoseLoanSubledger(1L);
 
         var loanOneDiagnostic = diagnostics.stream()
@@ -821,6 +817,21 @@ class FinancialReconciliationServiceTest {
         when(
                 loanRepository.findByOrganization_Id(1L)
         ).thenReturn(loans);
+
+        loans.stream()
+                .filter(loan -> loan != null && loan.getId() != null)
+                .filter(loan -> !Boolean.TRUE.equals(loan.getImported())
+                        && loan.getImportBatchId() == null)
+                .filter(loan -> loan.getStatus() == LoanStatus.DISBURSED
+                        || loan.getStatus() == LoanStatus.ACTIVE
+                        || loan.getStatus() == LoanStatus.OVERDUE
+                        || loan.getStatus() == LoanStatus.DEFAULTED
+                        || loan.getStatus() == LoanStatus.RESTRUCTURED
+                        || loan.getStatus() == LoanStatus.WRITTEN_OFF
+                        || loan.getStatus() == LoanStatus.PAID
+                        || loan.getStatus() == LoanStatus.CLOSED)
+                .forEach(loan -> when(paymentRepository.findByLoanId(loan.getId()))
+                        .thenReturn(List.of()));
 
         BigDecimal bnrOutstanding = loans.stream()
                 .filter(loan ->

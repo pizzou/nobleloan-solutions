@@ -279,7 +279,7 @@ class LoanServiceTest {
                 loan.setCurrency("USD");
 
                 when(
-                                loanRepository.findById(1L)).thenReturn(
+                                loanRepository.findByIdForUpdate(1L)).thenReturn(
                                                 Optional.of(loan));
 
                 when(
@@ -361,7 +361,7 @@ class LoanServiceTest {
                 loan.setBorrower(borrower);
 
                 when(
-                                loanRepository.findById(1L)).thenReturn(
+                                loanRepository.findByIdForUpdate(1L)).thenReturn(
                                                 Optional.of(loan));
 
                 assertThatThrownBy(
