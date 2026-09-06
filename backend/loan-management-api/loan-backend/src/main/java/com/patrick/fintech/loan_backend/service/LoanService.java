@@ -1096,27 +1096,51 @@ public class LoanService {
 
                 validateLoanDuration(durationMonths);
 
-                ContractualTotals contractualTotals = calculateContractualTotals(
-                                principal,
-                                interestRate,
-                                managementFeeRate,
-                                durationMonths);
+                // ============================================================
+                // CONTRACTUAL FINANCIAL RECONCILIATION
+                // ============================================================
+                // Approval must produce a database-valid financial snapshot in
+                // the SAME transaction/save that changes the status to APPROVED.
+                // The database constraints require:
+                //   totalInterest = interestPaid + interestOutstanding
+                //   managementFee = managementFeePaid + managementFeeOutstanding
+                // Therefore the unpaid contractual charges must be placed in the
+                // corresponding outstanding buckets at approval.
+                //
+                // The amounts are calculated from the declining outstanding
+                // principal, never from a flat original-principal calculation.
+                BigDecimal contractualTotalInterest = ZERO;
+                BigDecimal contractualTotalManagementFee = ZERO;
+                BigDecimal contractualBalance = principal;
 
-                // Keep the aggregate loan row internally reconciled before the
-                // approval UPDATE reaches PostgreSQL. The database constraint
-                // intentionally requires paid + outstanding = contractual total.
-                // Approval has not collected any recurring charge yet, so the
-                // complete contractual interest/management-fee totals are
-                // initially outstanding.
-                loan.setTotalInterest(contractualTotals.interest());
+                for (int i = 1; i <= durationMonths; i++) {
+                        FinancialPolicy.ScheduleLine line = FinancialPolicy.contractualScheduleLine(
+                                        contractualBalance,
+                                        durationMonths - i + 1,
+                                        interestRate,
+                                        managementFeeRate);
+
+                        contractualTotalInterest = money(
+                                        contractualTotalInterest.add(line.interest()));
+                        contractualTotalManagementFee = money(
+                                        contractualTotalManagementFee.add(line.managementFee()));
+                        contractualBalance = money(line.remainingBalance());
+                }
+
                 loan.setInterestPaid(ZERO);
-                loan.setInterestOutstanding(contractualTotals.interest());
+                loan.setTotalInterest(contractualTotalInterest);
+                loan.setInterestOutstanding(contractualTotalInterest);
 
-                loan.setManagementFee(contractualTotals.managementFee());
                 loan.setManagementFeePaid(ZERO);
-                loan.setManagementFeeOutstanding(contractualTotals.managementFee());
+                loan.setManagementFee(contractualTotalManagementFee);
+                loan.setManagementFeeOutstanding(contractualTotalManagementFee);
 
-                loan.setTotalRepayable(contractualTotals.totalRepayable());
+                loan.setApplicationFeePaid(ZERO);
+                loan.setTotalRepayable(
+                                money(
+                                                principal
+                                                                .add(contractualTotalInterest)
+                                                                .add(contractualTotalManagementFee)));
 
                 loan.setRequestedAmount(requestedAmount);
                 loan.setAmount(principal);
@@ -2436,31 +2460,9 @@ public class LoanService {
                         changed = true;
                 }
 
-                // Database reconciliation requires the aggregate outstanding
-                // amount to equal contractual total less amounts already paid.
-                BigDecimal interestOutstanding = money(
-                                normalizedInterest
-                                                .subtract(moneyValue(loan.getInterestPaidDecimal()))
-                                                .max(ZERO));
-                if (moneyValue(loan.getInterestOutstandingDecimal())
-                                .compareTo(interestOutstanding) != 0) {
-                        loan.setInterestOutstanding(interestOutstanding);
-                        changed = true;
-                }
-
                 if (moneyValue(loan.getManagementFeeDecimal())
                                 .compareTo(normalizedManagementFee) != 0) {
                         loan.setManagementFee(normalizedManagementFee);
-                        changed = true;
-                }
-
-                BigDecimal managementFeeOutstanding = money(
-                                normalizedManagementFee
-                                                .subtract(moneyValue(loan.getManagementFeePaidDecimal()))
-                                                .max(ZERO));
-                if (moneyValue(loan.getManagementFeeOutstandingDecimal())
-                                .compareTo(managementFeeOutstanding) != 0) {
-                        loan.setManagementFeeOutstanding(managementFeeOutstanding);
                         changed = true;
                 }
 
@@ -2866,14 +2868,8 @@ public class LoanService {
                 loan.setManagementFeePaid(
                                 ZERO);
 
-                loan.setManagementFeeOutstanding(
-                                accumulatedManagementFee);
-
                 loan.setInterestPaid(
                                 ZERO);
-
-                loan.setInterestOutstanding(
-                                accumulatedInterest);
 
                 // Approval/schedule generation happens before disbursement.
                 // The one-time application fee is therefore still unpaid here.
@@ -2951,7 +2947,7 @@ public class LoanService {
          * declining-balance principal, monthly interest and monthly management
          * fee. It intentionally excludes the one-time application fee.
          */
-        private ContractualTotals calculateContractualTotals(
+        private BigDecimal calculateContractualTotalRepayable(
                         BigDecimal principal,
                         BigDecimal monthlyInterestRate,
                         BigDecimal monthlyManagementFeeRate,
@@ -2973,38 +2969,10 @@ public class LoanService {
                         balance = money(line.remainingBalance());
                 }
 
-                BigDecimal totalRepayable = money(
+                return money(
                                 normalizePrincipal(principal)
                                                 .add(totalInterest)
                                                 .add(totalManagementFee));
-
-                return new ContractualTotals(
-                                totalInterest,
-                                totalManagementFee,
-                                totalRepayable);
-        }
-
-        /**
-         * Backward-compatible helper retained for callers that only need the
-         * contractual principal + recurring charges total.
-         */
-        private BigDecimal calculateContractualTotalRepayable(
-                        BigDecimal principal,
-                        BigDecimal monthlyInterestRate,
-                        BigDecimal monthlyManagementFeeRate,
-                        int months) {
-
-                return calculateContractualTotals(
-                                principal,
-                                monthlyInterestRate,
-                                monthlyManagementFeeRate,
-                                months).totalRepayable();
-        }
-
-        private record ContractualTotals(
-                        BigDecimal interest,
-                        BigDecimal managementFee,
-                        BigDecimal totalRepayable) {
         }
 
         private BigDecimal[] calcLoan(
