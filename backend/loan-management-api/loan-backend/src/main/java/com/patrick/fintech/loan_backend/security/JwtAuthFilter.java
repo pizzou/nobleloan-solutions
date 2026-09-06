@@ -1,73 +1,212 @@
 package com.patrick.fintech.loan_backend.security;
 
-import com.patrick.fintech.loan_backend.config.JwtUtils;
-import com.patrick.fintech.loan_backend.service.CustomUserDetailsService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
-import jakarta.servlet.http.*;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
+
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
+import com.patrick.fintech.loan_backend.config.JwtUtils;
+import com.patrick.fintech.loan_backend.service.CustomUserDetailsService;
 import org.springframework.web.filter.OncePerRequestFilter;
+
 import java.io.IOException;
 
-/**
- * JWT authentication filter — reads Bearer token from Authorization header,
- * validates it, and sets Spring Security context.
- */
 @Component
+@Slf4j
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtUtils jwtUtils;
     private final CustomUserDetailsService userDetailsService;
 
-    public JwtAuthFilter(JwtUtils jwtUtils, CustomUserDetailsService userDetailsService) {
-        this.jwtUtils         = jwtUtils;
+    public JwtAuthFilter(
+        JwtUtils jwtUtils,
+        CustomUserDetailsService userDetailsService
+    ) {
+        this.jwtUtils = jwtUtils;
         this.userDetailsService = userDetailsService;
     }
 
+    /*
+     * ============================================================
+     * SKIP CORS PREFLIGHT
+     * ============================================================
+     *
+     * OPTIONS requests are handled by Spring Security CORS.
+     * JWT authentication must never interfere with them.
+     */
     @Override
-    protected void doFilterInternal(HttpServletRequest request,
-                                    HttpServletResponse response,
-                                    FilterChain filterChain)
-            throws ServletException, IOException {
+    protected boolean shouldNotFilter(HttpServletRequest request) {
 
-        String header = request.getHeader("Authorization");
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
 
-        if (header != null && header.startsWith("Bearer ")) {
-            String token = header.substring(7);
-            try {
-                if (jwtUtils.validateToken(token)) {
+        return false;
+    }
 
-                    // A setup-scoped token (issued when a role requiring MFA logs in but
-                    // hasn't enrolled yet) can ONLY reach the MFA setup endpoints — this is
-                    // what makes MFA for those roles actually mandatory rather than a
-                    // suggestion: there is no way to get a real session token without
-                    // finishing enrollment first.
-                    if (jwtUtils.isSetupToken(token) && !request.getRequestURI().startsWith("/api/mfa")) {
-                        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                        response.setContentType("application/json");
-                        response.getWriter().write(
-                            "{\"success\":false,\"error\":\"Complete MFA setup before accessing this — see /api/mfa/setup\"}");
-                        return;
-                    }
+    @Override
+    protected void doFilterInternal(
+        HttpServletRequest request,
+        HttpServletResponse response,
+        FilterChain filterChain
+    ) throws ServletException, IOException {
 
-                    String email = jwtUtils.getEmailFromToken(token);
-                    UserDetails ud = userDetailsService.loadUserByUsername(email);
-                    UsernamePasswordAuthenticationToken auth =
-                        new UsernamePasswordAuthenticationToken(ud, null, ud.getAuthorities());
-                    auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                    SecurityContextHolder.getContext().setAuthentication(auth);
-                }
-            } catch (Exception e) {
-                // Expected in normal operation — e.g. a token issued before a user changed
-                // their email no longer matches anyone, or the token simply expired. The
-                // request just proceeds unauthenticated and Spring Security's entry point
-                // above returns a clean 401, which the frontend uses to redirect to login.
-                logger.debug("JWT did not resolve to an active user (token may be stale/expired): " + e.getMessage());
+        /*
+         * If another authentication mechanism has already authenticated
+         * this request, do not overwrite it.
+         */
+        if (SecurityContextHolder
+                .getContext()
+                .getAuthentication() != null) {
+
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        String header =
+            request.getHeader("Authorization");
+
+        /*
+         * No Authorization header.
+         *
+         * This is allowed to continue because Spring Security will decide
+         * later whether the endpoint requires authentication.
+         */
+        if (
+            header == null
+                || header.isBlank()
+                || !header.startsWith("Bearer ")
+        ) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        String token =
+            header.substring(7).trim();
+
+        if (token.isBlank()) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        try {
+
+            /*
+             * Invalid/expired JWT.
+             *
+             * Do not generate a custom 403 here.
+             * Leave the request unauthenticated so Spring Security's
+             * AuthenticationEntryPoint can return the standard 401.
+             */
+            if (!jwtUtils.validateToken(token)) {
+
+                log.debug(
+                    "JWT validation failed for request {} {}",
+                    request.getMethod(),
+                    request.getRequestURI()
+                );
+
+                filterChain.doFilter(request, response);
+                return;
             }
+
+            /*
+             * ========================================================
+             * MFA SETUP TOKEN
+             * ========================================================
+             */
+            if (
+                jwtUtils.isSetupToken(token)
+                    && !request
+                        .getRequestURI()
+                        .startsWith("/api/mfa")
+            ) {
+
+                response.setStatus(
+                    HttpServletResponse.SC_FORBIDDEN
+                );
+
+                response.setContentType(
+                    "application/json"
+                );
+
+                response.setCharacterEncoding("UTF-8");
+
+                response.getWriter().write(
+                    """
+                    {
+                      "success": false,
+                      "error": "Complete MFA setup before accessing this resource."
+                    }
+                    """
+                );
+
+                return;
+            }
+
+            /*
+             * ========================================================
+             * LOAD USER
+             * ========================================================
+             */
+            String email =
+                jwtUtils.getEmailFromToken(token);
+
+            if (email == null || email.isBlank()) {
+
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            UserDetails userDetails =
+                userDetailsService.loadUserByUsername(email);
+
+            /*
+             * ========================================================
+             * AUTHENTICATION
+             * ========================================================
+             */
+            UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(
+                    userDetails,
+                    null,
+                    userDetails.getAuthorities()
+                );
+
+            authentication.setDetails(
+                new WebAuthenticationDetailsSource()
+                    .buildDetails(request)
+            );
+
+            SecurityContextHolder
+                .getContext()
+                .setAuthentication(authentication);
+
+        } catch (Exception exception) {
+
+            /*
+             * A stale, expired, malformed or otherwise unusable token
+             * must not crash the request or application.
+             *
+             * Spring Security will produce 401 for protected resources.
+             */
+            SecurityContextHolder
+                .clearContext();
+
+            log.debug(
+                "JWT authentication failed for {} {}: {}",
+                request.getMethod(),
+                request.getRequestURI(),
+                exception.getMessage()
+            );
         }
 
         filterChain.doFilter(request, response);
