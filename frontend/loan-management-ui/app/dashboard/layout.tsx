@@ -68,7 +68,7 @@ export default function DashboardLayout({
 
   if (auth.loading) {
     return (
-      <div className="min-h-screen bg-[#F4F7FB] flex items-center justify-center">
+      <div className="min-h-screen bg-[#F4F7FB] flex items-center justify-center bg-[radial-gradient(circle_at_top_right,rgba(244,196,48,0.08),transparent_28rem)]">
         <div className="flex flex-col items-center gap-4">
           {/* Noble logo */}
 
@@ -82,7 +82,9 @@ export default function DashboardLayout({
                 justify-center
                 rounded-2xl
                 bg-[#0B1F3A]
-                shadow-lg
+                shadow-[0_12px_30px_rgba(11,31,58,0.18)]
+                ring-1
+                ring-white/10
               "
             >
               <span className="text-xl font-extrabold text-[#F4C430]">N</span>
@@ -193,11 +195,12 @@ export default function DashboardLayout({
                 h-[72px]
                 border-b
                 border-[#DCE4EF]
-                bg-white/95
+                bg-white/90
+                shadow-[0_1px_0_rgba(255,255,255,0.65),0_8px_30px_rgba(11,31,58,0.035)]
                 backdrop-blur-xl
               "
             >
-              <div className="flex h-full items-center justify-between px-7">
+              <div className="flex h-full items-center justify-between px-5 sm:px-7">
                 {/* =================================================
                     LEFT SIDE
                     ================================================= */}
@@ -312,8 +315,9 @@ export default function DashboardLayout({
                       rounded-xl
                       border
                       border-[#DCE4EF]
-                      bg-white
+                      bg-[#F8FAFC]
                       text-gray-500
+                      shadow-sm
                       transition
                       hover:border-[#C7D5E5]
                       hover:bg-[#EEF3F9]
@@ -420,9 +424,9 @@ export default function DashboardLayout({
                   mx-auto
                   w-full
                   max-w-[1800px]
-                  px-5
-                  py-6
-                  sm:px-7
+                  px-4
+                  py-5
+                  sm:px-6
                   lg:px-8
                   lg:py-7
                 "
@@ -439,7 +443,8 @@ export default function DashboardLayout({
               className="
                 border-t
                 border-[#DCE4EF]
-                bg-white/80
+                bg-white/85
+                shadow-[0_-4px_20px_rgba(11,31,58,0.02)]
                 px-7
                 py-4
               "

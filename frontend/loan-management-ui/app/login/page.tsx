@@ -139,13 +139,13 @@ function LoginInner() {
      ============================================================ */
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex bg-[#F4F7FB]">
       {/* ======================================================
           LEFT BRAND PANEL
           ====================================================== */}
 
       <div
-        className="hidden lg:flex w-1/2 flex-col justify-between px-16 py-12 relative overflow-hidden"
+        className="hidden lg:flex w-1/2 flex-col justify-between px-14 xl:px-20 py-12 relative overflow-hidden"
         style={{
           background: `linear-gradient(
             145deg,
@@ -177,7 +177,7 @@ function LoginInner() {
 
         <Link href="/" className="flex items-center gap-3 relative z-10">
           <div
-            className="w-11 h-11 rounded-xl flex items-center justify-center font-extrabold text-lg shadow-lg"
+            className="w-11 h-11 rounded-2xl flex items-center justify-center font-extrabold text-lg shadow-[0_12px_26px_rgba(0,0,0,0.18)] ring-1 ring-white/10"
             style={{
               backgroundColor: YELLOW,
               color: NAVY,
@@ -211,7 +211,7 @@ function LoginInner() {
             Secure Staff Portal
           </div>
 
-          <h1 className="text-4xl font-extrabold text-white leading-tight mb-6 tracking-tight">
+          <h1 className="text-4xl xl:text-5xl font-extrabold text-white leading-[1.05] mb-6 tracking-[-0.035em]">
             Internal Operations
             <br />
             <span
@@ -223,7 +223,7 @@ function LoginInner() {
             </span>
           </h1>
 
-          <p className="text-white/70 leading-relaxed mb-10 max-w-lg">
+          <p className="text-white/70 leading-7 mb-10 max-w-lg text-[15px]">
             Manage loans, borrowers, payments, KYC/AML compliance, FX rates, and
             reporting for Noble Loan Solutions.
           </p>
@@ -232,7 +232,7 @@ function LoginInner() {
               FEATURES
               ------------------------------------------------ */}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 max-w-xl">
             {[
               "KYC / AML",
               "Multi-factor auth",

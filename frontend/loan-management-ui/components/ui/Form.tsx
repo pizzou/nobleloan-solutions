@@ -1,65 +1,137 @@
-'use client';
-import React from 'react';
+"use client";
+import React from "react";
 
-export function FormGroup({ label, required, hint, error, children }: {
-  label: string; required?: boolean; hint?: string; error?: string; children: React.ReactNode;
+export function FormGroup({
+  label,
+  required,
+  hint,
+  error,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  hint?: string;
+  error?: string;
+  children: React.ReactNode;
 }) {
   return (
     <div className="mb-4">
-      <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wider">
-        {label}{required && <span className="text-red-500 ml-1">*</span>}
+      <label className="mb-1.5 block text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#475569]">
+        {label}
+        {required && <span className="ml-1 text-[#B91C1C]">*</span>}
       </label>
       {children}
-      {hint  && !error && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
-      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+      {hint && !error && (
+        <p className="mt-1.5 text-xs leading-5 text-[#94A3B8]">{hint}</p>
+      )}
+      {error && (
+        <p
+          className="mt-1.5 text-xs font-semibold leading-5 text-[#B91C1C]"
+          role="alert"
+        >
+          {error}
+        </p>
+      )}
     </div>
   );
 }
 
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
-    <input {...props}
-      className={`w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white
-        placeholder:text-gray-400 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20
-        disabled:bg-gray-50 disabled:text-gray-400 transition-colors ${props.className || ''}`} />
+    <input
+      {...props}
+      className={`
+        w-full rounded-xl border border-[#CBD5E1] bg-white px-3.5 py-2.5
+        text-sm font-medium text-[#172033]
+        placeholder:text-[#94A3B8]
+        shadow-[0_1px_2px_rgba(15,23,42,0.03)]
+        transition-[border-color,box-shadow,background-color] duration-150
+        hover:border-[#A8B7C9]
+        focus:border-[#16365F] focus:bg-white focus:outline-none focus:ring-4 focus:ring-[#16365F]/10
+        disabled:cursor-not-allowed disabled:bg-[#F8FAFC] disabled:text-[#94A3B8]
+        ${props.className || ""}
+      `}
+    />
   );
 }
 
-export function Select({ children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select({
+  children,
+  ...props
+}: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select {...props}
-      className={`w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white
-        focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20
-        disabled:bg-gray-50 disabled:text-gray-400 transition-colors cursor-pointer ${props.className || ''}`}>
+    <select
+      {...props}
+      className={`
+        w-full cursor-pointer rounded-xl border border-[#CBD5E1] bg-white px-3.5 py-2.5
+        text-sm font-medium text-[#172033]
+        shadow-[0_1px_2px_rgba(15,23,42,0.03)]
+        transition-[border-color,box-shadow,background-color] duration-150
+        hover:border-[#A8B7C9]
+        focus:border-[#16365F] focus:outline-none focus:ring-4 focus:ring-[#16365F]/10
+        disabled:cursor-not-allowed disabled:bg-[#F8FAFC] disabled:text-[#94A3B8]
+        ${props.className || ""}
+      `}
+    >
       {children}
     </select>
   );
 }
 
-export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea(
+  props: React.TextareaHTMLAttributes<HTMLTextAreaElement>,
+) {
   return (
-    <textarea {...props}
-      className={`w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white
-        placeholder:text-gray-400 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20
-        resize-y min-h-[80px] transition-colors ${props.className || ''}`} />
+    <textarea
+      {...props}
+      className={`
+        min-h-[92px] w-full resize-y rounded-xl border border-[#CBD5E1] bg-white px-3.5 py-2.5
+        text-sm font-medium text-[#172033]
+        placeholder:text-[#94A3B8]
+        shadow-[0_1px_2px_rgba(15,23,42,0.03)]
+        transition-[border-color,box-shadow,background-color] duration-150
+        hover:border-[#A8B7C9]
+        focus:border-[#16365F] focus:bg-white focus:outline-none focus:ring-4 focus:ring-[#16365F]/10
+        disabled:cursor-not-allowed disabled:bg-[#F8FAFC] disabled:text-[#94A3B8]
+        ${props.className || ""}
+      `}
+    />
   );
 }
 
 export function FormRow({ children }: { children: React.ReactNode }) {
-  return <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">{children}</div>;
+  return (
+    <div className="grid grid-cols-1 gap-x-5 sm:grid-cols-2">{children}</div>
+  );
 }
 
-export function Alert({ type = 'error', children }: { type?: 'error' | 'success' | 'warning' | 'info'; children: React.ReactNode }) {
+export function Alert({
+  type = "error",
+  children,
+}: {
+  type?: "error" | "success" | "warning" | "info";
+  children: React.ReactNode;
+}) {
   const styles = {
-    error:   'bg-red-50 border-red-200 text-red-700',
-    success: 'bg-green-50 border-green-200 text-green-700',
-    warning: 'bg-yellow-50 border-yellow-200 text-yellow-700',
-    info:    'bg-blue-50 border-blue-200 text-blue-700',
+    error: "border-[#FECACA] bg-[#FEF2F2] text-[#991B1B]",
+    success: "border-[#BBF7D0] bg-[#F0FDF4] text-[#166534]",
+    warning: "border-[#FDE68A] bg-[#FFFBEB] text-[#92400E]",
+    info: "border-[#BFDBFE] bg-[#EFF6FF] text-[#1E40AF]",
   };
-  const icons = { error: '⚠️', success: '✅', warning: '⚠️', info: 'ℹ️' };
+  const icons = { error: "!", success: "✓", warning: "!", info: "i" };
+
   return (
-    <div className={`flex gap-2 items-start p-3 rounded-lg border text-sm mb-4 ${styles[type]}`}>
-      <span>{icons[type]}</span><span>{children}</span>
+    <div
+      className={`mb-4 flex items-start gap-3 rounded-xl border px-3.5 py-3 text-sm font-medium leading-5 ${styles[type]}`}
+      role={type === "error" ? "alert" : "status"}
+    >
+      <span
+        aria-hidden="true"
+        className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-current text-[11px] font-extrabold"
+      >
+        {icons[type]}
+      </span>
+      <span>{children}</span>
     </div>
   );
 }

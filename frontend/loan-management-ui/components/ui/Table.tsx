@@ -8,8 +8,8 @@ export function Table({
   className?: string;
 }) {
   return (
-    <div className="w-full overflow-x-auto">
-      <table className={`w-full border-collapse text-sm ${className}`}>
+    <div className="w-full overflow-x-auto rounded-[14px] border border-[#E2E8F0]">
+      <table className={`w-full border-collapse bg-white text-sm ${className}`}>
         {children}
       </table>
     </div>
@@ -23,7 +23,7 @@ export function Thead({
   children: React.ReactNode;
   className?: string;
 }) {
-  return <thead className={`bg-gray-50/80 ${className}`}>{children}</thead>;
+  return <thead className={`bg-[#F8FAFC] ${className}`}>{children}</thead>;
 }
 
 export function Th({
@@ -34,7 +34,7 @@ export function Th({
   return (
     <th
       {...props}
-      className={`px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 ${className}`}
+      className={`border-b border-[#E2E8F0] px-4 py-3 text-left text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#64748B] ${className}`}
     >
       {children}
     </th>
@@ -49,7 +49,7 @@ export function Tbody({
   className?: string;
 }) {
   return (
-    <tbody className={`divide-y divide-gray-100 ${className}`}>
+    <tbody className={`divide-y divide-[#EEF2F7] ${className}`}>
       {children}
     </tbody>
   );
@@ -66,8 +66,8 @@ export function Tr({
       {...props}
       onClick={onClick}
       className={`
-        transition-colors
-        ${onClick ? "cursor-pointer hover:bg-gray-50" : ""}
+        transition-colors duration-100
+        ${onClick ? "cursor-pointer hover:bg-[#F8FAFC]" : ""}
         ${className}
       `}
     >
@@ -84,16 +84,12 @@ export function Td({
   return (
     <td
       {...props}
-      className={`px-4 py-4 align-middle text-sm text-gray-700 ${className}`}
+      className={`px-4 py-3.5 align-middle text-sm text-[#334155] ${className}`}
     >
       {children}
     </td>
   );
 }
-
-/* ============================================================
-   EMPTY ROW
-============================================================ */
 
 export function EmptyRow({
   cols = 1,
@@ -106,13 +102,14 @@ export function EmptyRow({
     <tr>
       <td colSpan={cols} className="px-6 py-16 text-center">
         <div className="flex flex-col items-center justify-center">
-          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100">
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC]">
             <svg
-              className="h-6 w-6 text-slate-400"
+              className="h-6 w-6 text-[#94A3B8]"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
               strokeWidth="1.7"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
@@ -124,10 +121,8 @@ export function EmptyRow({
               <path strokeLinecap="round" strokeLinejoin="round" d="M10 21h4" />
             </svg>
           </div>
-
-          <p className="text-sm font-semibold text-slate-600">{message}</p>
-
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="text-sm font-extrabold text-[#475569]">{message}</p>
+          <p className="mt-1 text-xs text-[#94A3B8]">
             Try adjusting your search or add a new borrower.
           </p>
         </div>

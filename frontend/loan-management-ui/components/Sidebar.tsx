@@ -1,28 +1,28 @@
-'use client';
+"use client";
 
-import Image from 'next/image';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import Image from "next/image";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 
-import { useAuth } from '@/hooks/useAuth';
-import { getUnreadCount } from '@/services/notificationsService';
-import { contactMessageApi } from '@/services/api';
+import { useAuth } from "@/hooks/useAuth";
+import { getUnreadCount } from "@/services/notificationsService";
+import { contactMessageApi } from "@/services/api";
 
 /* ============================================================
    NOBLE LOAN SOLUTIONS BRAND
    ============================================================ */
 
-const NAVY = '#0B1F3A';
-const NAVY_LIGHT = '#16365F';
-const NAVY_DARK = '#07152A';
+const NAVY = "#0B1F3A";
+const NAVY_LIGHT = "#16365F";
+const NAVY_DARK = "#07152A";
 
-const YELLOW = '#F4C430';
-const YELLOW_DARK = '#C99A00';
+const YELLOW = "#F4C430";
+const YELLOW_DARK = "#C99A00";
 
-const ACTIVE_BG = 'bg-white/10';
-const ACTIVE_TEXT = 'text-white';
-const ACTIVE_BORDER = 'border-l-2 border-white';
+const ACTIVE_BG = "bg-white/10";
+const ACTIVE_TEXT = "text-white";
+const ACTIVE_BORDER = "border-l-2 border-white";
 
 /* ============================================================
    NAVIGATION TYPES
@@ -47,132 +47,132 @@ type NavSection = {
 
 const NAV_STAFF: NavSection[] = [
   {
-    section: 'Overview',
+    section: "Overview",
 
     items: [
       {
-        href: '/dashboard',
-        icon: '📊',
-        label: 'Dashboard',
+        href: "/dashboard",
+        icon: "📊",
+        label: "Dashboard",
       },
 
       {
-        href: '/dashboard/loans',
-        icon: '💼',
-        label: 'Loan Portfolio',
+        href: "/dashboard/loans",
+        icon: "💼",
+        label: "Loan Portfolio",
       },
 
       {
-        href: '/dashboard/borrowers',
-        icon: '👥',
-        label: 'Borrowers',
+        href: "/dashboard/borrowers",
+        icon: "👥",
+        label: "Borrowers",
       },
 
       {
-        href: '/dashboard/payments',
-        icon: '💳',
-        label: 'Payments',
+        href: "/dashboard/payments",
+        icon: "💳",
+        label: "Payments",
       },
 
       {
-        href: '/dashboard/collections',
-        icon: '📉',
-        label: 'Collections',
+        href: "/dashboard/collections",
+        icon: "📉",
+        label: "Collections",
       },
 
       {
-        href: '/dashboard/notifications',
-        icon: '🔔',
-        label: 'Notifications',
+        href: "/dashboard/notifications",
+        icon: "🔔",
+        label: "Notifications",
       },
 
       {
-        href: '/dashboard/messages',
-        icon: '📬',
-        label: 'Messages',
+        href: "/dashboard/messages",
+        icon: "📬",
+        label: "Messages",
       },
     ],
   },
 
   {
-    section: 'Tools',
+    section: "Tools",
 
     items: [
       {
-        href: '/dashboard/reports',
-        icon: '📈',
-        label: 'Reports',
+        href: "/dashboard/reports",
+        icon: "📈",
+        label: "Reports",
       },
 
       {
-        href: '/dashboard/documents',
-        icon: '🗂️',
-        label: 'Internal Documents',
+        href: "/dashboard/documents",
+        icon: "🗂️",
+        label: "Internal Documents",
       },
 
       {
-        href: '/dashboard/currencies',
-        icon: '💱',
-        label: 'FX Rates',
+        href: "/dashboard/currencies",
+        icon: "💱",
+        label: "FX Rates",
       },
 
       {
-        href: '/dashboard/webhooks',
-        icon: '🔗',
-        label: 'Webhooks',
+        href: "/dashboard/webhooks",
+        icon: "🔗",
+        label: "Webhooks",
       },
     ],
   },
 
   {
-    section: 'Admin',
+    section: "Admin",
 
     items: [
       {
-        href: '/dashboard/products',
-        icon: '💰',
-        label: 'Loan Products',
+        href: "/dashboard/products",
+        icon: "💰",
+        label: "Loan Products",
         adminOnly: true,
       },
 
       {
-        href: '/dashboard/import',
-        icon: '📥',
-        label: 'Import Legacy Loans',
+        href: "/dashboard/import",
+        icon: "📥",
+        label: "Import Legacy Loans",
       },
 
       {
-        href: '/dashboard/accounting',
-        icon: '📒',
-        label: 'Accounting',
+        href: "/dashboard/accounting",
+        icon: "📒",
+        label: "Accounting",
         accountingOnly: true,
       },
 
       {
-        href: '/dashboard/expenses',
-        icon: '🧾',
-        label: 'Expenses',
+        href: "/dashboard/expenses",
+        icon: "🧾",
+        label: "Expenses",
         accountingOnly: true,
       },
 
       {
-        href: '/dashboard/users',
-        icon: '🧑‍💼',
-        label: 'Users & Roles',
+        href: "/dashboard/users",
+        icon: "🧑‍💼",
+        label: "Users & Roles",
         adminOnly: true,
       },
 
       {
-        href: '/dashboard/audit',
-        icon: '🛡️',
-        label: 'Audit Log',
+        href: "/dashboard/audit",
+        icon: "🛡️",
+        label: "Audit Log",
         adminOnly: true,
       },
 
       {
-        href: '/dashboard/settings',
-        icon: '⚙️',
-        label: 'Settings',
+        href: "/dashboard/settings",
+        icon: "⚙️",
+        label: "Settings",
       },
     ],
   },
@@ -184,21 +184,21 @@ const NAV_STAFF: NavSection[] = [
 
 const REGULATORY_ITEMS: NavItem[] = [
   {
-    href: '/dashboard/reports/regulatory/bnr',
-    icon: '🏦',
-    label: 'BNR Reports',
+    href: "/dashboard/reports/regulatory/bnr",
+    icon: "🏦",
+    label: "BNR Reports",
   },
 
   {
-    href: '/dashboard/reports/regulatory/crb',
-    icon: '🧾',
-    label: 'Credit Bureau',
+    href: "/dashboard/reports/regulatory/crb",
+    icon: "🧾",
+    label: "Credit Bureau",
   },
 
   {
-    href: '/dashboard/reports/regulatory/api-keys',
-    icon: '🔑',
-    label: 'API Keys',
+    href: "/dashboard/reports/regulatory/api-keys",
+    icon: "🔑",
+    label: "API Keys",
   },
 ];
 
@@ -209,11 +209,7 @@ const REGULATORY_ITEMS: NavItem[] = [
 export default function Sidebar() {
   const pathname = usePathname();
 
-  const {
-    user,
-    logout,
-    currency,
-  } = useAuth();
+  const { user, logout, currency } = useAuth();
 
   /* ==========================================================
      ORGANIZATION
@@ -230,56 +226,41 @@ export default function Sidebar() {
      PERMISSIONS
      ========================================================== */
 
-  const isAdmin =
-    user?.role === 'ADMIN';
+  const isAdmin = user?.role === "ADMIN";
 
-  const canSeeAccounting = [
-    'ADMIN',
-    'MANAGER',
-    'ACCOUNTANT',
-  ].includes(user?.role || '');
+  const canSeeAccounting = ["ADMIN", "MANAGER", "ACCOUNTANT"].includes(
+    user?.role || "",
+  );
 
   /*
    * Regulatory reporting is restricted to users who should
    * have access to financial/regulatory functions.
    */
-  const canSeeRegulatory = [
-    'ADMIN',
-    'MANAGER',
-    'ACCOUNTANT',
-  ].includes(user?.role || '');
+  const canSeeRegulatory = ["ADMIN", "MANAGER", "ACCOUNTANT"].includes(
+    user?.role || "",
+  );
 
   /* ==========================================================
      NOTIFICATIONS
      ========================================================== */
 
-  const [
-    unread,
-    setUnread,
-  ] = useState(0);
+  const [unread, setUnread] = useState(0);
 
   /* ==========================================================
      MESSAGES
      ========================================================== */
 
-  const [
-    unreadMessages,
-    setUnreadMessages,
-  ] = useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   /* ==========================================================
      REGULATORY OPEN STATE
      ========================================================== */
 
-  const isRegulatoryRoute =
-    pathname.startsWith(
-      '/dashboard/reports/regulatory'
-    );
+  const isRegulatoryRoute = pathname.startsWith(
+    "/dashboard/reports/regulatory",
+  );
 
-  const [
-    regulatoryOpen,
-    setRegulatoryOpen,
-  ] = useState(isRegulatoryRoute);
+  const [regulatoryOpen, setRegulatoryOpen] = useState(isRegulatoryRoute);
 
   /* ==========================================================
      KEEP REGULATORY OPEN ON REGULATORY ROUTES
@@ -304,16 +285,13 @@ export default function Sidebar() {
 
     const load = async () => {
       try {
-        const response =
-          await getUnreadCount();
+        const response = await getUnreadCount();
 
         if (!active) {
           return;
         }
 
-        setUnread(
-          Number(response?.count || 0)
-        );
+        setUnread(Number(response?.count || 0));
       } catch {
         /*
          * Notification polling failure should
@@ -324,17 +302,11 @@ export default function Sidebar() {
 
     load();
 
-    const interval =
-      window.setInterval(
-        load,
-        30000
-      );
+    const interval = window.setInterval(load, 30000);
 
     return () => {
       active = false;
-      window.clearInterval(
-        interval
-      );
+      window.clearInterval(interval);
     };
   }, [user]);
 
@@ -351,16 +323,13 @@ export default function Sidebar() {
 
     const load = async () => {
       try {
-        const response =
-          await contactMessageApi.unreadCount();
+        const response = await contactMessageApi.unreadCount();
 
         if (!active) {
           return;
         }
 
-        setUnreadMessages(
-          Number(response?.count || 0)
-        );
+        setUnreadMessages(Number(response?.count || 0));
       } catch {
         /*
          * Message polling failure should
@@ -371,17 +340,11 @@ export default function Sidebar() {
 
     load();
 
-    const interval =
-      window.setInterval(
-        load,
-        30000
-      );
+    const interval = window.setInterval(load, 30000);
 
     return () => {
       active = false;
-      window.clearInterval(
-        interval
-      );
+      window.clearInterval(interval);
     };
   }, [user]);
 
@@ -389,15 +352,9 @@ export default function Sidebar() {
      ACTIVE ROUTE
      ========================================================== */
 
-  const isActive = (
-    href: string
-  ): boolean => {
+  const isActive = (href: string): boolean => {
     return (
-      pathname === href ||
-      (
-        href !== '/dashboard' &&
-        pathname.startsWith(href)
-      )
+      pathname === href || (href !== "/dashboard" && pathname.startsWith(href))
     );
   };
 
@@ -408,8 +365,7 @@ export default function Sidebar() {
   const handleLogout = () => {
     logout();
 
-    window.location.href =
-      '/login';
+    window.location.href = "/login";
   };
 
   /* ==========================================================
@@ -429,11 +385,11 @@ export default function Sidebar() {
         w-64
         flex-col
         border-r
-        border-white/5
-        bg-[#07152A]
+        border-white/10
+        bg-[linear-gradient(180deg,#07152A_0%,#0B1F3A_100%)]
+        shadow-[8px_0_30px_rgba(7,21,42,0.10)]
       "
     >
-
       {/* ======================================================
           BRAND
           ====================================================== */}
@@ -446,10 +402,9 @@ export default function Sidebar() {
           border-b
           border-white/10
           px-5
-          py-4
+          py-4.5
         "
       >
-
         <div
           className="
             relative
@@ -491,7 +446,6 @@ export default function Sidebar() {
             overflow-hidden
           "
         >
-
           <div
             className="
               truncate
@@ -515,9 +469,7 @@ export default function Sidebar() {
           >
             Staff Portal
           </div>
-
         </div>
-
       </div>
 
       {/* ======================================================
@@ -529,15 +481,15 @@ export default function Sidebar() {
           className="
             mx-3
             mt-3
-            rounded-xl
+            rounded-2xl
             border
-            border-white/5
-            bg-white/5
-            px-3
-            py-2.5
+            border-white/10
+            bg-white/[0.065]
+            px-3.5
+            py-3
+            shadow-inner shadow-black/10
           "
         >
-
           <div
             className="
               truncate
@@ -557,10 +509,9 @@ export default function Sidebar() {
             "
           >
             {org.currency}
-            {' · '}
+            {" · "}
             {user?.role}
           </div>
-
         </div>
       )}
 
@@ -578,123 +529,98 @@ export default function Sidebar() {
           py-3
         "
       >
-
-        {NAV_STAFF.map(
-          (section) => (
-            <div
-              key={section.section}
-            >
-
-              {/* ==================================================
+        {NAV_STAFF.map((section) => (
+          <div key={section.section}>
+            {/* ==================================================
                   SECTION TITLE
                   ================================================== */}
 
-              <div
-                className="
-                  mb-1
-                  px-2
+            <div
+              className="
+                  mb-1.5
+                  px-2.5
                   text-[10px]
-                  font-bold
+                  font-extrabold
                   uppercase
-                  tracking-widest
-                  text-gray-500
+                  tracking-[0.16em]
+                  text-slate-500
                 "
-              >
-                {section.section}
-              </div>
+            >
+              {section.section}
+            </div>
 
-              {/* ==================================================
+            {/* ==================================================
                   SECTION ITEMS
                   ================================================== */}
 
-              {section.items
-                .filter(
-                  (item) =>
-                    (
-                      !item.adminOnly ||
-                      isAdmin
-                    ) &&
-                    (
-                      !item.accountingOnly ||
-                      canSeeAccounting
-                    )
-                )
-                .map(
-                  (item) => {
+            {section.items
+              .filter(
+                (item) =>
+                  (!item.adminOnly || isAdmin) &&
+                  (!item.accountingOnly || canSeeAccounting),
+              )
+              .map((item) => {
+                const active = isActive(item.href);
 
-                    const active =
-                      isActive(
-                        item.href
-                      );
-
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        aria-current={
-                          active
-                            ? 'page'
-                            : undefined
-                        }
-                        className={`
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    aria-current={active ? "page" : undefined}
+                    className={`
                           mb-0.5
                           flex
                           items-center
                           gap-2.5
-                          rounded-lg
+                          rounded-xl
                           border-l-2
                           px-3
-                          py-2
-                          text-sm
-                          font-medium
+                          py-2.5
+                          text-[13px]
+                          font-semibold
                           transition-all
                           duration-150
 
                           ${
                             active
                               ? `
-                                border-white
-                                bg-white/10
+                                border-[#F4C430]
+                                bg-white/[0.095]
                                 text-white
-                                shadow-sm
+                                shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03),0_4px_14px_rgba(0,0,0,0.08)]
                               `
                               : `
                                 border-transparent
-                                text-gray-400
-                                hover:bg-white/8
+                                text-slate-400
+                                hover:bg-white/[0.065]
                                 hover:text-white
                               `
                           }
                         `}
-                      >
+                  >
+                    {/* ICON */}
 
-                        {/* ICON */}
-
-                        <span
-                          aria-hidden="true"
-                          className="
+                    <span
+                      aria-hidden="true"
+                      className="
                             w-5
                             text-center
                             text-base
                           "
-                        >
-                          {item.icon}
-                        </span>
+                    >
+                      {item.icon}
+                    </span>
 
-                        {/* LABEL */}
+                    {/* LABEL */}
 
-                        <span className="flex-1">
-                          {item.label}
-                        </span>
+                    <span className="flex-1">{item.label}</span>
 
-                        {/* NOTIFICATION BADGE */}
+                    {/* NOTIFICATION BADGE */}
 
-                        {item.href ===
-                          '/dashboard/notifications' &&
-                          unread > 0 && (
-                            <span
-                              aria-label={`${unread} unread notifications`}
-                              className="
+                    {item.href === "/dashboard/notifications" && unread > 0 && (
+                      <span
+                        aria-label={`${unread} unread notifications`}
+                        className="
                                 flex
                                 h-[18px]
                                 min-w-[18px]
@@ -707,23 +633,18 @@ export default function Sidebar() {
                                 font-bold
                                 text-white
                               "
-                            >
-                              {
-                                unread > 9
-                                  ? '9+'
-                                  : unread
-                              }
-                            </span>
-                          )}
+                      >
+                        {unread > 9 ? "9+" : unread}
+                      </span>
+                    )}
 
-                        {/* MESSAGE BADGE */}
+                    {/* MESSAGE BADGE */}
 
-                        {item.href ===
-                          '/dashboard/messages' &&
-                          unreadMessages > 0 && (
-                            <span
-                              aria-label={`${unreadMessages} unread messages`}
-                              className="
+                    {item.href === "/dashboard/messages" &&
+                      unreadMessages > 0 && (
+                        <span
+                          aria-label={`${unreadMessages} unread messages`}
+                          className="
                                 flex
                                 h-[18px]
                                 min-w-[18px]
@@ -736,21 +657,15 @@ export default function Sidebar() {
                                 font-bold
                                 text-white
                               "
-                            >
-                              {
-                                unreadMessages > 9
-                                  ? '9+'
-                                  : unreadMessages
-                              }
-                            </span>
-                          )}
+                        >
+                          {unreadMessages > 9 ? "9+" : unreadMessages}
+                        </span>
+                      )}
+                  </Link>
+                );
+              })}
 
-                      </Link>
-                    );
-                  }
-                )}
-
-              {/* ==================================================
+            {/* ==================================================
                   REGULATORY REPORTS
                   
                   IMPORTANT:
@@ -759,25 +674,16 @@ export default function Sidebar() {
                   appears before Users & Roles in NAV_STAFF.
                   ================================================== */}
 
-              {section.section === 'Admin' &&
-                canSeeRegulatory && (
-                  <div className="mt-0.5">
+            {section.section === "Admin" && canSeeRegulatory && (
+              <div className="mt-0.5">
+                {/* REGULATORY PARENT */}
 
-                    {/* REGULATORY PARENT */}
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setRegulatoryOpen(
-                          (previous) =>
-                            !previous
-                        )
-                      }
-                      aria-expanded={
-                        regulatoryOpen
-                      }
-                      aria-controls="regulatory-navigation"
-                      className={`
+                <button
+                  type="button"
+                  onClick={() => setRegulatoryOpen((previous) => !previous)}
+                  aria-expanded={regulatoryOpen}
+                  aria-controls="regulatory-navigation"
+                  className={`
                         mb-0.5
                         flex
                         w-full
@@ -795,176 +701,151 @@ export default function Sidebar() {
                         ${
                           isRegulatoryRoute
                             ? `
-                              border-white
-                              bg-white/10
+                              border-[#F4C430]
+                              bg-white/[0.095]
                               text-white
                             `
                             : `
                               border-transparent
-                              text-gray-400
-                              hover:bg-white/8
+                              text-slate-400
+                              hover:bg-white/[0.065]
                               hover:text-white
                             `
                         }
                       `}
-                    >
+                >
+                  {/* ICON */}
 
-                      {/* ICON */}
-
-                      <span
-                        aria-hidden="true"
-                        className="
+                  <span
+                    aria-hidden="true"
+                    className="
                           w-5
                           text-center
                           text-base
                         "
-                      >
-                        📊
-                      </span>
+                  >
+                    📊
+                  </span>
 
-                      {/* LABEL */}
+                  {/* LABEL */}
 
-                      <span
-                        className="
+                  <span
+                    className="
                           flex-1
                           text-left
                         "
-                      >
-                        Regulatory Reports
-                      </span>
+                  >
+                    Regulatory Reports
+                  </span>
 
-                      {/* ARROW */}
+                  {/* ARROW */}
 
-                      <span
-                        aria-hidden="true"
-                        className={`
+                  <span
+                    aria-hidden="true"
+                    className={`
                           text-[10px]
                           text-gray-400
                           transition-transform
                           duration-200
 
-                          ${
-                            regulatoryOpen
-                              ? 'rotate-180'
-                              : ''
-                          }
+                          ${regulatoryOpen ? "rotate-180" : ""}
                         `}
-                      >
-                        ▼
-                      </span>
+                  >
+                    ▼
+                  </span>
+                </button>
 
-                    </button>
+                {/* REGULATORY CHILDREN */}
 
-                    {/* REGULATORY CHILDREN */}
-
-                    {regulatoryOpen && (
-                      <div
-                        id="regulatory-navigation"
-                        className="
+                {regulatoryOpen && (
+                  <div
+                    id="regulatory-navigation"
+                    className="
                           ml-4
                           space-y-0.5
                           border-l
                           border-white/10
-                          pl-2
+                          pl-2.5
                         "
-                      >
+                  >
+                    {REGULATORY_ITEMS.map((item) => {
+                      const active = isActive(item.href);
 
-                        {REGULATORY_ITEMS.map(
-                          (item) => {
-
-                            const active =
-                              isActive(
-                                item.href
-                              );
-
-                            return (
-                              <Link
-                                key={item.href}
-                                href={item.href}
-                                aria-current={
-                                  active
-                                    ? 'page'
-                                    : undefined
-                                }
-                                className={`
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          aria-current={active ? "page" : undefined}
+                          className={`
                                   group
                                   flex
                                   items-center
                                   gap-2.5
-                                  rounded-lg
+                                  rounded-xl
                                   border-l-2
                                   px-3
                                   py-2
-                                  text-sm
+                                  text-[12px]
+                                  font-medium
                                   transition-all
                                   duration-150
 
                                   ${
                                     active
                                       ? `
-                                        border-white
-                                        bg-white/10
+                                        border-[#F4C430]
+                                        bg-white/[0.09]
                                         font-semibold
                                         text-white
                                       `
                                       : `
                                         border-transparent
-                                        text-gray-500
-                                        hover:bg-white/8
-                                        hover:text-gray-200
+                                        text-slate-500
+                                        hover:bg-white/[0.06]
+                                        hover:text-slate-200
                                       `
                                   }
                                 `}
-                              >
+                        >
+                          {/* CHILD ICON */}
 
-                                {/* CHILD ICON */}
-
-                                <span
-                                  aria-hidden="true"
-                                  className="
+                          <span
+                            aria-hidden="true"
+                            className="
                                     w-5
                                     text-center
                                     text-sm
                                   "
-                                >
-                                  {item.icon}
-                                </span>
+                          >
+                            {item.icon}
+                          </span>
 
-                                {/* CHILD LABEL */}
+                          {/* CHILD LABEL */}
 
-                                <span className="flex-1">
-                                  {item.label}
-                                </span>
+                          <span className="flex-1">{item.label}</span>
 
-                                {/* ACTIVE INDICATOR */}
+                          {/* ACTIVE INDICATOR */}
 
-                                {active && (
-                                  <span
-                                    aria-hidden="true"
-                                    className="
+                          {active && (
+                            <span
+                              aria-hidden="true"
+                              className="
                                       h-1.5
                                       w-1.5
                                       rounded-full
                                       bg-white
                                     "
-                                  />
-                                )}
-
-                              </Link>
-                            );
-                          }
-                        )}
-
-                      </div>
-                    )}
-
+                            />
+                          )}
+                        </Link>
+                      );
+                    })}
                   </div>
                 )}
-
-            </div>
-          )
-        )}
-
+              </div>
+            )}
+          </div>
+        ))}
       </nav>
 
       {/* ======================================================
@@ -975,11 +856,11 @@ export default function Sidebar() {
         className="
           border-t
           border-white/10
+          bg-black/10
           px-3
-          py-3
+          py-3.5
         "
       >
-
         <button
           type="button"
           onClick={handleLogout}
@@ -993,7 +874,7 @@ export default function Sidebar() {
             py-2
             text-left
             transition-colors
-            hover:bg-white/5
+            hover:bg-white/[0.065]
             focus:outline-none
             focus-visible:ring-2
             focus-visible:ring-[#F4C430]
@@ -1001,7 +882,6 @@ export default function Sidebar() {
             focus-visible:ring-offset-[#07152A]
           "
         >
-
           {/* AVATAR */}
 
           <div
@@ -1013,15 +893,18 @@ export default function Sidebar() {
               items-center
               justify-center
               rounded-full
-              bg-[#0B1F3A]
+              bg-white/10
               text-sm
               font-bold
               text-white
               ring-1
+              ring-inset
+              ring-white/10
+              ring-1
               ring-white/10
             "
           >
-            {user?.name?.[0]?.toUpperCase() ?? 'U'}
+            {user?.name?.[0]?.toUpperCase() ?? "U"}
           </div>
 
           {/* USER */}
@@ -1032,7 +915,6 @@ export default function Sidebar() {
               overflow-hidden
             "
           >
-
             <div
               className="
                 truncate
@@ -1041,7 +923,7 @@ export default function Sidebar() {
                 text-white
               "
             >
-              {user?.name || 'User'}
+              {user?.name || "User"}
             </div>
 
             <div
@@ -1052,7 +934,6 @@ export default function Sidebar() {
             >
               Sign out
             </div>
-
           </div>
 
           {/* LOGOUT ICON */}
@@ -1066,11 +947,8 @@ export default function Sidebar() {
           >
             →
           </span>
-
         </button>
-
       </div>
-
     </aside>
   );
 }

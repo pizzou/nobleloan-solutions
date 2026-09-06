@@ -506,7 +506,7 @@ export default function SiteLayout({
             ==================================================== */}
 
         <div
-          className="border-b border-white/10 px-4 py-2 text-xs text-white/80"
+          className="site-utility-bar border-b border-white/10 px-4 py-2 text-xs text-white/80"
           style={{
             backgroundColor: BRAND_NAVY_DARK,
           }}
@@ -544,8 +544,8 @@ export default function SiteLayout({
             MAIN NAVIGATION
             ==================================================== */}
 
-        <nav className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 shadow-sm backdrop-blur">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+        <nav className="site-public-nav sticky top-0 z-50 border-b border-slate-200 bg-white/95 shadow-[0_8px_30px_rgba(15,23,42,.06)] backdrop-blur-xl">
+          <div className="site-nav-inner mx-auto flex max-w-7xl items-center justify-between px-4 py-3.5 sm:px-6">
             {/* BRAND */}
 
             <Link
@@ -558,7 +558,7 @@ export default function SiteLayout({
 
             {/* DESKTOP NAV */}
 
-            <div className="hidden items-center gap-1 md:flex">
+            <div className="hidden items-center gap-1.5 md:flex">
               {navLinks.map((link) => {
                 const active = isActive(link.href);
 
@@ -668,7 +668,7 @@ export default function SiteLayout({
               ================================================== */}
 
           {menuOpen && (
-            <div className="border-t border-gray-100 bg-white px-4 py-4 shadow-lg md:hidden">
+            <div className="border-t border-slate-200 bg-white/98 px-4 py-5 shadow-xl md:hidden">
               <div className="space-y-1">
                 {navLinks.map((link) => {
                   const active = isActive(link.href);
@@ -752,12 +752,12 @@ export default function SiteLayout({
             ==================================================== */}
 
         <footer
-          className="mt-16 text-white"
+          className="site-public-footer mt-16 text-white"
           style={{
             backgroundColor: BRAND_NAVY_DARK,
           }}
         >
-          <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-4 py-14 md:grid-cols-4">
+          <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-4 py-16 sm:px-6 md:grid-cols-4">
             {/* BRAND */}
 
             <div className="md:col-span-2">
@@ -848,8 +848,8 @@ export default function SiteLayout({
 
           {/* FOOTER BOTTOM */}
 
-          <div className="border-t border-white/10 px-4 py-5">
-            <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 text-xs text-white/40 md:flex-row">
+          <div className="border-t border-white/10 px-4 py-6">
+            <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 text-xs text-white/40 sm:px-1 md:flex-row">
               <span>
                 © {new Date().getFullYear()} {tenant.name}. All rights reserved.
                 {tenant.registrationNumber
