@@ -1858,6 +1858,14 @@ public class BnrTemplateExportService {
         }
 
         repairDerivedColumns(row, headerRow, facts);
+
+        // Regulatory identity is not the internal Borrower.id.
+        // Re-apply the national ID explicitly after all calculated/derived
+        // columns have been repaired so the BNR borrower identity can never
+        // be replaced by an operational database identifier or left behind by
+        // a template-specific column mapping. The cell is written as text so
+        // all 16 digits, including leading zeroes, are preserved.
+        writeBorrowerNationalId(row, headerRow, facts.nationalId);
     }
 
     private void populateWrittenOffRow(
@@ -1876,6 +1884,46 @@ public class BnrTemplateExportService {
             Object value = writtenOffValue(headerText, facts);
             writeTypedCell(row, column, value);
         }
+
+        // Written-off loans use a separate row writer, so enforce the same
+        // regulatory borrower identity rule here as in the active portfolio
+        // sheets.
+        writeBorrowerNationalId(row, header, facts.nationalId);
+    }
+
+    private void writeBorrowerNationalId(
+            Row row,
+            Row header,
+            String nationalId) {
+
+        if (row == null || header == null) {
+            return;
+        }
+
+        int column = findColumn(
+                header,
+                "idofborrower",
+                "nationalid",
+                "nationalidnumber");
+
+        if (column < 0) {
+            throw new IllegalStateException(
+                    "BNR sheet '" + row.getSheet().getSheetName()
+                            + "' does not contain the borrower national-ID column");
+        }
+
+        Cell cell = row.getCell(
+                column,
+                Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+
+        // Never write the database Borrower.id here. The BNR field is the
+        // borrower's national/regulatory identifier.
+        if (nationalId == null || nationalId.isBlank()) {
+            cell.setBlank();
+            return;
+        }
+
+        cell.setCellValue(nationalId.trim());
     }
 
     private Object valueForHeader(
