@@ -1031,8 +1031,24 @@ public class LegacyLoanImportRowService {
                                         .totalPaid(
                                                         totalPaid)
 
+                                        /*
+                                         * The Loan.outstanding_balance column is the
+                                         * authoritative PRINCIPAL receivable and is
+                                         * protected by ck_loan_principal_reconciliation:
+                                         *
+                                         *     principal_paid + outstanding_balance = amount
+                                         *
+                                         * The legacy source's outstanding_balance may be the
+                                         * TOTAL contractual amount still payable (principal +
+                                         * interest/fees), so persisting that source value here
+                                         * can violate the database invariant. The principal
+                                         * balance already reconciled above is the value that
+                                         * belongs in Loan.outstandingBalance. Other historical
+                                         * receivables remain in interestOutstanding,
+                                         * managementFeeOutstanding, extension fees and penalties.
+                                         */
                                         .outstandingBalance(
-                                                        outstandingBalance)
+                                                        principalBalanceHistorical)
 
                                         .principalPaid(
                                                         principalPaidHistorical)
