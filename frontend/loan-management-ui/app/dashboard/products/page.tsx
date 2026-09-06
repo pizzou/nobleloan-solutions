@@ -287,7 +287,7 @@ export default function LoanProductsPage() {
       !Number.isFinite(editing.applicationFeePercent) ||
       editing.applicationFeePercent < 0
     ) {
-      return "Processing fee cannot be negative.";
+      return "Application fee cannot be negative.";
     }
 
     if (

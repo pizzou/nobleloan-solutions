@@ -510,7 +510,7 @@ export default function PublicLoanCalculator({
                   </strong>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-white/60">Processing fee</span>
+                  <span className="text-white/60">Application fee</span>
                   <strong className="text-white">
                     {currency} {fmt(percentageCharge(amount, applicationRate))}
                   </strong>
@@ -544,7 +544,7 @@ export default function PublicLoanCalculator({
               <div className="mt-4 text-center text-[10px] leading-4 text-white/50">
                 Indicative only. The final agreement, eligibility, fees and
                 schedule are determined by credit assessment and approved loan
-                terms. Processing fee is collected separately at disbursement.
+                terms. Application fee is collected separately at disbursement.
               </div>
             </>
           ) : (

@@ -1437,14 +1437,14 @@ public class AccountingService {
                                 ZERO) < 0) {
 
                         throw new IllegalStateException(
-                                        "Processing fee cannot be negative");
+                                        "Application fee cannot be negative");
                 }
 
                 if (applicationFee.compareTo(
                                 grossPrincipal) > 0) {
 
                         throw new IllegalStateException(
-                                        "Processing fee cannot exceed the gross loan principal");
+                                        "Application fee cannot exceed the gross loan principal");
                 }
 
                 // --------------------------------------------------------
@@ -1508,7 +1508,7 @@ public class AccountingService {
                  *
                  * RWF 1,000,000
                  *
-                 * Processing fee:
+                 * Application fee:
                  *
                  * RWF 20,000
                  *
@@ -1686,10 +1686,20 @@ public class AccountingService {
                                                                                 + reference)
                                                                 .build()));
 
-                // The Loan aggregate already contains the full contractual
-                // unpaid interest balance. This GL accrual only recognizes the
-                // scheduled portion in accounting; it must not increase the
-                // aggregate outstanding value a second time.
+                /*
+                 * Do NOT increase loan.interestOutstanding here.
+                 *
+                 * totalInterest is the full contractual interest for the loan,
+                 * and the database invariant is:
+                 *
+                 *     interestPaid + interestOutstanding = totalInterest
+                 *
+                 * Therefore interestOutstanding already represents the unpaid
+                 * contractual balance. The accrual journal records when income
+                 * becomes receivable in GL 1150; it must not double-count that
+                 * amount in the loan sub-ledger. PaymentService is authoritative
+                 * for reducing the outstanding balance when money is received.
+                 */
 
                 return entry;
         }
@@ -1753,9 +1763,18 @@ public class AccountingService {
                                                                                 + reference)
                                                                 .build()));
 
-                // The Loan aggregate already contains the full contractual
-                // unpaid management-fee balance. Do not double-count it when
-                // the scheduled GL receivable is recognized.
+                /*
+                 * Do NOT increase loan.managementFeeOutstanding here.
+                 *
+                 * managementFee is the full contractual fee and the database
+                 * invariant is:
+                 *
+                 *     managementFeePaid + managementFeeOutstanding = managementFee
+                 *
+                 * The journal records the accounting accrual. PaymentService
+                 * reduces the operational outstanding balance when the borrower
+                 * actually pays.
+                 */
 
                 return entry;
         }
@@ -1838,8 +1857,9 @@ public class AccountingService {
                                                                                 + reference)
                                                                 .build()));
 
-                // Legacy entry point: recognize income in GL only. The loan
-                // aggregate remains total contractual unpaid interest.
+                // Contractual outstanding interest is maintained from totalInterest
+                // less interestPaid. This legacy accounting entry must not increase
+                // it a second time.
 
                 return entry;
         }
@@ -1909,8 +1929,9 @@ public class AccountingService {
                                                                                 + reference)
                                                                 .build()));
 
-                // Legacy entry point: recognize income in GL only. The loan
-                // aggregate remains total contractual unpaid management fee.
+                // Contractual outstanding management fee is maintained from
+                // managementFee less managementFeePaid. Do not double-count it
+                // when posting the accounting accrual.
 
                 return entry;
         }

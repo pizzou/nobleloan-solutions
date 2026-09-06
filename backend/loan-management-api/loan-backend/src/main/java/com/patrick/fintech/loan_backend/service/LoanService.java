@@ -861,7 +861,7 @@ public class LoanService {
          *
          * Interest may be overridden by an authorized approver.
          * Management fee is always 5% monthly.
-         * Processing fee may only be overridden by MANAGER or ADMIN.
+         * Application fee may only be overridden by MANAGER or ADMIN.
          */
         @Transactional
         public Loan approveLoan(
@@ -1098,19 +1098,51 @@ public class LoanService {
 
                 validateLoanDuration(durationMonths);
 
-                ContractualTotals contractualTotals = calculateContractualTotals(
-                                principal,
-                                interestRate,
-                                managementFeeRate,
-                                durationMonths);
+                // ============================================================
+                // CONTRACTUAL INTEREST / MANAGEMENT-FEE RECONCILIATION
+                // ============================================================
+                // The database financial invariant requires:
+                //   interestPaid + interestOutstanding = totalInterest
+                //   managementFeePaid + managementFeeOutstanding = managementFee
+                // Approval is a real contractual state, so all four values must
+                // be populated BEFORE the first loan save. Previously approval
+                // left interestOutstanding at zero while totalInterest already
+                // contained the contractual interest (for example 1,000,000 on
+                // a RWF 10,000,000 / 3-month / 5% monthly loan), which caused
+                // ck_loan_interest_reconciliation to reject the transaction.
+                BigDecimal contractualInterest = ZERO;
+                BigDecimal contractualManagementFee = ZERO;
+                BigDecimal contractualBalance = normalizePrincipal(principal);
 
-                loan.setTotalInterest(contractualTotals.interest());
+                for (int i = 1; i <= durationMonths; i++) {
+                        FinancialPolicy.ScheduleLine line =
+                                        FinancialPolicy.contractualScheduleLine(
+                                                        contractualBalance,
+                                                        durationMonths - i + 1,
+                                                        interestRate,
+                                                        managementFeeRate);
+
+                        contractualInterest = money(
+                                        contractualInterest.add(line.interest()));
+                        contractualManagementFee = money(
+                                        contractualManagementFee.add(line.managementFee()));
+                        contractualBalance = money(line.remainingBalance());
+                }
+
+                BigDecimal contractualTotalRepayable = money(
+                                principal
+                                                .add(contractualInterest)
+                                                .add(contractualManagementFee));
+
+                loan.setTotalInterest(contractualInterest);
                 loan.setInterestPaid(ZERO);
-                loan.setInterestOutstanding(contractualTotals.interest());
-                loan.setManagementFee(contractualTotals.managementFee());
+                loan.setInterestOutstanding(contractualInterest);
+
+                loan.setManagementFee(contractualManagementFee);
                 loan.setManagementFeePaid(ZERO);
-                loan.setManagementFeeOutstanding(contractualTotals.managementFee());
-                loan.setTotalRepayable(contractualTotals.totalRepayable());
+                loan.setManagementFeeOutstanding(contractualManagementFee);
+
+                loan.setTotalRepayable(contractualTotalRepayable);
 
                 loan.setRequestedAmount(requestedAmount);
                 loan.setAmount(principal);
@@ -1179,42 +1211,48 @@ public class LoanService {
                                                 + "%"
                                                 + " — credit quality CURRENT");
 
-                registerAfterCommit(() -> {
-                        try {
-                                mailService.sendLoanApproved(saved);
-                        } catch (Exception e) {
-                                log.warn("Loan approval email failed after commit for loan {}", saved.getId(), e);
-                        }
+                try {
 
-                        try {
-                                smsService.sendLoanApproved(saved);
-                        } catch (Exception e) {
-                                log.warn("Loan approval SMS failed after commit for loan {}", saved.getId(), e);
-                        }
+                        mailService.sendLoanApproved(saved);
 
-                        try {
-                                notifyOfficer(
-                                                saved,
-                                                approvedBy,
-                                                "Loan Approved",
-                                                "Loan " + saved.getReferenceNumber()
-                                                                + " has been approved by " + approvedBy.getName()
-                                                                + ". Requested amount: " + saved.getRequestedAmountDecimal()
-                                                                + ". Approved amount: " + saved.getAmountDecimal()
-                                                                + ". Monthly interest is " + saved.getInterestRateDecimal()
-                                                                + "% and monthly management fee is " + saved.getManagementFeeRateDecimal()
-                                                                + "%. Credit quality is CURRENT.",
-                                                "success");
-                        } catch (Exception e) {
-                                log.warn("Officer approval notification failed after commit for loan {}", saved.getId(), e);
-                        }
+                } catch (Exception e) {
 
-                        try {
-                                webhookService.dispatch(saved.getOrganization(), "LOAN_APPROVED", saved);
-                        } catch (Exception e) {
-                                log.warn("Approval webhook failed after commit for loan {}", saved.getId(), e);
-                        }
-                });
+                        log.warn(
+                                        "Loan approval email failed",
+                                        e);
+                }
+
+                try {
+
+                        smsService.sendLoanApproved(saved);
+
+                } catch (Exception e) {
+
+                        log.warn(
+                                        "Loan approval SMS failed",
+                                        e);
+                }
+
+                notifyOfficer(
+                                saved,
+                                approvedBy,
+                                "Loan Approved",
+                                "Loan "
+                                                + saved.getReferenceNumber()
+                                                + " has been approved by "
+                                                + approvedBy.getName()
+                                                + ". Requested amount: " + saved.getRequestedAmountDecimal()
+                                                + ". Approved amount: " + saved.getAmountDecimal()
+                                                + ". Monthly interest is " + saved.getInterestRateDecimal()
+                                                + "% and monthly management fee is "
+                                                + saved.getManagementFeeRateDecimal() + "%."
+                                                + " Credit quality is CURRENT.",
+                                "success");
+
+                webhookService.dispatch(
+                                saved.getOrganization(),
+                                "LOAN_APPROVED",
+                                saved);
 
                 return saved;
         }
@@ -1539,6 +1577,9 @@ public class LoanService {
                 loan.setDisbursedAmount(
                                 exactPrincipal);
 
+                // Repair stale legacy balances before the first ACTIVE-state save.
+                reconcileContractualOutstandingBalances(loan);
+
                 LocalDate disbursementDate = exactDisbursementTimestamp.toLocalDate();
 
                 Integer duration = loan.getDurationMonths() != null
@@ -1663,77 +1704,86 @@ public class LoanService {
                 accountingService.postDisbursement(
                                 saved);
 
-                final Loan notificationLoan = saved;
-
                 // ============================================================
-                // POST-COMMIT NOTIFICATIONS
+                // POST-COMMIT SIDE EFFECTS
                 // ============================================================
-                // Never send a successful-disbursement message before the
-                // database transaction has committed. A failed accounting,
-                // schedule, or loan update must not produce a false borrower
-                // notification.
-                registerAfterCommit(() -> {
-                        try {
-                                mailService.sendLoanDisbursed(notificationLoan, disbursementMethod);
-                        } catch (Exception e) {
-                                log.warn("Loan disbursement email failed after commit for loan {}", notificationLoan.getId(), e);
-                        }
 
-                        try {
-                                smsService.sendLoanDisbursed(notificationLoan, disbursementMethod);
-                        } catch (Exception e) {
-                                log.warn("Loan disbursement SMS failed after commit for loan {}", notificationLoan.getId(), e);
-                        }
-
-                        try {
-                                notifyOfficer(
-                                                notificationLoan,
-                                                officer,
-                                                "Loan Disbursed",
-                                                "Loan " + notificationLoan.getReferenceNumber()
-                                                                + " (" + notificationLoan.getCurrency() + " "
-                                                                + notificationLoan.getDisbursedAmountDecimal()
-                                                                + ") has been disbursed via "
-                                                                + (disbursementMethod != null && !disbursementMethod.isBlank()
-                                                                                ? disbursementMethod : "unspecified")
-                                                                + ". Monthly interest is " + notificationLoan.getInterestRateDecimal()
-                                                                + "% and monthly management fee is " + notificationLoan.getManagementFeeRateDecimal()
-                                                                + "%. Credit quality is CURRENT.",
-                                                "success");
-                        } catch (Exception e) {
-                                log.warn("Officer disbursement notification failed after commit for loan {}", notificationLoan.getId(), e);
-                        }
-
-                        try {
-                                webhookService.dispatch(notificationLoan.getOrganization(), "LOAN_DISBURSED", notificationLoan);
-                        } catch (Exception e) {
-                                log.warn("Disbursement webhook failed after commit for loan {}", notificationLoan.getId(), e);
-                        }
-                });
+                runDisbursementSideEffectsAfterCommit(saved, disbursementMethod);
 
                 return saved;
         }
 
-        private void registerAfterCommit(Runnable action) {
-                if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-                        // Defensive fallback for non-transactional callers.
-                        action.run();
-                        return;
+        // ================================================================
+        // FINANCIAL RECONCILIATION GUARD
+
+        /** Rebuilds contractual outstanding interest/fee from total less paid.
+         * This also repairs stale values on legacy rows when they are next updated. */
+        private void reconcileContractualOutstandingBalances(Loan loan) {
+                if (loan == null) throw new IllegalArgumentException("Loan is required");
+
+                BigDecimal totalInterest = money(moneyValue(loan.getTotalInterestDecimal()));
+                BigDecimal interestPaid = money(moneyValue(loan.getInterestPaidDecimal()));
+                if (interestPaid.compareTo(totalInterest) > 0) {
+                        throw new IllegalStateException("Loan " + loan.getReferenceNumber()
+                                        + " has interest paid greater than contractual total interest");
                 }
 
-                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                        @Override
-                        public void afterCommit() {
-                                try {
-                                        action.run();
-                                } catch (Exception e) {
-                                        log.error("Post-commit notification failed", e);
-                                }
-                        }
-                });
+                BigDecimal totalManagementFee = money(moneyValue(loan.getManagementFeeDecimal()));
+                BigDecimal managementFeePaid = money(moneyValue(loan.getManagementFeePaidDecimal()));
+                if (managementFeePaid.compareTo(totalManagementFee) > 0) {
+                        throw new IllegalStateException("Loan " + loan.getReferenceNumber()
+                                        + " has management fee paid greater than contractual management fee");
+                }
+
+                loan.setInterestPaid(interestPaid);
+                loan.setInterestOutstanding(money(totalInterest.subtract(interestPaid)));
+                loan.setManagementFeePaid(managementFeePaid);
+                loan.setManagementFeeOutstanding(money(totalManagementFee.subtract(managementFeePaid)));
         }
 
-        // ================================================================
+        /** Execute disbursement notifications only after the loan transaction commits. */
+        private void runDisbursementSideEffectsAfterCommit(Loan saved, String disbursementMethod) {
+                if (saved == null) return;
+
+                Runnable action = () -> {
+                        try {
+                                mailService.sendLoanDisbursed(saved, disbursementMethod);
+                        } catch (Exception e) {
+                                log.warn("Loan disbursement email failed after commit.", e);
+                        }
+                        try {
+                                smsService.sendLoanDisbursed(saved, disbursementMethod);
+                        } catch (Exception e) {
+                                log.warn("Loan disbursement SMS failed after commit.", e);
+                        }
+                        notifyOfficer(saved, null, "Loan Disbursed",
+                                        "Loan " + saved.getReferenceNumber() + " (" + saved.getCurrency() + " "
+                                                        + saved.getDisbursedAmountDecimal() + ") has been disbursed via "
+                                                        + (disbursementMethod != null && !disbursementMethod.isBlank()
+                                                                        ? disbursementMethod : "unspecified")
+                                                        + ". Monthly interest is " + saved.getInterestRateDecimal()
+                                                        + "% and monthly management fee is " + saved.getManagementFeeRateDecimal()
+                                                        + "%. Credit quality is CURRENT.",
+                                        "success");
+                        try {
+                                webhookService.dispatch(saved.getOrganization(), "LOAN_DISBURSED", saved);
+                        } catch (Exception e) {
+                                log.error("Loan disbursement webhook failed after commit for {}",
+                                                saved.getReferenceNumber(), e);
+                        }
+                };
+
+                if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                                @Override public void afterCommit() { action.run(); }
+                        });
+                } else {
+                        log.warn("No active transaction synchronization for {}; executing side effects immediately.",
+                                        saved.getReferenceNumber());
+                        action.run();
+                }
+        }
+
         // NOTIFY OFFICER
         // ================================================================
 
@@ -2356,21 +2406,20 @@ public class LoanService {
                 }
 
                 /*
-                 * IMPORTANT: this is a read operation. Never mutate or save a
-                 * Loan while serving GET /loan/{id}. In particular, do not
-                 * rebuild aggregate interest/management balances from Payment
-                 * rows here. During approval/disbursement those rows can be
-                 * replaced inside another transaction; reconciling from a
-                 * stale legacy EMI schedule here can overwrite the contractual
-                 * declining-balance totals and violate the database
-                 * reconciliation constraints.
+                 * For system-originated loans, the operational Payment rows
+                 * are the authoritative declining-balance schedule used by
+                 * the staff loan-detail page and PaymentService. Older loan
+                 * rows can still contain a legacy EMI-style totalRepayable
+                 * even though their schedule already contains the correct
+                 * daily-basis declining charges. Reconcile those aggregate
+                 * fields when the detail loan is loaded.
                  *
-                 * Contractual totals are established atomically by the
-                 * approval/disbursement workflow and payment processing updates
-                 * them from the contractual totals. Any explicit operational
-                 * schedule reconciliation must happen inside a write workflow,
-                 * not from a read endpoint.
+                 * Imported legacy loans are deliberately excluded because
+                 * their opening balances are historical accounting data and
+                 * must not be silently rewritten from a reconstructed schedule.
                  */
+                synchronizeLoanTotalsFromOperationalSchedule(loan);
+
                 return loan;
         }
 
@@ -2427,22 +2476,6 @@ public class LoanService {
                 if (moneyValue(loan.getManagementFeeDecimal())
                                 .compareTo(normalizedManagementFee) != 0) {
                         loan.setManagementFee(normalizedManagementFee);
-                        changed = true;
-                }
-
-                BigDecimal normalizedInterestOutstanding = money(
-                                normalizedInterest.subtract(moneyValue(loan.getInterestPaidDecimal())).max(ZERO));
-                if (moneyValue(loan.getInterestOutstandingDecimal())
-                                .compareTo(normalizedInterestOutstanding) != 0) {
-                        loan.setInterestOutstanding(normalizedInterestOutstanding);
-                        changed = true;
-                }
-
-                BigDecimal normalizedManagementOutstanding = money(
-                                normalizedManagementFee.subtract(moneyValue(loan.getManagementFeePaidDecimal())).max(ZERO));
-                if (moneyValue(loan.getManagementFeeOutstandingDecimal())
-                                .compareTo(normalizedManagementOutstanding) != 0) {
-                        loan.setManagementFeeOutstanding(normalizedManagementOutstanding);
                         changed = true;
                 }
 
@@ -2933,20 +2966,13 @@ public class LoanService {
          * declining-balance principal, monthly interest and monthly management
          * fee. It intentionally excludes the one-time application fee.
          */
-        private record ContractualTotals(
-                        BigDecimal interest,
-                        BigDecimal managementFee,
-                        BigDecimal totalRepayable) {
-        }
-
-        private ContractualTotals calculateContractualTotals(
+        private BigDecimal calculateContractualTotalRepayable(
                         BigDecimal principal,
                         BigDecimal monthlyInterestRate,
                         BigDecimal monthlyManagementFeeRate,
                         int months) {
 
-                BigDecimal normalizedPrincipal = normalizePrincipal(principal);
-                BigDecimal balance = normalizedPrincipal;
+                BigDecimal balance = normalizePrincipal(principal);
                 BigDecimal totalInterest = ZERO;
                 BigDecimal totalManagementFee = ZERO;
 
@@ -2956,27 +2982,16 @@ public class LoanService {
                                         months - i + 1,
                                         monthlyInterestRate,
                                         monthlyManagementFeeRate);
+
                         totalInterest = money(totalInterest.add(line.interest()));
                         totalManagementFee = money(totalManagementFee.add(line.managementFee()));
                         balance = money(line.remainingBalance());
                 }
 
-                return new ContractualTotals(
-                                totalInterest,
-                                totalManagementFee,
-                                money(normalizedPrincipal.add(totalInterest).add(totalManagementFee)));
-        }
-
-        private BigDecimal calculateContractualTotalRepayable(
-                        BigDecimal principal,
-                        BigDecimal monthlyInterestRate,
-                        BigDecimal monthlyManagementFeeRate,
-                        int months) {
-                return calculateContractualTotals(
-                                principal,
-                                monthlyInterestRate,
-                                monthlyManagementFeeRate,
-                                months).totalRepayable();
+                return money(
+                                normalizePrincipal(principal)
+                                                .add(totalInterest)
+                                                .add(totalManagementFee));
         }
 
         private BigDecimal[] calcLoan(

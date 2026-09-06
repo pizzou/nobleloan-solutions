@@ -229,7 +229,7 @@ export default function ApprovalsPage() {
                       )}
                     </Metric>
                     <Metric label="Management fee">5% monthly</Metric>
-                    <Metric label="Processing fee">
+                    <Metric label="Application fee">
                       {loan.applicationFeeRate ?? 2}% one-time
                     </Metric>
                   </div>
@@ -404,7 +404,7 @@ export default function ApprovalsPage() {
                 />
 
                 <RateField
-                  label="Processing fee"
+                  label="Application fee"
                   suffix="% one-time"
                   value={draft.applicationFeeRate}
                   disabled={!isManagerOrAdmin}

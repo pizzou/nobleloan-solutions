@@ -1170,7 +1170,7 @@ export default function ApplyPage() {
                           )}`,
                         ],
                         [
-                          "Processing fee",
+                          "Application fee",
                           `${tenant.currency} ${application.toLocaleString(
                             "en",
                             { maximumFractionDigits: 0 },
