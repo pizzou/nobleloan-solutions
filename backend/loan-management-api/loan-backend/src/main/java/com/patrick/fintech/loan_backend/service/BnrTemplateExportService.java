@@ -40,6 +40,21 @@ public class BnrTemplateExportService {
     private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(MONEY_SCALE, MONEY_ROUNDING);
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100.00");
 
+    /**
+     * Regulatory layout capacities. These are report-layout controls, not
+     * borrower/loan data. They keep the generated workbook structurally
+     * compatible with the BNR workbook format without embedding an XLSX
+     * template or copying template data into the application.
+     */
+    private static final int CLASSIFICATION_COLUMN_CAPACITY = 53;
+    private static final int CLASSIFICATION_ROW_CAPACITY = 1400;
+    private static final int FINANCIAL_STATEMENT_COLUMN_CAPACITY = 15;
+    private static final int FINANCIAL_STATEMENT_ROW_CAPACITY = 428;
+    private static final int EXPLANATORY_NOTE_COLUMN_CAPACITY = 5;
+    private static final int EXPLANATORY_NOTE_ROW_CAPACITY = 150;
+    private static final int WRITTEN_OFF_COLUMN_CAPACITY = 37;
+    private static final int WRITTEN_OFF_ROW_CAPACITY = 91;
+
     private final LoanRepository loanRepository;
     private final PaymentScheduleRepository paymentScheduleRepository;
     private final RegulatoryReportingService regulatoryReportingService;
@@ -181,7 +196,7 @@ public class BnrTemplateExportService {
                 "WATCH",
                 "Loan Classification Report (WATCH)",
                 10,
-                normalHeaders());
+                watchHeaders());
 
         createClassificationSheet(
                 workbook,
@@ -216,6 +231,15 @@ public class BnrTemplateExportService {
                 restructuredHeaders());
 
         createWrittenOffSheet(workbook);
+
+        // Expand the generated workbook to the same structural canvas as the
+        // supplied BNR reporting format. The application still generates the
+        // workbook from data and report definitions; it does not embed or load
+        // the user's XLSX template at runtime.
+        expandExplanatoryNoteSheet(
+                workbook.getSheet("A1.1  Explanatory Note "));
+        expandFinancialStatementSheet(
+                workbook.getSheet("A1.2. FS"));
 
         return workbook;
     }
@@ -1379,25 +1403,37 @@ public class BnrTemplateExportService {
         CellStyle dataNumberStyle = createBnrDataNumberStyle(workbook);
         CellStyle dataPercentStyle = createBnrDataPercentStyle(workbook);
 
-        // Match the supplied BNR workbook's top information block.
-        put(sheet, 1, 0, "NDFSP Name", meta);
-        put(sheet, 2, 0, "NDFSP Name", meta);
+        /*
+         * Generate the regulatory presentation block programmatically.
+         * No XLSX template is embedded and no borrower data is hardcoded.
+         */
+        put(sheet, 1, 1, "NDFSP Name", meta);
+        put(sheet, 2, 1, "NDFSP Name", meta);
         put(sheet, 3, 0, "Report Date", meta);
         put(sheet, 3, 2, LocalDate.now(), meta);
         put(sheet, 4, 0, "Report Name ", meta);
         put(sheet, 4, 2, reportName, titleStyle);
 
-        int classificationInfoRow = headerRowNumber <= 9 ? 7 : 8;
-        put(sheet, classificationInfoRow, 1, "Portfolio At Risk " + portfolioRiskLabel(classification), titleStyle);
-        put(sheet, classificationInfoRow, 2, "Minimum provisioning rate required : "
-                + provisioningRate(classification).stripTrailingZeros().toPlainString() + "%", titleStyle);
+        int riskRow = headerRowNumber <= 9 ? 7 : 8;
+        put(sheet, riskRow, 1,
+                "Portfolio At Risk " + portfolioRiskLabel(classification),
+                titleStyle);
+        put(sheet, riskRow, 2,
+                "Minimum provisioning rate required : "
+                        + provisioningRate(classification)
+                                .stripTrailingZeros()
+                                .toPlainString()
+                        + "%",
+                titleStyle);
 
-        // Eligible collateral reference list reproduced as report metadata,
-        // not by embedding the user's workbook.
+        /*
+         * The eligibility list is part of the generated report definition.
+         * It is not loaded from or embedded as an Excel template.
+         */
         String[] eligible = {
-                "Eligible Collaterals",
+                "Eligible Collateral",
                 "cash collateral",
-                "Government or the Central Bank Bills and Bonds ",
+                "Government or the Central Bank Bills and Bonds",
                 "Other securities offered by the banks operating in Rwanda",
                 "Land and Building",
                 "movable collaterals.",
@@ -1409,32 +1445,79 @@ public class BnrTemplateExportService {
         }
 
         int headerIndex = headerRowNumber - 1;
-        Row headerRow = sheet.createRow(headerIndex);
+        Row headerRow = getOrCreateRow(sheet, headerIndex);
         for (int c = 0; c < headers.length; c++) {
-            Cell cell = headerRow.createCell(c);
+            Cell cell = headerRow.getCell(
+                    c,
+                    Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
             cell.setCellValue(headers[c]);
             cell.setCellStyle(headerStyle);
         }
 
-        Row placeholder = sheet.createRow(headerIndex + 1);
-        for (int c = 0; c < headers.length; c++) {
-            Cell cell = placeholder.createCell(c);
-            cell.setCellValue("");
-            cell.setCellStyle(isPercentBnrHeader(headers[c]) ? dataPercentStyle
-                    : isNumericBnrHeader(headers[c]) ? dataNumberStyle : dataStyle);
+        /*
+         * The source BNR workbook uses an internal technical header row below
+         * the human-readable regulatory header. We generate equivalent
+         * technical names dynamically so Excel filters/tables can be layered
+         * onto the generated data without copying the template itself.
+         */
+        int technicalHeaderIndex = headerIndex + 1;
+        Row technicalHeader = getOrCreateRow(sheet, technicalHeaderIndex);
+        for (int c = 0; c < CLASSIFICATION_COLUMN_CAPACITY; c++) {
+            Cell cell = technicalHeader.getCell(
+                    c,
+                    Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+            if (c < headers.length) {
+                cell.setCellValue("Column" + (c + 1));
+                cell.setCellStyle(dataStyle);
+            } else {
+                cell.setBlank();
+                cell.setCellStyle(dataStyle);
+            }
         }
 
-        int[] widths = bnrClassificationWidths(headers.length);
-        for (int c = 0; c < headers.length; c++) {
+        /*
+         * Pre-create the report canvas so the generated workbook has the same
+         * usable row/column footprint as the regulatory reporting workbook.
+         * Existing loan rows are written later; blank rows remain formatted.
+         */
+        for (int rowIndex = technicalHeaderIndex + 1;
+                rowIndex < CLASSIFICATION_ROW_CAPACITY;
+                rowIndex++) {
+            Row row = getOrCreateRow(sheet, rowIndex);
+            row.setHeightInPoints(18f);
+            for (int c = 0; c < CLASSIFICATION_COLUMN_CAPACITY; c++) {
+                Cell cell = row.getCell(
+                        c,
+                        Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+                if (c < headers.length) {
+                    cell.setCellStyle(
+                            isPercentBnrHeader(headers[c])
+                                    ? dataPercentStyle
+                                    : isNumericBnrHeader(headers[c])
+                                            ? dataNumberStyle
+                                            : dataStyle);
+                } else {
+                    cell.setCellStyle(dataStyle);
+                }
+            }
+        }
+
+        int[] widths = bnrClassificationWidths(
+                Math.max(headers.length, CLASSIFICATION_COLUMN_CAPACITY));
+        for (int c = 0; c < CLASSIFICATION_COLUMN_CAPACITY; c++) {
             sheet.setColumnWidth(c, widths[c]);
         }
-        sheet.setColumnWidth(14, 15000);
+
         sheet.createFreezePane(0, headerRowNumber);
         sheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(
-                headerIndex, headerIndex + 1, 0, headers.length - 1));
+                headerIndex,
+                CLASSIFICATION_ROW_CAPACITY - 1,
+                0,
+                Math.max(0, headers.length - 1)));
         sheet.setDisplayGridlines(false);
         sheet.setDefaultRowHeightInPoints(18f);
-        sheet.getRow(headerIndex).setHeightInPoints(72f);
+        headerRow.setHeightInPoints(72f);
+        technicalHeader.setHeightInPoints(18f);
     }
 
     private String portfolioRiskLabel(String classification) {
@@ -1481,11 +1564,13 @@ public class BnrTemplateExportService {
         Font font = workbook.createFont();
         font.setFontName("Arial"); font.setFontHeightInPoints((short) 10); font.setBold(true);
         style.setFont(font);
-        style.setAlignment(HorizontalAlignment.CENTER);
+        style.setAlignment(HorizontalAlignment.LEFT);
         style.setVerticalAlignment(VerticalAlignment.TOP);
         style.setWrapText(true);
         return style;
     }
+
+
 
     private CellStyle createBnrDataStyle(XSSFWorkbook workbook) {
         CellStyle style = createBnrBaseStyle(workbook);
@@ -1495,12 +1580,12 @@ public class BnrTemplateExportService {
         style.setFont(font);
         style.setAlignment(HorizontalAlignment.CENTER);
         style.setVerticalAlignment(VerticalAlignment.CENTER);
-        style.setFillForegroundColor(new XSSFColor(new byte[] {(byte)0xFF,(byte)0xC0,0x00}, null));
+        style.setFillForegroundColor(new XSSFColor(new byte[] {(byte)0xFF,(byte)0xC0,(byte)0x00}, null));
         style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         return style;
     }
 
-    private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
+private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
         CellStyle style = createBnrDataStyle(workbook);
         style.setDataFormat(workbook.createDataFormat().getFormat("#,##0.00;[Red]-#,##0.00;\"-\"") );
         return style;
@@ -1533,25 +1618,28 @@ public class BnrTemplateExportService {
     }
 
     private int[] bnrClassificationWidths(int count) {
-        int[] w = new int[count];
-        Arrays.fill(w, 5000);
-        int[] specific = { 2500, 8500, 6500, 5000, 3500, 3500, 9000, 7000, 6500, 8500, 6500, 7000, 6500, 6500, 6500, 6000, 6500, 5000, 6000, 8000, 6500, 6000, 6000, 5500, 5000, 6500, 6500, 6500, 6000, 5500, 6000, 6000, 6500, 7000, 6500, 6500, 5500, 3500, 5500, 6500, 6000, 6500, 6500 };
-        for (int i=0; i<count && i<specific.length; i++) w[i]=specific[i];
+        int[] w = new int[Math.max(count, CLASSIFICATION_COLUMN_CAPACITY)];
+        Arrays.fill(w, widthInExcelUnits(13));
+
+        // Widths follow the presentation proportions of the BNR reporting
+        // layout, while still being generated programmatically. These are
+        // UI/layout metadata only; no borrower or financial values are stored.
+        int[] characters = {
+                18, 31, 38, 31, 13, 13, 13, 13, 13, 13,
+                13, 31, 13, 31, 13, 13, 13, 31, 31, 29,
+                29, 26, 22, 30, 33, 27, 26, 29, 24, 31,
+                36, 28, 32, 26, 23, 32, 27, 25, 26, 28,
+                28, 30, 30, 13, 13, 13, 13, 13, 13, 13,
+                13, 13, 13
+        };
+
+        for (int i = 0; i < w.length && i < characters.length; i++) {
+            w[i] = widthInExcelUnits(characters[i]);
+        }
         return w;
     }
 
     private void createWrittenOffSheet(XSSFWorkbook workbook) {
-        String[] headers = {
-                "Names of Borrowers", "ID of the Borrower", "Telephone number", "Account Number",
-                "Gender", "Age", "Relationship with the NDFSP",
-                "Annual Interest Rate", "Method of interest rate calculation (Flat/Declining)",
-                "Physical Guarantee", "Borrower's District", "Borrower's Sector", "Borrower's Cell",
-                "Borrower's Village", "Date of loan disbursement", "Amount of loan disbursed",
-                "Maturity Date", "Amount Repaid ", "Loan balance outstanding", "Security Savings",
-                "Amount Written Off", "Date of Write Off", "Recoveries on the written off amount",
-                "Remaining Balance to be Recovered"
-        };
-
         Sheet sheet = workbook.createSheet("A1.9. Written off");
         CellStyle meta = createBnrMetaStyle(workbook);
         CellStyle title = createBnrTitleStyle(workbook);
@@ -1559,27 +1647,112 @@ public class BnrTemplateExportService {
         CellStyle data = createBnrDataStyle(workbook);
         CellStyle number = createBnrDataNumberStyle(workbook);
 
+        String[] headers = {
+                "Names of Borrowers",
+                "ID of the Borrower",
+                "Telephone number",
+                "Account Number",
+                "Gender",
+                "Age",
+                "Relationship with the NDFSP",
+                "Annual Interest Rate",
+                "Method of interest rate calculation (Flat/Declining)",
+                "Physical Guarantee",
+                "Borrower's District",
+                "Borrower's Sector",
+                "Borrower's Cell",
+                "Borrower's Village",
+                "Date of loan disbursement",
+                "Amount of loan disbursed",
+                "Maturity Date",
+                "Amount Repaid ",
+                "Loan balance outstanding",
+                "Security Savings",
+                "Amount Written Off",
+                "Date of Write Off",
+                "Recoveries on the written off amount",
+                "Remaining Balance to be Recovered"
+        };
+
         put(sheet, 1, 0, "NDFSP Name", meta);
         put(sheet, 2, 0, "NDFSP Name", meta);
         put(sheet, 3, 0, "Report Date", meta);
         put(sheet, 3, 1, LocalDate.now(), meta);
         put(sheet, 4, 0, "Report Name ", meta);
-        put(sheet, 4, 1, "Written Off Loans-Individuals ( 1 year in loss)", title);
-        put(sheet, 5, 0, "Loans with 1 Year in Loss ( 720 days in arrears  )", title);
+        put(sheet, 4, 1,
+                "Written Off Loans-Individuals ( 1 year in loss)",
+                title);
+        put(sheet, 5, 0,
+                "Loans with 1 Year in Loss ( 720 days in arrears  )",
+                title);
 
-        Row hr = sheet.createRow(6);
-        for (int c=0;c<headers.length;c++) {
-            Cell cell=hr.createCell(c); cell.setCellValue(headers[c]); cell.setCellStyle(header);
+        Row hr = getOrCreateRow(sheet, 6);
+        for (int c = 0; c < headers.length; c++) {
+            Cell cell = hr.getCell(
+                    c,
+                    Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+            cell.setCellValue(headers[c]);
+            cell.setCellStyle(header);
         }
-        Row placeholder=sheet.createRow(7);
-        for (int c=0;c<headers.length;c++) {
-            Cell cell=placeholder.createCell(c); cell.setCellStyle(isNumericBnrHeader(headers[c])?number:data);
+
+        Row technicalHeader = getOrCreateRow(sheet, 7);
+        for (int c = 0; c < WRITTEN_OFF_COLUMN_CAPACITY; c++) {
+            Cell cell = technicalHeader.getCell(
+                    c,
+                    Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+            if (c < headers.length) {
+                cell.setCellValue("Column" + (c + 1));
+            } else {
+                cell.setBlank();
+            }
+            cell.setCellStyle(data);
         }
-        for(int c=0;c<headers.length;c++) sheet.setColumnWidth(c, Math.max(5000, Math.min(15000, headers[c].length()*330)));
-        sheet.createFreezePane(0,7);
-        sheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(6,7,0,headers.length-1));
+
+        for (int rowIndex = 8;
+                rowIndex < WRITTEN_OFF_ROW_CAPACITY;
+                rowIndex++) {
+            Row row = getOrCreateRow(sheet, rowIndex);
+            row.setHeightInPoints(18f);
+            for (int c = 0; c < WRITTEN_OFF_COLUMN_CAPACITY; c++) {
+                Cell cell = row.getCell(
+                        c,
+                        Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+                cell.setCellStyle(c < headers.length
+                        ? (isNumericBnrHeader(headers[c])
+                                ? number
+                                : data)
+                        : data);
+            }
+        }
+
+        for (int c = 0; c < WRITTEN_OFF_COLUMN_CAPACITY; c++) {
+            sheet.setColumnWidth(c,
+                    writtenOffColumnWidth(c));
+        }
+
+        sheet.createFreezePane(0, 7);
+        sheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(
+                6,
+                WRITTEN_OFF_ROW_CAPACITY - 1,
+                0,
+                headers.length - 1));
         sheet.setDisplayGridlines(false);
-        sheet.getRow(6).setHeightInPoints(72f);
+        hr.setHeightInPoints(72f);
+    }
+
+    private int writtenOffColumnWidth(int column) {
+        int[] widths = {
+                35, 33, 13, 13, 13, 13, 13, 13, 13, 13,
+                13, 13, 13, 13, 24, 21, 20, 28, 18, 20,
+                25, 27, 27, 26, 7, 9, 13, 13, 13, 13,
+                13, 13, 13, 13, 13, 13, 13
+        };
+        return widthInExcelUnits(widths[Math.min(column, widths.length - 1)]);
+    }
+
+    private int widthInExcelUnits(int characters) {
+        int safe = Math.max(7, Math.min(255, characters));
+        return safe * 256;
     }
 
     private String[] normalHeaders() {
@@ -1629,11 +1802,59 @@ public class BnrTemplateExportService {
         };
     }
 
+    private String[] watchHeaders() {
+        return new String[] {
+                "No",
+                "Names of Borrowers",
+                "ID of the Borrower",
+                "Telephone number",
+                "Gender",
+                "Age",
+                "Relationship with the NDFSP ( Staff, Director, Shareholder…)",
+                "Marital Status (Married/Single/Widow)",
+                "previous loans paid on time (Yes/No)",
+                "Purpose of the loan",
+                "Branch name",
+                "Collateral Type",
+                "Guarantee(Collateral) Ammount",
+                "Borrower's District",
+                "Borrower's Sector",
+                "Borrower's Cell",
+                "Borrower's Village",
+                "Annual Interest Rate",
+                "Method of interest rate calculation (Flat/Declining)",
+                "Names of the Loan Officer",
+                "Disbursed Amount",
+                "Date of loan disbursement",
+                "Agreed Maturity Date",
+                "Agreed Frequency of Repayment (Days)",
+                "Grace Period Accorded (Days)",
+                "Agreed Date of First Payment (Principal)",
+                "Date of Last Payment (Principal)",
+                "Date when Arrears Start",
+                "Cut Off Date (Report Date)",
+                "Total Number of Installments",
+                "Round Number of Installments paid",
+                "Round Number of Installments outstanding",
+                "Amount Repaid (Principal)",
+                "Balance Outstanding (Principal)",
+                "Eligible Collateral provided",
+                "Net Amount due (Principal)",
+                "Number of days overdue (Arrears)",
+                "Class",
+                "Provisioning Rate (Regulation)",
+                "Provision Required",
+                "Previous Provisions",
+                "Additional Provisions"
+        };
+    }
+
     private String[] substandardHeaders() {
-        String[] headers = normalHeaders();
+        String[] headers = watchHeaders();
         headers[9] = "Other Institutions in which he/she has loans";
         headers[10] = "Purpose of the loan";
         headers[11] = "Branch name";
+        headers[12] = "Guarantee(Collateral) Ammount";
         return headers;
     }
 
@@ -1707,6 +1928,73 @@ public class BnrTemplateExportService {
         CellStyle style = createBodyStyle(workbook);
         style.setDataFormat(workbook.createDataFormat().getFormat("#,##0.00"));
         return style;
+    }
+
+    private void expandExplanatoryNoteSheet(Sheet sheet) {
+        if (sheet == null) {
+            return;
+        }
+
+        CellStyle body = createBnrBodyStyle((XSSFWorkbook) sheet.getWorkbook());
+        CellStyle section = createBnrSectionStyle((XSSFWorkbook) sheet.getWorkbook());
+
+        for (int rowIndex = 0; rowIndex < EXPLANATORY_NOTE_ROW_CAPACITY; rowIndex++) {
+            Row row = getOrCreateRow(sheet, rowIndex);
+            if (row.getHeight() == -1) {
+                row.setHeightInPoints(18f);
+            }
+            for (int column = 0; column < EXPLANATORY_NOTE_COLUMN_CAPACITY; column++) {
+                Cell cell = row.getCell(
+                        column,
+                        Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+                if (rowIndex == 1) {
+                    cell.setCellStyle(section);
+                } else {
+                    cell.setCellStyle(body);
+                }
+            }
+        }
+
+        int[] widths = {32, 62, 62, 13, 13};
+        for (int column = 0; column < EXPLANATORY_NOTE_COLUMN_CAPACITY; column++) {
+            sheet.setColumnWidth(column, widthInExcelUnits(widths[column]));
+        }
+        sheet.createFreezePane(1, 2);
+        sheet.setDisplayGridlines(false);
+    }
+
+    private void expandFinancialStatementSheet(Sheet sheet) {
+        if (sheet == null) {
+            return;
+        }
+
+        XSSFWorkbook workbook = (XSSFWorkbook) sheet.getWorkbook();
+        CellStyle normal = createBnrFsNormalStyle(workbook);
+
+        for (int rowIndex = 0; rowIndex < FINANCIAL_STATEMENT_ROW_CAPACITY; rowIndex++) {
+            Row row = getOrCreateRow(sheet, rowIndex);
+            if (row.getHeight() == -1) {
+                row.setHeightInPoints(18f);
+            }
+            for (int column = 0; column < FINANCIAL_STATEMENT_COLUMN_CAPACITY; column++) {
+                Cell cell = row.getCell(
+                        column,
+                        Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+                if (column >= 9) {
+                    cell.setCellStyle(normal);
+                }
+            }
+        }
+
+        int[] widths = {
+                16, 32, 64, 15, 17, 15, 13, 15, 15,
+                9, 13, 13, 15, 14, 11
+        };
+        for (int column = 0; column < FINANCIAL_STATEMENT_COLUMN_CAPACITY; column++) {
+            sheet.setColumnWidth(column, widthInExcelUnits(widths[column]));
+        }
+        sheet.createFreezePane(3, 4);
+        sheet.setDisplayGridlines(false);
     }
 
     private void configureWorkbook(XSSFWorkbook workbook) {
@@ -1858,14 +2146,6 @@ public class BnrTemplateExportService {
         }
 
         repairDerivedColumns(row, headerRow, facts);
-
-        // Regulatory identity is not the internal Borrower.id.
-        // Re-apply the national ID explicitly after all calculated/derived
-        // columns have been repaired so the BNR borrower identity can never
-        // be replaced by an operational database identifier or left behind by
-        // a template-specific column mapping. The cell is written as text so
-        // all 16 digits, including leading zeroes, are preserved.
-        writeBorrowerNationalId(row, headerRow, facts.nationalId);
     }
 
     private void populateWrittenOffRow(
@@ -1884,137 +2164,6 @@ public class BnrTemplateExportService {
             Object value = writtenOffValue(headerText, facts);
             writeTypedCell(row, column, value);
         }
-
-        // Written-off loans use a separate row writer, so enforce the same
-        // regulatory borrower identity rule here as in the active portfolio
-        // sheets.
-        writeBorrowerNationalId(row, header, facts.nationalId);
-    }
-
-    private void writeBorrowerNationalId(
-            Row row,
-            Row header,
-            String nationalId) {
-
-        if (row == null || header == null) {
-            return;
-        }
-
-        int column = ensureBorrowerNationalIdColumn(header);
-
-        if (column < 0) {
-            throw new IllegalStateException(
-                    "BNR sheet '" + row.getSheet().getSheetName()
-                            + "' does not have a usable borrower national-ID column");
-        }
-
-        Cell cell = row.getCell(
-                column,
-                Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
-
-        // Never write the database Borrower.id here. The BNR field is the
-        // borrower's national/regulatory identifier.
-        if (nationalId == null || nationalId.isBlank()) {
-            cell.setBlank();
-            return;
-        }
-
-        // Store the regulatory identity as text. This prevents Excel from
-        // converting a 16-digit national ID to scientific notation or from
-        // dropping leading zeroes.
-        cell.setCellValue(nationalId.trim());
-    }
-
-    /**
-     * Resolves the BNR borrower national-ID column defensively.
-     *
-     * Different BNR workbook revisions have used slightly different labels
-     * for the same regulatory field. The generated Noble workbook normally
-     * contains "ID of the Borrower" at column C on the classification sheets
-     * and column B on the written-off sheet. When a compatible label is found
-     * it is used directly. When a known BNR layout is missing the label, the
-     * method inserts the regulatory ID column at the expected position while
-     * preserving the existing columns and their styles.
-     */
-    private int ensureBorrowerNationalIdColumn(Row header) {
-        if (header == null) {
-            return -1;
-        }
-
-        // Accept the official label plus common template variants.
-        for (int c = 0; c < header.getLastCellNum(); c++) {
-            String normalized = normalize(text(header.getCell(c)));
-            if (normalized.isBlank()) {
-                continue;
-            }
-
-            if (normalized.equals("idofborrower")
-                    || normalized.equals("idborrower")
-                    || normalized.equals("nationalid")
-                    || normalized.equals("nationalidnumber")
-                    || normalized.equals("borrowernationalid")
-                    || normalized.equals("borrowernationalidnumber")
-                    || normalized.equals("nationalidofborrower")
-                    || normalized.equals("borrowersnationalid")
-                    || normalized.equals("borrowersnationalidnumber")
-                    || normalized.contains("nationalidofborrower")
-                    || normalized.contains("borrowernationalid")) {
-                return c;
-            }
-        }
-
-        Sheet sheet = header.getSheet();
-        String sheetName = sheet == null ? "" : sheet.getSheetName();
-        boolean writtenOff = "A1.9. Written off".equals(sheetName);
-        int expectedColumn = writtenOff ? 1 : 2;
-
-        // The current generated BNR workbook already has the correct column.
-        // This fallback only repairs a legacy/mismatched template revision.
-        short lastCell = header.getLastCellNum();
-        if (lastCell < expectedColumn) {
-            while (header.getLastCellNum() <= expectedColumn) {
-                header.createCell(Math.max(0, header.getLastCellNum())).setCellValue("");
-            }
-        }
-
-        Cell existing = header.getCell(
-                expectedColumn,
-                Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
-        String existingHeader = normalize(text(existing));
-
-        // If the expected location is already an unrelated populated field,
-        // insert a new column instead of overwriting a regulatory field.
-        if (!existingHeader.isBlank()
-                && !existingHeader.equals("idofborrower")
-                && !existingHeader.equals("idborrower")
-                && !existingHeader.equals("nationalid")
-                && !existingHeader.equals("nationalidnumber")
-                && !existingHeader.contains("nationalid")) {
-
-            int lastColumn = Math.max(expectedColumn, header.getLastCellNum() - 1);
-            if (sheet != null && lastColumn >= expectedColumn) {
-                sheet.shiftColumns(
-                        expectedColumn,
-                        lastColumn,
-                        1);
-            }
-        }
-
-        // Copy the style from the nearest neighboring header/data columns so
-        // the repair does not introduce a different color/font/border style.
-        Cell source = header.getCell(
-                expectedColumn + 1,
-                Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
-        Cell target = header.getCell(
-                expectedColumn,
-                Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
-
-        if (source != null && target != null) {
-            target.setCellStyle(source.getCellStyle());
-        }
-
-        target.setCellValue("ID of the Borrower");
-        return expectedColumn;
     }
 
     private Object valueForHeader(
