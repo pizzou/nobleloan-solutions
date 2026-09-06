@@ -500,7 +500,7 @@ export default function TrackPage() {
    * =========================================================
    */
 
-  const handleDownloadDoc = async (
+  const handleDownloadDoc = (
     doc: "agreement" | "schedule" | "receipt",
     label: string,
   ) => {
@@ -522,105 +522,57 @@ export default function TrackPage() {
       return;
     }
 
+    const baseUrl = (
+      process.env.NEXT_PUBLIC_API_URL ||
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      ""
+    ).replace(/\/+$/, "");
+
+    if (!baseUrl) {
+      toast(
+        "error",
+        "The document service is not configured. Please contact support.",
+      );
+      return;
+    }
+
+    const url =
+      `${baseUrl}/api/public/applications/` +
+      `${encodeURIComponent(ref)}/documents/` +
+      `${doc}.pdf?phone=${encodeURIComponent(ph)}`;
+
     setDownloadingDoc(doc);
 
     try {
-      const response = await publicApi.downloadDocument(ref, ph, doc);
-
-      const rawContentType =
-        response.headers?.["content-type"] ??
-        response.headers?.["Content-Type"];
-
-      const contentType =
-        typeof rawContentType === "string" ? rawContentType : "";
-
-      const blob =
-        response.data instanceof Blob
-          ? response.data
-          : new Blob([response.data], {
-              type: contentType || "application/pdf",
-            });
-
       /*
-       * Do not save JSON/text errors as PDF.
+       * Public PDF endpoint:
+       *
+       * Open the authenticated-by-reference/phone document directly in the
+       * browser instead of using Axios/XHR to read a cross-origin Blob.
+       *
+       * This avoids the browser-side CORS requirement for reading a binary
+       * response. The backend remains responsible for validating the
+       * reference + phone before returning the document.
        */
-      if (
-        contentType &&
-        !contentType.toLowerCase().includes("application/pdf")
-      ) {
-        let message = `The server did not return a PDF for ${label}.`;
-
-        try {
-          const text = await blob.text();
-
-          if (text.trim()) {
-            try {
-              const parsed = JSON.parse(text);
-
-              message =
-                parsed?.error || parsed?.message || parsed?.detail || message;
-            } catch {
-              message = text.trim();
-            }
-          }
-        } catch {
-          /*
-           * Keep default message.
-           */
-        }
-
-        throw new Error(message);
-      }
-
-      if (blob.size === 0) {
-        throw new Error(`The server returned an empty PDF for ${label}.`);
-      }
-
-      const objectUrl = URL.createObjectURL(blob);
-
       const anchor = document.createElement("a");
 
-      anchor.href = objectUrl;
-
-      anchor.download = `${label}-${ref}.pdf`;
-
+      anchor.href = url;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
       anchor.style.display = "none";
 
       document.body.appendChild(anchor);
-
       anchor.click();
-
       anchor.remove();
 
-      window.setTimeout(() => {
-        URL.revokeObjectURL(objectUrl);
-      }, 60000);
-
-      toast("success", `${label} downloaded successfully.`);
+      toast("success", `${label} opened successfully.`);
     } catch (err: unknown) {
       console.error("[DOCUMENT] Download failed:", err);
-
-      const apiErr = err as any;
-
-      let message = apiErr?.message || `Could not download ${label}.`;
-
-      if (apiErr?.data) {
-        const data = apiErr.data;
-
-        if (typeof data === "string") {
-          message = data;
-        } else if (data?.error) {
-          message = String(data.error);
-        } else if (data?.message) {
-          message = String(data.message);
-        } else if (data?.detail) {
-          message = String(data.detail);
-        }
-      }
-
-      toast("error", message);
+      toast("error", `Could not open ${label}. Please retry.`);
     } finally {
-      setDownloadingDoc(null);
+      window.setTimeout(() => {
+        setDownloadingDoc(null);
+      }, 1000);
     }
   };
 
