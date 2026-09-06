@@ -1900,16 +1900,12 @@ public class BnrTemplateExportService {
             return;
         }
 
-        int column = findColumn(
-                header,
-                "idofborrower",
-                "nationalid",
-                "nationalidnumber");
+        int column = ensureBorrowerNationalIdColumn(header);
 
         if (column < 0) {
             throw new IllegalStateException(
                     "BNR sheet '" + row.getSheet().getSheetName()
-                            + "' does not contain the borrower national-ID column");
+                            + "' does not have a usable borrower national-ID column");
         }
 
         Cell cell = row.getCell(
@@ -1923,7 +1919,102 @@ public class BnrTemplateExportService {
             return;
         }
 
+        // Store the regulatory identity as text. This prevents Excel from
+        // converting a 16-digit national ID to scientific notation or from
+        // dropping leading zeroes.
         cell.setCellValue(nationalId.trim());
+    }
+
+    /**
+     * Resolves the BNR borrower national-ID column defensively.
+     *
+     * Different BNR workbook revisions have used slightly different labels
+     * for the same regulatory field. The generated Noble workbook normally
+     * contains "ID of the Borrower" at column C on the classification sheets
+     * and column B on the written-off sheet. When a compatible label is found
+     * it is used directly. When a known BNR layout is missing the label, the
+     * method inserts the regulatory ID column at the expected position while
+     * preserving the existing columns and their styles.
+     */
+    private int ensureBorrowerNationalIdColumn(Row header) {
+        if (header == null) {
+            return -1;
+        }
+
+        // Accept the official label plus common template variants.
+        for (int c = 0; c < header.getLastCellNum(); c++) {
+            String normalized = normalize(text(header.getCell(c)));
+            if (normalized.isBlank()) {
+                continue;
+            }
+
+            if (normalized.equals("idofborrower")
+                    || normalized.equals("idborrower")
+                    || normalized.equals("nationalid")
+                    || normalized.equals("nationalidnumber")
+                    || normalized.equals("borrowernationalid")
+                    || normalized.equals("borrowernationalidnumber")
+                    || normalized.equals("nationalidofborrower")
+                    || normalized.equals("borrowersnationalid")
+                    || normalized.equals("borrowersnationalidnumber")
+                    || normalized.contains("nationalidofborrower")
+                    || normalized.contains("borrowernationalid")) {
+                return c;
+            }
+        }
+
+        Sheet sheet = header.getSheet();
+        String sheetName = sheet == null ? "" : sheet.getSheetName();
+        boolean writtenOff = "A1.9. Written off".equals(sheetName);
+        int expectedColumn = writtenOff ? 1 : 2;
+
+        // The current generated BNR workbook already has the correct column.
+        // This fallback only repairs a legacy/mismatched template revision.
+        short lastCell = header.getLastCellNum();
+        if (lastCell < expectedColumn) {
+            while (header.getLastCellNum() <= expectedColumn) {
+                header.createCell(Math.max(0, header.getLastCellNum())).setCellValue("");
+            }
+        }
+
+        Cell existing = header.getCell(
+                expectedColumn,
+                Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+        String existingHeader = normalize(text(existing));
+
+        // If the expected location is already an unrelated populated field,
+        // insert a new column instead of overwriting a regulatory field.
+        if (!existingHeader.isBlank()
+                && !existingHeader.equals("idofborrower")
+                && !existingHeader.equals("idborrower")
+                && !existingHeader.equals("nationalid")
+                && !existingHeader.equals("nationalidnumber")
+                && !existingHeader.contains("nationalid")) {
+
+            int lastColumn = Math.max(expectedColumn, header.getLastCellNum() - 1);
+            if (sheet != null && lastColumn >= expectedColumn) {
+                sheet.shiftColumns(
+                        expectedColumn,
+                        lastColumn,
+                        1);
+            }
+        }
+
+        // Copy the style from the nearest neighboring header/data columns so
+        // the repair does not introduce a different color/font/border style.
+        Cell source = header.getCell(
+                expectedColumn + 1,
+                Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+        Cell target = header.getCell(
+                expectedColumn,
+                Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+
+        if (source != null && target != null) {
+            target.setCellStyle(source.getCellStyle());
+        }
+
+        target.setCellValue("ID of the Borrower");
+        return expectedColumn;
     }
 
     private Object valueForHeader(
