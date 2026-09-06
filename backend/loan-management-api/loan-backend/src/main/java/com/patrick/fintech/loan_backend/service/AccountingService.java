@@ -1642,6 +1642,8 @@ public class AccountingService {
                 requireOrganization(org);
                 ensureChartOfAccounts(org);
 
+                validateAccrualEligibility(installment, loan);
+
                 BigDecimal scheduled = money(installment.getScheduledInterestDecimal());
                 BigDecimal paid = money(installment.getInterestComponentDecimal());
                 BigDecimal amount = maxZero(scheduled.subtract(paid));
@@ -1719,6 +1721,8 @@ public class AccountingService {
                 requireOrganization(org);
                 ensureChartOfAccounts(org);
 
+                validateAccrualEligibility(installment, loan);
+
                 BigDecimal scheduled = money(installment.getScheduledManagementFeeDecimal());
                 BigDecimal paid = money(installment.getManagementFeeComponentDecimal());
                 BigDecimal amount = maxZero(scheduled.subtract(paid));
@@ -1777,6 +1781,39 @@ public class AccountingService {
                  */
 
                 return entry;
+        }
+
+        /**
+         * Prevents the accrual engine from recognizing income before the
+         * contractual installment is actually due or before the loan was
+         * disbursed. This is intentionally enforced in AccountingService,
+         * not only in the scheduler, so manual/replayed calls cannot bypass
+         * the accounting boundary.
+         */
+        private void validateAccrualEligibility(Payment installment, Loan loan) {
+                LocalDate dueDate = installment.getDueDate();
+                if (dueDate == null) {
+                        throw new IllegalArgumentException(
+                                        "Installment due date is required for accrual");
+                }
+
+                LocalDate today = LocalDate.now();
+                if (dueDate.isAfter(today)) {
+                        throw new IllegalStateException(
+                                        "Cannot accrue an installment before its due date: " + dueDate);
+                }
+
+                if (loan.getDisbursedAt() == null) {
+                        throw new IllegalStateException(
+                                        "Cannot accrue an installment for a loan that has not been disbursed");
+                }
+
+                LocalDate disbursementDate = loan.getDisbursedAt().toLocalDate();
+                if (dueDate.isBefore(disbursementDate)) {
+                        throw new IllegalStateException(
+                                        "Installment due date " + dueDate
+                                                        + " precedes loan disbursement date " + disbursementDate);
+                }
         }
 
         // ============================================================

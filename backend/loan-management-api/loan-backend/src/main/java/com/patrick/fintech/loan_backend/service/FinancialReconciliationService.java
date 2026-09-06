@@ -8,6 +8,7 @@ import com.patrick.fintech.loan_backend.model.LoanStatus;
 import com.patrick.fintech.loan_backend.repository.ChartOfAccountRepository;
 import com.patrick.fintech.loan_backend.repository.JournalEntryRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
+import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ public class FinancialReconciliationService {
     private final JournalEntryRepository journalEntryRepository;
     private final ChartOfAccountRepository chartOfAccountRepository;
     private final LoanRepository loanRepository;
+    private final PaymentRepository paymentRepository;
     private final RegulatoryReportingService regulatoryReportingService;
 
     @Transactional(readOnly = true)
@@ -307,8 +309,20 @@ public class FinancialReconciliationService {
 
         Map<String, BigDecimal> operationalSubledger = new LinkedHashMap<>();
         operationalSubledger.put("1100", sum(loans, Loan::getOutstandingBalanceDecimal));
-        operationalSubledger.put("1150", sum(loans, Loan::getInterestOutstandingDecimal));
-        operationalSubledger.put("1160", sum(loans, Loan::getManagementFeeOutstandingDecimal));
+
+        // GL 1150/1160 represent accrued receivables, not the full future
+        // contractual interest/fee balance. For originated loans, reconcile
+        // only installments that are due by the as-of date, less amounts
+        // already allocated to those installments. Imported loans retain
+        // their historical opening receivable as the operational authority.
+        operationalSubledger.put("1150", sum(loans, loan ->
+                isImportedLoan(loan)
+                        ? loan.getInterestOutstandingDecimal()
+                        : accruedInterestReceivable(loan, asOf)));
+        operationalSubledger.put("1160", sum(loans, loan ->
+                isImportedLoan(loan)
+                        ? loan.getManagementFeeOutstandingDecimal()
+                        : accruedManagementFeeReceivable(loan, asOf)));
         operationalSubledger.put("1170", sum(loans, Loan::getExtensionFeeOutstandingDecimal));
         operationalSubledger.put("1175", sum(loans, loan -> {
             BigDecimal assessed = loan.getPenaltiesAssessedDecimal();
@@ -555,8 +569,12 @@ public class FinancialReconciliationService {
 
             Map<String, BigDecimal> operational = new LinkedHashMap<>();
             operational.put("1100", money(loan.getOutstandingBalanceDecimal()));
-            operational.put("1150", money(loan.getInterestOutstandingDecimal()));
-            operational.put("1160", money(loan.getManagementFeeOutstandingDecimal()));
+            operational.put("1150", money(isImportedLoan(loan)
+                    ? loan.getInterestOutstandingDecimal()
+                    : accruedInterestReceivable(loan, LocalDate.now())));
+            operational.put("1160", money(isImportedLoan(loan)
+                    ? loan.getManagementFeeOutstandingDecimal()
+                    : accruedManagementFeeReceivable(loan, LocalDate.now())));
             operational.put("1170", money(loan.getExtensionFeeOutstandingDecimal()));
 
             BigDecimal penalties = money(loan.getPenaltiesAssessedDecimal())
@@ -785,6 +803,57 @@ public class FinancialReconciliationService {
          * from reconciliation if it already carries financial balances.
          */
         return hasFinancialEvidence(loan);
+    }
+
+    private boolean isImportedLoan(Loan loan) {
+        return loan != null
+                && (Boolean.TRUE.equals(loan.getImported()) || loan.getImportBatchId() != null);
+    }
+
+    private BigDecimal accruedInterestReceivable(Loan loan, LocalDate asOf) {
+        return scheduledReceivable(loan, asOf, true);
+    }
+
+    private BigDecimal accruedManagementFeeReceivable(Loan loan, LocalDate asOf) {
+        return scheduledReceivable(loan, asOf, false);
+    }
+
+    private BigDecimal scheduledReceivable(Loan loan, LocalDate asOf, boolean interest) {
+        if (loan == null || loan.getId() == null || asOf == null) {
+            return ZERO;
+        }
+
+        List<com.patrick.fintech.loan_backend.model.Payment> installments =
+                paymentRepository.findByLoanId(loan.getId());
+        if (installments == null || installments.isEmpty()) {
+            return ZERO;
+        }
+
+        BigDecimal total = ZERO;
+        LocalDate disbursementDate = loan.getDisbursedAt() == null
+                ? null
+                : loan.getDisbursedAt().toLocalDate();
+
+        for (com.patrick.fintech.loan_backend.model.Payment installment : installments) {
+            if (installment == null || installment.getDueDate() == null
+                    || installment.getDueDate().isAfter(asOf)) {
+                continue;
+            }
+            if (disbursementDate != null && installment.getDueDate().isBefore(disbursementDate)) {
+                continue;
+            }
+
+            BigDecimal scheduled = interest
+                    ? money(installment.getScheduledInterestDecimal())
+                    : money(installment.getScheduledManagementFeeDecimal());
+            BigDecimal paid = interest
+                    ? money(installment.getInterestComponentDecimal())
+                    : money(installment.getManagementFeeComponentDecimal());
+
+            total = total.add(scheduled.subtract(paid).max(ZERO));
+        }
+
+        return normalize(total);
     }
 
     private boolean hasFinancialEvidence(Loan loan) {

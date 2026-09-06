@@ -111,7 +111,7 @@ public class ESignatureService {
                                         "Loan ID is required");
                 }
 
-                Loan loan = loanRepo.findById(
+                Loan loan = loanRepo.findByIdForUpdate(
                                 loanId).orElseThrow(
                                                 () -> new IllegalArgumentException(
                                                                 "Loan not found: " + loanId));
@@ -539,18 +539,29 @@ public class ESignatureService {
 
         @Transactional(readOnly = true)
         public List<ESignatureRequest> history(
-                        Long loanId) {
+                        Long loanId,
+                        Long organizationId) {
 
                 if (loanId == null) {
                         throw new IllegalArgumentException(
                                         "Loan ID is required.");
                 }
 
-                loanRepo.findById(
+                if (organizationId == null) {
+                        throw new SecurityException("Organization context is required.");
+                }
+
+                Loan loan = loanRepo.findById(
                                 loanId)
                                 .orElseThrow(
                                                 () -> new IllegalArgumentException(
                                                                 "Loan not found: " + loanId));
+
+                if (loan.getOrganization() == null
+                                || loan.getOrganization().getId() == null
+                                || !organizationId.equals(loan.getOrganization().getId())) {
+                        throw new SecurityException("You are not authorized to access this loan.");
+                }
 
                 return esignRepo
                                 .findByLoan_IdOrderByCreatedAtDesc(
@@ -564,8 +575,18 @@ public class ESignatureService {
         private ESignatureRequest getActiveByToken(
                         String token) {
 
-                ESignatureRequest request = getByToken(
-                                token);
+                String cleanToken = clean(token);
+
+                if (cleanToken == null) {
+                        throw new IllegalArgumentException(
+                                        "Signing token is required.");
+                }
+
+                ESignatureRequest request = esignRepo.findBySigningTokenForUpdate(
+                                cleanToken)
+                                .orElseThrow(
+                                                () -> new IllegalArgumentException(
+                                                                "Signing link not found."));
 
                 if (request.getStatus() == ESignatureRequest.SignatureStatus.SIGNED) {
 

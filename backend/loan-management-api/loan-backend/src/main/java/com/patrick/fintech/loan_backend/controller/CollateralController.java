@@ -1,7 +1,6 @@
 package com.patrick.fintech.loan_backend.controller;
 
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
-import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Collateral;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.repository.CollateralRepository;
@@ -28,15 +27,17 @@ public class CollateralController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<Object>> list(@PathVariable Long loanId) {
-        return ResponseEntity.ok(ApiResponse.safe(collateralRepo.findByLoan_Id(loanId)));
+        var user = currentUserUtil.getCurrentUser();
+        Loan loan = getOwnedLoan(loanId, user);
+        return ResponseEntity.ok(ApiResponse.safe(
+                collateralRepo.findByLoan_IdAndOrganization_Id(
+                        loan.getId(), user.getOrganization().getId())));
     }
 
     @PostMapping
     public ResponseEntity<ApiResponse<Object>> add(@PathVariable Long loanId, @RequestBody Map<String, Object> body) {
-        Loan loan = loanRepo.findById(loanId).orElseThrow(() -> new RuntimeException("Loan not found"));
         var user = currentUserUtil.getCurrentUser();
-        if (!loan.getOrganization().getId().equals(user.getOrganization().getId()))
-            throw new RuntimeException("Access denied");
+        Loan loan = getOwnedLoan(loanId, user);
 
         Collateral c = Collateral.builder()
                 .loan(loan).organization(loan.getOrganization())
@@ -62,11 +63,12 @@ public class CollateralController {
     @PutMapping("/{collateralId}/status")
     public ResponseEntity<ApiResponse<Object>> updateStatus(
             @PathVariable Long loanId, @PathVariable Long collateralId, @RequestBody Map<String, String> body) {
+        var user = currentUserUtil.getCurrentUser();
+        Loan loan = getOwnedLoan(loanId, user);
         Collateral c = collateralRepo.findById(collateralId)
                 .orElseThrow(() -> new RuntimeException("Collateral not found"));
-        var user = currentUserUtil.getCurrentUser();
-        if (!c.getOrganization().getId().equals(user.getOrganization().getId()))
-            throw new RuntimeException("Access denied");
+        assertCollateralBelongsToLoan(c, loan, user);
+
         Collateral.CollateralStatus newStatus = Collateral.CollateralStatus.valueOf(body.get("status"));
         c.setStatus(newStatus);
         c = collateralRepo.save(c);
@@ -77,15 +79,42 @@ public class CollateralController {
 
     @DeleteMapping("/{collateralId}")
     public ResponseEntity<ApiResponse<String>> remove(@PathVariable Long loanId, @PathVariable Long collateralId) {
+        var user = currentUserUtil.getCurrentUser();
+        Loan loan = getOwnedLoan(loanId, user);
         Collateral c = collateralRepo.findById(collateralId)
                 .orElseThrow(() -> new RuntimeException("Collateral not found"));
-        var user = currentUserUtil.getCurrentUser();
-        if (!c.getOrganization().getId().equals(user.getOrganization().getId()))
-            throw new RuntimeException("Access denied");
+        assertCollateralBelongsToLoan(c, loan, user);
+
         collateralRepo.delete(c);
         auditService.log(c.getOrganization(), user, "COLLATERAL_REMOVED", "LOAN", loanId.toString(),
                 "Collateral removed");
         return ResponseEntity.ok(ApiResponse.safe("Collateral removed"));
+    }
+
+    private Loan getOwnedLoan(Long loanId, com.patrick.fintech.loan_backend.model.User user) {
+        if (loanId == null || loanId <= 0 || user == null || user.getOrganization() == null
+                || user.getOrganization().getId() == null) {
+            throw new RuntimeException("Access denied");
+        }
+        Loan loan = loanRepo.findById(loanId)
+                .orElseThrow(() -> new RuntimeException("Loan not found"));
+        if (loan.getOrganization() == null || loan.getOrganization().getId() == null
+                || !loan.getOrganization().getId().equals(user.getOrganization().getId())) {
+            throw new RuntimeException("Access denied");
+        }
+        return loan;
+    }
+
+    private void assertCollateralBelongsToLoan(
+            Collateral collateral,
+            Loan loan,
+            com.patrick.fintech.loan_backend.model.User user) {
+        if (collateral.getOrganization() == null || collateral.getOrganization().getId() == null
+                || !collateral.getOrganization().getId().equals(user.getOrganization().getId())
+                || collateral.getLoan() == null || collateral.getLoan().getId() == null
+                || !collateral.getLoan().getId().equals(loan.getId())) {
+            throw new RuntimeException("Access denied");
+        }
     }
 
     private String str(Map<String, Object> b, String k) {

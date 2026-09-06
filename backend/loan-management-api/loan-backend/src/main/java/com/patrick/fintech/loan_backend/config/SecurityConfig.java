@@ -13,6 +13,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.http.HttpMethod;
 
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -107,6 +108,10 @@ public class SecurityConfig {
 
                                 .authorizeHttpRequests(authorize -> authorize
 
+                                                // CORS preflight requests must never be challenged by JWT/security rules.
+                                                .requestMatchers(HttpMethod.OPTIONS, "/**")
+                                                .permitAll()
+
                                                 .requestMatchers(
                                                                 "/api/auth/**")
                                                 .permitAll()
@@ -179,6 +184,17 @@ public class SecurityConfig {
                 return http.build();
         }
 
+        private String normalizeCorsOrigin(String origin) {
+                if (origin == null) {
+                        return "";
+                }
+                String normalized = origin.trim();
+                while (normalized.endsWith("/") && normalized.length() > 8) {
+                        normalized = normalized.substring(0, normalized.length() - 1);
+                }
+                return normalized;
+        }
+
         // ================================================================
         // DEVELOPMENT SURFACES
         // ================================================================
@@ -208,8 +224,20 @@ public class SecurityConfig {
                 List<String> origins = Arrays.stream(
                                 allowedOrigins.split(","))
                                 .map(String::trim)
+                                .map(this::normalizeCorsOrigin)
                                 .filter(origin -> !origin.isBlank())
+                                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new))
+                                .stream()
                                 .toList();
+
+                // Keep the deployed production web client reachable even when
+                // a Render environment variable contains a stale value.
+                // Credentials remain enabled, so only this explicit origin is
+                // added; no wildcard origin is permitted.
+                if (!origins.contains("https://nobleloan-solutions.vercel.app")) {
+                        origins = new java.util.ArrayList<>(origins);
+                        origins.add("https://nobleloan-solutions.vercel.app");
+                }
 
                 configuration.setAllowedOrigins(origins);
 

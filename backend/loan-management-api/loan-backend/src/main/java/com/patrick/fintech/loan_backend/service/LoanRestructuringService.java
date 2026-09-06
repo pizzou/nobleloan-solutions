@@ -100,7 +100,7 @@ public class LoanRestructuringService {
                         int extensionMonths,
                         String reason) {
 
-                Loan loan = get(loanId, orgId);
+                Loan loan = getForUpdate(loanId, orgId);
 
                 validateOfficer(officer, orgId);
 
@@ -643,7 +643,7 @@ public class LoanRestructuringService {
                         Double newRate,
                         String reason) {
 
-                Loan loan = get(loanId, orgId);
+                Loan loan = getForUpdate(loanId, orgId);
 
                 validateOfficer(officer, orgId);
 
@@ -759,27 +759,18 @@ public class LoanRestructuringService {
                 loan.setStatus(
                                 LoanStatus.ACTIVE);
 
-                List<Payment> futurePayments = paymentRepo
-                                .findByLoanId(loan.getId())
-                                .stream()
-                                .filter(
-                                                payment -> payment != null
-                                                                && !Boolean.TRUE.equals(
-                                                                                payment.getPaid()))
-                                .toList();
-
-                if (!futurePayments.isEmpty()) {
-
-                        paymentRepo.deleteAll(
-                                        futurePayments);
-
-                        paymentRepo.flush();
-                }
+                /*
+                 * Rebuild only the unearned/unpaid portion of the operational
+                 * payment schedule.  Never delete paid or partially-paid rows:
+                 * those rows are financial history and may already be linked to
+                 * posted payment transactions and accrual journals.
+                 */
+                rebuildRemainingPaymentScheduleForExtension(
+                                loan,
+                                newMonths,
+                                previousOutstanding);
 
                 Loan saved = loanRepo.save(loan);
-
-                paymentScheduleService.generateSchedule(
-                                saved);
 
                 refreshNextPayment(saved);
 
@@ -848,7 +839,7 @@ public class LoanRestructuringService {
                         User officer,
                         String reason) {
 
-                Loan loan = get(
+                Loan loan = getForUpdate(
                                 loanId,
                                 orgId);
 
@@ -878,6 +869,13 @@ public class LoanRestructuringService {
                         throw new IllegalStateException(
                                         "Cannot write off a loan with no outstanding principal");
                 }
+
+                /*
+                 * Post the accounting entry while the original outstanding
+                 * balance is still present.  postWriteOff() is idempotent by
+                 * loan/source, so a retry cannot create a second journal.
+                 */
+                accountingService.postWriteOff(loan);
 
                 loan.setStatus(
                                 LoanStatus.WRITTEN_OFF);
@@ -915,24 +913,6 @@ public class LoanRestructuringService {
 
                 Loan saved = loanRepo.save(
                                 loan);
-
-                List<Payment> pendingPayments = paymentRepo
-                                .findByLoanId(
-                                                saved.getId())
-                                .stream()
-                                .filter(
-                                                payment -> payment != null
-                                                                && !Boolean.TRUE.equals(
-                                                                                payment.getPaid()))
-                                .toList();
-
-                if (!pendingPayments.isEmpty()) {
-
-                        paymentRepo.deleteAll(
-                                        pendingPayments);
-
-                        paymentRepo.flush();
-                }
 
                 audit(
                                 saved.getOrganization(),
@@ -975,7 +955,7 @@ public class LoanRestructuringService {
                         int pauseMonths,
                         String reason) {
 
-                Loan loan = get(
+                Loan loan = getForUpdate(
                                 loanId,
                                 orgId);
 
@@ -1178,8 +1158,34 @@ public class LoanRestructuringService {
         }
 
         // ================================================================
-        // GET LOAN WITH ORGANIZATION SECURITY
+        // GET LOAN WITH ORGANIZATION SECURITY + CONCURRENCY LOCK
         // ================================================================
+
+        private Loan getForUpdate(
+                        Long loanId,
+                        Long orgId) {
+
+                if (loanId == null) {
+                        throw new IllegalArgumentException("Loan ID is required");
+                }
+
+                if (orgId == null) {
+                        throw new IllegalArgumentException("Organization ID is required");
+                }
+
+                Loan loan = loanRepo.findByIdForUpdate(loanId)
+                                .orElseThrow(() -> new RuntimeException("Loan not found: " + loanId));
+
+                if (loan.getOrganization() == null || loan.getOrganization().getId() == null) {
+                        throw new IllegalStateException("Loan has no valid organization");
+                }
+
+                if (!orgId.equals(loan.getOrganization().getId())) {
+                        throw new RuntimeException("Access denied");
+                }
+
+                return loan;
+        }
 
         private Loan get(
                         Long loanId,

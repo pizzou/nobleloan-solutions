@@ -39,6 +39,9 @@ public class ESignatureController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<Object>> history(@PathVariable Long loanId) {
-        return ResponseEntity.ok(ApiResponse.safe(esignatureService.history(loanId)));
+        return ResponseEntity.ok(ApiResponse.safe(
+                esignatureService.history(
+                        loanId,
+                        currentUserUtil.getCurrentOrganizationId())));
     }
 }

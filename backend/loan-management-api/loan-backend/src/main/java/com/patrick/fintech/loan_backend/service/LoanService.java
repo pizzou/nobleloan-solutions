@@ -903,7 +903,7 @@ public class LoanService {
                                         "Approving user must belong to an organization");
                 }
 
-                Loan loan = getLoanForOrg(
+                Loan loan = getLoanForOrgForUpdate(
                                 loanId,
                                 approvedBy.getOrganization().getId());
 
@@ -1317,7 +1317,7 @@ public class LoanService {
                                         "Rejecting user must belong to an organization");
                 }
 
-                Loan loan = getLoanForOrg(
+                Loan loan = getLoanForOrgForUpdate(
                                 loanId,
                                 rejectedBy.getOrganization().getId());
 
@@ -2370,6 +2370,42 @@ public class LoanService {
         // ================================================================
         // GET LOAN
         // ================================================================
+
+        /**
+         * Loads a loan with a database write lock for state-changing lifecycle
+         * operations such as approval and rejection. This prevents two
+         * concurrent requests from both validating the same PENDING loan and
+         * then applying conflicting lifecycle decisions.
+         */
+        private Loan getLoanForOrgForUpdate(
+                        Long loanId,
+                        Long orgId) {
+
+                if (loanId == null) {
+                        throw new IllegalArgumentException(
+                                        "Loan ID cannot be null");
+                }
+
+                if (orgId == null) {
+                        throw new IllegalArgumentException(
+                                        "Organization ID cannot be null");
+                }
+
+                Loan loan = loanRepo.findByIdForUpdate(loanId)
+                                .orElseThrow(
+                                                () -> new RuntimeException(
+                                                                "Loan not found: " + loanId));
+
+                if (loan.getOrganization() == null
+                                || loan.getOrganization().getId() == null
+                                || !loan.getOrganization().getId().equals(orgId)) {
+
+                        throw new RuntimeException(
+                                        "Access denied to loan: " + loanId);
+                }
+
+                return loan;
+        }
 
         public Loan getLoanForOrg(
                         Long loanId,

@@ -2,6 +2,7 @@ package com.patrick.fintech.loan_backend.controller;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
 import com.patrick.fintech.loan_backend.dto.LoanRequest;
 import com.patrick.fintech.loan_backend.dto.PaymentGatewayRequest;
@@ -1151,7 +1152,7 @@ public class PublicController {
                                 "POST /public/applications/{reference}/payments/initiate",
                                 reference.trim().toUpperCase(Locale.ROOT)
                                                 + "|" + phone.trim()
-                                                + "|" + body.toString());
+                                                + "|" + canonicalJson(body));
 
                 if (idempotency.isReplay()) {
                         try {
@@ -2567,7 +2568,7 @@ public class PublicController {
                                 idempotencyKey,
                                 org,
                                 "POST /public/loan-application",
-                                body.toString());
+                                canonicalJson(body));
 
                 if (idempotency.isReplay()) {
 
@@ -2983,12 +2984,15 @@ public class PublicController {
                         smsService.sendCustom(
                                         phone,
                                         String.format(
-                                                        "%s: Thank you %s! We received your loan application %s for %s %s. Terms: 5%% monthly interest, 5%% monthly management fee, 2%% application fee.",
+                                                        "%s: Thank you %s! We received your loan application %s for %s %s. Terms: %s%% monthly interest, %s%% monthly management fee, %s%% application fee.",
                                                         org.getName(),
                                                         firstName,
                                                         loan.getReferenceNumber(),
                                                         loan.getCurrency(),
-                                                        formatMoney(amount)));
+                                                        formatMoney(amount),
+                                                        formatRate(interestRate),
+                                                        formatRate(product.getManagementFeePercent()),
+                                                        formatRate(product.getApplicationFeePercent())));
 
                 } catch (Exception e) {
 
@@ -3025,13 +3029,13 @@ public class PublicController {
                                                 "RECEIVED",
 
                                                 "monthlyInterestRate",
-                                                MONTHLY_INTEREST_RATE,
+                                                money(interestRate),
 
                                                 "monthlyManagementFeeRate",
-                                                MONTHLY_MANAGEMENT_FEE_RATE,
+                                                money(product.getManagementFeePercent()),
 
                                                 "applicationFeeRate",
-                                                APPLICATION_FEE_RATE));
+                                                money(product.getApplicationFeePercent())));
 
                 idempotencyService.recordSuccess(
                                 idempotencyKey,
@@ -3492,6 +3496,17 @@ public class PublicController {
                                                         return m;
                                                 })
                                 .toList();
+        }
+
+        private String canonicalJson(Map<String, Object> body) {
+                try {
+                        return objectMapper.writer()
+                                        .with(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
+                                        .writeValueAsString(body == null ? Map.of() : body);
+                } catch (Exception e) {
+                        throw new IllegalArgumentException(
+                                        "Application request could not be normalized for idempotency", e);
+                }
         }
 
         // ============================================================

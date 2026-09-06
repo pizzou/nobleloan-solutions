@@ -146,7 +146,34 @@ public class MtnWebhookTransactionService {
                 String paymentCurrency = currency != null
                                 && !currency.isBlank()
                                                 ? currency.trim().toUpperCase()
-                                                : configuredCurrency;
+                                                : configuredCurrency.trim().toUpperCase();
+
+                String loanCurrency = loan.getCurrency() == null
+                                ? null
+                                : loan.getCurrency().trim().toUpperCase();
+
+                if (loanCurrency == null || loanCurrency.isBlank()) {
+                        return PaymentGatewayResponse.failed(
+                                        "Loan currency is missing",
+                                        MTN_PROVIDER);
+                }
+
+                if (!loanCurrency.equals(paymentCurrency)) {
+                        log.warn(
+                                        "[MTN WEBHOOK TRANSACTION] Currency mismatch. "
+                                                        + "loanId={}, loanCurrency={}, paymentCurrency={}, transactionId={}",
+                                        loanId,
+                                        loanCurrency,
+                                        paymentCurrency,
+                                        normalizedTransactionId);
+
+                        return PaymentGatewayResponse.failed(
+                                        "Payment currency does not match loan currency",
+                                        MTN_PROVIDER);
+                }
+
+                BigDecimal requestedAmount = BigDecimal.valueOf(amount)
+                                .setScale(2, RoundingMode.HALF_UP);
 
                 // ========================================================
                 // IDEMPOTENCY
@@ -197,8 +224,23 @@ public class MtnWebhookTransactionService {
                         }
 
                         BigDecimal existingAmount = existingTransaction.getAmount() != null
-                                        ? existingTransaction.getAmount()
-                                        : BigDecimal.ZERO;
+                                        ? existingTransaction.getAmount().setScale(2, RoundingMode.HALF_UP)
+                                        : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+
+                        if (existingAmount.compareTo(requestedAmount) != 0) {
+                                log.error(
+                                                "[MTN WEBHOOK TRANSACTION] Transaction reference "
+                                                                + "was reused with a different amount. "
+                                                                + "loanId={}, transactionId={}, existingAmount={}, requestedAmount={}",
+                                                loanId,
+                                                normalizedTransactionId,
+                                                existingAmount,
+                                                requestedAmount);
+
+                                return PaymentGatewayResponse.failed(
+                                                "MTN transaction reference was already recorded with a different amount",
+                                                MTN_PROVIDER);
+                        }
 
                         log.info(
                                         "[MTN WEBHOOK TRANSACTION] Duplicate webhook ignored. " +
@@ -248,8 +290,7 @@ public class MtnWebhookTransactionService {
 
                         payment = paymentService.recordPayment(
                                         loanId,
-                                        BigDecimal.valueOf(
-                                                        amount),
+                                        requestedAmount,
                                         PAYMENT_METHOD,
                                         normalizedTransactionId,
                                         MTN_PROVIDER,
@@ -287,10 +328,7 @@ public class MtnWebhookTransactionService {
                  * The MTN transaction amount is authoritative for the
                  * current gateway transaction.
                  */
-                BigDecimal currentPaymentAmount = BigDecimal.valueOf(
-                                amount).setScale(
-                                                2,
-                                                RoundingMode.HALF_UP);
+                BigDecimal currentPaymentAmount = requestedAmount;
 
                 // ========================================================
                 // OUTSTANDING BALANCE

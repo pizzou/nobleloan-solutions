@@ -4,6 +4,7 @@ import com.patrick.fintech.loan_backend.dto.publicportal.PaymentScheduleResponse
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.PaymentSchedule;
 import com.patrick.fintech.loan_backend.model.PaymentSchedule.ScheduleStatus;
+import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentScheduleRepository;
 import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 
@@ -24,6 +25,8 @@ import java.util.List;
 public class PaymentScheduleService {
 
         private final PaymentScheduleRepository repository;
+
+        private final PaymentRepository paymentRepository;
 
         private final HolidayService holidayService;
 
@@ -233,7 +236,8 @@ public class PaymentScheduleService {
                 if (!existingSchedules.isEmpty()) {
 
                         boolean hasPaymentActivity = existingSchedules.stream()
-                                        .anyMatch(this::hasPaymentActivity);
+                                        .anyMatch(this::hasPaymentActivity)
+                                        || hasOperationalPaymentActivity(loan.getId());
 
                         if (hasPaymentActivity) {
 
@@ -399,6 +403,34 @@ public class PaymentScheduleService {
 
                 return status == ScheduleStatus.PAID
                                 || status == ScheduleStatus.PARTIAL;
+        }
+
+        /**
+         * Payment rows are the operational payment schedule used by payment
+         * allocation/accounting. A separate PaymentSchedule row may have no
+         * activity even when a payment has already been recorded. Therefore
+         * schedule regeneration must inspect both representations before
+         * resetting contractual loan aggregates.
+         */
+        private boolean hasOperationalPaymentActivity(Long loanId) {
+                if (loanId == null) {
+                        return false;
+                }
+
+                List<com.patrick.fintech.loan_backend.model.Payment> payments =
+                                paymentRepository.findByLoanId(loanId);
+
+                if (payments == null || payments.isEmpty()) {
+                        return false;
+                }
+
+                return payments.stream().anyMatch(payment -> payment != null
+                                && (money(payment.getAmountPaidDecimal()).compareTo(ZERO) > 0
+                                                || money(payment.getPrincipalComponentDecimal()).compareTo(ZERO) > 0
+                                                || money(payment.getInterestComponentDecimal()).compareTo(ZERO) > 0
+                                                || money(payment.getManagementFeeComponentDecimal()).compareTo(ZERO) > 0
+                                                || money(payment.getExtensionFeeComponentDecimal()).compareTo(ZERO) > 0
+                                                || money(payment.getPenaltyPaidDecimal()).compareTo(ZERO) > 0));
         }
 
         // ================================================================

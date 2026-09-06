@@ -39,18 +39,20 @@ public class CurrencyRate {
     }
 
     /**
-     * Legacy binary-floating-point read boundary retained for existing service
-     * integrations.
-     * New financial code should use getRateDecimal().
+     * Authoritative financial rate accessor. FX rates are never exposed to
+     * application code as binary floating-point values.
      */
-    @Deprecated
-    @JsonIgnore
-    public Double getRate() {
-        return rate == null ? null : rate.doubleValue();
-    }
-
     @JsonIgnore
     public BigDecimal getRateDecimal() {
+        return rate;
+    }
+
+    /**
+     * Primary Java getter retained as BigDecimal so Lombok/Jackson/service
+     * callers cannot accidentally reintroduce floating-point FX arithmetic.
+     */
+    @JsonProperty("rate")
+    public BigDecimal getRate() {
         return rate;
     }
 

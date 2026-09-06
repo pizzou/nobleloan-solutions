@@ -87,8 +87,6 @@ public class ScheduledJobs {
                 try {
 
                         LocalDate accrualDate = LocalDate.now();
-                        String key = "EOD_ACCRUAL_" + accrualDate;
-
                         log.info(
                                         "[Scheduler] Starting end-of-day interest accrual for {}...",
                                         accrualDate);
@@ -115,20 +113,6 @@ public class ScheduledJobs {
                                         continue;
                                 }
 
-                                if (idempotencyRepo
-                                                .findByKeyAndOrganization(
-                                                                key,
-                                                                organization)
-                                                .isPresent()) {
-
-                                        log.debug(
-                                                        "[Scheduler] EOD accrual already completed for organization {} on {}",
-                                                        organization.getId(),
-                                                        accrualDate);
-
-                                        continue;
-                                }
-
                                 int posted = 0;
 
                                 for (Loan loan : activeLoans) {
@@ -141,6 +125,11 @@ public class ScheduledJobs {
                                         }
 
                                         try {
+
+                                                if (loan.getDisbursedAt() == null
+                                                                || loan.getDisbursedAt().toLocalDate().isAfter(accrualDate)) {
+                                                        continue;
+                                                }
 
                                                 BigDecimal outstanding = money(loan.getOutstandingBalanceDecimal());
 
@@ -202,15 +191,6 @@ public class ScheduledJobs {
                                                                 e);
                                         }
                                 }
-
-                                idempotencyRepo.save(
-                                                IdempotencyKey.builder()
-                                                                .key(key)
-                                                                .organization(organization)
-                                                                .endpoint("EOD_ACCRUAL")
-                                                                .status(
-                                                                                IdempotencyKey.Status.COMPLETED)
-                                                                .build());
 
                                 log.info(
                                                 "[Scheduler] EOD accrual for organization {} complete - {} loan(s) posted",

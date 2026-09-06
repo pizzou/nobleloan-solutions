@@ -51,7 +51,7 @@ public class InternalDocumentService {
                         "image/webp",
 
                         "application/msword",
-                        "application/vnd.openxmlformats-officedocument.wordapplicationml.document",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 
                         "application/vnd.ms-excel",
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -755,7 +755,7 @@ public class InternalDocumentService {
                                                                 (byte) 0xE1
                                                 });
 
-                        case "application/vnd.openxmlformats-officedocument.wordapplicationml.document",
+                        case "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ->
                                 valid = startsWith(
                                                 data,
@@ -1200,7 +1200,7 @@ public class InternalDocumentService {
                         case "application/msword" ->
                                 ".doc";
 
-                        case "application/vnd.openxmlformats-officedocument.wordapplicationml.document" ->
+                        case "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ->
                                 ".docx";
 
                         case "application/vnd.ms-excel" ->

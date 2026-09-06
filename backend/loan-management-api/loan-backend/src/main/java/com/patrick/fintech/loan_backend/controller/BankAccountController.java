@@ -34,7 +34,7 @@ public class BankAccountController {
         private final AuditService auditService;
 
         @PostMapping
-        @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT','MANAGER')")
+        @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT')")
         public ResponseEntity<ApiResponse<Object>> create(
                         @RequestBody Map<String, Object> body) {
 
@@ -179,7 +179,7 @@ public class BankAccountController {
         }
 
         @PostMapping("/{id}/transactions")
-        @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT','MANAGER')")
+        @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT')")
         public ResponseEntity<ApiResponse<Object>> recordTransaction(
                         @PathVariable Long id,
                         @RequestBody Map<String, Object> body) {
@@ -282,7 +282,7 @@ public class BankAccountController {
         // ============================================================
 
         @PostMapping("/transfer")
-        @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT','MANAGER')")
+        @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT')")
         public ResponseEntity<ApiResponse<Object>> transfer(
                         @RequestBody Map<String, Object> body) {
 

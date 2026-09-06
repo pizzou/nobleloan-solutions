@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -52,6 +52,13 @@ public class CurrencyService {
 
     private static final RoundingMode ROUNDING_MODE =
             RoundingMode.HALF_UP;
+
+    /**
+     * Maximum age accepted for a cached FX rate.
+     * A stale rate must never silently become a financial conversion rate.
+     */
+    @Value("${app.fx.max-rate-age-hours:48}")
+    private long maxRateAgeHours;
 
     public static final List<String> SUPPORTED_CURRENCIES = List.of(
             "USD",
@@ -151,8 +158,8 @@ public class CurrencyService {
                         normalizedFrom,
                         normalizedTo
                 )
-                .map(CurrencyRate::getRate)
-                .map(BigDecimal::valueOf)
+                .filter(this::isUsableRate)
+                .map(CurrencyRate::getRateDecimal)
                 .orElse(null);
 
         if (directRate != null && directRate.signum() > 0) {
@@ -192,26 +199,17 @@ public class CurrencyService {
                         "USD",
                         normalizedFrom
                 )
-                .map(CurrencyRate::getRate)
-                .map(BigDecimal::valueOf)
+                .filter(this::isUsableRate)
+                .map(CurrencyRate::getRateDecimal)
                 .orElse(null);
 
             if (usdToFrom == null
                     || usdToFrom.signum() <= 0) {
 
-                log.warn(
-                        "No valid USD rate configured for {}",
-                        normalizedFrom
-                );
-
-                /*
-                 * Preserve the previous service's fallback behavior
-                 * for compatibility with the existing application.
-                 *
-                 * A missing rate is treated as 1 rather than causing
-                 * an unexpected system-wide failure.
-                 */
-                fromUsd = BigDecimal.ONE;
+                throw new IllegalStateException(
+                        "No current FX rate available for "
+                                + normalizedFrom
+                                + ". Refresh FX rates before converting currency.");
             } else {
                 fromUsd = BigDecimal.ONE
                         .divide(
@@ -233,20 +231,14 @@ public class CurrencyService {
                         "USD",
                         normalizedTo
                 )
-                .map(CurrencyRate::getRate)
-                .map(BigDecimal::valueOf)
+                .filter(this::isUsableRate)
+                .map(CurrencyRate::getRateDecimal)
                 .orElse(null);
             if (toUsd == null || toUsd.signum() <= 0) {
-                log.warn(
-                        "No valid USD rate configured for {}",
-                        normalizedTo
-                );
-
-                /*
-                 * Preserve compatibility with the existing
-                 * fallback behavior.
-                 */
-                toUsd = BigDecimal.ONE;
+                throw new IllegalStateException(
+                        "No current FX rate available for "
+                                + normalizedTo
+                                + ". Refresh FX rates before converting currency.");
             }
         }
 
@@ -273,12 +265,9 @@ public class CurrencyService {
     /**
      * Refresh FX rates from the live provider.
      *
-     * Runs once shortly after startup and then every 24 hours.
+     * Scheduling is owned by ScheduledJobs so the distributed scheduler lock
+     * is applied consistently across application instances.
      */
-    @Scheduled(
-            fixedDelay = 86_400_000,
-            initialDelay = 5_000
-    )
     public RefreshResult refreshRates() {
 
         try {
@@ -412,6 +401,23 @@ public class CurrencyService {
                     0
             );
         }
+    }
+
+    /**
+     * A rate is usable only when it is positive and has a recent fetch time.
+     * Missing timestamps are treated as stale rather than trusted indefinitely.
+     */
+    private boolean isUsableRate(CurrencyRate rate) {
+        if (rate == null || rate.getRateDecimal() == null
+                || rate.getRateDecimal().signum() <= 0
+                || rate.getFetchedAt() == null) {
+            return false;
+        }
+
+        long allowedHours = Math.max(1L, maxRateAgeHours);
+        java.time.LocalDateTime cutoff =
+                java.time.LocalDateTime.now().minusHours(allowedHours);
+        return !rate.getFetchedAt().isBefore(cutoff);
     }
 
     /**

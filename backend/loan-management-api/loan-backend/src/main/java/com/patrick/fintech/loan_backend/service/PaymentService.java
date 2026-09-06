@@ -200,6 +200,30 @@ public class PaymentService {
                                                                 .getId()
                                                                 .equals(loanId)) {
 
+                                        /*
+                                         * Idempotency is not permission to accept a
+                                         * different financial event under an existing
+                                         * provider transaction reference. A retried
+                                         * webhook must carry the same amount as the
+                                         * transaction that was originally posted.
+                                         */
+                                        Optional<PaymentTransaction> existingTransaction =
+                                                        paymentTransactionRepo
+                                                                        .findByOrganization_IdAndTransactionReference(
+                                                                                        organizationId,
+                                                                                        normalizedTxnId);
+
+                                        if (existingTransaction.isPresent()) {
+                                                BigDecimal existingAmount = roundMoney(
+                                                                safe(existingTransaction.get().getAmount()));
+
+                                                if (existingAmount.compareTo(amount) != 0) {
+                                                        throw new IllegalStateException(
+                                                                        "Transaction ID " + normalizedTxnId
+                                                                                        + " was already posted with a different amount.");
+                                                }
+                                        }
+
                                         log.info(
                                                         "Duplicate payment transaction detected. " +
                                                                         "transactionId={}, loanId={}, paymentId={}",
@@ -1159,7 +1183,8 @@ public class PaymentService {
                 if (principalCovered
                                 && interestCovered
                                 && managementFeeCovered
-                                && penaltyCovered) {
+                                && penaltyCovered
+                                && extensionFeeCovered) {
 
                         loan.setStatus(
                                         LoanStatus.PAID);
@@ -1269,6 +1294,15 @@ public class PaymentService {
                 String transactionReference = normalizedTxnId != null
                                 ? normalizedTxnId
                                 : "PAYTX-" + UUID.randomUUID();
+
+                validatePaymentTransactionAllocation(
+                                amount,
+                                principalPaidThisPayment,
+                                interestPaidThisPayment,
+                                managementFeePaidThisPayment,
+                                extensionFeePaidThisPayment,
+                                penaltyPaidThisPayment,
+                                overpayment);
 
                 PaymentTransaction transaction = PaymentTransaction.builder()
                                 .loan(loan)
@@ -2172,6 +2206,59 @@ public class PaymentService {
                 return value == null
                                 ? ZERO
                                 : value;
+        }
+
+        // ================================================================
+        // PAYMENT TRANSACTION FINANCIAL INVARIANT
+        // ================================================================
+
+        /**
+         * Every immutable payment transaction must account for the entire
+         * received amount exactly once. This is checked before the ledger
+         * row is persisted so a malformed allocation cannot enter the
+         * immutable transaction history.
+         */
+        private void validatePaymentTransactionAllocation(
+                        BigDecimal amount,
+                        BigDecimal principal,
+                        BigDecimal interest,
+                        BigDecimal managementFee,
+                        BigDecimal extensionFee,
+                        BigDecimal penalty,
+                        BigDecimal unapplied) {
+
+                BigDecimal total = roundMoney(amount);
+                BigDecimal principalValue = roundMoney(principal);
+                BigDecimal interestValue = roundMoney(interest);
+                BigDecimal managementFeeValue = roundMoney(managementFee);
+                BigDecimal extensionFeeValue = roundMoney(extensionFee);
+                BigDecimal penaltyValue = roundMoney(penalty);
+                BigDecimal unappliedValue = roundMoney(unapplied);
+
+                if (principalValue.signum() < 0
+                                || interestValue.signum() < 0
+                                || managementFeeValue.signum() < 0
+                                || extensionFeeValue.signum() < 0
+                                || penaltyValue.signum() < 0
+                                || unappliedValue.signum() < 0) {
+                        throw new IllegalStateException(
+                                        "Payment allocation components cannot be negative.");
+                }
+
+                BigDecimal allocated = roundMoney(
+                                principalValue
+                                                .add(interestValue)
+                                                .add(managementFeeValue)
+                                                .add(extensionFeeValue)
+                                                .add(penaltyValue)
+                                                .add(unappliedValue));
+
+                if (allocated.compareTo(total) != 0) {
+                        throw new IllegalStateException(
+                                        "Payment transaction allocation is not balanced: "
+                                                        + "amount=" + total.toPlainString()
+                                                        + ", allocated=" + allocated.toPlainString());
+                }
         }
 
         // ================================================================
