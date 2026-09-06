@@ -1663,6 +1663,8 @@ public class LoanService {
                 accountingService.postDisbursement(
                                 saved);
 
+                final Loan notificationLoan = saved;
+
                 // ============================================================
                 // POST-COMMIT NOTIFICATIONS
                 // ============================================================
@@ -1672,40 +1674,40 @@ public class LoanService {
                 // notification.
                 registerAfterCommit(() -> {
                         try {
-                                mailService.sendLoanDisbursed(saved, disbursementMethod);
+                                mailService.sendLoanDisbursed(notificationLoan, disbursementMethod);
                         } catch (Exception e) {
-                                log.warn("Loan disbursement email failed after commit for loan {}", saved.getId(), e);
+                                log.warn("Loan disbursement email failed after commit for loan {}", notificationLoan.getId(), e);
                         }
 
                         try {
-                                smsService.sendLoanDisbursed(saved, disbursementMethod);
+                                smsService.sendLoanDisbursed(notificationLoan, disbursementMethod);
                         } catch (Exception e) {
-                                log.warn("Loan disbursement SMS failed after commit for loan {}", saved.getId(), e);
+                                log.warn("Loan disbursement SMS failed after commit for loan {}", notificationLoan.getId(), e);
                         }
 
                         try {
                                 notifyOfficer(
-                                                saved,
+                                                notificationLoan,
                                                 officer,
                                                 "Loan Disbursed",
-                                                "Loan " + saved.getReferenceNumber()
-                                                                + " (" + saved.getCurrency() + " "
-                                                                + saved.getDisbursedAmountDecimal()
+                                                "Loan " + notificationLoan.getReferenceNumber()
+                                                                + " (" + notificationLoan.getCurrency() + " "
+                                                                + notificationLoan.getDisbursedAmountDecimal()
                                                                 + ") has been disbursed via "
                                                                 + (disbursementMethod != null && !disbursementMethod.isBlank()
                                                                                 ? disbursementMethod : "unspecified")
-                                                                + ". Monthly interest is " + saved.getInterestRateDecimal()
-                                                                + "% and monthly management fee is " + saved.getManagementFeeRateDecimal()
+                                                                + ". Monthly interest is " + notificationLoan.getInterestRateDecimal()
+                                                                + "% and monthly management fee is " + notificationLoan.getManagementFeeRateDecimal()
                                                                 + "%. Credit quality is CURRENT.",
                                                 "success");
                         } catch (Exception e) {
-                                log.warn("Officer disbursement notification failed after commit for loan {}", saved.getId(), e);
+                                log.warn("Officer disbursement notification failed after commit for loan {}", notificationLoan.getId(), e);
                         }
 
                         try {
-                                webhookService.dispatch(saved.getOrganization(), "LOAN_DISBURSED", saved);
+                                webhookService.dispatch(notificationLoan.getOrganization(), "LOAN_DISBURSED", notificationLoan);
                         } catch (Exception e) {
-                                log.warn("Disbursement webhook failed after commit for loan {}", saved.getId(), e);
+                                log.warn("Disbursement webhook failed after commit for loan {}", notificationLoan.getId(), e);
                         }
                 });
 

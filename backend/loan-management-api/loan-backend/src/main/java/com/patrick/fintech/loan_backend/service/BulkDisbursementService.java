@@ -268,6 +268,8 @@ public class BulkDisbursementService {
                                 accountingService.postDisbursement(
                                                 saved);
 
+                                final Loan notificationLoan = saved;
+
                                 totalGrossDisbursed = money(
                                                 totalGrossDisbursed
                                                                 .add(
@@ -307,7 +309,7 @@ public class BulkDisbursementService {
                                 registerAfterCommit(() -> {
                                         try {
                                                 smsService.sendLoanDisbursed(
-                                                                saved,
+                                                                notificationLoan,
                                                                 normalizedMethod);
                                         } catch (Exception e) {
                                                 log.warn(
@@ -318,9 +320,9 @@ public class BulkDisbursementService {
 
                                         try {
                                                 webhookService.dispatch(
-                                                                saved.getOrganization(),
+                                                                notificationLoan.getOrganization(),
                                                                 "LOAN_DISBURSED",
-                                                                saved);
+                                                                notificationLoan);
                                         } catch (Exception e) {
                                                 log.warn(
                                                                 "Webhook dispatch failed after commit for loan {}",
