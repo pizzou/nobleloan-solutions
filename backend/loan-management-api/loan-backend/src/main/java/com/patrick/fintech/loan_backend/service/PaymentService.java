@@ -1106,22 +1106,19 @@ public class PaymentService {
                 loan.setExtensionFeePaid(extensionFeePaidTotal);
                 loan.setExtensionFeeOutstanding(extensionFeeOutstandingAfterPayment);
 
-                // Keep historical/current unpaid component balances coherent.
-                BigDecimal oldInterestOutstanding = roundMoney(
-                                safe(loan.getInterestOutstandingDecimal()));
+                // The loan aggregate stores the total contractual unpaid amount.
+                // Scheduled accrual is an accounting/GL event; it must not create
+                // a second receivable on the Loan entity. Keep the database
+                // reconciliation invariant exact: outstanding = total - paid.
                 BigDecimal newInterestOutstanding = roundMoney(
-                                oldInterestOutstanding
-                                                .add(newlyAccruedInterest)
-                                                .subtract(interestPaidThisPayment)
+                                safe(loan.getTotalInterestDecimal())
+                                                .subtract(newLoanInterestPaid)
                                                 .max(ZERO));
                 loan.setInterestOutstanding(newInterestOutstanding);
 
-                BigDecimal oldManagementOutstanding = roundMoney(
-                                safe(loan.getManagementFeeOutstandingDecimal()));
                 BigDecimal newManagementOutstanding = roundMoney(
-                                oldManagementOutstanding
-                                                .add(newlyAccruedManagementFee)
-                                                .subtract(managementFeePaidThisPayment)
+                                safe(loan.getManagementFeeDecimal())
+                                                .subtract(newLoanManagementFeePaid)
                                                 .max(ZERO));
                 loan.setManagementFeeOutstanding(newManagementOutstanding);
 
@@ -2136,21 +2133,14 @@ public class PaymentService {
                                 .filter(java.util.Objects::nonNull)
                                 .reduce(ZERO, BigDecimal::add);
 
-                BigDecimal refreshedTotalInterest = roundMoney(scheduledInterestTotal);
-                BigDecimal refreshedManagementFee = roundMoney(scheduledManagementFeeTotal);
-
-                loan.setTotalInterest(refreshedTotalInterest);
+                BigDecimal normalizedInterestTotal = roundMoney(scheduledInterestTotal);
+                BigDecimal normalizedManagementTotal = roundMoney(scheduledManagementFeeTotal);
+                loan.setTotalInterest(normalizedInterestTotal);
+                loan.setManagementFee(normalizedManagementTotal);
                 loan.setInterestOutstanding(
-                                roundMoney(
-                                                refreshedTotalInterest
-                                                                .subtract(safe(loan.getInterestPaidDecimal()))
-                                                                .max(ZERO)));
-                loan.setManagementFee(refreshedManagementFee);
+                                roundMoney(normalizedInterestTotal.subtract(safe(loan.getInterestPaidDecimal())).max(ZERO)));
                 loan.setManagementFeeOutstanding(
-                                roundMoney(
-                                                refreshedManagementFee
-                                                                .subtract(safe(loan.getManagementFeePaidDecimal()))
-                                                                .max(ZERO)));
+                                roundMoney(normalizedManagementTotal.subtract(safe(loan.getManagementFeePaidDecimal())).max(ZERO)));
                 loan.setTotalRepayable(
                                 roundMoney(
                                                 safe(loan.getAmountDecimal())

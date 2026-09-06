@@ -1686,13 +1686,10 @@ public class AccountingService {
                                                                                 + reference)
                                                                 .build()));
 
-                // Keep the operational loan sub-ledger synchronized with the
-                // receivable journal. The scheduler is the accounting event
-                // that creates this contractual receivable, so the loan's
-                // outstanding interest must increase atomically with GL 1150.
-                loan.setInterestOutstanding(
-                                money(loan.getInterestOutstandingDecimal())
-                                                .add(amount));
+                // The Loan aggregate already contains the full contractual
+                // unpaid interest balance. This GL accrual only recognizes the
+                // scheduled portion in accounting; it must not increase the
+                // aggregate outstanding value a second time.
 
                 return entry;
         }
@@ -1756,11 +1753,9 @@ public class AccountingService {
                                                                                 + reference)
                                                                 .build()));
 
-                // Keep the operational loan sub-ledger synchronized with GL
-                // 1160 at the exact moment the contractual fee is accrued.
-                loan.setManagementFeeOutstanding(
-                                money(loan.getManagementFeeOutstandingDecimal())
-                                                .add(amount));
+                // The Loan aggregate already contains the full contractual
+                // unpaid management-fee balance. Do not double-count it when
+                // the scheduled GL receivable is recognized.
 
                 return entry;
         }
@@ -1843,9 +1838,8 @@ public class AccountingService {
                                                                                 + reference)
                                                                 .build()));
 
-                loan.setInterestOutstanding(
-                                money(loan.getInterestOutstandingDecimal())
-                                                .add(interest));
+                // Legacy entry point: recognize income in GL only. The loan
+                // aggregate remains total contractual unpaid interest.
 
                 return entry;
         }
@@ -1915,9 +1909,8 @@ public class AccountingService {
                                                                                 + reference)
                                                                 .build()));
 
-                loan.setManagementFeeOutstanding(
-                                money(loan.getManagementFeeOutstandingDecimal())
-                                                .add(fee));
+                // Legacy entry point: recognize income in GL only. The loan
+                // aggregate remains total contractual unpaid management fee.
 
                 return entry;
         }

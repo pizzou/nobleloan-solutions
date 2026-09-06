@@ -10,6 +10,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -297,38 +299,40 @@ public class BulkDisbursementService {
                                                                 saved.getCurrency()));
 
                                 // ====================================================
-                                // SMS
+                                // POST-COMMIT NOTIFICATIONS
                                 // ====================================================
+                                // Do not notify the borrower or external systems until
+                                // the transaction containing the disbursement has
+                                // committed successfully.
+                                registerAfterCommit(() -> {
+                                        try {
+                                                smsService.sendLoanDisbursed(
+                                                                saved,
+                                                                normalizedMethod);
+                                        } catch (Exception e) {
+                                                log.warn(
+                                                                "SMS notification failed after commit for loan {}",
+                                                                loanId,
+                                                                e);
+                                        }
 
-                                try {
-
-                                        /*
-                                         * IMPORTANT:
-                                         *
-                                         * Use sendLoanDisbursed(), not
-                                         * sendLoanApproved().
-                                         *
-                                         * The borrower needs to know the actual net
-                                         * amount received after the 2% application fee.
-                                         */
-                                        smsService.sendLoanDisbursed(
-                                                        saved,
-                                                        normalizedMethod);
-
-                                } catch (Exception e) {
-
-                                        log.warn(
-                                                        "SMS notification failed for loan {}",
-                                                        loanId,
-                                                        e);
-                                }
+                                        try {
+                                                webhookService.dispatch(
+                                                                saved.getOrganization(),
+                                                                "LOAN_DISBURSED",
+                                                                saved);
+                                        } catch (Exception e) {
+                                                log.warn(
+                                                                "Webhook dispatch failed after commit for loan {}",
+                                                                loanId,
+                                                                e);
+                                        }
+                                });
 
                                 // ====================================================
                                 // AUDIT
                                 // ====================================================
-
                                 try {
-
                                         auditService.log(
                                                         saved.getOrganization(),
                                                         officer,
@@ -337,36 +341,12 @@ public class BulkDisbursementService {
                                                         loanId.toString(),
                                                         "Bulk disbursement via "
                                                                         + normalizedMethod
-                                                                        + ". Gross="
-                                                                        + grossAmount
-                                                                        + ", application fee="
-                                                                        + applicationFee
-                                                                        + ", net disbursement="
-                                                                        + netDisbursement);
-
+                                                                        + ". Gross=" + grossAmount
+                                                                        + ", application fee=" + applicationFee
+                                                                        + ", net disbursement=" + netDisbursement);
                                 } catch (Exception e) {
-
                                         log.warn(
                                                         "Audit logging failed for loan {}",
-                                                        loanId,
-                                                        e);
-                                }
-
-                                // ====================================================
-                                // WEBHOOK
-                                // ====================================================
-
-                                try {
-
-                                        webhookService.dispatch(
-                                                        saved.getOrganization(),
-                                                        "LOAN_DISBURSED",
-                                                        saved);
-
-                                } catch (Exception e) {
-
-                                        log.warn(
-                                                        "Webhook dispatch failed for loan {}",
                                                         loanId,
                                                         e);
                                 }
@@ -510,5 +490,23 @@ public class BulkDisbursementService {
                         String disbursementMethod,
                         LocalDateTime processedAt,
                         List<DisbursementLine> lines) {
+        }
+
+        private void registerAfterCommit(Runnable action) {
+                if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+                        action.run();
+                        return;
+                }
+
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                                try {
+                                        action.run();
+                                } catch (Exception e) {
+                                        log.error("Post-commit bulk disbursement notification failed", e);
+                                }
+                        }
+                });
         }
 }

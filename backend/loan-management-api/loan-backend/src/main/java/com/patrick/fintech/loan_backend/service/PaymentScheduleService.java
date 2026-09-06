@@ -5,6 +5,7 @@ import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.PaymentSchedule;
 import com.patrick.fintech.loan_backend.model.PaymentSchedule.ScheduleStatus;
 import com.patrick.fintech.loan_backend.repository.PaymentScheduleRepository;
+import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -250,249 +251,84 @@ public class PaymentScheduleService {
                                         loan.getId());
                 }
 
-                // ------------------------------------------------------------
-                // CALCULATE MONTHLY RATE
-                // ------------------------------------------------------------
-
-                BigDecimal monthlyRate = calculateMonthlyRate(
-                                rate,
-                                rateType);
-
-                // ------------------------------------------------------------
-                // CALCULATE MONTHLY MANAGEMENT FEE
-                // ------------------------------------------------------------
-                // Management fee is a separate contractual charge. It must never
-                // be hidden inside interestAmount. The platform default is 5%
-                // monthly, but the loan-level rate remains authoritative.
-                BigDecimal managementFeeRate = loan.getManagementFeeRateDecimal() == null
-                                ? Loan.DEFAULT_MONTHLY_MANAGEMENT_FEE_RATE
-                                : loan.getManagementFeeRateDecimal()
-                                                .setScale(CALCULATION_SCALE, RoundingMode.HALF_UP);
-
-                if (managementFeeRate.compareTo(ZERO) <= 0) {
-                        managementFeeRate = Loan.DEFAULT_MONTHLY_MANAGEMENT_FEE_RATE
-                                        .setScale(CALCULATION_SCALE, RoundingMode.HALF_UP);
-                        loan.setManagementFeeRate(managementFeeRate);
-                }
+                BigDecimal managementFeeRate = loan.getManagementFeeRateDecimal() != null
+                                ? loan.getManagementFeeRateDecimal().setScale(CALCULATION_SCALE, RoundingMode.HALF_UP)
+                                : Loan.DEFAULT_MONTHLY_MANAGEMENT_FEE_RATE.setScale(CALCULATION_SCALE, RoundingMode.HALF_UP);
 
                 if (managementFeeRate.compareTo(ZERO) < 0) {
-                        throw new IllegalArgumentException(
-                                        "Management fee rate cannot be negative");
+                        throw new IllegalArgumentException("Management fee rate cannot be negative");
                 }
 
-                // Management fee is a monthly contractual charge on the
-                // opening outstanding principal of each installment. It must
-                // decline as principal is repaid; it is never a flat fee on
-                // the original principal for every month.
-
                 // ------------------------------------------------------------
-                // CALCULATE MONTHLY PAYMENT
+                // CONTRACTUAL DECLINING-BALANCE SCHEDULE
                 // ------------------------------------------------------------
-
-                BigDecimal monthlyPayment = calculateMonthlyPayment(
-                                principal,
-                                monthlyRate,
-                                months);
-
-                log.info(
-                                "Generating payment schedule for loan {}: principal={}, rate={}, rateType={}, months={}, monthlyRate={}, monthlyPayment={}",
-                                loan.getReferenceNumber(),
-                                principal,
-                                rate,
-                                rateType,
-                                months,
-                                monthlyRate,
-                                monthlyPayment);
-
-                // ------------------------------------------------------------
-                // GENERATE INSTALLMENTS
-                // ------------------------------------------------------------
-
+                // The product is monthly and both recurring charges are calculated
+                // from the opening principal of each installment. Do not use EMI
+                // amortization or a flat management fee here: this schedule is the
+                // contractual source used by borrower, portfolio, accounting and
+                // regulatory views.
                 BigDecimal balance = principal;
 
                 for (int installmentNumber = 1; installmentNumber <= months; installmentNumber++) {
-
                         balance = money(balance);
 
-                        // --------------------------------------------------------
-                        // CONTRACTUAL MONTHLY INTEREST
-                        // --------------------------------------------------------
+                        FinancialPolicy.ScheduleLine line = FinancialPolicy.contractualScheduleLine(
+                                        balance,
+                                        months - installmentNumber + 1,
+                                        rate,
+                                        managementFeeRate);
 
-                        BigDecimal interest = money(
-                                        balance.multiply(
-                                                        monthlyRate));
-
-                        // Management fee is scheduled separately from interest
-                        // and is calculated on the opening outstanding principal
-                        // for this installment.
-                        BigDecimal managementFeeAmount = money(
-                                        balance
-                                                        .multiply(managementFeeRate)
-                                                        .divide(ONE_HUNDRED, CALCULATION_SCALE, RoundingMode.HALF_UP));
-
-                        BigDecimal principalComponent;
-
-                        BigDecimal installmentAmount;
-
-                        // --------------------------------------------------------
-                        // FINAL INSTALLMENT
-                        // --------------------------------------------------------
-
-                        if (installmentNumber == months) {
-
-                                principalComponent = money(balance);
-
-                                installmentAmount = money(
-                                                principalComponent
-                                                                .add(interest)
-                                                                .add(managementFeeAmount));
-
-                                balance = ZERO;
-
-                        } else {
-
-                                // ----------------------------------------------------
-                                // NORMAL INSTALLMENT
-                                // ----------------------------------------------------
-
-                                installmentAmount = money(
-                                                monthlyPayment
-                                                                .add(managementFeeAmount));
-
-                                // Principal is based on the EMI principal/interest portion.
-                                // The management fee is a separate charge and must not reduce principal.
-                                principalComponent = money(
-                                                monthlyPayment.subtract(
-                                                                interest));
-
-                                // ----------------------------------------------------
-                                // PROTECT AGAINST NEGATIVE PRINCIPAL
-                                // ----------------------------------------------------
-
-                                if (principalComponent.compareTo(
-                                                ZERO) < 0) {
-
-                                        principalComponent = ZERO;
-                                }
-
-                                // ----------------------------------------------------
-                                // PROTECT AGAINST EXCESS PRINCIPAL
-                                // ----------------------------------------------------
-
-                                if (principalComponent.compareTo(
-                                                balance) > 0) {
-
-                                        principalComponent = balance;
-                                }
-
-                                // ----------------------------------------------------
-                                // UPDATE BALANCE
-                                // ----------------------------------------------------
-
-                                balance = money(
-                                                balance.subtract(
-                                                                principalComponent));
-
-                                // ----------------------------------------------------
-                                // REMOVE TINY ROUNDING RESIDUAL
-                                // ----------------------------------------------------
-
-                                if (balance.compareTo(
-                                                ONE_CENT) < 0) {
-
-                                        balance = ZERO;
-                                }
-                        }
-
-                        // --------------------------------------------------------
-                        // DUE DATE
-                        // --------------------------------------------------------
+                        BigDecimal principalComponent = money(line.principal());
+                        BigDecimal interest = money(line.interest());
+                        BigDecimal managementFeeAmount = money(line.managementFee());
+                        BigDecimal installmentAmount = money(line.installment());
+                        balance = money(line.remainingBalance());
 
                         LocalDate dueDate = holidayService.adjustToBusinessDay(
                                         loan.getOrganization().getId(),
                                         baseDate.plusMonths(installmentNumber));
 
-                        // --------------------------------------------------------
-                        // BUILD PAYMENT SCHEDULE
-                        // --------------------------------------------------------
-
                         PaymentSchedule schedule = PaymentSchedule.builder()
                                         .loan(loan)
-                                        .installmentNumber(
-                                                        installmentNumber)
-                                        .dueDate(
-                                                        dueDate)
-                                        .installmentAmount(
-                                                        installmentAmount)
-                                        .principalAmount(
-                                                        money(
-                                                                        principalComponent))
-                                        .interestAmount(
-                                                        money(
-                                                                        interest))
-                                        .managementFeeAmount(
-                                                        money(
-                                                                        managementFeeAmount))
-                                        .penaltyAmount(
-                                                        ZERO)
-                                        .amountPaid(
-                                                        ZERO)
-                                        .remainingBalance(
-                                                        balance)
-                                        .status(
-                                                        ScheduleStatus.PENDING)
+                                        .installmentNumber(installmentNumber)
+                                        .dueDate(dueDate)
+                                        .installmentAmount(installmentAmount)
+                                        .principalAmount(principalComponent)
+                                        .interestAmount(interest)
+                                        .managementFeeAmount(managementFeeAmount)
+                                        .penaltyAmount(ZERO)
+                                        .amountPaid(ZERO)
+                                        .remainingBalance(balance)
+                                        .status(ScheduleStatus.PENDING)
                                         .build();
 
-                        repository.save(
-                                        schedule);
+                        repository.save(schedule);
                 }
 
                 // ------------------------------------------------------------
                 // SYNCHRONIZE CONTRACTUAL FEE TOTALS
                 // ------------------------------------------------------------
-                BigDecimal totalScheduledManagementFee = ZERO;
-                BigDecimal scheduledBalance = principal;
-                for (int i = 1; i <= months; i++) {
-                        BigDecimal fee = money(
-                                        scheduledBalance
-                                                        .multiply(managementFeeRate)
-                                                        .divide(ONE_HUNDRED, CALCULATION_SCALE, RoundingMode.HALF_UP));
-                        totalScheduledManagementFee = money(
-                                        totalScheduledManagementFee.add(fee));
+                List<PaymentSchedule> generatedSchedules = repository.findByLoanIdOrderByInstallmentNumberAsc(loan.getId());
 
-                        BigDecimal principalComponent = (i == months)
-                                        ? scheduledBalance
-                                        : money(monthlyPayment.subtract(
-                                                        money(scheduledBalance.multiply(monthlyRate))));
-                        principalComponent = principalComponent.max(ZERO).min(scheduledBalance);
-                        scheduledBalance = money(scheduledBalance.subtract(principalComponent));
-                }
+                BigDecimal totalScheduledManagementFee = money(
+                                generatedSchedules.stream()
+                                                .map(PaymentSchedule::getManagementFeeAmount)
+                                                .filter(java.util.Objects::nonNull)
+                                                .reduce(ZERO, BigDecimal::add));
+
+                BigDecimal totalScheduledInterest = money(
+                                generatedSchedules.stream()
+                                                .map(PaymentSchedule::getInterestAmount)
+                                                .filter(java.util.Objects::nonNull)
+                                                .reduce(ZERO, BigDecimal::add));
 
                 loan.setManagementFee(totalScheduledManagementFee);
-                if (loan.getManagementFeePaidDecimal() == null) {
-                        loan.setManagementFeePaid(ZERO);
-                }
-                loan.setManagementFeeOutstanding(
-                                totalScheduledManagementFee.subtract(
-                                                money(loan.getManagementFeePaidDecimal()))
-                                                .max(ZERO));
-
-                // Contractual total repayable = principal + contractual interest
-                // + recurring management fees.
-                // Recalculate the contractual interest total from the final
-                // schedule every time. Existing unpaid schedules may have been
-                // deleted/rebuilt above, so their prior existence must never
-                // cause the aggregate interest total to become zero.
-                BigDecimal totalScheduledInterest = calculateScheduledInterestTotal(
-                                principal,
-                                monthlyRate,
-                                months);
+                loan.setManagementFeePaid(ZERO);
+                loan.setManagementFeeOutstanding(totalScheduledManagementFee);
 
                 loan.setTotalInterest(totalScheduledInterest);
-                loan.setInterestOutstanding(
-                                totalScheduledInterest.subtract(
-                                                money(loan.getInterestPaidDecimal()))
-                                                .max(ZERO));
+                loan.setInterestPaid(ZERO);
+                loan.setInterestOutstanding(totalScheduledInterest);
                 loan.setTotalRepayable(
                                 money(
                                                 principal
@@ -524,8 +360,11 @@ public class PaymentScheduleService {
                 loan.setNextDueDate(firstDueDate);
                 loan.setNextPaymentDate(firstDueDate);
 
-                loan.setNextInstallmentAmount(
-                                monthlyPayment);
+                List<PaymentSchedule> finalSchedules = repository.findByLoanIdOrderByInstallmentNumberAsc(loan.getId());
+                if (!finalSchedules.isEmpty()) {
+                        loan.setNextInstallmentAmount(
+                                        money(finalSchedules.get(0).getInstallmentAmount()));
+                }
 
                 log.info(
                                 "Payment schedule generated successfully for loan {} with {} installments",
