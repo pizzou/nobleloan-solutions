@@ -283,14 +283,17 @@ class FinancialReconciliationServiceTest {
         when(installment.getInterestComponentDecimal())
                 .thenReturn(new BigDecimal("50.00"));
 
-        when(paymentRepository.findByLoanId(77L))
-                .thenReturn(List.of(installment));
-
         stub(
                 List.of(interestReceivable, cash),
                 List.of(entry),
                 List.of(loan)
         );
+
+        // stub(...) installs the default empty payment list for active loans.
+        // Install the test's real installment after that default so the service
+        // sees the contractual 250.00 interest and the 50.00 already paid.
+        when(paymentRepository.findByLoanId(77L))
+                .thenReturn(List.of(installment));
 
         var report = service.reconcile(
                 1L,

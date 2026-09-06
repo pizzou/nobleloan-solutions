@@ -119,28 +119,25 @@ public class BnrFinancialStatementService {
                 }
 
                 // ========================================================
-                // LOAD PERIOD JOURNAL ENTRIES
-                // ========================================================
-
-                List<JournalEntry> periodEntries = journalEntryRepository
-                                .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAsc(
-                                                organizationId,
-                                                from,
-                                                to);
-
-                if (periodEntries == null) {
-                        periodEntries = new ArrayList<>();
-                }
-
-                // ========================================================
                 // ACTIVE ENTRIES
                 // ========================================================
 
                 historicalEntries = activeEntries(
                                 historicalEntries);
 
-                periodEntries = activeEntries(
-                                periodEntries);
+                /*
+                 * The historical query already contains every journal entry
+                 * through the reporting cut-off. Re-querying the same ledger
+                 * for the current period doubled database I/O and Hibernate
+                 * object hydration during BNR exports. Derive the period view
+                 * from the validated historical set instead.
+                 */
+                List<JournalEntry> periodEntries = historicalEntries.stream()
+                                .filter(Objects::nonNull)
+                                .filter(entry -> entry.getEntryDate() != null)
+                                .filter(entry -> !entry.getEntryDate().isBefore(from)
+                                                && !entry.getEntryDate().isAfter(to))
+                                .toList();
 
                 // ========================================================
                 // ACCOUNT MAPS

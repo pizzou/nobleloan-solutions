@@ -217,7 +217,7 @@ public final class StreamingLedgerFileParser {
                                     null,
                                     sharedStrings,
                                     handler,
-                                    new org.apache.poi.ss.usermodel.DataFormatter(Locale.ROOT, true),
+                                    new org.apache.poi.ss.usermodel.DataFormatter(Locale.ENGLISH, false),
                                     false));
 
                     xmlReader.parse(new InputSource(sheetInput));
@@ -874,13 +874,11 @@ public final class StreamingLedgerFileParser {
             return "";
         }
 
-        for (DateTimeFormatter formatter : DATE_FORMATS) {
-            try {
-                return LocalDate.parse(normalized, formatter).toString();
-            } catch (DateTimeParseException ignored) {
-            }
-        }
-        return normalized;
+        // XSSF streaming can expose an Excel date either as the formatted
+        // display value (for example 29-May-26) or as the underlying serial
+        // number. parseDate handles both representations.
+        LocalDate parsed = parseDate(normalized);
+        return parsed == null ? normalized : parsed.toString();
     }
 
     private static LocalDate parseDate(String value) {

@@ -388,7 +388,7 @@ public final class LedgerFileParser {
         // This prevents old recurring processing-fee balances from being
         // incorrectly reconciled against the one-time application fee.
         BigDecimal applicationFeeAmount = decimalOrZero(applicationFee);
-        BigDecimal applicationOutstanding = BigDecimal.ZERO;
+        BigDecimal applicationOutstanding = BigDecimal.ZERO.setScale(2, java.math.RoundingMode.HALF_UP);
         BigDecimal applicationPaid = applicationFeeAmount;
 
         BigDecimal interestOutstanding = decimalOrZero(cellValue(row.getCell(28), formatter, evaluator));

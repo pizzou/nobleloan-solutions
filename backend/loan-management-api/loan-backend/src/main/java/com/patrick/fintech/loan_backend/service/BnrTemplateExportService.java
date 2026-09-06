@@ -96,6 +96,8 @@ public class BnrTemplateExportService {
             populateMetadata(workbook, organizationId, branchId, period, window, loans);
 
             Map<String, List<Loan>> classified = classifyLoans(loans);
+            Map<Long, List<PaymentSchedule>> scheduleCache = loadSchedules(loans);
+            Map<Long, List<Loan>> borrowerLoanCache = indexBorrowerLoans(loans);
 
             for (String sheetName : CLASSIFICATION_SHEETS) {
                 Sheet sheet = workbook.getSheet(sheetName);
@@ -108,14 +110,18 @@ public class BnrTemplateExportService {
                     writeWrittenOffSheet(
                             sheet,
                             classified.getOrDefault("WRITTEN_OFF", List.of()),
-                            reportDate);
+                            reportDate,
+                            scheduleCache,
+                            borrowerLoanCache);
                 } else {
                     String classification = classificationForSheet(sheetName);
                     writeLoanSheet(
                             sheet,
                             classified.getOrDefault(classification, List.of()),
                             reportDate,
-                            classification);
+                            classification,
+                            scheduleCache,
+                            borrowerLoanCache);
                 }
             }
 
@@ -1476,30 +1482,31 @@ public class BnrTemplateExportService {
         }
 
         /*
-         * Pre-create the report canvas so the generated workbook has the same
-         * usable row/column footprint as the regulatory reporting workbook.
-         * Existing loan rows are written later; blank rows remain formatted.
+         * Keep one lightweight data-template row instead of pre-creating the
+         * entire 1,400-row x 53-column canvas on every classification sheet.
+         * The old approach created more than half a million styled cells before
+         * a single borrower was written, which made XLSX generation expensive
+         * enough to trigger Render/edge 502 timeouts on real portfolios.
+         *
+         * getOrCreateRow() copies the previous row's styles, so this one row
+         * becomes the formatting template for all actual borrower rows while
+         * preserving the regulatory column formatting.
          */
-        for (int rowIndex = technicalHeaderIndex + 1;
-                rowIndex < CLASSIFICATION_ROW_CAPACITY;
-                rowIndex++) {
-            Row row = getOrCreateRow(sheet, rowIndex);
-            row.setHeightInPoints(18f);
-            for (int c = 0; c < CLASSIFICATION_COLUMN_CAPACITY; c++) {
-                Cell cell = row.getCell(
-                        c,
-                        Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
-                if (c < headers.length) {
-                    cell.setCellStyle(
-                            isPercentBnrHeader(headers[c])
+        Row dataTemplate = getOrCreateRow(sheet, technicalHeaderIndex + 1);
+        dataTemplate.setHeightInPoints(18f);
+        for (int c = 0; c < CLASSIFICATION_COLUMN_CAPACITY; c++) {
+            Cell cell = dataTemplate.getCell(
+                    c,
+                    Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+            cell.setCellStyle(
+                    c < headers.length
+                            ? (isPercentBnrHeader(headers[c])
                                     ? dataPercentStyle
                                     : isNumericBnrHeader(headers[c])
                                             ? dataNumberStyle
-                                            : dataStyle);
-                } else {
-                    cell.setCellStyle(dataStyle);
-                }
-            }
+                                            : dataStyle)
+                            : dataStyle);
+            cell.setBlank();
         }
 
         int[] widths = bnrClassificationWidths(
@@ -2059,7 +2066,9 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
             Sheet sheet,
             List<Loan> loans,
             LocalDate reportDate,
-            String classification) {
+            String classification,
+            Map<Long, List<PaymentSchedule>> scheduleCache,
+            Map<Long, List<Loan>> borrowerLoanCache) {
 
         int headerRow = findHeaderRow(sheet, "Names of Borrowers");
         if (headerRow < 0) {
@@ -2086,14 +2095,18 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
                     sequence++,
                     loan,
                     reportDate,
-                    classification);
+                    classification,
+                    scheduleCache,
+                    borrowerLoanCache);
         }
     }
 
     private void writeWrittenOffSheet(
             Sheet sheet,
             List<Loan> loans,
-            LocalDate reportDate) {
+            LocalDate reportDate,
+            Map<Long, List<PaymentSchedule>> scheduleCache,
+            Map<Long, List<Loan>> borrowerLoanCache) {
 
         int headerRow = findHeaderRow(sheet, "Names of Borrowers");
         if (headerRow < 0) {
@@ -2112,7 +2125,13 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
             }
 
             Row row = getOrCreateRow(sheet, rowNumber++);
-            populateWrittenOffRow(row, sheet, loan, reportDate);
+            populateWrittenOffRow(
+                    row,
+                    sheet,
+                    loan,
+                    reportDate,
+                    scheduleCache,
+                    borrowerLoanCache);
         }
     }
 
@@ -2122,9 +2141,11 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
             int sequence,
             Loan loan,
             LocalDate reportDate,
-            String classification) {
+            String classification,
+            Map<Long, List<PaymentSchedule>> scheduleCache,
+            Map<Long, List<Loan>> borrowerLoanCache) {
 
-        BnrLoanFacts facts = facts(loan, reportDate);
+        BnrLoanFacts facts = facts(loan, reportDate, scheduleCache, borrowerLoanCache);
 
         int headerRowIndex = findHeaderRow(sheet, "Names of Borrowers");
         Row headerRow = sheet.getRow(headerRowIndex);
@@ -2152,9 +2173,11 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
             Row row,
             Sheet sheet,
             Loan loan,
-            LocalDate reportDate) {
+            LocalDate reportDate,
+            Map<Long, List<PaymentSchedule>> scheduleCache,
+            Map<Long, List<Loan>> borrowerLoanCache) {
 
-        BnrLoanFacts facts = facts(loan, reportDate);
+        BnrLoanFacts facts = facts(loan, reportDate, scheduleCache, borrowerLoanCache);
 
         int headerRow = findHeaderRow(sheet, "Names of Borrowers");
         Row header = sheet.getRow(headerRow);
@@ -2339,7 +2362,11 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
         return null;
     }
 
-    private BnrLoanFacts facts(Loan loan, LocalDate reportDate) {
+    private BnrLoanFacts facts(
+            Loan loan,
+            LocalDate reportDate,
+            Map<Long, List<PaymentSchedule>> scheduleCache,
+            Map<Long, List<Loan>> borrowerLoanCache) {
         Borrower borrower = loan.getBorrower();
 
         BigDecimal outstanding = money(loan.getOutstandingBalanceDecimal()).max(ZERO);
@@ -2361,9 +2388,7 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
 
         List<PaymentSchedule> schedules = loan.getId() == null
                 ? List.of()
-                : safeSchedules(
-                        paymentScheduleRepository
-                                .findByLoanIdOrderByInstallmentNumberAsc(loan.getId()));
+                : scheduleCache.getOrDefault(loan.getId(), List.of());
 
         int paidInstallments = (int) schedules.stream()
                 .filter(s -> s != null && (s.getStatus() == PaymentSchedule.ScheduleStatus.PAID
@@ -2387,7 +2412,7 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
                 .min(LocalDate::compareTo)
                 .orElse(null);
 
-        String previousLoansPaidOnTime = previousLoansPaidOnTime(loan);
+        String previousLoansPaidOnTime = previousLoansPaidOnTime(loan, borrowerLoanCache);
 
         return new BnrLoanFacts(
                 loan.getReferenceNumber(),
@@ -2489,7 +2514,59 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
         return normalized.isBlank() ? null : normalized;
     }
 
-    private String previousLoansPaidOnTime(Loan current) {
+    private Map<Long, List<PaymentSchedule>> loadSchedules(List<Loan> loans) {
+        Map<Long, List<PaymentSchedule>> result = new HashMap<>();
+
+        List<Long> loanIds = safeLoans(loans).stream()
+                .map(Loan::getId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        if (loanIds.isEmpty()) {
+            return result;
+        }
+
+        List<PaymentSchedule> schedules = paymentScheduleRepository
+                .findByLoan_IdInOrderByLoan_IdAscInstallmentNumberAsc(loanIds);
+
+        for (PaymentSchedule schedule : safeSchedules(schedules)) {
+            if (schedule == null
+                    || schedule.getLoan() == null
+                    || schedule.getLoan().getId() == null) {
+                continue;
+            }
+            result.computeIfAbsent(
+                    schedule.getLoan().getId(),
+                    ignored -> new ArrayList<>())
+                    .add(schedule);
+        }
+
+        return result;
+    }
+
+    private Map<Long, List<Loan>> indexBorrowerLoans(List<Loan> loans) {
+        Map<Long, List<Loan>> result = new HashMap<>();
+
+        for (Loan loan : safeLoans(loans)) {
+            if (loan == null
+                    || loan.getBorrower() == null
+                    || loan.getBorrower().getId() == null) {
+                continue;
+            }
+
+            result.computeIfAbsent(
+                    loan.getBorrower().getId(),
+                    ignored -> new ArrayList<>())
+                    .add(loan);
+        }
+
+        return result;
+    }
+
+    private String previousLoansPaidOnTime(
+            Loan current,
+            Map<Long, List<Loan>> borrowerLoanCache) {
         if (current.getBorrower() == null
                 || current.getBorrower().getId() == null
                 || current.getOrganization() == null
@@ -2497,9 +2574,9 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
             return null;
         }
 
-        List<Loan> borrowerLoans = loanRepository.findByBorrowerIdAndOrganizationId(
+        List<Loan> borrowerLoans = borrowerLoanCache.getOrDefault(
                 current.getBorrower().getId(),
-                current.getOrganization().getId());
+                List.of());
 
         boolean hasPrevious = false;
 
