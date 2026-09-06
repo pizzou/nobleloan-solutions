@@ -53,10 +53,18 @@ public final class StreamingLedgerFileParser {
             DateTimeFormatter.ofPattern("d-MMM-uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
             DateTimeFormatter.ofPattern("dd-MMM-uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
             DateTimeFormatter.ofPattern("d-MMM-uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            // Apache POI DataFormatter commonly renders Excel dates with a
+            // two-digit year when the source format is "dd-mmm-yy".
+            // DateTimeFormatter's "yy" pattern is therefore required in
+            // addition to the reduced-year "uu" variants above.
+            DateTimeFormatter.ofPattern("dd-MMM-yy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("d-MMM-yy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
             DateTimeFormatter.ofPattern("dd MMM uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
             DateTimeFormatter.ofPattern("d MMM uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("dd MMM yy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
+            DateTimeFormatter.ofPattern("d MMM yy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
             DateTimeFormatter.ofPattern("MMM d, uuuu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART),
-            DateTimeFormatter.ofPattern("MMM d, uu", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART));
+            DateTimeFormatter.ofPattern("MMM d, yy", Locale.ENGLISH).withResolverStyle(ResolverStyle.SMART));
 
     private StreamingLedgerFileParser() {
     }
@@ -217,7 +225,7 @@ public final class StreamingLedgerFileParser {
                                     null,
                                     sharedStrings,
                                     handler,
-                                    new org.apache.poi.ss.usermodel.DataFormatter(Locale.ENGLISH, false),
+                                    new org.apache.poi.ss.usermodel.DataFormatter(Locale.ROOT, true),
                                     false));
 
                     xmlReader.parse(new InputSource(sheetInput));
@@ -874,11 +882,13 @@ public final class StreamingLedgerFileParser {
             return "";
         }
 
-        // XSSF streaming can expose an Excel date either as the formatted
-        // display value (for example 29-May-26) or as the underlying serial
-        // number. parseDate handles both representations.
-        LocalDate parsed = parseDate(normalized);
-        return parsed == null ? normalized : parsed.toString();
+        for (DateTimeFormatter formatter : DATE_FORMATS) {
+            try {
+                return LocalDate.parse(normalized, formatter).toString();
+            } catch (DateTimeParseException ignored) {
+            }
+        }
+        return normalized;
     }
 
     private static LocalDate parseDate(String value) {
