@@ -709,14 +709,16 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("asOf") LocalDateTime asOf);
 
     /**
-     * BNR export query. Deliberately does not fetch the full payments collection.
-     * Fetching payments for every portfolio loan can explode the SQL result set
-     * and heap usage on large portfolios during XLSX generation.
+     * Lightweight BNR export portfolio query.  Deliberately does not fetch
+     * Loan.payments: the BNR exporter reads payment schedules separately in
+     * one batch query. This avoids the collection-fetch Cartesian explosion
+     * that can exhaust Render memory and surface as HTTP 502.
      */
     @EntityGraph(attributePaths = {
             "borrower",
             "organization",
-            "branch"
+            "branch",
+            "loanOfficer"
     })
     @Query("""
             SELECT l
