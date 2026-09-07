@@ -709,13 +709,9 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("asOf") LocalDateTime asOf);
 
     /**
-     * Lightweight portfolio query used exclusively by the BNR XLSX exporter.
-     *
-     * The exporter bulk-loads PaymentSchedule separately. Fetching the entire
-     * Loan.payments collection here creates a large one-to-many join and can
-     * multiply the SQL result set dramatically on production portfolios. That
-     * is unnecessary for BNR generation and can exhaust Render memory or hit a
-     * gateway timeout, surfacing to the browser as HTTP 502 / Axios Network Error.
+     * BNR export query. Deliberately does not fetch the full payments collection.
+     * Fetching payments for every portfolio loan can explode the SQL result set
+     * and heap usage on large portfolios during XLSX generation.
      */
     @EntityGraph(attributePaths = {
             "borrower",
@@ -732,10 +728,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                   OR l.importBatchId IS NOT NULL
                   OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
                   OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
-                  OR (
-                      l.disbursedAt IS NOT NULL
-                      AND l.disbursedAt < :asOf
-                  )
+                  OR (l.disbursedAt IS NOT NULL AND l.disbursedAt < :asOf)
               )
             ORDER BY l.disbursedAt ASC
             """)
