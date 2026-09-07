@@ -1431,7 +1431,13 @@ public class BnrTemplateExportService {
         sheet.setDisplayGridlines(true);
         Row bottom = sheet.getRow(149);
         if (bottom == null) bottom = sheet.createRow(149);
-        bottom.getCell(2, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK).setCellStyle(sheet.getRow(0).getCell(0).getCellStyle());
+        Row referenceRow = sheet.getRow(0);
+        if (referenceRow == null) {
+            referenceRow = sheet.createRow(0);
+        }
+        Cell referenceCell = referenceRow.getCell(0, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+        CellStyle referenceStyle = referenceCell.getCellStyle();
+        bottom.getCell(2, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK).setCellStyle(referenceStyle);
         workbook.setPrintArea(workbook.getSheetIndex(sheet), "A1:C150");
     }
 
@@ -1447,8 +1453,13 @@ public class BnrTemplateExportService {
         for(String m:merges) sheet.addMergedRegion(org.apache.poi.ss.util.CellRangeAddress.valueOf(m));
         Row bottom = sheet.getRow(427);
         if (bottom == null) bottom = sheet.createRow(427);
-        bottom.getCell(14, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK).setCellStyle(
-                sheet.getRow(0).getCell(0).getCellStyle());
+        Row referenceRow = sheet.getRow(0);
+        if (referenceRow == null) {
+            referenceRow = sheet.createRow(0);
+        }
+        Cell referenceCell = referenceRow.getCell(0, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+        CellStyle referenceStyle = referenceCell.getCellStyle();
+        bottom.getCell(14, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK).setCellStyle(referenceStyle);
         sheet.setDisplayGridlines(true);
     }
 
