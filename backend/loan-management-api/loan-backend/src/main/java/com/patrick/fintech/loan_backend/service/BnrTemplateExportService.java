@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.ss.util.CellRangeAddressList;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.xssf.usermodel.XSSFColor;
 import org.springframework.stereotype.Service;
@@ -1680,13 +1681,10 @@ public class BnrTemplateExportService {
                         workbookSpreadsheetVersion()));
         table.setName(name);
         table.setDisplayName(name);
-        org.apache.poi.xssf.usermodel.CTTable ct = table.getCTTable();
-        if (ct.getTableStyleInfo() == null) ct.addNewTableStyleInfo();
-        ct.getTableStyleInfo().setName("TableStyleLight8");
-        ct.getTableStyleInfo().setShowFirstColumn(false);
-        ct.getTableStyleInfo().setShowLastColumn(false);
-        ct.getTableStyleInfo().setShowRowStripes(true);
-        ct.getTableStyleInfo().setShowColumnStripes(false);
+        // Intentionally avoid direct access to the generated CTTable XMLBeans class.
+        // The table itself is sufficient for Excel and remains compatible with POI
+        // installations where the OOXML schema classes are not exposed directly.
+
     }
 
     private org.apache.poi.ss.SpreadsheetVersion workbookSpreadsheetVersion() {
@@ -2011,6 +2009,52 @@ public class BnrTemplateExportService {
         return headers;
     }
 
+    /**
+     * Title style used by the generated BNR worksheets.
+     * Kept separate from the human header style so the title row never inherits
+     * the technical/header fills.
+     */
+    private CellStyle createBnrTitleStyle(XSSFWorkbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        Font font = workbook.createFont();
+        font.setFontName("Arial");
+        font.setFontHeightInPoints((short) 12);
+        font.setBold(true);
+        font.setColor(IndexedColors.BLACK.getIndex());
+        style.setFont(font);
+        style.setAlignment(HorizontalAlignment.CENTER);
+        style.setVerticalAlignment(VerticalAlignment.CENTER);
+        style.setWrapText(true);
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+        return style;
+    }
+
+    /**
+     * General header style used by the Explanatory Note and other metadata areas.
+     * Kept as a dedicated method because the generated workbook has more than one
+     * kind of header and callers should not have to know the implementation.
+     */
+    private CellStyle createBnrHeaderStyle(XSSFWorkbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        Font font = workbook.createFont();
+        font.setFontName("Arial");
+        font.setFontHeightInPoints((short) 10);
+        font.setBold(true);
+        font.setColor(IndexedColors.BLACK.getIndex());
+        style.setFont(font);
+        style.setAlignment(HorizontalAlignment.CENTER);
+        style.setVerticalAlignment(VerticalAlignment.CENTER);
+        style.setWrapText(true);
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+        return style;
+    }
+
     private CellStyle createBnrHumanHeaderStyle(XSSFWorkbook workbook) {
         CellStyle style = workbook.createCellStyle();
         Font font = workbook.createFont();
@@ -2074,6 +2118,52 @@ public class BnrTemplateExportService {
         style.setAlignment(HorizontalAlignment.RIGHT);
         style.setDataFormat(workbook.createDataFormat().getFormat("0%"));
         return style;
+    }
+
+    /**
+     * Determines whether a BNR column should receive the numeric Excel format.
+     * The method intentionally uses header names rather than fixed positions so
+     * the different Normal/Watch/Substandard/Doubtful/Loss/Restructured layouts
+     * remain safe when their column positions differ.
+     */
+    /**
+     * Returns true for BNR columns whose values represent percentages/rates.
+     * The template stores these as numeric Excel values and formats them as rates.
+     */
+    private boolean isPercentBnrHeader(String header) {
+        if (header == null || header.isBlank()) {
+            return false;
+        }
+        String h = header.trim().toLowerCase(Locale.ROOT);
+        return h.contains("interest rate")
+                || h.contains("provisioning rate")
+                || h.equals("provision rate")
+                || h.contains("percentage")
+                || h.contains("% ")
+                || h.endsWith("%")
+                || h.contains("rate (regulation)");
+    }
+
+    private boolean isNumericBnrHeader(String header) {
+        if (header == null || header.isBlank()) {
+            return false;
+        }
+        String h = header.trim().toLowerCase(Locale.ROOT);
+        return h.contains("amount")
+                || h.contains("balance outstanding")
+                || h.contains("net amount due")
+                || h.contains("provision required")
+                || h.contains("previous provisions")
+                || h.contains("additional provisions")
+                || h.contains("eligible collateral provided")
+                || h.contains("guarantee(collateral) ammount")
+                || h.equals("security savings")
+                || h.equals("amount repaid")
+                || h.equals("amount written off")
+                || h.equals("recoveries on the written off amount")
+                || h.equals("remaining balance to be recovered")
+                || h.equals("loan balance outstanding")
+                || h.equals("amount of loan disbursed");
     }
 
     private String exactTechnicalHeader(String sheetName, int column) {
@@ -2287,6 +2377,83 @@ public class BnrTemplateExportService {
     private CellStyle createBnrFsRatioStyle(XSSFWorkbook workbook) {
         CellStyle style=createBnrFsNormalStyle(workbook); Font f=workbook.createFont(); f.setFontName("Calibri"); f.setFontHeightInPoints((short)11); style.setFont(f); style.setDataFormat(workbook.createDataFormat().getFormat("0.00%")); return style;
     }
+    /**
+     * Converts an Excel-style character width into POI's 1/256-character unit.
+     * Excel stores column widths as approximately 256 units per character.
+     */
+    private int widthInExcelUnits(int characters) {
+        if (characters <= 0) {
+            return 256;
+        }
+        return Math.min(255 * 256, characters * 256);
+    }
+
+    /**
+     * Metadata style used for the small institution/date labels around the BNR
+     * forms.  Kept separate from the data/header styles so metadata never
+     * accidentally receives the yellow technical-header fill.
+     */
+    private CellStyle createBnrMetaStyle(XSSFWorkbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        Font font = workbook.createFont();
+        font.setFontName("Arial");
+        font.setFontHeightInPoints((short) 10);
+        font.setBold(false);
+        font.setColor(IndexedColors.BLACK.getIndex());
+        style.setFont(font);
+        style.setAlignment(HorizontalAlignment.LEFT);
+        style.setVerticalAlignment(VerticalAlignment.CENTER);
+        style.setWrapText(true);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+        return style;
+    }
+
+    /**
+     * Small safe cell writer used throughout the generated BNR workbook.
+     * Existing formula cells are never overwritten.
+     */
+    private void put(Sheet sheet, int rowIndex, int columnIndex, Object value, CellStyle style) {
+        if (sheet == null || rowIndex < 0 || columnIndex < 0) {
+            return;
+        }
+        Row row = getOrCreateRow(sheet, rowIndex);
+        Cell cell = row.getCell(columnIndex, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+
+        if (style != null) {
+            cell.setCellStyle(style);
+        }
+
+        if (cell.getCellType() == CellType.FORMULA) {
+            return;
+        }
+
+        if (value == null) {
+            cell.setBlank();
+            return;
+        }
+
+        if (value instanceof String text) {
+            cell.setCellValue(text);
+        } else if (value instanceof Number number) {
+            cell.setCellValue(number.doubleValue());
+        } else if (value instanceof Boolean bool) {
+            cell.setCellValue(bool);
+        } else if (value instanceof LocalDate date) {
+            cell.setCellValue(date);
+        } else if (value instanceof LocalDateTime dateTime) {
+            cell.setCellValue(dateTime);
+        } else if (value instanceof Date date) {
+            cell.setCellValue(date);
+        } else if (value instanceof BigDecimal decimal) {
+            cell.setCellValue(decimal.doubleValue());
+        } else {
+            cell.setCellValue(String.valueOf(value));
+        }
+    }
+
     private CellStyle createBnrFsInputStyle(XSSFWorkbook workbook) {
         CellStyle style=createBnrFsNormalStyle(workbook); style.setFillForegroundColor(new XSSFColor(new byte[]{(byte)0xFF,(byte)0xFF,0x00},null)); style.setFillPattern(FillPatternType.SOLID_FOREGROUND); return style;
     }
@@ -2543,6 +2710,17 @@ public class BnrTemplateExportService {
                     classification);
 
             writeTypedCell(row, column, value);
+        }
+
+        // BNR Column C is always the borrower's regulatory National ID.
+        // Never substitute the internal database borrower ID.
+        Cell nationalIdCell = row.getCell(2, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+        if (nationalIdCell.getCellType() != CellType.FORMULA) {
+            if (facts.nationalId == null || facts.nationalId.isBlank()) {
+                nationalIdCell.setBlank();
+            } else {
+                nationalIdCell.setCellValue(facts.nationalId.trim());
+            }
         }
 
         // Derived regulatory columns remain formula-driven in the generated workbook.
@@ -3020,6 +3198,25 @@ public class BnrTemplateExportService {
             case "WRITTEN_OFF" -> "6";
             case "RESTRUCTURED" -> "3";
             default -> "1";
+        };
+    }
+
+    /**
+     * Human-readable portfolio risk label used in the generated FS summary.
+     */
+    private String portfolioRiskLabel(String classification) {
+        if (classification == null || classification.isBlank()) {
+            return "Unknown";
+        }
+        return switch (classification.trim().toUpperCase(Locale.ROOT)) {
+            case "NORMAL" -> "Normal";
+            case "WATCH" -> "Watch";
+            case "SUBSTANDARD" -> "Substandard";
+            case "DOUBTFUL" -> "Doubtful";
+            case "LOSS" -> "Loss";
+            case "RESTRUCTURED" -> "Restructured";
+            case "WRITTEN_OFF" -> "Written Off";
+            default -> classification;
         };
     }
 
