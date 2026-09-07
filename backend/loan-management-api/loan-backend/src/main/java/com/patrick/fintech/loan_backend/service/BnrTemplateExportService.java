@@ -1783,7 +1783,6 @@ public class BnrTemplateExportService {
                 1,
                 Math.max(1, headers.length - 1)));
         sheet.setDisplayGridlines(false);
-        sheet.setDefaultRowHeightInPoints(18f);
         headerRow.setHeightInPoints(72f);
         technicalHeader.setHeightInPoints(18f);
     }
@@ -1793,28 +1792,73 @@ public class BnrTemplateExportService {
         return column < v.length ? v[column] : "";
     }
 
+    /**
+     * Returns the technical header used by the BNR workbook.
+     *
+     * IMPORTANT: this method must never index a fixed array with an index
+     * supplied by a caller unless the index has first been validated. Some
+     * BNR sheets contain a different number of regulatory columns, and a
+     * previous implementation crashed production export with:
+     *
+     *   ArrayIndexOutOfBoundsException: Index 42 out of bounds for length 42
+     *
+     * We therefore keep the known template names for the first columns and
+     * safely generate a technical name for any additional column. This also
+     * makes the exporter resilient if a sheet receives one extra regulatory
+     * column in a future template revision.
+     */
     private String exactTechnicalHeader(String sheetName, int column) {
+        if (column < 0) {
+            return "";
+        }
+
         String[] standard = {
-                "Column1","Column2","Column3","Column4","Column5","Column 6","Column 7","Column 8","Column 9","Column10",
-                "Column11","Column12","Column 12","Column13","Column14","Column15","Column16","Column17","Column18","Column19",
-                "Column 20","Column 21","Column 22","Column 23","Column 24","Column 25","Column 26","Column 27","Column 28","Column 29",
-                "Column 30","Column 31","Column 32","Column 33","Column 34","Column 35","Column 36","Column 37","Column 38","Column 39","Column 40","Column 41"
+                "Column1", "Column2", "Column3", "Column4", "Column5",
+                "Column 6", "Column 7", "Column 8", "Column 9", "Column10",
+                "Column11", "Column12", "Column 12", "Column13", "Column14",
+                "Column15", "Column16", "Column17", "Column18", "Column19",
+                "Column 20", "Column 21", "Column 22", "Column 23", "Column 24",
+                "Column 25", "Column 26", "Column 27", "Column 28", "Column 29",
+                "Column 30", "Column 31", "Column 32", "Column 33", "Column 34",
+                "Column 35", "Column 36", "Column 37", "Column 38", "Column 39",
+                "Column 40", "Column 41"
         };
+
+        // The supplied BNR template contains a special technical value on
+        // the Substandard sheet beyond the normal 42-column sequence.
         if ("A1.5. Substandard".equals(sheetName)) {
-            String[] v = standard.clone();
-            v[11] = "Column 12"; v[12] = "Column 13"; v[34] = "Column 342"; v[42] = "LCL.P3089.AP.Y";
-            return column < v.length ? v[column] : "";
+            if (column == 34) {
+                return "Column 342";
+            }
+            if (column == 42) {
+                return "LCL.P3089.AP.Y";
+            }
         }
-        if ("A1.6. Doubtful".equals(sheetName)) {
-            String[] v = standard.clone(); v[34] = "Column 332"; return column < v.length ? v[column] : "";
+
+        if ("A1.6. Doubtful".equals(sheetName) && column == 34) {
+            return "Column 332";
         }
+
         if ("A1.7 Loss".equals(sheetName)) {
-            String[] v = standard.clone(); v[35] = "Column 36"; v[41] = "Column 42"; return column < v.length ? v[column] : "";
+            if (column == 35) {
+                return "Column 36";
+            }
+            if (column == 41) {
+                return "Column 42";
+            }
         }
-        if ("A1.8. Restructured loans".equals(sheetName)) {
-            String[] v = standard.clone(); v[34] = "Column 332"; return column < v.length ? v[column] : "";
+
+        if ("A1.8. Restructured loans".equals(sheetName) && column == 34) {
+            return "Column 332";
         }
-        return column < standard.length ? standard[column] : "";
+
+        if (column < standard.length) {
+            return standard[column];
+        }
+
+        // Never throw during report generation because a sheet has an extra
+        // column. Use the same technical naming convention as the template.
+        return "Column " + (column + 1);
     }
 
     private String[] doubtfulHeaders() {
@@ -1833,7 +1877,9 @@ public class BnrTemplateExportService {
     }
 
     private String[] lossHeaders() {
-        return doubtfulHeaders();
+        String[] headers = normalHeaders();
+        headers[20] = "Disbursed Amount";
+        return headers;
     }
 
     private String portfolioRiskLabel(String classification) {
@@ -2200,12 +2246,51 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
     }
 
     private String[] substandardHeaders() {
-        String[] headers = watchHeaders();
-        headers[9] = "Other Institutions in which he/she has loans";
-        headers[10] = "Purpose of the loan";
-        headers[11] = "Branch name";
-        headers[12] = "Guarantee(Collateral) Ammount";
-        return headers;
+        return new String[] {
+                "No",
+                "Names of Borrowers",
+                "ID of the Borrower",
+                "Telephone number",
+                "Gender",
+                "Age",
+                "Relationship with the NDFSP",
+                "Marital Status (Married/Single/Widow)",
+                "previous loans paid on time (Yes/No)",
+                "Other Institutions in which he/she has loans",
+                "Purpose of the loan",
+                "Branch name",
+                "Collateral Type",
+                "Guarantee(Collateral) Ammount",
+                "Borrower's District",
+                "Borrower's Sector",
+                "Borrower's Cell",
+                "Borrower's Village",
+                "Annual Interest Rate",
+                "Method of interest rate calculation (Flat/Declining)",
+                "Names of the Loan Officer",
+                "Disbursed Amount",
+                "Date of loan disbursement",
+                "Agreed Maturity Date",
+                "Agreed Frequency of Repayment (Days)",
+                "Grace Period Accorded (Days)",
+                "Agreed Date of First Payment (Principal)",
+                "Date of Last Payment (Principal)",
+                "Date when Arrears Start",
+                "Cut Off Date (Report Date)",
+                "Total Number of Installments",
+                "Round Number of Installments  paid",
+                "Round Number of Installments outstanding",
+                "Amount Repaid (Principal)",
+                "Balance Outstanding (Principal)",
+                "Eligible Collateral provided ",
+                "Net Amount due (Principal)",
+                "Number of days overdue (Arrears) ",
+                "Class",
+                "Provisioning Rate (Regulation)",
+                "Provision Required ",
+                "Previous Provisions",
+                "Additional Provisions"
+        };
     }
 
     private String[] restructuredHeaders() {
