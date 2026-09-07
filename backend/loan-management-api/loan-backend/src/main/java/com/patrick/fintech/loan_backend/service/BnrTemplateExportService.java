@@ -15,6 +15,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.xssf.usermodel.XSSFColor;
+import org.apache.poi.xssf.usermodel.XSSFTable;
+import org.apache.poi.ss.util.AreaReference;
+import org.apache.poi.ss.util.CellReference;
+import org.apache.poi.ss.SpreadsheetVersion;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -408,6 +412,7 @@ public class BnrTemplateExportService {
     private void createFinancialStatementSheet(XSSFWorkbook workbook) {
         Sheet sheet = workbook.createSheet("A1.2. FS");
         CellStyle section=createBnrSectionStyle(workbook);
+        CellStyle offBalanceSection=createBnrOffBalanceSectionStyle(workbook);
         CellStyle normal=createBnrFsNormalStyle(workbook);
         CellStyle total=createBnrFsTotalStyle(workbook);
         CellStyle ratio=createBnrFsRatioStyle(workbook);
@@ -891,7 +896,7 @@ public class BnrTemplateExportService {
             sheet.getRow(69).getCell(c).setCellFormula("(" + current + "60)/((" + current + "26+" + previous + "26)/2)");
             sheet.getRow(69).getCell(c).setCellStyle(ratio);
         }
-        put(sheet,70,2,"C. OFF-BALANCE SHEET (Written-Off Loans)",section);
+        put(sheet,70,2,"C. OFF-BALANCE SHEET (Written-Off Loans)",offBalanceSection);
         sheet.getRow(70).createCell(3).setCellStyle(normal);
         sheet.getRow(70).createCell(4).setCellStyle(normal);
         sheet.getRow(70).createCell(5).setCellStyle(normal);
@@ -1512,7 +1517,7 @@ public class BnrTemplateExportService {
          */
         String[] technicalHeaders = technicalClassificationHeaders(sheetName);
         Row technicalHeader = getOrCreateRow(sheet, headerIndex + 1);
-        for (int c = 0; c < CLASSIFICATION_COLUMN_CAPACITY; c++) {
+        for (int c = 0; c < technicalHeaders.length; c++) {
             Cell cell = technicalHeader.getCell(
                     c,
                     Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
@@ -1532,13 +1537,19 @@ public class BnrTemplateExportService {
          */
         int[] widths = exactBnrClassificationWidths(sheetName);
         for (int c = 0; c < widths.length; c++) {
-            sheet.setColumnWidth(c, widthInExcelUnits(widths[c]));
+            sheet.setColumnWidth(c, widths[c]);
         }
 
-        headerRow.setHeightInPoints(72f);
-        technicalHeader.setHeightInPoints(18f);
-        sheet.setDefaultRowHeightInPoints(18f);
-        sheet.createFreezePane(0, headerIndex + 2);
+        double headerHeight = "A1.5. Substandard".equals(sheetName) ? 29.5 :
+                "A1.6. Doubtful".equals(sheetName) ? 28.0 :
+                "A1.7 Loss".equals(sheetName) ? 21.65 :
+                "A1.8. Restructured loans".equals(sheetName) ? 30.65 : 26.0;
+        headerRow.setHeightInPoints((float) headerHeight);
+        if ("A1.6. Doubtful".equals(sheetName)) {
+            technicalHeader.setHeightInPoints(28.0f);
+        }
+        sheet.setDefaultRowHeightInPoints(14.5f);
+        sheet.createFreezePane(2, headerIndex + 2);
         sheet.setDisplayGridlines(false);
 
         /*
@@ -1546,10 +1557,64 @@ public class BnrTemplateExportService {
          * supplied workbook: normal white cells, yellow input cells and orange
          * calculated/regulatory cells.
          */
-        sheet.getPrintSetup().setLandscape(true);
-        sheet.getPrintSetup().setFitWidth((short) 1);
+        sheet.getPrintSetup().setLandscape(false);
+        sheet.getPrintSetup().setFitWidth((short) 0);
         sheet.getPrintSetup().setFitHeight((short) 0);
-        sheet.setAutobreaks(true);
+        sheet.setAutobreaks(false);
+
+        // The supplied BNR workbook is an actual Excel Table, not merely a
+        // range with borders. Recreate that table structure programmatically
+        // so Excel renders filters, banding and row/column behavior normally.
+        createBnrClassificationTable(sheet, sheetName, headerIndex, headers.length);
+    }
+
+    private void createBnrClassificationTable(
+            Sheet sheet, String sheetName, int headerIndex, int headerCount) {
+        if (!(sheet instanceof org.apache.poi.xssf.usermodel.XSSFSheet xssfSheet)) {
+            return;
+        }
+
+        int tableEndColumn;
+        int tableEndRow;
+        String tableName;
+        switch (sheetName) {
+            case "A1.3. Normal Loans" -> { tableEndColumn = 41; tableEndRow = 1378; tableName = "Table42022"; }
+            case "A1.4. Watch" -> { tableEndColumn = 41; tableEndRow = 1404; tableName = "Table4202"; }
+            case "A1.5. Substandard" -> { tableEndColumn = 42; tableEndRow = 1405; tableName = "Table6204"; }
+            case "A1.6. Doubtful" -> { tableEndColumn = 41; tableEndRow = 1403; tableName = "Table7205"; }
+            case "A1.7 Loss" -> { tableEndColumn = 41; tableEndRow = 1403; tableName = "Table9208"; }
+            case "A1.8. Restructured loans" -> { tableEndColumn = 41; tableEndRow = 1406; tableName = "Table5203"; }
+            default -> { return; }
+        }
+
+        int tableStartRow = headerIndex + 1; // technical header row
+        AreaReference area = new AreaReference(
+                new CellReference(tableStartRow, 1),
+                new CellReference(tableEndRow, tableEndColumn),
+                SpreadsheetVersion.EXCEL2007);
+        XSSFTable table = xssfSheet.createTable(area);
+        table.setName(tableName);
+        table.setDisplayName(tableName);
+        table.getCTTable().setHeaderRowCount(1);
+        table.getCTTable().setTotalsRowCount(0);
+        if (!table.getCTTable().isSetTableStyleInfo()) {
+            table.getCTTable().addNewTableStyleInfo();
+        }
+        table.getCTTable().getTableStyleInfo().setName("TableStyleLight8");
+        table.getCTTable().getTableStyleInfo().setShowRowStripes(true);
+        table.getCTTable().getTableStyleInfo().setShowColumnStripes(false);
+
+        // Table columns correspond to the technical headers B:AP/AQ.
+        int tableColumnCount = tableEndColumn;
+        for (int i = 0; i < tableColumnCount; i++) {
+            if (i >= table.getCTTable().getTableColumns().sizeOfTableColumnArray()) {
+                table.getCTTable().getTableColumns().addNewTableColumn();
+            }
+            var tc = table.getCTTable().getTableColumns().getTableColumnArray(i);
+            tc.setId(i + 1L);
+            String technical = text(sheet.getRow(tableStartRow).getCell(i + 1));
+            tc.setName(technical == null || technical.isBlank() ? "Column" + (i + 1) : technical);
+        }
     }
 
     private String organizationDisplayLabel() {
@@ -1575,12 +1640,10 @@ public class BnrTemplateExportService {
                     "Column 25", "Column 26", "Column 27", "Column 28", "Column 29",
                     "Column 30", "Column 31", "Column 32", "Column 33", "Column 34",
                     "Column 342", "Column 36", "Column 37", "Column 38", "Column 39",
-                    "Column 40", "Column 41"
+                    "Column 40", "Column 41", "LCL.P3089.AP.Y"
             };
         }
-
-        if ("A1.6. Doubtful".equals(sheetName)
-                || "A1.8. Restructured loans".equals(sheetName)) {
+        if ("A1.6. Doubtful".equals(sheetName) || "A1.8. Restructured loans".equals(sheetName)) {
             return new String[] {
                     "Column1", "Column2", "Column3", "Column4", "Column5",
                     "Column 6", "Column 7", "Column 8", "Column 9", "Column10",
@@ -1593,7 +1656,19 @@ public class BnrTemplateExportService {
                     "Column 40", "Column 41"
             };
         }
-
+        if ("A1.7 Loss".equals(sheetName)) {
+            return new String[] {
+                    "Column1", "Column2", "Column3", "Column4", "Column5",
+                    "Column 6", "Column 7", "Column 8", "Column 9", "Column10",
+                    "Column11", "Column12", "Column 12", "Column13", "Column14",
+                    "Column15", "Column16", "Column17", "Column18", "Column19",
+                    "Column 20", "Column 21", "Column 22", "Column 23", "Column 24",
+                    "Column 25", "Column 26", "Column 27", "Column 28", "Column 29",
+                    "Column 30", "Column 31", "Column 32", "Column 33", "Column 34",
+                    "Column 36", "Column 37", "Column 38", "Column 39", "Column 40",
+                    "Column 41", "Column 42"
+            };
+        }
         return new String[] {
                 "Column1", "Column2", "Column3", "Column4", "Column5",
                 "Column 6", "Column 7", "Column 8", "Column 9", "Column10",
@@ -1608,53 +1683,27 @@ public class BnrTemplateExportService {
     }
 
     private int[] exactBnrClassificationWidths(String sheetName) {
+        double[] widths;
         if ("A1.3. Normal Loans".equals(sheetName)) {
-            return new int[] {
-                    17,31,38,31,13,13,13,13,13,13,13,31,13,31,13,13,13,31,
-                    31,29,29,26,22,30,33,27,26,29,24,31,36,28,32,26,23,32,
-                    27,25,26,28,28,30,13,13,13,13,13,13,13,13,13,13,13
-            };
+            widths = new double[] {17.542969,31,37.632812,31,13,13,13,13,13,13,13,31,13,31,13,13,13,31,31,28.453125,29,25.542969,22.179688,29.453125,32.816406,26.726562,25.453125,28.542969,24,30.726562,35.453125,28.269531,31.726562,25.816406,23.269531,32.179688,26.542969,25.269531,25.542969,28.269531,27.726562,29.726562,8.726562,13,13,13,13,13,13,13,13,13};
+        } else if ("A1.4. Watch".equals(sheetName)) {
+            widths = new double[] {17.542969,31,39.542969,31,13,13,13,13,13,13,13,31,13,31,13,13,13,31,31,28.453125,29,25.542969,22.179688,29.453125,32.816406,26.726562,25.453125,28.542969,24,30.726562,35.453125,28.269531,31.726562,25.816406,23.269531,32.179688,26.542969,25.269531,25.542969,28.269531,27.726562,29.726562,8.816406,13,13,13,13,13,13,13,13,13};
+        } else if ("A1.5. Substandard".equals(sheetName)) {
+            widths = new double[] {17.542969,49.726562,31,13,13,13,13,13,13,13,13,13,13,13,13,13,13,39,31,31,28.453125,21.542969,16,15.453125,13,13,16,13,16.816406,16,14.542969,15.816406,16.269531,19.269531,17.726562,17.726562,18.179688,16.179688,13,27.269531,26.179688,24.269531,26.453125,8.816406,13,13};
+        } else if ("A1.6. Doubtful".equals(sheetName)) {
+            widths = new double[] {17.542969,41.089844,31,13,38.453125,31,13,13,13,13,13,13,13,13,13,13,13,31,31,28.453125,21.453125,16,16.269531,13,13,13,21,21.269531,20.453125,26.179688,21.816406,22.726562,19.269531,25.269531,25.269531,22.726562,23.453125,22,21.269531,21.816406,22.179688,23.816406,8.816406,13,13,13,13,13,13,13,13,13};
+        } else if ("A1.7 Loss".equals(sheetName)) {
+            widths = new double[] {17.542969,33.816406,33.453125,31,13,40.269531,31,13,13,13,13,31,31,13,13,13,13,13,31,28.453125,17,16.726562,17.179688,13,22.453125,19.726562,21.269531,26.269531,23,20.179688,19,18,19.269531,17.726562,25.269531,25,21.726562,21.542969,25.179688,21.542969,21,20.542969,8.816406,13,13,13,13,13,13,13,13,13,13,13};
+        } else if ("A1.8. Restructured loans".equals(sheetName)) {
+            widths = new double[] {17.542969,33.816406,31,13,13,13,13,13,13,13,13,31,31,13,13,13,13,31,31,28.453125,19.269531,16,15,12.726562,12.179688,27.179688,23.453125,27.179688,20.816406,18,15.816406,14.816406,19.269531,29.542969,29.542969,34.453125,23.542969,23.269531,35.269531,28,29.179688,26.179688,8.816406,13,13,13,13,13,13,13,13,13,13,13};
+        } else {
+            widths = new double[] {35.453125,32.453125,13,13,13,13,13,13,13,13,13,13,13,13,23.453125,21.269531,20.179688,27.542969,17.816406,20.269531,25.179688,26.542969,27,25.726562,7.179688,8.816406,13,13,13,13,13,13,13,13,13,13,13};
         }
-        if ("A1.4. Watch".equals(sheetName)) {
-            return new int[] {
-                    17,31,39,31,13,13,13,13,13,13,13,31,13,31,13,13,13,31,
-                    31,29,29,26,22,30,33,27,26,29,24,31,36,28,32,26,23,32,
-                    27,25,26,28,28,30,13,13,13,13,13,13,13,13,13,13,13
-            };
+        int[] result = new int[widths.length];
+        for (int i = 0; i < widths.length; i++) {
+            result[i] = Math.max(7 * 256, Math.min(255 * 256, (int) Math.round(widths[i] * 256.0)));
         }
-        if ("A1.5. Substandard".equals(sheetName)) {
-            return new int[] {
-                    17,50,31,13,13,13,13,13,13,13,13,13,13,13,13,13,13,39,
-                    31,31,29,22,16,16,13,13,16,13,17,16,15,16,16,19,18,18,18,
-                    16,13,27,26,13,13,13,13,13,13,13,13,13,13,13
-            };
-        }
-        if ("A1.6. Doubtful".equals(sheetName)) {
-            return new int[] {
-                    17,41,31,13,39,31,13,13,13,13,13,13,13,13,13,13,13,31,
-                    31,29,22,16,16,13,13,13,21,21,21,26,22,23,19,25,25,23,24,
-                    22,21,22,22,13,13,13,13,13,13,13,13,13,13,13
-            };
-        }
-        if ("A1.7 Loss".equals(sheetName)) {
-            return new int[] {
-                    17,34,34,31,13,40,31,13,13,13,13,31,31,13,13,13,13,13,31,
-                    29,17,17,17,13,23,20,21,26,23,20,19,18,19,18,25,25,22,22,25,
-                    22,21,13,13,13,13,13,13,13,13,13,13,13
-            };
-        }
-        if ("A1.8. Restructured loans".equals(sheetName)) {
-            return new int[] {
-                    17,34,31,13,13,13,13,13,13,13,13,31,31,13,13,13,13,31,31,29,
-                    19,16,15,13,12,27,24,27,21,18,16,15,19,30,30,35,24,23,35,28,
-                    29,13,13,13,13,13,13,13,13,13,13,13,13
-            };
-        }
-        return new int[] {
-                17,32,13,13,13,13,13,13,13,13,13,13,13,13,24,21,20,28,18,20,
-                25,27,27,26,7,9,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,
-                13,13,13,13,13,13,13,13,13,13,13
-        };
+        return result;
     }
 
     private CellStyle createBnrClassificationMetaStyle(XSSFWorkbook workbook) {
@@ -1750,7 +1799,7 @@ public class BnrTemplateExportService {
         font.setFontHeightInPoints((short) 10);
         font.setBold(true);
         style.setFont(font);
-        style.setFillForegroundColor(IndexedColors.GOLD.getIndex());
+        style.setFillForegroundColor((short) 41);
         style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         style.setDataFormat(workbook.createDataFormat().getFormat(
                 "\\ #,##0\"    \";\\-#,##0\"    \";\" -\"#\"    \";@\\ "));
@@ -1825,8 +1874,6 @@ public class BnrTemplateExportService {
         style.setFont(font);
         style.setAlignment(HorizontalAlignment.CENTER);
         style.setVerticalAlignment(VerticalAlignment.CENTER);
-        style.setFillForegroundColor(new XSSFColor(new byte[] {(byte)0xFF,(byte)0xC0,(byte)0x00}, null));
-        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         return style;
     }
 
@@ -1950,24 +1997,7 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
             } else {
                 cell.setBlank();
             }
-            cell.setCellStyle(data);
-        }
-
-        for (int rowIndex = 8;
-                rowIndex < WRITTEN_OFF_ROW_CAPACITY;
-                rowIndex++) {
-            Row row = getOrCreateRow(sheet, rowIndex);
-            row.setHeightInPoints(18f);
-            for (int c = 0; c < WRITTEN_OFF_COLUMN_CAPACITY; c++) {
-                Cell cell = row.getCell(
-                        c,
-                        Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
-                cell.setCellStyle(c < headers.length
-                        ? (isNumericBnrHeader(headers[c])
-                                ? number
-                                : data)
-                        : data);
-            }
+            cell.setCellStyle(createBnrTechnicalHeaderStyle(workbook));
         }
 
         for (int c = 0; c < WRITTEN_OFF_COLUMN_CAPACITY; c++) {
@@ -1975,14 +2005,11 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
                     writtenOffColumnWidth(c));
         }
 
-        sheet.createFreezePane(0, 7);
-        sheet.setAutoFilter(new org.apache.poi.ss.util.CellRangeAddress(
-                6,
-                WRITTEN_OFF_ROW_CAPACITY - 1,
-                0,
-                headers.length - 1));
+        sheet.setDefaultRowHeightInPoints(14.5f);
+        sheet.createFreezePane(1, 8);
         sheet.setDisplayGridlines(false);
-        hr.setHeightInPoints(72f);
+        hr.setHeightInPoints(26f);
+        createBnrWrittenOffTable(sheet);
     }
 
     private int writtenOffColumnWidth(int column) {
@@ -2148,7 +2175,29 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
     }
 
     private CellStyle createBnrSectionStyle(XSSFWorkbook workbook) {
-        CellStyle style=createBnrBaseStyle(workbook); Font f=workbook.createFont(); f.setFontName("Calibri"); f.setFontHeightInPoints((short)11); f.setBold(true); f.setColor(IndexedColors.WHITE.getIndex()); style.setFont(f); style.setFillForegroundColor(IndexedColors.DARK_GREEN.getIndex()); style.setFillPattern(FillPatternType.SOLID_FOREGROUND); return style;
+        CellStyle style = createBnrBaseStyle(workbook);
+        Font f = workbook.createFont();
+        f.setFontName("Calibri");
+        f.setFontHeightInPoints((short) 11);
+        f.setBold(true);
+        style.setFont(f);
+        XSSFColor lightGreen = new XSSFColor(new byte[] {(byte) 0x70, (byte) 0xAD, (byte) 0x47}, null);
+        lightGreen.setTint(0.6);
+        style.setFillForegroundColor(lightGreen);
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        return style;
+    }
+
+    private CellStyle createBnrOffBalanceSectionStyle(XSSFWorkbook workbook) {
+        CellStyle style = createBnrBaseStyle(workbook);
+        Font f = workbook.createFont();
+        f.setFontName("Calibri");
+        f.setFontHeightInPoints((short) 11);
+        f.setBold(true);
+        style.setFont(f);
+        style.setFillForegroundColor(new XSSFColor(new byte[] {(byte) 0xFF, (byte) 0xFF, (byte) 0xCC}, null));
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        return style;
     }
     private CellStyle createBnrBodyStyle(XSSFWorkbook workbook) {
         CellStyle style=createBnrBaseStyle(workbook); Font f=workbook.createFont(); f.setFontName("Calibri"); f.setFontHeightInPoints((short)11); style.setFont(f); style.setAlignment(HorizontalAlignment.LEFT); return style;
@@ -2157,7 +2206,18 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
         CellStyle style=createBnrBodyStyle(workbook); style.setBorderLeft(BorderStyle.MEDIUM); return style;
     }
     private CellStyle createBnrFsTotalStyle(XSSFWorkbook workbook) {
-        CellStyle style=createBnrFsNormalStyle(workbook); style.setFillForegroundColor(IndexedColors.WHITE.getIndex()); style.setFillPattern(FillPatternType.SOLID_FOREGROUND); Font f=workbook.createFont(); f.setFontName("Calibri"); f.setFontHeightInPoints((short)11); f.setBold(true); style.setFont(f); return style;
+        CellStyle style = createBnrFsNormalStyle(workbook);
+        XSSFColor totalGreen = new XSSFColor(new byte[] {(byte) 0x70, (byte) 0xAD, (byte) 0x47}, null);
+        totalGreen.setTint(-0.25);
+        style.setFillForegroundColor(totalGreen);
+        style.setFillBackgroundColor(IndexedColors.WHITE.getIndex());
+        style.setFillPattern(FillPatternType.LEAST_DOTS);
+        Font f = workbook.createFont();
+        f.setFontName("Calibri");
+        f.setFontHeightInPoints((short) 11);
+        f.setBold(true);
+        style.setFont(f);
+        return style;
     }
     private CellStyle createBnrFsRatioStyle(XSSFWorkbook workbook) {
         CellStyle style=createBnrFsNormalStyle(workbook); Font f=workbook.createFont(); f.setFontName("Calibri"); f.setFontHeightInPoints((short)11); style.setFont(f); style.setDataFormat(workbook.createDataFormat().getFormat("0.00%")); return style;
@@ -2403,6 +2463,35 @@ private CellStyle createBnrDataNumberStyle(XSSFWorkbook workbook) {
                 dateRef.getRow(),
                 dateRef.getCol(),
                 reportDate);
+    }
+
+    private void createBnrWrittenOffTable(Sheet sheet) {
+        if (!(sheet instanceof org.apache.poi.xssf.usermodel.XSSFSheet xssfSheet)) {
+            return;
+        }
+        AreaReference area = new AreaReference(
+                new CellReference(7, 0),
+                new CellReference(89, 23),
+                SpreadsheetVersion.EXCEL2007);
+        XSSFTable table = xssfSheet.createTable(area);
+        table.setName("Table1213");
+        table.setDisplayName("Table1213");
+        table.getCTTable().setHeaderRowCount(1);
+        if (!table.getCTTable().isSetTableStyleInfo()) {
+            table.getCTTable().addNewTableStyleInfo();
+        }
+        table.getCTTable().getTableStyleInfo().setName("TableStyleLight8");
+        table.getCTTable().getTableStyleInfo().setShowRowStripes(true);
+        table.getCTTable().getTableStyleInfo().setShowColumnStripes(false);
+        for (int i = 0; i < 24; i++) {
+            if (i >= table.getCTTable().getTableColumns().sizeOfTableColumnArray()) {
+                table.getCTTable().getTableColumns().addNewTableColumn();
+            }
+            var tc = table.getCTTable().getTableColumns().getTableColumnArray(i);
+            tc.setId(i + 1L);
+            String h = text(sheet.getRow(7).getCell(i));
+            tc.setName(h == null || h.isBlank() ? "Column " + (i + 1) : h);
+        }
     }
 
     private void writeLoanSheet(
