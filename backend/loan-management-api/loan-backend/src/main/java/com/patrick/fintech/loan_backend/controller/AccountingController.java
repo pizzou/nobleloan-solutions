@@ -46,6 +46,7 @@ public class AccountingController {
         private final OrganizationRepository orgRepo;
         private final CurrentUserUtil currentUserUtil;
         private final AuditService auditService;
+        private final com.patrick.fintech.loan_backend.service.FinancialApprovalService financialApprovalService;
         private final ReportExportService exportService;
         private final com.patrick.fintech.loan_backend.service.FinancialReconciliationJobService financialReconciliationJobService;
         private final com.patrick.fintech.loan_backend.service.LegacyLoanAccountingReconciliationJobRunner reconciliationJobRunner;
@@ -426,6 +427,14 @@ public class AccountingController {
                 }
 
                 Long orgId = requireOrganizationId();
+
+                String approvalIdValue = body == null ? null : body.get("approvalId");
+                if (approvalIdValue == null || approvalIdValue.isBlank()) {
+                        throw new IllegalArgumentException("approvalId is required for journal reversal");
+                }
+                financialApprovalService.requireApproved(Long.valueOf(approvalIdValue),
+                                currentUserUtil.getCurrentUser().getOrganization(),
+                                "JOURNAL_REVERSAL", String.valueOf(id));
 
                 String reason = null;
 

@@ -18,12 +18,16 @@ import java.util.Map;
 public class LoanRestructuringController {
         private final LoanRestructuringService svc;
         private final CurrentUserUtil currentUserUtil;
+        private final com.patrick.fintech.loan_backend.service.FinancialApprovalService financialApprovalService;
 
         @PostMapping("/restructure")
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
         public ResponseEntity<ApiResponse<LoanResponse>> restructure(@PathVariable Long loanId,
                         @RequestBody Map<String, Object> body) {
                 var u = currentUserUtil.getCurrentUser();
+                Object approvalId = body.get("approvalId");
+                if (approvalId == null) throw new IllegalArgumentException("approvalId is required for loan restructuring");
+                financialApprovalService.requireApproved(Long.valueOf(approvalId.toString()), u.getOrganization(), "RESTRUCTURE", String.valueOf(loanId));
                 return ResponseEntity.ok(ApiResponse.ok("Loan restructured",
                                 ResponseDtoMapper.loan(svc.restructure(loanId, u.getOrganization().getId(), u,
                                                 Integer.parseInt(body.get("newDurationMonths").toString()),
@@ -39,6 +43,9 @@ public class LoanRestructuringController {
         public ResponseEntity<ApiResponse<LoanResponse>> writeOff(@PathVariable Long loanId,
                         @RequestBody Map<String, String> body) {
                 var u = currentUserUtil.getCurrentUser();
+                Object approvalId = body.get("approvalId");
+                if (approvalId == null) throw new IllegalArgumentException("approvalId is required for loan write-off");
+                financialApprovalService.requireApproved(Long.valueOf(approvalId.toString()), u.getOrganization(), "WRITE_OFF", String.valueOf(loanId));
                 return ResponseEntity.ok(ApiResponse.ok("Loan written off",
                                 ResponseDtoMapper.loan(svc.writeOff(loanId, u.getOrganization().getId(), u,
                                                 body.getOrDefault("reason", "Uncollectible")))));

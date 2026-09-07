@@ -242,6 +242,10 @@ public class BankAccountController {
                                 ? body.get("description").toString()
                                 : type + " on bank account " + id;
 
+                if ("WITHDRAWAL".equals(type) && body.get("approvalId") == null) {
+                        throw new IllegalArgumentException("approvalId is required for cash withdrawals");
+                }
+
                 JournalEntry entry = bankAccountService.recordTransaction(
                                 org,
                                 id,
@@ -251,7 +255,8 @@ public class BankAccountController {
                                 description,
                                 currentUserUtil
                                                 .getCurrentUser()
-                                                .getName());
+                                                .getName(),
+                                "WITHDRAWAL".equals(type) ? Long.valueOf(body.get("approvalId").toString()) : null);
 
                 auditService.log(
                                 org,
@@ -306,10 +311,10 @@ public class BankAccountController {
                 Long toId = Long.valueOf(
                                 body.get("toAccountId").toString());
 
-                double amount = Double.parseDouble(
-                                body.get("amount").toString());
+                BigDecimal amount = new BigDecimal(
+                                body.get("amount").toString().trim()).setScale(2, java.math.RoundingMode.HALF_UP);
 
-                if (amount <= 0) {
+                if (amount.signum() <= 0) {
                         throw new IllegalArgumentException(
                                         "Amount must be positive");
                 }
@@ -317,6 +322,10 @@ public class BankAccountController {
                 String description = body.get("description") != null
                                 ? body.get("description").toString()
                                 : "Internal transfer";
+
+                if (body.get("approvalId") == null) {
+                        throw new IllegalArgumentException("approvalId is required for bank transfers");
+                }
 
                 JournalEntry entry = bankAccountService.transfer(
                                 org,
@@ -326,7 +335,8 @@ public class BankAccountController {
                                 description,
                                 currentUserUtil
                                                 .getCurrentUser()
-                                                .getName());
+                                                .getName(),
+                                Long.valueOf(body.get("approvalId").toString()));
 
                 auditService.log(
                                 org,

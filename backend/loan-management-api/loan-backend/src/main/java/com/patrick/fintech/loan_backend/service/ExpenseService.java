@@ -61,6 +61,7 @@ public class ExpenseService {
 
     private final AccountingService accountingService;
     private final SecureFileUploadValidator secureFileUploadValidator;
+    private final FinancialApprovalService financialApprovalService;
 
     // ============================================================
     // CREATE EXPENSE
@@ -88,8 +89,10 @@ public class ExpenseService {
         String chequeNumber,
         String paymentNotes,
 
-        MultipartFile receipt
+        MultipartFile receipt,
+        Long approvalId
     ) throws IOException {
+
 
         // ========================================================
         // BASIC VALIDATION
@@ -106,6 +109,8 @@ public class ExpenseService {
                 "Organization ID is required"
             );
         }
+
+        financialApprovalService.requireApproved(approvalId, org, "EXPENSE", expenseDate + "|" + category + "|" + amount.setScale(2, java.math.RoundingMode.HALF_UP) + "|" + paymentAccountId);
 
         if (amount == null) {
             throw new IllegalArgumentException(

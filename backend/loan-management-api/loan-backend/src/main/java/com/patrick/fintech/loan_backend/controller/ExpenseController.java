@@ -32,6 +32,7 @@ public class ExpenseController {
         private final OrganizationRepository orgRepo;
         private final CurrentUserUtil currentUserUtil;
         private final AuditService auditService;
+        private final com.patrick.fintech.loan_backend.service.FinancialApprovalService financialApprovalService;
 
         // ============================================================
         // CREATE EXPENSE
@@ -72,7 +73,9 @@ public class ExpenseController {
 
                         @RequestParam(value = "paymentNotes", required = false) String paymentNotes,
 
-                        @RequestParam(value = "receipt", required = false) MultipartFile receipt
+                        @RequestParam(value = "receipt", required = false) MultipartFile receipt,
+
+                        @RequestParam("approvalId") Long approvalId
 
         ) throws Exception {
 
@@ -181,10 +184,6 @@ public class ExpenseController {
                                 .getCurrentUser()
                                 .getName();
 
-                // ========================================================
-                // CREATE EXPENSE
-                // ========================================================
-
                 Expense created = expenseService.create(
 
                                 org,
@@ -223,7 +222,9 @@ public class ExpenseController {
 
                                 paymentNotes,
 
-                                receipt);
+                                receipt,
+
+                                approvalId);
 
                 // ========================================================
                 // AUDIT
@@ -254,10 +255,6 @@ public class ExpenseController {
                                                 "Expense recorded",
                                                 created));
         }
-
-        // ============================================================
-        // LIST EXPENSES
-        // ============================================================
 
         @GetMapping
         public ResponseEntity<ApiResponse<Object>> list(
@@ -505,6 +502,14 @@ public class ExpenseController {
                 String reason = body != null
                                 ? body.get("reason")
                                 : null;
+
+                String approvalIdValue = body != null ? body.get("approvalId") : null;
+                if (approvalIdValue == null || approvalIdValue.isBlank()) {
+                        throw new IllegalArgumentException("approvalId is required to void an expense");
+                }
+                com.patrick.fintech.loan_backend.model.User currentUser = currentUserUtil.getCurrentUser();
+                financialApprovalService.requireApproved(Long.valueOf(approvalIdValue),
+                                currentUser.getOrganization(), "JOURNAL_REVERSAL", String.valueOf(id));
 
                 Expense voided = expenseService.voidExpense(
                                 id,

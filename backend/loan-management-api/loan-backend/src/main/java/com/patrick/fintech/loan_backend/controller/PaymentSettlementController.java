@@ -1,0 +1,10 @@
+package com.patrick.fintech.loan_backend.controller;
+import com.patrick.fintech.loan_backend.dto.ApiResponse; import com.patrick.fintech.loan_backend.model.*; import com.patrick.fintech.loan_backend.repository.OrganizationRepository; import com.patrick.fintech.loan_backend.service.PaymentSettlementService; import com.patrick.fintech.loan_backend.util.CurrentUserUtil; import lombok.RequiredArgsConstructor; import org.springframework.http.*; import org.springframework.security.access.prepost.PreAuthorize; import org.springframework.web.bind.annotation.*; import java.math.*; import java.time.*; import java.util.*;
+@RestController @RequestMapping("/api/accounting/payment-settlements") @RequiredArgsConstructor @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT')") public class PaymentSettlementController{
+ private final PaymentSettlementService service; private final OrganizationRepository orgRepo; private final CurrentUserUtil current;
+ @PostMapping public ResponseEntity<ApiResponse<PaymentSettlement>> record(@RequestBody Request r){PaymentSettlement x=service.record(org(),r.provider(),r.providerReference(),r.internalPaymentReference(),r.amount(),r.currency(),r.settlementDate(),r.bankAccountId());return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.safe(x));}
+ @PostMapping("/{id}/reconcile") public ResponseEntity<ApiResponse<PaymentSettlement>> reconcile(@PathVariable Long id,@RequestParam Long statementLineId){return ResponseEntity.ok(ApiResponse.safe(service.reconcile(org(),id,statementLineId,current.getCurrentUser().getName())));}
+ @GetMapping("/pending") public ResponseEntity<ApiResponse<List<PaymentSettlement>>> pending(){return ResponseEntity.ok(ApiResponse.safe(service.pending(org())));}
+ private Organization org(){return orgRepo.findById(current.getCurrentOrganizationId()).orElseThrow(()->new IllegalStateException("Organization not found"));}
+ public record Request(String provider,String providerReference,String internalPaymentReference,BigDecimal amount,String currency,LocalDate settlementDate,Long bankAccountId){}
+}

@@ -49,6 +49,8 @@ public class PaymentWebhookController {
 
         private final com.patrick.fintech.loan_backend.service.WebhookReplayGuard webhookReplayGuard;
 
+        private final com.patrick.fintech.loan_backend.service.PaymentSettlementService paymentSettlementService;
+
         @Value("${flutterwave.webhook-secret:}")
         private String flutterwaveWebhookSecret;
 
@@ -341,7 +343,7 @@ public class PaymentWebhookController {
                         if (!webhookClaim.first())
                                 return ResponseEntity.status(202).body("Webhook is already being processed");
 
-                        paymentService.recordPayment(
+                        var recordedPayment = paymentService.recordPayment(
                                         loanId,
                                         amount,
                                         extractPaymentMethod(
@@ -350,6 +352,12 @@ public class PaymentWebhookController {
                                         "FLUTTERWAVE_WEBHOOK",
                                         "Payment automatically confirmed by Flutterwave",
                                         null);
+                        paymentSettlementService.record(
+                                        loan.getOrganization(),
+                                        "FLUTTERWAVE",
+                                        transactionId,
+                                        recordedPayment != null ? recordedPayment.getPaymentReference() : null,
+                                        amount, currency, java.time.LocalDate.now(), null);
 
                         webhookReplayGuard.markProcessed("FLUTTERWAVE", transactionId, rawBody);
 
@@ -519,6 +527,13 @@ public class PaymentWebhookController {
                                 return ResponseEntity.status(422).body("Payment was not accepted");
                         }
 
+                        paymentSettlementService.record(
+                                        loan.getOrganization(),
+                                        "MTN",
+                                        transactionId.trim(),
+                                        null,
+                                        amount, mtnCurrency, java.time.LocalDate.now(), null);
+
                         webhookReplayGuard.markProcessed("MTN", transactionId, rawBody);
 
                         log.info(
@@ -672,7 +687,7 @@ public class PaymentWebhookController {
                         if (!webhookClaim.first())
                                 return ResponseEntity.status(202).body("Webhook is already being processed");
 
-                        paymentService.recordPayment(
+                        var recordedPayment = paymentService.recordPayment(
                                         loanId,
                                         amount,
                                         "MOBILE_MONEY",
@@ -680,6 +695,12 @@ public class PaymentWebhookController {
                                         "AIRTEL_WEBHOOK",
                                         "Payment automatically confirmed by Airtel Money",
                                         null);
+                        paymentSettlementService.record(
+                                        loan.getOrganization(),
+                                        "AIRTEL",
+                                        transactionId,
+                                        recordedPayment != null ? recordedPayment.getPaymentReference() : null,
+                                        amount, airtelCurrency, java.time.LocalDate.now(), null);
 
                         webhookReplayGuard.markProcessed("AIRTEL", transactionId, rawBody);
 
