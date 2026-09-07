@@ -1429,6 +1429,9 @@ public class BnrTemplateExportService {
         String[] merges={"A76:A79","A93:A96","A101:A106","A87:A92","A121:A124","A97:A100","A72:A75","A80:A85","A112:A115"};
         for(String m:merges) sheet.addMergedRegion(org.apache.poi.ss.util.CellRangeAddress.valueOf(m));
         sheet.setDisplayGridlines(true);
+        Row bottom = sheet.getRow(149);
+        if (bottom == null) bottom = sheet.createRow(149);
+        bottom.getCell(2, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK).setCellStyle(sheet.getRow(0).getCell(0).getCellStyle());
         workbook.setPrintArea(workbook.getSheetIndex(sheet), "A1:C150");
     }
 
@@ -1442,6 +1445,10 @@ public class BnrTemplateExportService {
         for(int i=0;i<rows.length;i++) sheet.getRow(rows[i]-1).setHeightInPoints(hs[i]);
         String[] merges={"B98:B101","B122:B125","B88:B93","B94:B97","B113:B116","B73:B76","B81:B86","B77:B80","B108:B112","B102:B107"};
         for(String m:merges) sheet.addMergedRegion(org.apache.poi.ss.util.CellRangeAddress.valueOf(m));
+        Row bottom = sheet.getRow(427);
+        if (bottom == null) bottom = sheet.createRow(427);
+        bottom.getCell(14, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK).setCellStyle(
+                sheet.getRow(0).getCell(0).getCellStyle());
         sheet.setDisplayGridlines(true);
     }
 
@@ -1520,18 +1527,15 @@ public class BnrTemplateExportService {
         }
         tech.setHeightInPoints(layout.technicalHeaderHeight);
 
-        // Keep the complete reference canvas. Blank cells are deliberately
-        // created so the used range remains stable when opened in Excel.
+        // Do not materialize thousands of blank cells. Row dimensions, the
+        // table range, formulas, and a single bottom-right sentinel preserve
+        // the reference canvas without causing Render heap pressure.
         for (int r = technicalIndex + 1; r < layout.maxRows; r++) {
-            Row row = getOrCreateRow(sheet, r);
+            Row row = sheet.getRow(r);
             Float rh = layout.rowHeights.get(r + 1);
-            if (rh != null) row.setHeightInPoints(rh);
-            for (int c = 0; c < layout.maxColumns; c++) {
-                Cell cell = row.getCell(c, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
-                cell.setCellStyle(c < headers.length
-                        ? (isPercentBnrHeader(headers[c]) ? dataPercent
-                                : isNumericBnrHeader(headers[c]) ? dataNumber : data)
-                        : data);
+            if (rh != null) {
+                if (row == null) row = sheet.createRow(r);
+                row.setHeightInPoints(rh);
             }
         }
 
@@ -1548,6 +1552,12 @@ public class BnrTemplateExportService {
         }
         applyClassificationValidations(
                 sheet, sheetName, layout, layout.tableFirstRow + 1, layout.tableLastRow);
+
+        // Force Excel to retain the complete reference canvas even when a
+        // classification has fewer loans than the template capacity.
+        Row bottomRow = getOrCreateRow(sheet, layout.maxRows - 1);
+        Cell bottomCell = bottomRow.getCell(layout.maxColumns - 1, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+        bottomCell.setCellStyle(data);
 
         if (layout.mergeRanges != null) {
             for (String range : layout.mergeRanges) {
@@ -1650,11 +1660,24 @@ public class BnrTemplateExportService {
             sheet.createFreezePane(Math.max(0, freezeColumn), Math.max(0, freezeRow));
         }
         if (sheet instanceof org.apache.poi.xssf.usermodel.XSSFSheet xs) {
-            org.apache.poi.xssf.usermodel.XSSFColor tab = new org.apache.poi.xssf.usermodel.XSSFColor(
-                    indexedThemeColor(tabTheme), null);
+            org.apache.poi.xssf.usermodel.XSSFColor tab = new org.apache.poi.xssf.usermodel.XSSFColor();
+            tab.setTheme(tabTheme);
+            tab.setTint(tabTint(tabTheme));
             xs.setTabColor(tab);
         }
         sheet.setDefaultRowHeightInPoints(14.5f);
+    }
+
+    private double tabTint(short theme) {
+        return switch (theme) {
+            case 2 -> -0.249977111117893;
+            case 3 ->  0.59999389629810485;
+            case 5 ->  0.59999389629810485;
+            case 6 -> -0.499984740745262;
+            case 7 -> -0.249977111117893;
+            case 8 ->  0.79998168889431442;
+            default -> 0.0;
+        };
     }
 
     private byte[] indexedThemeColor(short theme) {
@@ -1674,17 +1697,44 @@ public class BnrTemplateExportService {
             org.apache.poi.xssf.usermodel.XSSFSheet sheet, String name,
             int firstRow, int lastRow, int firstCol, int lastCol) {
         if (name == null || name.isBlank()) return;
-        org.apache.poi.xssf.usermodel.XSSFTable table = sheet.createTable(
-                new org.apache.poi.ss.util.AreaReference(
-                        new org.apache.poi.ss.util.CellReference(firstRow, firstCol),
-                        new org.apache.poi.ss.util.CellReference(lastRow, lastCol),
-                        workbookSpreadsheetVersion()));
+        org.apache.poi.ss.util.AreaReference area = new org.apache.poi.ss.util.AreaReference(
+                new org.apache.poi.ss.util.CellReference(firstRow, firstCol),
+                new org.apache.poi.ss.util.CellReference(lastRow, lastCol),
+                workbookSpreadsheetVersion());
+
+        org.apache.poi.xssf.usermodel.XSSFTable table = sheet.createTable(area);
         table.setName(name);
         table.setDisplayName(name);
-        // Intentionally avoid direct access to the generated CTTable XMLBeans class.
-        // The table itself is sufficient for Excel and remains compatible with POI
-        // installations where the OOXML schema classes are not exposed directly.
+        table.setArea(area);
 
+        // Reproduce the reference workbook's table style: TableStyleLight8,
+        // banded rows, no first/last-column emphasis.
+        try {
+            java.lang.reflect.Method getCtTable = table.getClass().getMethod("getCTTable");
+            Object ctTable = getCtTable.invoke(table);
+
+            java.lang.reflect.Method isSetStyle = ctTable.getClass().getMethod("isSetTableStyleInfo");
+            Object styleInfo;
+            if (Boolean.TRUE.equals(isSetStyle.invoke(ctTable))) {
+                styleInfo = ctTable.getClass().getMethod("getTableStyleInfo").invoke(ctTable);
+            } else {
+                styleInfo = ctTable.getClass().getMethod("addNewTableStyleInfo").invoke(ctTable);
+            }
+
+            styleInfo.getClass().getMethod("setName", String.class)
+                    .invoke(styleInfo, "TableStyleLight8");
+            styleInfo.getClass().getMethod("setShowFirstColumn", boolean.class)
+                    .invoke(styleInfo, false);
+            styleInfo.getClass().getMethod("setShowLastColumn", boolean.class)
+                    .invoke(styleInfo, false);
+            styleInfo.getClass().getMethod("setShowRowStripes", boolean.class)
+                    .invoke(styleInfo, true);
+            styleInfo.getClass().getMethod("setShowColumnStripes", boolean.class)
+                    .invoke(styleInfo, false);
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException(
+                    "Unable to configure BNR table style " + name, ex);
+        }
     }
 
     private org.apache.poi.ss.SpreadsheetVersion workbookSpreadsheetVersion() {
@@ -2033,26 +2083,14 @@ public class BnrTemplateExportService {
     }
 
     /**
-     * General header style used by the Explanatory Note and other metadata areas.
-     * Kept as a dedicated method because the generated workbook has more than one
-     * kind of header and callers should not have to know the implementation.
+     * Header style used by the explanatory-note sheet and other legacy BNR
+     * sections that use the standard BNR header treatment.
+     *
+     * This method intentionally delegates to the already-defined human-header
+     * style so there is only one source of truth for the BNR header formatting.
      */
     private CellStyle createBnrHeaderStyle(XSSFWorkbook workbook) {
-        CellStyle style = workbook.createCellStyle();
-        Font font = workbook.createFont();
-        font.setFontName("Arial");
-        font.setFontHeightInPoints((short) 10);
-        font.setBold(true);
-        font.setColor(IndexedColors.BLACK.getIndex());
-        style.setFont(font);
-        style.setAlignment(HorizontalAlignment.CENTER);
-        style.setVerticalAlignment(VerticalAlignment.CENTER);
-        style.setWrapText(true);
-        style.setBorderTop(BorderStyle.THIN);
-        style.setBorderBottom(BorderStyle.THIN);
-        style.setBorderLeft(BorderStyle.THIN);
-        style.setBorderRight(BorderStyle.THIN);
-        return style;
+        return createBnrHumanHeaderStyle(workbook);
     }
 
     private CellStyle createBnrHumanHeaderStyle(XSSFWorkbook workbook) {
@@ -2087,6 +2125,43 @@ public class BnrTemplateExportService {
         style.setBorderBottom(BorderStyle.THIN);
         style.setBorderRight(BorderStyle.THIN);
         return style;
+    }
+
+    /**
+     * Returns the human-readable Portfolio-at-Risk label used in the BNR
+     * classification worksheets.  The value is deliberately derived from the
+     * classification passed by the exporter rather than from a database value.
+     */
+    private String portfolioRiskLabel(String classification) {
+        if (classification == null || classification.isBlank()) {
+            return "";
+        }
+
+        String value = classification.trim();
+        if (value.equalsIgnoreCase("NORMAL")) {
+            return "(Normal)";
+        }
+        if (value.equalsIgnoreCase("WATCH")) {
+            return "(Watch)";
+        }
+        if (value.equalsIgnoreCase("SUBSTANDARD")) {
+            return "(Substandard)";
+        }
+        if (value.equalsIgnoreCase("DOUBTFUL")) {
+            return "(Doubtful)";
+        }
+        if (value.equalsIgnoreCase("LOSS")) {
+            return "(Loss)";
+        }
+        if (value.equalsIgnoreCase("RESTRUCTURED")
+                || value.equalsIgnoreCase("RESTRUCTURED LOANS")) {
+            return "(Restructured)";
+        }
+        if (value.equalsIgnoreCase("WRITTEN OFF")
+                || value.equalsIgnoreCase("WRITTEN_OFF")) {
+            return "(Written Off)";
+        }
+        return "(" + value + ")";
     }
 
     private CellStyle createBnrExcelDataStyle(XSSFWorkbook workbook) {
@@ -2126,24 +2201,6 @@ public class BnrTemplateExportService {
      * the different Normal/Watch/Substandard/Doubtful/Loss/Restructured layouts
      * remain safe when their column positions differ.
      */
-    /**
-     * Returns true for BNR columns whose values represent percentages/rates.
-     * The template stores these as numeric Excel values and formats them as rates.
-     */
-    private boolean isPercentBnrHeader(String header) {
-        if (header == null || header.isBlank()) {
-            return false;
-        }
-        String h = header.trim().toLowerCase(Locale.ROOT);
-        return h.contains("interest rate")
-                || h.contains("provisioning rate")
-                || h.equals("provision rate")
-                || h.contains("percentage")
-                || h.contains("% ")
-                || h.endsWith("%")
-                || h.contains("rate (regulation)");
-    }
-
     private boolean isNumericBnrHeader(String header) {
         if (header == null || header.isBlank()) {
             return false;
@@ -2712,15 +2769,13 @@ public class BnrTemplateExportService {
             writeTypedCell(row, column, value);
         }
 
-        // BNR Column C is always the borrower's regulatory National ID.
-        // Never substitute the internal database borrower ID.
+        // Column C is the BNR national borrower identifier. Never substitute
+        // Noble's internal Borrower.id when nationalId is unavailable.
         Cell nationalIdCell = row.getCell(2, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
-        if (nationalIdCell.getCellType() != CellType.FORMULA) {
-            if (facts.nationalId == null || facts.nationalId.isBlank()) {
-                nationalIdCell.setBlank();
-            } else {
-                nationalIdCell.setCellValue(facts.nationalId.trim());
-            }
+        if (facts.nationalId == null || facts.nationalId.isBlank()) {
+            nationalIdCell.setBlank();
+        } else {
+            nationalIdCell.setCellValue(facts.nationalId.trim());
         }
 
         // Derived regulatory columns remain formula-driven in the generated workbook.
@@ -3198,25 +3253,6 @@ public class BnrTemplateExportService {
             case "WRITTEN_OFF" -> "6";
             case "RESTRUCTURED" -> "3";
             default -> "1";
-        };
-    }
-
-    /**
-     * Human-readable portfolio risk label used in the generated FS summary.
-     */
-    private String portfolioRiskLabel(String classification) {
-        if (classification == null || classification.isBlank()) {
-            return "Unknown";
-        }
-        return switch (classification.trim().toUpperCase(Locale.ROOT)) {
-            case "NORMAL" -> "Normal";
-            case "WATCH" -> "Watch";
-            case "SUBSTANDARD" -> "Substandard";
-            case "DOUBTFUL" -> "Doubtful";
-            case "LOSS" -> "Loss";
-            case "RESTRUCTURED" -> "Restructured";
-            case "WRITTEN_OFF" -> "Written Off";
-            default -> classification;
         };
     }
 
