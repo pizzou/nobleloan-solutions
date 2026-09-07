@@ -387,10 +387,32 @@ public final class StreamingLedgerFileParser {
                 }
             }
 
+            /*
+             * Do not lock onto STANDARD merely because a header row looks
+             * canonical. Noble Loan legacy monthly workbooks commonly have a
+             * short header row such as:
+             *
+             *   NAMES | ID NUMBER | TELEPHONE | AMOUNT DISBURSED | ...
+             *
+             * followed by positional data whose important fields (including
+             * start date, restructure marker and historical balances) are in
+             * columns beyond the header's populated range.
+             *
+             * If STANDARD is selected immediately on the header row, the next
+             * monthly row is mapped using only those short header columns.
+             * That silently drops start_date and other positional fields.
+             *
+             * Keep STANDARD as a candidate until a following row has been
+             * observed. MONTHLY/CREDIT detection always runs first, so a genuine
+             * Noble positional workbook wins before STANDARD. For a normal
+             * header/data workbook, the header is no longer the last probe row
+             * once its first data row has arrived, so STANDARD is selected
+             * normally.
+             */
             for (int i = 0; i < probeRows.size(); i++) {
                 Map<Integer, String> row = probeRows.get(i);
                 List<String> candidateHeaders = normalizeHeaders(row);
-                if (headerScore(candidateHeaders) >= 5) {
+                if (headerScore(candidateHeaders) >= 5 && i < probeRows.size() - 1) {
                     layout = Layout.STANDARD;
                     authoritativeLedgerSeen[0] = true;
                     headerRow = i + 1;
