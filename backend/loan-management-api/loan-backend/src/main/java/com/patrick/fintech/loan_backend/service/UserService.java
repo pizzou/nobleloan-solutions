@@ -90,6 +90,7 @@ public class UserService {
             if (userRepository.existsByEmail(normalized))
                 throw new RuntimeException("Email already in use: " + normalized);
             user.setEmail(normalized);
+            user.setTokenVersion((user.getTokenVersion() == null ? 0L : user.getTokenVersion()) + 1L);
             userRepository.save(user);
         }
         return user;
@@ -107,6 +108,7 @@ public class UserService {
         User user = getById(id);
         com.patrick.fintech.loan_backend.security.PasswordPolicy.validate(newPassword);
         user.setPassword(passwordEncoder.encode(newPassword));
+        user.setTokenVersion((user.getTokenVersion() == null ? 0L : user.getTokenVersion()) + 1L);
         user.setMustChangePassword(true);
         return userRepository.save(user);
     }
@@ -126,6 +128,7 @@ public class UserService {
             throw new RuntimeException("Current password is incorrect");
         com.patrick.fintech.loan_backend.security.PasswordPolicy.validate(newPassword);
         user.setPassword(passwordEncoder.encode(newPassword));
+        user.setTokenVersion((user.getTokenVersion() == null ? 0L : user.getTokenVersion()) + 1L);
         user.setMustChangePassword(false);
         return userRepository.save(user);
     }

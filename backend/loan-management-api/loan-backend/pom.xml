@@ -79,6 +79,18 @@
             <version>5.2.5</version>
         </dependency>
 
+        <!--
+            Apache POI full OOXML schemas.
+            The BNR exporter creates/configures XSSF tables and uses the
+            generated table schema types that are not present in poi-ooxml-lite.
+            Keep this on the same POI version as poi-ooxml.
+        -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml-full</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+
         <!-- OpenPDF dependency for generating downloadable loan agreement documents -->
         <dependency>
             <groupId>com.github.librepdf</groupId>

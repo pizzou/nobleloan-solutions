@@ -108,26 +108,19 @@ public class BankAccountController {
                                         "accountType must be CASH or BANK");
                 }
 
-                double openingBalance = 0.0;
+                BigDecimal openingBalance = BigDecimal.ZERO.setScale(2);
 
                 if (body.get("openingBalance") != null
                                 && !body.get("openingBalance").toString().trim().isEmpty()) {
-
                         try {
-
-                                openingBalance = Double.parseDouble(
-                                                body.get("openingBalance")
-                                                                .toString()
-                                                                .trim());
-
+                                openingBalance = new BigDecimal(body.get("openingBalance").toString().trim())
+                                                .setScale(2, java.math.RoundingMode.HALF_UP);
                         } catch (NumberFormatException ex) {
-
-                                throw new IllegalArgumentException(
-                                                "openingBalance must be a valid number");
+                                throw new IllegalArgumentException("openingBalance must be a valid number");
                         }
                 }
 
-                if (openingBalance < 0) {
+                if (openingBalance.signum() < 0) {
                         throw new IllegalArgumentException(
                                         "Opening balance cannot be negative");
                 }

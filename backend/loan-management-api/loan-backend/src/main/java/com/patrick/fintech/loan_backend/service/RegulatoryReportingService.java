@@ -15,6 +15,7 @@ import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +45,17 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class RegulatoryReportingService {
 
+        @Value("${app.regulatory.provision.current:0}")
+        private BigDecimal provisionRateCurrent;
+        @Value("${app.regulatory.provision.watch:0}")
+        private BigDecimal provisionRateWatch;
+        @Value("${app.regulatory.provision.substandard:0}")
+        private BigDecimal provisionRateSubstandard;
+        @Value("${app.regulatory.provision.doubtful:0}")
+        private BigDecimal provisionRateDoubtful;
+        @Value("${app.regulatory.provision.written-off:0}")
+        private BigDecimal provisionRateWrittenOff;
+
         private final LoanRepository loanRepository;
 
         private final PaymentRepository paymentRepository;
@@ -51,6 +63,8 @@ public class RegulatoryReportingService {
         private final OrganizationRepository organizationRepository;
 
         private final BnrFinancialStatementService bnrFinancialStatementService;
+
+        private final AccountingService accountingService;
 
         private static final BigDecimal ZERO = BigDecimal.ZERO;
 
@@ -188,34 +202,7 @@ public class RegulatoryReportingService {
                 };
         }
 
-        // ============================================================
-        // DATE/TIME BOUNDARY HELPERS
-        // ============================================================
-
-        /**
-         * Converts an inclusive LocalDate into the exclusive beginning
-         * of the following day.
-         *
-         * Example:
-         *
-         * 2026-08-31
-         *
-         * becomes:
-         *
-         * 2026-09-01T00:00:00
-         *
-         * This allows a query using:
-         *
-         * disbursedAt < :asOf
-         *
-         * to include every loan disbursed during 2026-08-31,
-         * including loans disbursed at 23:59:59.
-         *
-         * IMPORTANT:
-         *
-         * This does NOT modify Loan.disbursedAt.
-         * It is only a reporting query boundary.
-         */
+        
         private LocalDateTime exclusiveEndOfDay(
                         LocalDate date) {
 
@@ -228,10 +215,7 @@ public class RegulatoryReportingService {
                                 .atStartOfDay();
         }
 
-        /**
-         * Converts the beginning LocalDate into the beginning
-         * of that day.
-         */
+       
         private LocalDateTime startOfDay(
                         LocalDate date) {
 
@@ -387,9 +371,7 @@ public class RegulatoryReportingService {
                                                 periodStart,
                                                 periodEnd));
 
-                // ========================================================
-                // LOAN COUNTS
-                // ========================================================
+               
 
                 long activeLoans = 0;
 
@@ -430,6 +412,8 @@ public class RegulatoryReportingService {
                 BigDecimal defaultedAmount = ZERO;
 
                 BigDecimal writtenOffAmount = ZERO;
+                BigDecimal requiredProvision = ZERO;
+                BigDecimal recoveriesAfterWriteOff = ZERO;
 
                 // ========================================================
                 // PAR BUCKETS
@@ -567,19 +551,13 @@ public class RegulatoryReportingService {
                                 outstanding = ZERO;
                         }
 
-                        /*
-                         * Written-off receivables are removed from the gross
-                         * performing/outstanding loan portfolio. They are
-                         * reported separately through the written-off metrics.
-                         */
+                        
                         boolean includedInGrossPortfolio = isCurrentPortfolioLoan(loan);
 
                         if (includedInGrossPortfolio) {
                                 outstandingPrincipal = add(outstandingPrincipal, outstanding);
 
-                                // The loan balance is principal only. Interest,
-                                // management fee, penalty and extension fee are
-                                // separate receivables.
+                                
                                 outstandingInterest = add(outstandingInterest, number(loan.getInterestOutstandingDecimal()));
                                 BigDecimal penaltyOutstanding = number(loan.getPenaltiesAssessedDecimal())
                                                 .subtract(number(loan.getPenaltiesPaidDecimal()))
@@ -683,6 +661,30 @@ public class RegulatoryReportingService {
 
                                 writtenOffAmount = add(writtenOffAmount, outstanding);
                         }
+
+                        // ----------------------------------------------------
+                        // PROVISIONING / RECOVERIES
+                        // ----------------------------------------------------
+                        BigDecimal provisionBase = outstanding.max(ZERO);
+                        BigDecimal provisionRate = provisionRateFor(loan);
+                        requiredProvision = add(requiredProvision,
+                                        provisionBase.multiply(provisionRate).divide(new BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP));
+
+                       if (status == LoanStatus.WRITTEN_OFF
+                && loan.getWrittenOffAt() != null
+                && loan.getId() != null) {
+
+        for (Payment payment : paymentRepository.findPaidPaymentsAfterWriteOff(
+                        loan.getId(),
+                        loan.getOrganization().getId(),
+                        loan.getWrittenOffAt(),
+                        periodEnd.plusDays(1).atStartOfDay())) {
+
+                recoveriesAfterWriteOff = add(
+                                recoveriesAfterWriteOff,
+                                number(payment.getAmountPaid()));
+        }
+}
 
                         // ----------------------------------------------------
                         // BORROWER
@@ -831,11 +833,7 @@ public class RegulatoryReportingService {
 
                                 totalPrincipalDisbursed = add(totalPrincipalDisbursed, disbursed);
 
-                                // Processing fee is collected once, at disbursement. It is
-                                // therefore part of period fee collections, not principal.
-                                // Application fee is cash collected only when the
-                                // disbursement transaction has actually posted it.
-                                // Never infer collection merely from an assessed fee.
+                               
                                 BigDecimal applicationFeeCollected = number(loan.getApplicationFeePaid());
                                 feesCollected = add(feesCollected, applicationFeeCollected);
                                 applicationFeesCollected = add(applicationFeesCollected, applicationFeeCollected);
@@ -919,10 +917,7 @@ public class RegulatoryReportingService {
                                 feesCollected = add(feesCollected, number(payment.getExtensionFeeComponent()));
                                 feesCollected = add(feesCollected, number(payment.getPenaltyPaid()));
 
-                                // DashboardService uses Payment.amountPaid as the
-                                // authoritative cash amount. Keep BNR on exactly the
-                                // same basis; component reconstruction can accidentally
-                                // include assessed-but-unpaid penalty amounts.
+                                
                                 totalAmountCollected = add(totalAmountCollected, amountPaid);
 
                         } else {
@@ -946,9 +941,7 @@ public class RegulatoryReportingService {
                         }
                 }
 
-                // One-time application fees are collected at disbursement, not as
-                // Payment rows. Include them in the institution-wide cash collected
-                // total using the same basis as DashboardService.
+                
                 totalAmountCollected = add(totalAmountCollected, applicationFeesCollected);
                 interestAccruedUnpaid = outstandingInterest;
                 feesAccruedUnpaid = outstandingFees;
@@ -994,9 +987,7 @@ public class RegulatoryReportingService {
                         historicalAmountCollected = moneyDecimal(historicalAmountCollected.add(historicalTotal));
                 }
 
-                // Legacy imported collections are stored on the loan opening
-                // balances rather than as fabricated Payment rows. Add them once
-                // so BNR cash collections reconcile with DashboardService.
+                
                 totalAmountCollected = add(totalAmountCollected, historicalAmountCollected);
 
                 // ========================================================
@@ -1042,19 +1033,7 @@ public class RegulatoryReportingService {
                                 nplAmount,
                                 outstandingPrincipal);
 
-                // ========================================================
-                // OUTSTANDING
-                // ========================================================
-
-                /*
-                 * FINANCIAL CONTROL BASIS
-                 *
-                 * The portfolio headline outstanding balance is principal only.
-                 * This is the same balance represented by Loan.outstandingBalance
-                 * and GL 1100 Loans Receivable. Interest and fees are separately
-                 * reported as receivables so the headline cannot disagree with
-                 * the dashboard/portfolio merely because accrued charges exist.
-                 */
+               
                 BigDecimal totalOutstanding = moneyDecimal(outstandingPrincipal);
                 BigDecimal totalReceivables = moneyDecimal(outstandingPrincipal)
                                 .add(moneyDecimal(outstandingInterest))
@@ -1369,16 +1348,16 @@ public class RegulatoryReportingService {
                                                 writtenOffAmount)
 
                                 .recoveriesAfterWriteOff(
-                                                0.0)
+                                                recoveriesAfterWriteOff.doubleValue())
 
                                 .requiredProvision(
-                                                0.0)
+                                                requiredProvision.doubleValue())
 
                                 .existingProvision(
-                                                0.0)
+                                                accountingService.loanLossReserveBalanceForReporting(organization).doubleValue())
 
                                 .provisionShortfall(
-                                                0.0)
+                                                Math.max(0.0, requiredProvision.doubleValue() - accountingService.loanLossReserveBalanceForReporting(organization).doubleValue()))
 
                                 .totalBorrowers(
                                                 borrowerIds.size())
@@ -2612,4 +2591,20 @@ public class RegulatoryReportingService {
 
                 return payments;
         }
+        private BigDecimal provisionRateFor(Loan loan) {
+                Loan.CreditQuality quality = loan.getCreditQuality();
+                if (quality == null) quality = Loan.CreditQuality.CURRENT;
+                BigDecimal rate = switch (quality) {
+                        case CURRENT -> provisionRateCurrent;
+                        case WATCH -> provisionRateWatch;
+                        case SUBSTANDARD -> provisionRateSubstandard;
+                        case DOUBTFUL -> provisionRateDoubtful;
+                        case WRITTEN_OFF -> provisionRateWrittenOff;
+                };
+                if (rate == null || rate.signum() < 0 || rate.compareTo(new BigDecimal("100")) > 0) {
+                        throw new IllegalStateException("Invalid provisioning rate configured for " + quality);
+                }
+                return rate;
+        }
+
 }

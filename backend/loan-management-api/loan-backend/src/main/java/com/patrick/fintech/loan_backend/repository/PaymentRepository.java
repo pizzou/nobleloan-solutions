@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -46,6 +47,22 @@ public interface PaymentRepository
          */
         Optional<Payment> findTopByLoanIdAndPaidDateIsNotNullOrderByPaidDateDesc(
                         Long loanId);
+
+        @Query("""
+                        SELECT p FROM Payment p
+                        WHERE p.loan.id = :loanId
+                          AND p.paidDate IS NOT NULL
+                          AND p.paidDate > :after
+                          AND p.paidDate <= :asOf
+                          AND p.organization.id = :organizationId
+                          AND p.status = com.patrick.fintech.loan_backend.model.PaymentStatus.COMPLETED
+                        ORDER BY p.paidDate ASC
+                        """)
+        List<Payment> findPaidPaymentsAfterWriteOff(
+                        @Param("loanId") Long loanId,
+                        @Param("organizationId") Long organizationId,
+                        @Param("after") LocalDateTime after,
+                        @Param("asOf") LocalDateTime asOf);
 
         // ============================================================
         // LOAN PAYMENT SCHEDULE

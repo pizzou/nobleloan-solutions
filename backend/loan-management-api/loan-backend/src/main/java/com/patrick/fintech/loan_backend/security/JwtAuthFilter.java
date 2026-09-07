@@ -15,6 +15,7 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import com.patrick.fintech.loan_backend.config.JwtUtils;
 import com.patrick.fintech.loan_backend.service.CustomUserDetailsService;
+import com.patrick.fintech.loan_backend.repository.UserRepository;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -25,13 +26,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtUtils jwtUtils;
     private final CustomUserDetailsService userDetailsService;
+    private final UserRepository userRepository;
 
     public JwtAuthFilter(
         JwtUtils jwtUtils,
-        CustomUserDetailsService userDetailsService
+        CustomUserDetailsService userDetailsService,
+        UserRepository userRepository
     ) {
         this.jwtUtils = jwtUtils;
         this.userDetailsService = userDetailsService;
+        this.userRepository = userRepository;
     }
 
     /*
@@ -74,25 +78,21 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String header =
             request.getHeader("Authorization");
 
-        /*
-         * No Authorization header.
-         *
-         * This is allowed to continue because Spring Security will decide
-         * later whether the endpoint requires authentication.
-         */
-        if (
-            header == null
-                || header.isBlank()
-                || !header.startsWith("Bearer ")
-        ) {
-            filterChain.doFilter(request, response);
-            return;
+        String token = null;
+        if (header != null && !header.isBlank() && header.startsWith("Bearer ")) {
+            token = header.substring(7).trim();
+        } else if (request.getCookies() != null) {
+            for (jakarta.servlet.http.Cookie cookie : request.getCookies()) {
+                if ("NLS_SESSION".equals(cookie.getName())) {
+                    token = cookie.getValue();
+                    break;
+                }
+            }
         }
 
-        String token =
-            header.substring(7).trim();
-
-        if (token.isBlank()) {
+        /* No usable bearer token or session cookie. Spring Security will decide
+         * later whether the endpoint requires authentication. */
+        if (token == null || token.isBlank()) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -162,6 +162,24 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
             if (email == null || email.isBlank()) {
 
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            com.patrick.fintech.loan_backend.model.User currentUser =
+                userRepository.findByEmail(email).orElse(null);
+
+            if (currentUser == null || currentUser.getStatus() != com.patrick.fintech.loan_backend.model.User.UserStatus.ACTIVE) {
+                SecurityContextHolder.clearContext();
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            long tokenVersion = jwtUtils.getTokenVersion(token);
+            long currentTokenVersion = currentUser.getTokenVersion() == null ? 0L : currentUser.getTokenVersion();
+            if (tokenVersion != currentTokenVersion) {
+                log.debug("Rejected revoked JWT for user {}", email);
+                SecurityContextHolder.clearContext();
                 filterChain.doFilter(request, response);
                 return;
             }

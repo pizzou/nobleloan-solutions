@@ -92,21 +92,18 @@ function LoginInner() {
       }
 
       /* --------------------------------------------------------
-         TOKEN VALIDATION
-         -------------------------------------------------------- */
-
-      if (!res?.token) {
+         LOGIN SUCCESS
+         --------------------------------------------------------
+         The backend sets an HttpOnly NLS_SESSION cookie. The JWT is never
+         exposed to JavaScript or stored in localStorage.
+      */
+      if (!res?.userId) {
         setError("Unexpected response from server. Please try again.");
-
         setLoading(false);
         return;
       }
 
-      /* --------------------------------------------------------
-         LOGIN SUCCESS
-         -------------------------------------------------------- */
-
-      login(res, res.token);
+      login(res);
 
       router.replace("/dashboard");
     } catch (err: any) {

@@ -21,26 +21,6 @@ const YELLOW_LIGHT = "#FFF9DB";
 const YELLOW_DARK = "#C99A00";
 
 /* ============================================================
-   AUTH HEADER
-   ============================================================ */
-
-const authHeader = (): Record<string, string> => {
-  if (typeof window === "undefined") {
-    return {};
-  }
-
-  const token = localStorage.getItem("token");
-
-  if (!token) {
-    return {};
-  }
-
-  return {
-    Authorization: `Bearer ${token}`,
-  };
-};
-
-/* ============================================================
    DASHBOARD LAYOUT
    ============================================================ */
 

@@ -3,6 +3,7 @@ package com.patrick.fintech.loan_backend.config;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import lombok.extern.slf4j.Slf4j;
+import com.patrick.fintech.loan_backend.model.User;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -25,8 +26,20 @@ public class JwtUtils {
     }
 
     public String generateToken(String email) {
+        return generateToken(email, 0L);
+    }
+
+    public String generateToken(User user) {
+        if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
+            throw new IllegalArgumentException("User is required to issue a session token");
+        }
+        return generateToken(user.getEmail(), user.getTokenVersion() == null ? 0L : user.getTokenVersion());
+    }
+
+    private String generateToken(String email, long tokenVersion) {
         return Jwts.builder()
                 .subject(email)
+                .claim("tokenVersion", tokenVersion)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expirationMs))
                 .signWith(getSigningKey())
@@ -66,6 +79,14 @@ public class JwtUtils {
                 .parseSignedClaims(token)
                 .getPayload()
                 .getSubject();
+    }
+
+    public long getTokenVersion(String token) {
+        Object value = Jwts.parser().verifyWith(getSigningKey()).build()
+                .parseSignedClaims(token).getPayload().get("tokenVersion");
+        if (value instanceof Number number) return number.longValue();
+        if (value instanceof String text) return Long.parseLong(text);
+        return 0L;
     }
 
     public boolean validateToken(String token) {

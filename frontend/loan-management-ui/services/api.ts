@@ -11,41 +11,19 @@ import axios, {
  * ============================================================
  */
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 const API: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 20000,
+  withCredentials: true,
+  xsrfCookieName: "XSRF-TOKEN",
+  xsrfHeaderName: "X-XSRF-TOKEN",
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",
   },
 });
-
-API.interceptors.request.use(
-  (config) => {
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem("token");
-
-      if (token) {
-        const headers =
-          config.headers instanceof AxiosHeaders
-            ? config.headers
-            : new AxiosHeaders(config.headers);
-
-        headers.set("Authorization", `Bearer ${token}`);
-
-        config.headers = headers;
-      }
-    }
-
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  },
-);
 
 API.interceptors.response.use(
   (response) => {
@@ -57,10 +35,12 @@ API.interceptors.response.use(
 
     const responseData = error.response?.data;
 
-    if (status === 401 && typeof window !== "undefined") {
-      localStorage.removeItem("token");
+    if (
+      status === 401 &&
+      typeof window !== "undefined" &&
+      window.location.pathname !== "/login"
+    ) {
       localStorage.removeItem("user");
-
       window.location.href = "/login";
     }
 
@@ -195,6 +175,8 @@ export function isRetryableRequestError(error: unknown): boolean {
  */
 
 export const authApi = {
+  csrf: () => get("/auth/csrf"),
+
   login: (email: string, password: string, mfaCode?: string, otp?: string) =>
     post("/auth/login", {
       email,
@@ -206,6 +188,8 @@ export const authApi = {
   register: (data: unknown) => post("/auth/register", data),
 
   me: () => get("/auth/me"),
+
+  logout: () => post("/auth/logout"),
 };
 
 /**

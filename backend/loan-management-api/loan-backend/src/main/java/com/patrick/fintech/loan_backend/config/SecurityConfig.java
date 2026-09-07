@@ -18,8 +18,11 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import com.patrick.fintech.loan_backend.security.SameOriginMutationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -40,6 +43,7 @@ public class SecurityConfig {
     private final JwtAuthFilter jwtFilter;
     private final RegulatoryApiKeyAuthFilter regulatoryApiKeyAuthFilter;
     private final RateLimitFilter rateLimitFilter;
+    private final SameOriginMutationFilter sameOriginMutationFilter;
 
     @Value("${app.cors.allowed-origins:https://nobleloan-solutions.vercel.app}")
     private String allowedOrigins;
@@ -66,10 +70,18 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
             /*
-             * This API is JWT based and therefore does not use
-             * browser sessions or CSRF tokens.
+             * The browser session is carried in an HttpOnly cookie, so CSRF
+             * protection is mandatory for state-changing browser requests.
+             * Provider webhooks are machine-to-machine and are authenticated
+             * by their own signatures/secrets, so they are excluded below.
              */
-            .csrf(csrf -> csrf.disable())
+            .csrf(csrf -> csrf
+                .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+                .ignoringRequestMatchers(
+                    "/api/public/webhooks/**"
+                )
+            )
 
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
@@ -224,6 +236,11 @@ public class SecurityConfig {
             )
 
             .addFilterBefore(
+                sameOriginMutationFilter,
+                UsernamePasswordAuthenticationFilter.class
+            )
+
+            .addFilterBefore(
                 jwtFilter,
                 UsernamePasswordAuthenticationFilter.class
             )
@@ -282,16 +299,6 @@ public class SecurityConfig {
                 .filter(origin -> !origin.isBlank())
                 .forEach(originSet::add);
         }
-
-        /*
-         * The production Vercel application must always be accepted.
-         *
-         * This prevents a stale CORS_ORIGINS Render variable from
-         * breaking the deployed frontend.
-         */
-        originSet.add(
-            "https://nobleloan-solutions.vercel.app"
-        );
 
         configuration.setAllowedOrigins(
             new ArrayList<>(originSet)

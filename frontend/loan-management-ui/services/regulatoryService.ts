@@ -922,9 +922,6 @@ export const regulatoryApi = {
       format,
 
       queryParams,
-
-      hasToken:
-        typeof window !== "undefined" && Boolean(localStorage.getItem("token")),
     });
 
     try {

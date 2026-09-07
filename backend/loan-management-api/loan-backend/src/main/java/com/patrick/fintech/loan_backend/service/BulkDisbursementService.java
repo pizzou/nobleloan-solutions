@@ -1,514 +1,177 @@
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.model.Loan;
-import com.patrick.fintech.loan_backend.model.LoanStatus;
 import com.patrick.fintech.loan_backend.model.User;
-import com.patrick.fintech.loan_backend.repository.LoanRepository;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Bank-grade bulk disbursement facade.
+ *
+ * There is deliberately NO second implementation of the disbursement rules here.
+ * Every loan is sent through LoanService.disburseLoan(), which is the authoritative
+ * financial workflow for approval/document/KYC/pricing/locking/schedule/accounting
+ * controls. Each loan is executed in its own transaction so one bad loan cannot
+ * poison the whole batch.
+ */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class BulkDisbursementService {
 
-        private final LoanRepository loanRepo;
-        private final PaymentScheduleService paymentScheduleService;
-        private final LoanService loanService;
-        private final AccountingService accountingService;
-        private final AuditService auditService;
-        private final WebhookService webhookService;
-        private final SmsService smsService;
-
-        // ================================================================
-        // PLATFORM RULES
-        // ================================================================
-
-        private static final BigDecimal APPLICATION_FEE_RATE = new BigDecimal("2.00");
-
-        private static final BigDecimal ONE_HUNDRED = new BigDecimal("100.00");
-
-        private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(
-                        2,
-                        RoundingMode.HALF_UP);
-
-        // ================================================================
-        // BULK DISBURSE
-        // ================================================================
-
-        @Transactional
-        public BulkDisbursementResult disburseAll(
-                        List<Long> loanIds,
-                        Long orgId,
-                        User officer,
-                        String method) {
-
-                if (loanIds == null || loanIds.isEmpty()) {
-
-                        throw new IllegalArgumentException(
-                                        "At least one loan ID is required");
-                }
-
-                if (orgId == null) {
-
-                        throw new IllegalArgumentException(
-                                        "Organization ID is required");
-                }
-
-                if (officer == null) {
-
-                        throw new IllegalArgumentException(
-                                        "Officer is required");
-                }
-
-                if (officer.getOrganization() == null
-                                || officer.getOrganization().getId() == null
-                                || !orgId.equals(
-                                                officer.getOrganization().getId())) {
-
-                        throw new IllegalStateException(
-                                        "Officer does not belong to the selected organization");
-                }
-
-                String normalizedMethod = method == null || method.isBlank()
-                                ? "UNSPECIFIED"
-                                : method.trim();
-
-                List<DisbursementLine> lines = new ArrayList<>();
-
-                BigDecimal totalGrossDisbursed = ZERO;
-
-                BigDecimal totalApplicationFees = ZERO;
-
-                BigDecimal totalNetDisbursed = ZERO;
-
-                int successCount = 0;
-                int failureCount = 0;
-
-                LocalDateTime processedAt = LocalDateTime.now();
-
-                // ============================================================
-                // PROCESS EACH LOAN
-                // ============================================================
-
-                for (Long loanId : loanIds) {
-
-                        if (loanId == null) {
-
-                                lines.add(
-                                                DisbursementLine.failed(
-                                                                null,
-                                                                null,
-                                                                "Loan ID is required"));
-
-                                failureCount++;
-                                continue;
-                        }
-
-                        try {
-
-                                // ====================================================
-                                // LOAD LOAN
-                                // ====================================================
-
-                                Loan loan = loanRepo.findById(
-                                                loanId)
-                                                .orElseThrow(
-                                                                () -> new IllegalArgumentException(
-                                                                                "Loan not found: "
-                                                                                                + loanId));
-
-                                // ====================================================
-                                // ORGANIZATION SECURITY
-                                // ====================================================
-
-                                if (loan.getOrganization() == null
-                                                || loan.getOrganization().getId() == null) {
-
-                                        throw new IllegalStateException(
-                                                        "Loan has no valid organization");
-                                }
-
-                                if (!orgId.equals(
-                                                loan.getOrganization().getId())) {
-
-                                        throw new IllegalStateException(
-                                                        "Access denied");
-                                }
-
-                                // ====================================================
-                                // STATUS VALIDATION
-                                // ====================================================
-
-                                if (loan.getStatus() != LoanStatus.APPROVED) {
-
-                                        throw new IllegalStateException(
-                                                        "Loan status is "
-                                                                        + loan.getStatus()
-                                                                        + ". Only APPROVED loans can be disbursed.");
-                                }
-
-                                // ====================================================
-                                // AMOUNT VALIDATION
-                                // ====================================================
-
-                                BigDecimal grossAmount = money(
-                                                loan.getAmountDecimal());
-
-                                if (grossAmount.compareTo(ZERO) <= 0) {
-
-                                        throw new IllegalStateException(
-                                                        "Loan gross amount must be greater than zero");
-                                }
-
-                                // ====================================================
-                                // PROCESSING FEE
-                                // ====================================================
-
-                                BigDecimal applicationFee = money(
-                                                grossAmount
-                                                                .multiply(
-                                                                                APPLICATION_FEE_RATE)
-                                                                .divide(
-                                                                                ONE_HUNDRED,
-                                                                                16,
-                                                                                RoundingMode.HALF_UP));
-
-                                /*
-                                 * Net cash delivered to borrower.
-                                 */
-                                BigDecimal netDisbursement = money(
-                                                grossAmount
-                                                                .subtract(
-                                                                                applicationFee)
-                                                                .max(
-                                                                                ZERO));
-
-                                // ====================================================
-                                // DISBURSEMENT TIMESTAMP
-                                // ====================================================
-
-                                LocalDateTime disbursedAt = LocalDateTime.now();
-
-                                LocalDate disbursementDate = disbursedAt.toLocalDate();
-
-                                // ====================================================
-                                // UPDATE LOAN
-                                // ============================================================
-
-                                loan.setStatus(
-                                                LoanStatus.ACTIVE);
-
-                                loan.setDisbursedAt(
-                                                disbursedAt);
-
-                                loan.setDisbursedAtTimestamp(
-                                                disbursedAt);
-
-                                loan.setStartDate(
-                                                disbursementDate);
-
-                                loan.setDisbursedAmount(
-                                                netDisbursement);
-
-                                loan.setApplicationFeeRate(
-                                                APPLICATION_FEE_RATE);
-
-                                loan.setApplicationFee(
-                                                applicationFee);
-
-                                loan.setOutstandingBalance(
-                                                grossAmount);
-
-                                if (loan.getDurationMonths() == null
-                                                || loan.getDurationMonths() <= 0) {
-
-                                        throw new IllegalStateException(
-                                                        "Loan duration must be greater than zero");
-                                }
-
-                                LocalDate firstDueDate = disbursementDate.plusMonths(1);
-
-                                loan.setMaturityDate(
-                                                disbursementDate.plusMonths(
-                                                                loan.getDurationMonths()));
-
-                                loan.setNextDueDate(
-                                                firstDueDate);
-
-                                loan.setNextPaymentDate(
-                                                firstDueDate);
-
-                                // ====================================================
-                                // SAVE LOAN BEFORE SCHEDULE GENERATION
-                                // ====================================================
-
-                                Loan saved = loanRepo.save(
-                                                loan);
-
-                                paymentScheduleService.generateSchedule(
-                                                saved);
-
-                                saved = loanRepo.save(
-                                                saved);
-
-                                accountingService.postDisbursement(
-                                                saved);
-
-                                final Loan notificationLoan = saved;
-
-                                totalGrossDisbursed = money(
-                                                totalGrossDisbursed
-                                                                .add(
-                                                                                grossAmount));
-
-                                totalApplicationFees = money(
-                                                totalApplicationFees
-                                                                .add(
-                                                                                applicationFee));
-
-                                totalNetDisbursed = money(
-                                                totalNetDisbursed
-                                                                .add(
-                                                                                netDisbursement));
-
-                                successCount++;
-
-                                // ====================================================
-                                // SUCCESS RESPONSE LINE
-                                // ====================================================
-
-                                lines.add(
-                                                DisbursementLine.success(
-                                                                loanId,
-                                                                saved.getReferenceNumber(),
-                                                                grossAmount,
-                                                                applicationFee,
-                                                                netDisbursement,
-                                                                saved.getCurrency()));
-
-                                // ====================================================
-                                // POST-COMMIT NOTIFICATIONS
-                                // ====================================================
-                                // Do not notify the borrower or external systems until
-                                // the transaction containing the disbursement has
-                                // committed successfully.
-                                registerAfterCommit(() -> {
-                                        try {
-                                                smsService.sendLoanDisbursed(
-                                                                notificationLoan,
-                                                                normalizedMethod);
-                                        } catch (Exception e) {
-                                                log.warn(
-                                                                "SMS notification failed after commit for loan {}",
-                                                                loanId,
-                                                                e);
-                                        }
-
-                                        try {
-                                                webhookService.dispatch(
-                                                                notificationLoan.getOrganization(),
-                                                                "LOAN_DISBURSED",
-                                                                notificationLoan);
-                                        } catch (Exception e) {
-                                                log.warn(
-                                                                "Webhook dispatch failed after commit for loan {}",
-                                                                loanId,
-                                                                e);
-                                        }
-                                });
-
-                                // ====================================================
-                                // AUDIT
-                                // ====================================================
-                                try {
-                                        auditService.log(
-                                                        saved.getOrganization(),
-                                                        officer,
-                                                        "BULK_DISBURSEMENT",
-                                                        "LOAN",
-                                                        loanId.toString(),
-                                                        "Bulk disbursement via "
-                                                                        + normalizedMethod
-                                                                        + ". Gross=" + grossAmount
-                                                                        + ", application fee=" + applicationFee
-                                                                        + ", net disbursement=" + netDisbursement);
-                                } catch (Exception e) {
-                                        log.warn(
-                                                        "Audit logging failed for loan {}",
-                                                        loanId,
-                                                        e);
-                                }
-
-                        } catch (Exception e) {
-
-                                log.error(
-                                                "Bulk disbursement failed for loan {}: {}",
-                                                loanId,
-                                                e.getMessage(),
-                                                e);
-
-                                lines.add(
-                                                DisbursementLine.failed(
-                                                                loanId,
-                                                                null,
-                                                                e.getMessage() != null
-                                                                                ? e.getMessage()
-                                                                                : "Disbursement failed"));
-
-                                failureCount++;
-                        }
-                }
-
-                // ============================================================
-                // FINAL LOG
-                // ============================================================
-
-                log.info(
-                                "Bulk disbursement completed. " +
-                                                "organizationId={}, totalLoans={}, " +
-                                                "success={}, failures={}, grossDisbursed={}, " +
-                                                "applicationFees={}, netDisbursed={}, method={}",
-                                orgId,
-                                loanIds.size(),
-                                successCount,
-                                failureCount,
-                                totalGrossDisbursed,
-                                totalApplicationFees,
-                                totalNetDisbursed,
-                                normalizedMethod);
-
-                // ============================================================
-                // RESULT
-                // ============================================================
-
-                return new BulkDisbursementResult(
-                                successCount,
-                                failureCount,
-                                totalGrossDisbursed.doubleValue(),
-                                totalApplicationFees.doubleValue(),
-                                totalNetDisbursed.doubleValue(),
-                                normalizedMethod,
-                                processedAt,
-                                lines);
+    private final LoanService loanService;
+    private final TransactionTemplate transactionTemplate;
+
+    public BulkDisbursementService(LoanService loanService, PlatformTransactionManager transactionManager) {
+        this.loanService = loanService;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.transactionTemplate.setReadOnly(false);
+    }
+
+    public BulkDisbursementResult disburseAll(
+            List<Long> loanIds,
+            Long orgId,
+            User officer,
+            String method) {
+
+        if (loanIds == null || loanIds.isEmpty()) {
+            throw new IllegalArgumentException("At least one loan ID is required");
+        }
+        if (orgId == null) {
+            throw new IllegalArgumentException("Organization ID is required");
+        }
+        if (officer == null || officer.getOrganization() == null
+                || !orgId.equals(officer.getOrganization().getId())) {
+            throw new IllegalStateException("Officer does not belong to the selected organization");
         }
 
-        // ================================================================
-        // MONEY
-        // ================================================================
+        String normalizedMethod = method == null || method.isBlank()
+                ? "BANK_TRANSFER"
+                : method.trim().toUpperCase();
 
-        private BigDecimal money(
-                        BigDecimal value) {
+        List<DisbursementLine> lines = new ArrayList<>();
+        BigDecimal totalGross = BigDecimal.ZERO;
+        BigDecimal totalFees = BigDecimal.ZERO;
+        BigDecimal totalNet = BigDecimal.ZERO;
+        int success = 0;
+        int failure = 0;
+        LocalDateTime processedAt = LocalDateTime.now();
 
-                if (value == null) {
+        // De-duplicate request IDs before processing. A batch containing the same
+        // loan twice must never result in two disbursement attempts.
+        List<Long> uniqueLoanIds = loanIds.stream()
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
 
-                        return ZERO;
+        for (Long loanId : uniqueLoanIds) {
+            try {
+                Loan saved = transactionTemplate.execute(status ->
+                        loanService.disburseLoan(loanId, officer, normalizedMethod));
+
+                if (saved == null) {
+                    throw new IllegalStateException("Disbursement returned no loan");
                 }
 
-                return value.setScale(
-                                2,
-                                RoundingMode.HALF_UP);
+                BigDecimal gross = money(saved.getAmountDecimal());
+                BigDecimal fee = money(saved.getApplicationFeeDecimal());
+                BigDecimal net = money(saved.getNetDisbursedAmountDecimal());
+
+                totalGross = totalGross.add(gross);
+                totalFees = totalFees.add(fee);
+                totalNet = totalNet.add(net);
+                success++;
+
+                lines.add(DisbursementLine.success(
+                        loanId,
+                        saved.getReferenceNumber(),
+                        gross,
+                        fee,
+                        net,
+                        saved.getCurrency()));
+
+            } catch (Exception ex) {
+                failure++;
+                String message = ex.getMessage() == null || ex.getMessage().isBlank()
+                        ? "Disbursement failed"
+                        : ex.getMessage();
+
+                log.error("Bulk disbursement failed for loan {}: {}", loanId, message, ex);
+                lines.add(DisbursementLine.failed(loanId, null, message));
+            }
         }
 
-        // ================================================================
-        // DISBURSEMENT LINE
-        // ================================================================
+        return new BulkDisbursementResult(
+                success,
+                failure,
+                totalGross.doubleValue(),
+                totalFees.doubleValue(),
+                totalNet.doubleValue(),
+                normalizedMethod,
+                processedAt,
+                lines);
+    }
 
-        public record DisbursementLine(
-                        Long loanId,
-                        String referenceNumber,
-                        boolean success,
-                        Double grossAmount,
-                        Double applicationFee,
-                        Double netDisbursedAmount,
-                        String currency,
-                        String errorMessage) {
+    private BigDecimal money(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO.setScale(2) : value.setScale(2, java.math.RoundingMode.HALF_UP);
+    }
 
-                static DisbursementLine success(
-                                Long id,
-                                String referenceNumber,
-                                BigDecimal grossAmount,
-                                BigDecimal applicationFee,
-                                BigDecimal netDisbursedAmount,
-                                String currency) {
+    public record DisbursementLine(
+            Long loanId,
+            String referenceNumber,
+            boolean success,
+            Double grossAmount,
+            Double applicationFee,
+            Double netDisbursedAmount,
+            String currency,
+            String errorMessage) {
 
-                        return new DisbursementLine(
-                                        id,
-                                        referenceNumber,
-                                        true,
-                                        grossAmount != null
-                                                        ? grossAmount.doubleValue()
-                                                        : 0.0,
-                                        applicationFee != null
-                                                        ? applicationFee.doubleValue()
-                                                        : 0.0,
-                                        netDisbursedAmount != null
-                                                        ? netDisbursedAmount.doubleValue()
-                                                        : 0.0,
-                                        currency,
-                                        null);
-                }
-
-                static DisbursementLine failed(
-                                Long id,
-                                String referenceNumber,
-                                String error) {
-
-                        return new DisbursementLine(
-                                        id,
-                                        referenceNumber,
-                                        false,
-                                        null,
-                                        null,
-                                        null,
-                                        null,
-                                        error);
-                }
+        static DisbursementLine success(
+                Long id,
+                String referenceNumber,
+                BigDecimal grossAmount,
+                BigDecimal applicationFee,
+                BigDecimal netDisbursedAmount,
+                String currency) {
+            return new DisbursementLine(
+                    id,
+                    referenceNumber,
+                    true,
+                    grossAmount.doubleValue(),
+                    applicationFee.doubleValue(),
+                    netDisbursedAmount.doubleValue(),
+                    currency,
+                    null);
         }
 
-        // ================================================================
-        // BULK DISBURSEMENT RESULT
-        // ================================================================
-
-        public record BulkDisbursementResult(
-                        int successCount,
-                        int failureCount,
-                        double totalGrossAmountDisbursed,
-                        double totalApplicationFees,
-                        double totalNetAmountDisbursed,
-                        String disbursementMethod,
-                        LocalDateTime processedAt,
-                        List<DisbursementLine> lines) {
+        static DisbursementLine failed(Long id, String referenceNumber, String error) {
+            return new DisbursementLine(
+                    id,
+                    referenceNumber,
+                    false,
+                    null,
+                    null,
+                    null,
+                    null,
+                    error);
         }
+    }
 
-        private void registerAfterCommit(Runnable action) {
-                if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-                        action.run();
-                        return;
-                }
-
-                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                        @Override
-                        public void afterCommit() {
-                                try {
-                                        action.run();
-                                } catch (Exception e) {
-                                        log.error("Post-commit bulk disbursement notification failed", e);
-                                }
-                        }
-                });
-        }
+    public record BulkDisbursementResult(
+            int successCount,
+            int failureCount,
+            double totalGrossAmountDisbursed,
+            double totalApplicationFees,
+            double totalNetAmountDisbursed,
+            String disbursementMethod,
+            LocalDateTime processedAt,
+            List<DisbursementLine> lines) {
+    }
 }

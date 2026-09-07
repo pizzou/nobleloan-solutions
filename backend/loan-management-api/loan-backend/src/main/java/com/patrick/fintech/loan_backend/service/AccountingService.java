@@ -44,6 +44,7 @@ public class AccountingService {
         private final JournalEntryRepository journalRepo;
         private final JournalLineRepository lineRepo;
         private final LoanRepository loanRepo;
+        private final AccountingPeriodService accountingPeriodService;
 
         // ============================================================
         // MONEY CONFIGURATION
@@ -585,6 +586,11 @@ public class AccountingService {
                         List<JournalLine> lines) {
 
                 requireOrganization(org);
+
+                accountingPeriodService.assertPostingAllowed(
+                                org.getId(),
+                                entryDate != null ? entryDate : LocalDate.now(),
+                                sourceType != null ? sourceType.trim() : null);
 
                 validateBranchOwnership(
                                 org,
@@ -3242,6 +3248,10 @@ public class AccountingService {
         // ============================================================
         // LOAN LOSS RESERVE BALANCE
         // ============================================================
+
+        public BigDecimal loanLossReserveBalanceForReporting(Organization org) {
+                return loanLossReserveBalance(org);
+        }
 
         private BigDecimal loanLossReserveBalance(Organization org) {
                 requireOrganization(org);

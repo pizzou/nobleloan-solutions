@@ -1,24 +1,28 @@
-import { post } from "./api";
-import { AuthResponse } from "../types/index";
+import { authApi } from "@/services/api";
+import { AuthResponse } from "@/types";
 
+/** Browser authentication uses an HttpOnly NLS_SESSION cookie. The JWT is never
+ * exposed to JavaScript or persisted in localStorage. */
 export async function login(
   email: string,
   password: string,
 ): Promise<AuthResponse> {
-  // post() already unwraps ApiResponse.data, so we get the inner object directly
-  const data = (await post("/auth/login", { email, password })) as AuthResponse;
+  await authApi.csrf();
+  const data = (await authApi.login(email, password)) as AuthResponse;
   if (typeof window !== "undefined") {
-    localStorage.setItem("token", data.token);
     localStorage.setItem("user", JSON.stringify(data));
   }
   return data;
 }
 
-export function logout() {
-  if (typeof window !== "undefined") {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    window.location.href = "/login";
+export async function logout(): Promise<void> {
+  try {
+    await authApi.logout();
+  } finally {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("user");
+      window.location.href = "/login";
+    }
   }
 }
 

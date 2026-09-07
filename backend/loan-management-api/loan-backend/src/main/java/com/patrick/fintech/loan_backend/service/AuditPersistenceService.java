@@ -13,7 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -62,14 +61,12 @@ public class AuditPersistenceService {
     // instead
     // each is annotated separately and both delegate to the private, non-async
     // doPersist().
-    @Async
     @Transactional
     public void persist(Long orgId, Long actorId, String action, String entityType, String entityId,
             String description, String before, String after, String ip, String ua) {
         doPersist(orgId, actorId, action, entityType, entityId, description, before, after, ip, ua, null);
     }
 
-    @Async
     @Transactional
     public void persist(Long orgId, Long actorId, String action, String entityType, String entityId,
             String description, String before, String after, String ip, String ua,
@@ -114,7 +111,13 @@ public class AuditPersistenceService {
                     org != null ? String.valueOf(org.getId()) : "",
                     actor != null ? String.valueOf(actor.getId()) : "",
                     action, entityType, entityId != null ? entityId : "",
-                    description != null ? description : "", timestamp));
+                    description != null ? description : "",
+                    before != null ? before : "",
+                    after != null ? after : "",
+                    ip != null ? ip : "",
+                    ua != null ? ua : "",
+                    module != null ? module : "",
+                    timestamp));
 
             auditLogRepo.save(AuditLog.builder()
                     .organization(org).user(actor).action(action)
@@ -126,7 +129,11 @@ public class AuditPersistenceService {
                     .previousHash(previousHash).entryHash(entryHash)
                     .build());
         } catch (Exception e) {
-            log.warn("Audit log failed: {}", e.getMessage());
+            // Audit is a financial-control record. In production, a failed audit write
+            // must roll back the business transaction rather than silently creating a
+            // financial event with no durable evidence.
+            log.error("AUDIT WRITE FAILED - transaction must not be considered successful", e);
+            throw new IllegalStateException("Unable to persist mandatory audit record", e);
         }
     }
 

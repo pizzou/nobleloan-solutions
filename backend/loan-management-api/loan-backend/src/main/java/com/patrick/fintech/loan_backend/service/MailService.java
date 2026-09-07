@@ -80,7 +80,7 @@ public class MailService {
     @Async
     public void sendLoginOtp(User user, String code) {
         if (!mailEnabled) {
-            log.info("[EMAIL] Login OTP for {}: {}", user.getEmail(), code);
+            log.warn("[EMAIL] Login OTP delivery is disabled for {}; no OTP is logged.", user.getEmail());
             return;
         }
         send(user.getEmail(), "Your sign-in code: " + code,
@@ -372,7 +372,7 @@ public class MailService {
     @Async
     public void sendESignatureRequest(Borrower borrower, String orgName, String signLink, String otp) {
         if (!mailEnabled) {
-            log.info("[EMAIL] E-signature link for {}: {} (OTP {})", borrower.getEmail(), signLink, otp);
+            log.warn("[EMAIL] E-signature delivery is disabled for {}; no link or OTP is logged.", borrower.getEmail());
             return;
         }
         if (borrower.getEmail() == null || borrower.getEmail().isBlank())

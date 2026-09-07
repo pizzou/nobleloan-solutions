@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -1482,11 +1483,10 @@ public class LoanService {
                 // REAL KYC / AML GATE
                 // ============================================================
 
-                // if (!complianceService.isKycCurrentlyClear(loan.getBorrower().getId())) {
-                // throw new IllegalStateException(
-                // "Cannot disburse this loan — the borrower does not have a current, real
-                // provider-backed KYC/AML clearance.");
-                // }
+                if (!complianceService.isKycCurrentlyClear(loan.getBorrower().getId())) {
+                        throw new IllegalStateException(
+                                        "Cannot disburse this loan — the borrower does not have a current, provider-backed KYC/AML clearance.");
+                }
 
                 // ============================================================
                 // PRESERVE CONTRACTUAL PRICING
@@ -2168,16 +2168,8 @@ public class LoanService {
                         }
 
                         case WRITTEN_OFF -> {
-
-                                if (current != LoanStatus.DEFAULTED
-                                                && current != LoanStatus.OVERDUE
-                                                && current != LoanStatus.ACTIVE) {
-
-                                        throw new RuntimeException(
-                                                        "Only an Active, Overdue, or Defaulted loan can be written off (currently "
-                                                                        + current
-                                                                        + ")");
-                                }
+                                throw new RuntimeException(
+                                                "Direct loan status changes to WRITTEN_OFF are prohibited. Use the controlled Collections write-off workflow so accounting, approval, and audit controls execute together.");
                         }
 
                         case CLOSED -> {
@@ -3421,12 +3413,13 @@ public class LoanService {
                                         .toUpperCase();
                 }
 
-                String timestamp = LocalDateTime.now()
-                                .format(
-                                                DateTimeFormatter.ofPattern(
-                                                                "yyyyMMddHHmmssSSS"));
+                // Public loan references must not expose creation timestamps or be
+                // predictable. Use a cryptographically strong UUID-derived suffix;
+                // the database uniqueness constraint remains the final collision guard.
+                String random = UUID.randomUUID().toString().replace("-", "")
+                                .substring(0, 12).toUpperCase(Locale.ROOT);
 
-                return prefix + timestamp;
+                return prefix + "-" + random;
         }
 
         // ================================================================

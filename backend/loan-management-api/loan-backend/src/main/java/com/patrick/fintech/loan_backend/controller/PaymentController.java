@@ -13,6 +13,7 @@ import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -46,6 +47,7 @@ public class PaymentController {
          * 4. Overpayment
          */
         @PostMapping
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','TELLER')")
         public ResponseEntity<ApiResponse<PaymentResponse>> recordPayment(
                         @PathVariable Long loanId,
                         @RequestBody Map<String, Object> body,

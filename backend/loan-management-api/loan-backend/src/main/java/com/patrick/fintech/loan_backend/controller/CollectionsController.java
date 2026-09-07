@@ -9,6 +9,8 @@ import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -60,6 +62,17 @@ public class CollectionsController {
     @PostMapping("/cases/{id}/actions")
     public ResponseEntity<ApiResponse<Object>> logAction(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         CollectionAction.ActionType type = CollectionAction.ActionType.valueOf(body.get("actionType").toString());
+
+        // Write-off is a high-risk accounting event. It may only be initiated
+        // by ADMIN/MANAGER; ordinary collection officers must use the normal
+        // escalation path and cannot directly remove a receivable from the book.
+        if (type == CollectionAction.ActionType.WRITE_OFF) {
+            boolean authorized = SecurityContextHolder.getContext().getAuthentication()
+                    .getAuthorities().stream()
+                    .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_MANAGER".equals(a.getAuthority()));
+            if (!authorized) throw new AccessDeniedException("Only ADMIN or MANAGER may initiate a controlled write-off");
+        }
+
         String notes = (String) body.get("notes");
         String outcome = (String) body.get("outcome");
         LocalDate promiseDate = body.get("promiseDate") != null ? LocalDate.parse(body.get("promiseDate").toString())

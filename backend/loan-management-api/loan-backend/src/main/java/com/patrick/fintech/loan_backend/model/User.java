@@ -76,6 +76,11 @@ public class User {
     @Builder.Default
     private Integer loginOtpAttempts = 0;
 
+    /** Monotonic session generation. Incrementing this invalidates every previously issued JWT. */
+    @Builder.Default
+    @Column(nullable = false)
+    private Long tokenVersion = 0L;
+
     private LocalDateTime lastLoginAt;
     private String lastLoginIp;
 

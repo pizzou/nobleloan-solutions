@@ -4,6 +4,8 @@ import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.User;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
@@ -22,6 +24,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findAll();
 
     boolean existsByEmail(String email);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"role", "organization", "branch"})
+    Optional<User> findByIdForUpdate(Long id);
     @EntityGraph(attributePaths = {"role", "organization", "branch"})
     List<User> findByOrganization(Organization organization);
     long countByOrganization(Organization organization);

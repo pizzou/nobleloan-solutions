@@ -77,7 +77,7 @@ services:
       BOOTSTRAP_ORG_CURRENCY: ${BOOTSTRAP_ORG_CURRENCY:-}
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
-      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-900000}
       CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
       MAIL_ENABLED: ${MAIL_ENABLED:-false}
       MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
@@ -113,6 +113,13 @@ services:
       COMPLIANCE_BASE_URL: ${COMPLIANCE_BASE_URL:-}
       COMPLIANCE_API_KEY: ${COMPLIANCE_API_KEY:-}
       COMPLIANCE_WEBHOOK_SECRET: ${COMPLIANCE_WEBHOOK_SECRET:-}
+      PROVISIONING_POLICY_APPROVED: ${PROVISIONING_POLICY_APPROVED:-false}
+      PROVISION_RATE_CURRENT: ${PROVISION_RATE_CURRENT:-0}
+      PROVISION_RATE_WATCH: ${PROVISION_RATE_WATCH:-0}
+      PROVISION_RATE_SUBSTANDARD: ${PROVISION_RATE_SUBSTANDARD:-0}
+      PROVISION_RATE_DOUBTFUL: ${PROVISION_RATE_DOUBTFUL:-0}
+      PROVISION_RATE_WRITTEN_OFF: ${PROVISION_RATE_WRITTEN_OFF:-0}
+      AUTH_COOKIE_SAME_SITE: ${AUTH_COOKIE_SAME_SITE:-Lax}
       APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?APP_ENCRYPTION_KEY is required}
       APP_INDEX_KEY: ${APP_INDEX_KEY:?APP_INDEX_KEY is required}
       OXR_APP_ID: ${OXR_APP_ID:-}
@@ -151,6 +158,7 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
+        BACKEND_API_URL: ${BACKEND_API_URL:-http://backend:8080/api}
     container_name: loansaas-frontend
     restart: unless-stopped
     depends_on:
@@ -158,6 +166,7 @@ services:
         condition: service_healthy
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
+      BACKEND_API_URL: ${BACKEND_API_URL:-http://backend:8080/api}
       NEXT_PUBLIC_TENANT_SLUG: nobleloansolutions
       NODE_ENV: production
     networks:

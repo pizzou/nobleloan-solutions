@@ -773,7 +773,7 @@ export interface RiskScore {
 // ============================================================
 
 export interface AuthResponse {
-  token: string;
+  token?: string;
 
   userId: number;
 

@@ -1556,18 +1556,29 @@ public class BankAccountService {
                 );
 
 
-        BankAccount from =
-                getForOrg(
-                        fromAccountId,
-                        organization.getId()
-                );
+        // Lock both accounts in deterministic ID order. This prevents two
+        // concurrent transfers in opposite directions from deadlocking while
+        // also making the insufficient-funds check race-safe.
+        BankAccount firstLocked;
+        BankAccount secondLocked;
+        if (fromAccountId < toAccountId) {
+            firstLocked = bankAccountRepo
+                    .findByIdAndOrganization_IdForUpdate(fromAccountId, organization.getId())
+                    .orElseThrow(() -> new IllegalArgumentException("Source bank account not found: " + fromAccountId));
+            secondLocked = bankAccountRepo
+                    .findByIdAndOrganization_IdForUpdate(toAccountId, organization.getId())
+                    .orElseThrow(() -> new IllegalArgumentException("Destination bank account not found: " + toAccountId));
+        } else {
+            firstLocked = bankAccountRepo
+                    .findByIdAndOrganization_IdForUpdate(toAccountId, organization.getId())
+                    .orElseThrow(() -> new IllegalArgumentException("Destination bank account not found: " + toAccountId));
+            secondLocked = bankAccountRepo
+                    .findByIdAndOrganization_IdForUpdate(fromAccountId, organization.getId())
+                    .orElseThrow(() -> new IllegalArgumentException("Source bank account not found: " + fromAccountId));
+        }
 
-
-        BankAccount to =
-                getForOrg(
-                        toAccountId,
-                        organization.getId()
-                );
+        BankAccount from = fromAccountId.equals(firstLocked.getId()) ? firstLocked : secondLocked;
+        BankAccount to = toAccountId.equals(firstLocked.getId()) ? firstLocked : secondLocked;
 
 
         if (Boolean.FALSE.equals(

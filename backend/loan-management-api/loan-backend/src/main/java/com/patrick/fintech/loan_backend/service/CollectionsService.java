@@ -1029,6 +1029,7 @@ public class CollectionsService {
                 loan.setStatus(
                         LoanStatus.WRITTEN_OFF
                 );
+                loan.setWrittenOffAt(LocalDateTime.now());
 
 
                 loanRepo.save(

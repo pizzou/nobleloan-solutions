@@ -476,6 +476,9 @@ public class Loan {
         @Column(name = "disbursed_at_timestamp")
         private LocalDateTime disbursedAtTimestamp;
 
+        /** Exact timestamp at which the loan entered the controlled write-off state. */
+        private LocalDateTime writtenOffAt;
+
         // ================================================================
         // AUDIT / SYSTEM DATES
         // ================================================================

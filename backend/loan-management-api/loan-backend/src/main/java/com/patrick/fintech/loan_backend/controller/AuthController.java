@@ -8,12 +8,15 @@ import com.patrick.fintech.loan_backend.service.*;
 import com.patrick.fintech.loan_backend.service.AuditService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.ResponseCookie;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.*;
 import org.springframework.security.core.Authentication;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.web.csrf.CsrfToken;
 import java.security.SecureRandom;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -32,6 +35,25 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
     private static final SecureRandom OTP_RANDOM = new SecureRandom();
+
+    @Value("${app.environment:development}")
+    private String applicationEnvironment;
+
+    @Value("${app.auth.cookie.same-site:Lax}")
+    private String sessionCookieSameSite;
+
+    @Value("${app.jwt.expiration-ms:900000}")
+    private long sessionMaxAgeMs;
+
+    @GetMapping("/csrf")
+    public ResponseEntity<Map<String, Object>> csrf(CsrfToken token) {
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "headerName", token.getHeaderName(),
+                "parameterName", token.getParameterName(),
+                "token", token.getToken()
+        ));
+    }
 
     @PostMapping("/register")
     @Transactional
@@ -221,6 +243,11 @@ public class AuthController {
     }
 
     private void verifyLoginOtp(User user, String submittedOtp, java.time.LocalDateTime now) {
+        // Serialize OTP consumption so two concurrent requests cannot both redeem
+        // the same one-time code.
+        user = userRepository.findByIdForUpdate(user.getId())
+                .orElseThrow(() -> new RuntimeException("User account not found"));
+
         if (user.getLoginOtpHash() == null || user.getLoginOtpExpiresAt() == null
                 || user.getLoginOtpExpiresAt().isBefore(now)) {
             throw new RuntimeException("Your verification code has expired. Please sign in again to get a new one.");
@@ -271,11 +298,47 @@ public class AuthController {
                 String.valueOf(user.getId()), user.getName() + " signed in", null, null, "Authentication");
 
         Map<String, Object> body = safe(user);
-        body.put("token", jwtUtils.generateToken(user.getEmail()));
         body.put("mfaRequired", false);
         body.put("mfaSetupRequired", false);
         body.put("otpRequired", false);
-        return ResponseEntity.ok(body);
+        String token = jwtUtils.generateToken(user);
+        ResponseCookie cookie = sessionCookie(token, false);
+        return ResponseEntity.ok()
+                .header("Set-Cookie", cookie.toString())
+                .body(body);
+    }
+
+    @PostMapping("/logout")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> logout(Authentication auth) {
+        if (auth == null || auth.getName() == null || auth.getName().isBlank()) {
+            return ResponseEntity.ok()
+                    .header("Set-Cookie", sessionCookie("", true).toString())
+                    .body(Map.of("success", true));
+        }
+
+        User user = userRepository.findByEmail(auth.getName()).orElse(null);
+        if (user != null) {
+            user.setTokenVersion((user.getTokenVersion() == null ? 0L : user.getTokenVersion()) + 1L);
+            userRepository.save(user);
+            auditService.log(user.getOrganization(), user, "LOGOUT", "AUTH",
+                    String.valueOf(user.getId()), "User session revoked by logout", null, null, "Authentication");
+        }
+        return ResponseEntity.ok()
+                .header("Set-Cookie", sessionCookie("", true).toString())
+                .body(Map.of("success", true));
+    }
+
+    private ResponseCookie sessionCookie(String value, boolean clear) {
+        boolean production = "production".equalsIgnoreCase(applicationEnvironment)
+                || "prod".equalsIgnoreCase(applicationEnvironment);
+        return ResponseCookie.from("NLS_SESSION", value == null ? "" : value)
+                .httpOnly(true)
+                .secure(production)
+                .sameSite(production ? sessionCookieSameSite : "Lax")
+                .path("/")
+                .maxAge(clear ? java.time.Duration.ZERO : java.time.Duration.ofMillis(Math.max(1000L, sessionMaxAgeMs)))
+                .build();
     }
 
     @GetMapping("/me")

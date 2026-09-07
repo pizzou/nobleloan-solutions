@@ -49,6 +49,8 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import org.springframework.beans.factory.annotation.Value;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -81,6 +83,9 @@ import java.util.Set;
 @RequiredArgsConstructor
 @Slf4j
 public class PublicController {
+
+        @Value("${app.environment:development}")
+        private String applicationEnvironment;
 
         private final OrganizationRepository orgRepo;
         private final BorrowerRepository borrowerRepo;
@@ -755,6 +760,14 @@ public class PublicController {
                         @RequestBody Map<String, Object> payload) {
 
                 Map<String, Object> response = new LinkedHashMap<>();
+
+                if ("production".equalsIgnoreCase(applicationEnvironment)
+                                || "prod".equalsIgnoreCase(applicationEnvironment)) {
+                        response.put("received", false);
+                        response.put("status", "REJECTED");
+                        response.put("message", "This legacy MTN webhook endpoint is disabled in production. Use /api/public/webhooks/mtn-momo.");
+                        return ResponseEntity.status(404).body(response);
+                }
 
                 if (payload == null
                                 || payload.isEmpty()) {
@@ -2701,10 +2714,16 @@ public class PublicController {
                                                 HmacIndexer.index(
                                                                 phone),
                                                 org.getId())
-                                .orElseGet(
-                                                () -> Borrower.builder()
-                                                                .organization(org)
-                                                                .build());
+                                .orElse(null);
+
+                if (borrower != null && borrower.getId() != null) {
+                        throw new IllegalStateException(
+                                        "An existing customer was found for this phone number. For security, existing customer KYC information cannot be overwritten through the public application form. Please contact the lender or use the verified borrower portal.");
+                }
+
+                borrower = Borrower.builder()
+                                .organization(org)
+                                .build();
 
                 borrower.setFirstName(
                                 firstName);
