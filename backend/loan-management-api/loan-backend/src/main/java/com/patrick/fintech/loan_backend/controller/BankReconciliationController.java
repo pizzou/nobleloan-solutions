@@ -1,9 +1,117 @@
 package com.patrick.fintech.loan_backend.controller;
-import com.patrick.fintech.loan_backend.dto.ApiResponse; import com.patrick.fintech.loan_backend.model.Organization; import com.patrick.fintech.loan_backend.service.BankReconciliationService; import com.patrick.fintech.loan_backend.repository.OrganizationRepository; import com.patrick.fintech.loan_backend.util.CurrentUserUtil; import lombok.RequiredArgsConstructor; import org.springframework.http.*; import org.springframework.security.access.prepost.PreAuthorize; import org.springframework.web.bind.annotation.*; import org.springframework.web.multipart.MultipartFile; import java.time.*;
-@RestController @RequestMapping("/api/accounting/bank-reconciliation") @RequiredArgsConstructor @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT')") public class BankReconciliationController{
- private final BankReconciliationService service; private final com.patrick.fintech.loan_backend.service.FinancialApprovalService approvalService; private final OrganizationRepository orgRepo; private final CurrentUserUtil current;
- @PostMapping("/{bankAccountId}/import") public ResponseEntity<ApiResponse<Integer>> importCsv(@PathVariable Long bankAccountId,@RequestParam("file")MultipartFile file)throws Exception{Organization o=org();int n=service.importCsv(o,bankAccountId,file.getInputStream(),current.getCurrentUser().getName());return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.safe(n));}
- @PostMapping("/{bankAccountId}/reconcile") public ResponseEntity<ApiResponse<BankReconciliationService.ReconciliationResult>> reconcile(@PathVariable Long bankAccountId,@RequestParam String from,@RequestParam String to){Organization o=org();return ResponseEntity.ok(ApiResponse.safe(service.reconcile(o,bankAccountId,LocalDate.parse(from),LocalDate.parse(to),current.getCurrentUser().getName())));}
- @PostMapping("/{bankAccountId}/sign") public ResponseEntity<ApiResponse<com.patrick.fintech.loan_backend.model.FinancialApproval>> sign(@PathVariable Long bankAccountId,@RequestParam String from,@RequestParam String to,@RequestParam String reportHash,@RequestParam Long approvalId){Organization o=org();var a=approvalService.requireApproved(approvalId,o,"BANK_RECONCILIATION",bankAccountId+"|"+from+"|"+to);if(reportHash==null||reportHash.isBlank()||!reportHash.equalsIgnoreCase(a.getPayloadHash()))throw new IllegalStateException("Reconciliation report hash does not match the approved maker payload");return ResponseEntity.ok(ApiResponse.safe(a));}
- private Organization org(){return orgRepo.findById(current.getCurrentOrganizationId()).orElseThrow(()->new IllegalStateException("Organization not found"));}
+
+import com.patrick.fintech.loan_backend.dto.ApiResponse;
+import com.patrick.fintech.loan_backend.model.Organization;
+import com.patrick.fintech.loan_backend.service.BankReconciliationService;
+import com.patrick.fintech.loan_backend.service.FinancialApprovalService;
+import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
+import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.time.LocalDate;
+
+@RestController
+@RequestMapping("/api/accounting/bank-reconciliation")
+@RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT')")
+public class BankReconciliationController {
+
+    private final BankReconciliationService service;
+    private final FinancialApprovalService approvalService;
+    private final OrganizationRepository orgRepo;
+    private final CurrentUserUtil current;
+
+    @PostMapping("/{bankAccountId}/import")
+    public ResponseEntity<ApiResponse<Integer>> importCsv(
+            @PathVariable Long bankAccountId,
+            @RequestParam("file") MultipartFile file
+    ) throws Exception {
+        Organization organization = org();
+
+        int imported = service.importCsv(
+                organization,
+                bankAccountId,
+                file.getInputStream(),
+                current.getCurrentUser().getName()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(ApiResponse.safe(imported));
+    }
+
+    @PostMapping("/{bankAccountId}/reconcile")
+    public ResponseEntity<ApiResponse<BankReconciliationService.ReconciliationResult>> reconcile(
+            @PathVariable Long bankAccountId,
+            @RequestParam String from,
+            @RequestParam String to
+    ) {
+        Organization organization = org();
+
+        BankReconciliationService.ReconciliationResult result =
+                service.reconcile(
+                        organization,
+                        bankAccountId,
+                        LocalDate.parse(from),
+                        LocalDate.parse(to),
+                        current.getCurrentUser().getName()
+                );
+
+        return ResponseEntity.ok(ApiResponse.safe(result));
+    }
+
+    @PostMapping("/{bankAccountId}/sign")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> sign(
+            @PathVariable Long bankAccountId,
+            @RequestParam String from,
+            @RequestParam String to,
+            @RequestParam String reportHash,
+            @RequestParam Long approvalId
+    ) {
+        Organization organization = org();
+
+        var approval = approvalService.requireApproved(
+                approvalId,
+                organization,
+                "BANK_RECONCILIATION",
+                bankAccountId + "|" + from + "|" + to
+        );
+
+        if (reportHash == null
+                || reportHash.isBlank()
+                || !reportHash.equalsIgnoreCase(approval.getPayloadHash())) {
+            throw new IllegalStateException(
+                    "Reconciliation report hash does not match the approved maker payload"
+            );
+        }
+
+        java.util.Map<String, Object> response = new java.util.LinkedHashMap<>();
+        response.put("id", approval.getId());
+        response.put("operationType", approval.getOperationType());
+        response.put("operationId", approval.getOperationId());
+        response.put("amount", approval.getAmount());
+        response.put("currency", approval.getCurrency());
+        response.put("makerUserId", approval.getMakerUserId());
+        response.put("makerName", approval.getMakerName());
+        response.put("checkerUserId", approval.getCheckerUserId());
+        response.put("checkerName", approval.getCheckerName());
+        response.put("requiredLevel", approval.getRequiredLevel());
+        response.put("status", approval.getStatus());
+        response.put("reason", approval.getReason());
+        response.put("payloadHash", approval.getPayloadHash());
+        response.put("createdAt", approval.getCreatedAt());
+        response.put("decidedAt", approval.getDecidedAt());
+
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    private Organization org() {
+        return orgRepo.findById(current.getCurrentOrganizationId())
+                .orElseThrow(() -> new IllegalStateException("Organization not found"));
+    }
 }
