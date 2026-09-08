@@ -706,6 +706,19 @@ public class BankAccountService {
                 );
     }
 
+    @Deprecated
+    @Transactional(readOnly = true)
+    public double getBalance(
+            Long accountId,
+            Long organizationId
+    ) {
+
+        return getBalanceDecimal(
+                accountId,
+                organizationId
+        ).doubleValue();
+    }
+
 
     /*
      * ============================================================
@@ -923,6 +936,12 @@ public class BankAccountService {
             Long accountId,
             Long organizationId
     ) {
+
+        if (organizationId == null) {
+            throw new IllegalArgumentException(
+                    "Organization ID is required"
+            );
+        }
 
         BankAccount account =
                 getForOrg(
@@ -1747,12 +1766,6 @@ public class BankAccountService {
         );
     }
 
-
-    /**
-     * Legacy double-compatible transfer method.
-     *
-     * @deprecated use BigDecimal and an approved maker-checker record.
-     */
     @Deprecated
     @Transactional
     public JournalEntry transfer(
