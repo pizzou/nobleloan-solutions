@@ -91,14 +91,11 @@ API.interceptors.request.use(async (config) => {
     return config;
   }
 
-  const token =
-    csrfToken || readCookie("XSRF-TOKEN") || (await refreshCsrfToken());
-  if (token) {
-    if (!config.headers) config.headers = new AxiosHeaders();
-    const headers = AxiosHeaders.from(config.headers);
-    headers.set("X-XSRF-TOKEN", token);
-    config.headers = headers;
-  }
+  // Browser mutations are protected server-side by SameOriginMutationFilter.
+  // Do not force every mutation through a second CSRF cookie/header handshake:
+  // the Next.js/Vercel -> backend proxy can legitimately omit that cookie and
+  // Spring's old CSRF layer would then turn valid authenticated requests into
+  // 403 responses.
 
   return config;
 });

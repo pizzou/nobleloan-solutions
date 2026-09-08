@@ -38,5 +38,20 @@ export function getCurrentUser(): AuthResponse | null {
 
 export function hasRole(...roles: string[]): boolean {
   const user = getCurrentUser();
-  return user ? roles.includes(user.role) : false;
+  if (!user?.role) return false;
+
+  const actual = String(user.role)
+    .trim()
+    .toUpperCase()
+    .replace(/^ROLE_/, "")
+    .replace(/[- ]/g, "_");
+
+  return roles.some((role) => {
+    const expected = String(role)
+      .trim()
+      .toUpperCase()
+      .replace(/^ROLE_/, "")
+      .replace(/[- ]/g, "_");
+    return actual === expected;
+  });
 }
