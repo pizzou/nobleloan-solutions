@@ -39,6 +39,12 @@ public class AuthController {
     @Value("${app.environment:development}")
     private String applicationEnvironment;
 
+    @Value("${app.auth.cookie.name:NLS_SESSION}")
+    private String sessionCookieName;
+
+    @Value("${app.auth.cookie.secure:true}")
+    private boolean sessionCookieSecure;
+
     @Value("${app.auth.cookie.same-site:None}")
     private String sessionCookieSameSite;
 
@@ -330,15 +336,26 @@ public class AuthController {
     }
 
     private ResponseCookie sessionCookie(String value, boolean clear) {
-        boolean production = "production".equalsIgnoreCase(applicationEnvironment)
-                || "prod".equalsIgnoreCase(applicationEnvironment);
-        return ResponseCookie.from("NLS_SESSION", value == null ? "" : value)
+        String sameSite = normalizeSameSite(sessionCookieSameSite);
+        return ResponseCookie.from(sessionCookieName, value == null ? "" : value)
                 .httpOnly(true)
-                .secure(production)
-                .sameSite(production ? sessionCookieSameSite : "Lax")
+                .secure(sessionCookieSecure)
+                .sameSite(sameSite)
                 .path("/")
                 .maxAge(clear ? java.time.Duration.ZERO : java.time.Duration.ofMillis(Math.max(1000L, sessionMaxAgeMs)))
                 .build();
+    }
+
+    private String normalizeSameSite(String value) {
+        if (value == null || value.isBlank()) {
+            return "None";
+        }
+        String normalized = value.trim();
+        if ("strict".equalsIgnoreCase(normalized)) return "Strict";
+        if ("lax".equalsIgnoreCase(normalized)) return "Lax";
+        if ("none".equalsIgnoreCase(normalized)) return "None";
+        throw new IllegalStateException(
+                "Invalid AUTH_COOKIE_SAME_SITE value. Use Strict, Lax, or None.");
     }
 
     @GetMapping("/me")

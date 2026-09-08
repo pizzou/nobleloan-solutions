@@ -28,6 +28,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private final CustomUserDetailsService userDetailsService;
     private final UserRepository userRepository;
 
+    @org.springframework.beans.factory.annotation.Value("${app.auth.cookie.name:NLS_SESSION}")
+    private String sessionCookieName;
+
     public JwtAuthFilter(
         JwtUtils jwtUtils,
         CustomUserDetailsService userDetailsService,
@@ -83,7 +86,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             token = header.substring(7).trim();
         } else if (request.getCookies() != null) {
             for (jakarta.servlet.http.Cookie cookie : request.getCookies()) {
-                if ("NLS_SESSION".equals(cookie.getName())) {
+                if (sessionCookieName.equals(cookie.getName())) {
                     token = cookie.getValue();
                     break;
                 }
