@@ -1618,14 +1618,31 @@ public class BnrTemplateExportService {
     }
 
     private String provisioningFormula(String table, String sourceColumn) {
-        String ref = table + "[[#This Row],[Column" + sourceColumn + "]]";
-        return "IF(" + table + "[[#This Row],[Column" + sourceColumn + "]]=$O$2," + ref + "*100%,"
-                + "IF(" + table + "[[#This Row],[Column" + sourceColumn + "]]=$O$3," + ref + "*100%,"
-                + "IF(" + table + "[[#This Row],[Column" + sourceColumn + "]]=$O$4," + ref + "*100%,"
-                + "IF(" + table + "[[#This Row],[Column" + sourceColumn + "]]=$O$5," + ref + "*60%,"
-                + "IF(" + table + "[[#This Row],[Column" + sourceColumn + "]]=$O$6," + ref + "*40%,"
-                + "IF(" + table + "[[#This Row],[Column" + sourceColumn + "]]=$O$7," + ref + "*40%,"
-                + "IF(" + table + "[[#This Row],[Column" + sourceColumn + "]]=$O$8," + ref + "*40%,0)))))))";
+        /*
+         * BNR table headers are not generated from the numeric column index.
+         * In particular, the supplied BNR template defines this field as
+         * "Column 12" (with a space), not "Column12". Excel structured
+         * references must match the table header exactly.
+         */
+        String tableColumn = provisioningTableColumnName(sourceColumn);
+        String ref = table + "[[#This Row],[" + tableColumn + "]]";
+        return "IF(" + ref + "=$O$2," + ref + "*100%,"
+                + "IF(" + ref + "=$O$3," + ref + "*100%,"
+                + "IF(" + ref + "=$O$4," + ref + "*100%,"
+                + "IF(" + ref + "=$O$5," + ref + "*60%,"
+                + "IF(" + ref + "=$O$6," + ref + "*40%,"
+                + "IF(" + ref + "=$O$7," + ref + "*40%,"
+                + "IF(" + ref + "=$O$8," + ref + "*40%,0)))))))";
+    }
+
+    private String provisioningTableColumnName(String sourceColumn) {
+        if ("12".equals(sourceColumn)) {
+            return "Column 12";
+        }
+        if ("13".equals(sourceColumn)) {
+            return "Column13";
+        }
+        return "Column" + sourceColumn;
     }
 
     private void setFormulaIfBlank(Sheet sheet, int rowIndex, int column, String formula) {
