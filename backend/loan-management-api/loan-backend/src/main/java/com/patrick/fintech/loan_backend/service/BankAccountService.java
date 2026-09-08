@@ -1504,7 +1504,7 @@ public class BankAccountService {
 
             firstLocked =
                     bankAccountRepo
-                            .findByIdAndOrganization_IdForUpdate(
+                            .findByIdAndOrganizationIdForUpdate(
                                     fromAccountId,
                                     organization.getId()
                             )
@@ -1518,7 +1518,7 @@ public class BankAccountService {
 
             secondLocked =
                     bankAccountRepo
-                            .findByIdAndOrganization_IdForUpdate(
+                            .findByIdAndOrganizationIdForUpdate(
                                     toAccountId,
                                     organization.getId()
                             )
@@ -1534,7 +1534,7 @@ public class BankAccountService {
 
             firstLocked =
                     bankAccountRepo
-                            .findByIdAndOrganization_IdForUpdate(
+                            .findByIdAndOrganizationIdForUpdate(
                                     toAccountId,
                                     organization.getId()
                             )
@@ -1548,7 +1548,7 @@ public class BankAccountService {
 
             secondLocked =
                     bankAccountRepo
-                            .findByIdAndOrganization_IdForUpdate(
+                            .findByIdAndOrganizationIdForUpdate(
                                     fromAccountId,
                                     organization.getId()
                             )
