@@ -3,6 +3,7 @@ package com.patrick.fintech.loan_backend.repository;
 
 import com.patrick.fintech.loan_backend.model.JournalEntry;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 
 
 import java.time.LocalDate;
@@ -30,6 +31,7 @@ public interface JournalEntryRepository
      * ============================================================
      */
 
+    @EntityGraph(attributePaths = {"lines", "lines.account"})
     List<JournalEntry>
     findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAsc(
             Long organizationId,

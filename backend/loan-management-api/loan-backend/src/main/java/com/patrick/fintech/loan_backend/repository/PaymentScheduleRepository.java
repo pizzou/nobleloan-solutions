@@ -12,10 +12,7 @@ public interface PaymentScheduleRepository
         List<PaymentSchedule> findByLoanIdOrderByInstallmentNumberAsc(
                         Long loanId);
 
-        /**
-         * Bulk-load schedules for regulatory exports. This avoids one SQL query
-         * per loan when generating BNR/credit-bureau workbooks.
-         */
+        /** Bulk load schedules for regulatory exports. */
         List<PaymentSchedule> findByLoan_IdInOrderByLoan_IdAscInstallmentNumberAsc(
                         List<Long> loanIds);
 

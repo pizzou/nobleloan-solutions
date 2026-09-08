@@ -119,19 +119,16 @@ public class BnrFinancialStatementService {
                 }
 
                 // ========================================================
-                // ACTIVE ENTRIES
+                // ACTIVE ENTRIES / PERIOD VIEW
                 // ========================================================
+                // The historical query already contains every entry through
+                // the reporting cut-off. Re-querying the current period was
+                // doubling database I/O and entity hydration. Build the
+                // period view from the already-loaded ledger instead.
 
                 historicalEntries = activeEntries(
                                 historicalEntries);
 
-                /*
-                 * The historical query already contains every journal entry
-                 * through the reporting cut-off. Re-querying the same ledger
-                 * for the current period doubled database I/O and Hibernate
-                 * object hydration during BNR exports. Derive the period view
-                 * from the validated historical set instead.
-                 */
                 List<JournalEntry> periodEntries = historicalEntries.stream()
                                 .filter(Objects::nonNull)
                                 .filter(entry -> entry.getEntryDate() != null)

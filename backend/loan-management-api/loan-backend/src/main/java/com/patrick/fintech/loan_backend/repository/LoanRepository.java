@@ -160,6 +160,43 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             Long borrowerId,
             Long organizationId);
 
+    /** Bulk borrower history for regulatory exports. */
+    @EntityGraph(attributePaths = {
+            "borrower",
+            "organization",
+            "branch",
+            "loanOfficer"
+    })
+    List<Loan> findByBorrowerIdInAndOrganizationId(
+            List<Long> borrowerIds,
+            Long organizationId);
+
+    /** BNR portfolio query without fetching the payments collection. */
+    @EntityGraph(attributePaths = {
+            "borrower",
+            "organization",
+            "branch",
+            "loanOfficer"
+    })
+    @Query("""
+            SELECT l
+            FROM Loan l
+            WHERE l.organization.id = :orgId
+              AND (:branchId IS NULL OR l.branch.id = :branchId)
+              AND (
+                  l.imported = true
+                  OR l.importBatchId IS NOT NULL
+                  OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+                  OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+                  OR (l.disbursedAt IS NOT NULL AND l.disbursedAt < :asOf)
+              )
+            ORDER BY l.disbursedAt ASC
+            """)
+    List<Loan> findPortfolioAsOfForBnrExport(
+            @Param("orgId") Long orgId,
+            @Param("branchId") Long branchId,
+            @Param("asOf") LocalDateTime asOf);
+
     /**
      * Find loans whose status is one of the supplied statuses.
      */
@@ -443,17 +480,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             SELECT COALESCE(SUM(l.applicationFeePaid), 0)
             FROM Loan l
             WHERE l.organization = :org
-              AND l.status IN (
-                  'DISBURSED',
-                  'ACTIVE',
-                  'OVERDUE',
-                  'DEFAULTED',
-                  'RESTRUCTURED',
-                  'PAID',
-                  'CLOSED',
-                  'WRITTEN_OFF'
-              )
-              AND COALESCE(l.disbursedAmount, 0) > 0
               AND COALESCE(l.applicationFeePaid, 0) > 0
             """)
     BigDecimal sumApplicationFeesCollected(
@@ -704,37 +730,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             ORDER BY l.disbursedAt ASC
             """)
     List<Loan> findPortfolioAsOf(
-            @Param("orgId") Long orgId,
-            @Param("branchId") Long branchId,
-            @Param("asOf") LocalDateTime asOf);
-
-    /**
-     * Lightweight BNR export portfolio query.  Deliberately does not fetch
-     * Loan.payments: the BNR exporter reads payment schedules separately in
-     * one batch query. This avoids the collection-fetch Cartesian explosion
-     * that can exhaust Render memory and surface as HTTP 502.
-     */
-    @EntityGraph(attributePaths = {
-            "borrower",
-            "organization",
-            "branch",
-            "loanOfficer"
-    })
-    @Query("""
-            SELECT l
-            FROM Loan l
-            WHERE l.organization.id = :orgId
-              AND (:branchId IS NULL OR l.branch.id = :branchId)
-              AND (
-                  l.imported = true
-                  OR l.importBatchId IS NOT NULL
-                  OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
-                  OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
-                  OR (l.disbursedAt IS NOT NULL AND l.disbursedAt < :asOf)
-              )
-            ORDER BY l.disbursedAt ASC
-            """)
-    List<Loan> findPortfolioAsOfForBnrExport(
             @Param("orgId") Long orgId,
             @Param("branchId") Long branchId,
             @Param("asOf") LocalDateTime asOf);
