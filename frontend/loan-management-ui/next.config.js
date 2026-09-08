@@ -2,7 +2,7 @@ const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
   async rewrites() {
-    const api = process.env.BACKEND_API_URL?.trim();
+    const api = process.env.NEXT_PUBLIC_API_URL?.trim();
     if (!api || api.startsWith("/")) return [];
     return [{ source: "/api/:path*", destination: `${api.replace(/\/$/, "")}/:path*` }];
   },
