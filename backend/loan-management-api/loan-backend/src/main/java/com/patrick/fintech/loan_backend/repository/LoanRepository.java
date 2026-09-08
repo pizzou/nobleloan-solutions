@@ -171,6 +171,20 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             List<Long> borrowerIds,
             Long organizationId);
 
+    /** Only completed historical facilities are needed for BNR's
+     * previous-loans-paid-on-time indicator. Avoid loading active/pending
+     * borrower history into the export JVM. */
+    @EntityGraph(attributePaths = {
+            "borrower",
+            "organization",
+            "branch",
+            "loanOfficer"
+    })
+    List<Loan> findByBorrowerIdInAndOrganizationIdAndStatusIn(
+            List<Long> borrowerIds,
+            Long organizationId,
+            List<LoanStatus> statuses);
+
     /** BNR portfolio query without fetching the payments collection. */
     @EntityGraph(attributePaths = {
             "borrower",

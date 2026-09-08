@@ -11,78 +11,165 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.net.URI;
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * CSRF defense for the HttpOnly session cookie. Browser requests that mutate
- * state must originate from one of the explicitly configured trusted origins.
- * Non-browser/API clients without Origin/Referer are allowed because they do not
- * carry the browser session cookie unless they explicitly opt into it.
+ * Defense-in-depth CSRF origin check for cookie-authenticated mutations.
+ *
+ * Spring Security's CSRF token remains the authoritative browser CSRF control.
+ * This filter adds an origin/fetch-metadata check without breaking bearer/API-key
+ * clients or requests passing through a same-origin frontend proxy.
  */
 @Component
 public class SameOriginMutationFilter extends OncePerRequestFilter {
 
     private final Set<String> allowedOrigins;
+    private final String sessionCookieName;
 
-    public SameOriginMutationFilter(@Value("${app.cors.allowed-origins:}") String origins) {
+    public SameOriginMutationFilter(
+            @Value("${app.cors.allowed-origins:}") String origins,
+            @Value("${app.auth.cookie.name:NLS_SESSION}") String sessionCookieName) {
+
         String configured = origins == null ? "" : origins;
         this.allowedOrigins = Arrays.stream(configured.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isBlank())
                 .map(this::normalize)
+                .filter(s -> !s.isBlank())
                 .collect(Collectors.toUnmodifiableSet());
+
+        this.sessionCookieName = sessionCookieName == null || sessionCookieName.isBlank()
+                ? "NLS_SESSION"
+                : sessionCookieName.trim();
     }
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
-            throws ServletException, IOException {
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        return "OPTIONS".equalsIgnoreCase(request.getMethod());
+    }
 
-        String method = request.getMethod();
-        boolean mutation = "POST".equalsIgnoreCase(method) || "PUT".equalsIgnoreCase(method)
-                || "PATCH".equalsIgnoreCase(method) || "DELETE".equalsIgnoreCase(method);
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain chain) throws ServletException, IOException {
 
-        if (!mutation || !hasSessionCookie(request)) {
+        if (!isMutation(request) || !hasSessionCookie(request)) {
             chain.doFilter(request, response);
             return;
         }
 
-        String origin = request.getHeader("Origin");
-        String referer = request.getHeader("Referer");
-        String source = origin != null && !origin.isBlank() ? origin : originFromReferer(referer);
-
-        if (source == null || !allowedOrigins.contains(normalize(source))) {
-            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-            response.setContentType("application/json");
-            response.getWriter().write("{\"success\":false,\"error\":\"Cross-site state-changing request rejected.\"}");
+        // A bearer token is not automatically attached by a cross-site browser
+        // request and therefore does not need the cookie-origin defense.
+        String authorization = request.getHeader("Authorization");
+        if (authorization != null && authorization.regionMatches(true, 0, "Bearer ", 0, 7)
+                && authorization.substring(7).trim().length() > 0) {
+            chain.doFilter(request, response);
             return;
         }
 
-        chain.doFilter(request, response);
+        String origin = normalize(request.getHeader("Origin"));
+        String refererOrigin = normalize(originFromReferer(request.getHeader("Referer")));
+
+        if ("null".equals(origin)) {
+            reject(response);
+            return;
+        }
+
+        if (isAllowedOrigin(origin) || (origin.isBlank() && isAllowedOrigin(refererOrigin))) {
+            chain.doFilter(request, response);
+            return;
+        }
+
+        // Some reverse proxies can strip Origin/Referer. Fetch Metadata is a
+        // browser-controlled header and is safe to use as a fallback.
+        String fetchSite = request.getHeader("Sec-Fetch-Site");
+        if (origin.isBlank() && refererOrigin.isBlank()
+                && "same-origin".equalsIgnoreCase(fetchSite)) {
+            chain.doFilter(request, response);
+            return;
+        }
+
+        reject(response);
+    }
+
+    private boolean isMutation(HttpServletRequest request) {
+        String method = request.getMethod();
+        return "POST".equalsIgnoreCase(method)
+                || "PUT".equalsIgnoreCase(method)
+                || "PATCH".equalsIgnoreCase(method)
+                || "DELETE".equalsIgnoreCase(method);
     }
 
     private boolean hasSessionCookie(HttpServletRequest request) {
-        if (request.getCookies() == null) return false;
+        if (request.getCookies() == null) {
+            return false;
+        }
         for (var cookie : request.getCookies()) {
-            if ("NLS_SESSION".equals(cookie.getName()) && cookie.getValue() != null && !cookie.getValue().isBlank()) return true;
+            if (sessionCookieName.equals(cookie.getName())
+                    && cookie.getValue() != null
+                    && !cookie.getValue().isBlank()) {
+                return true;
+            }
         }
         return false;
     }
 
+    private boolean isAllowedOrigin(String origin) {
+        return origin != null && !origin.isBlank() && allowedOrigins.contains(origin);
+    }
+
     private String originFromReferer(String referer) {
-        if (referer == null || referer.isBlank()) return null;
+        if (referer == null || referer.isBlank()) {
+            return "";
+        }
         try {
-            URI uri = URI.create(referer);
-            if (uri.getScheme() == null || uri.getHost() == null) return null;
+            URI uri = URI.create(referer.trim());
+            if (uri.getScheme() == null || uri.getHost() == null) {
+                return "";
+            }
             return uri.getScheme() + "://" + uri.getRawAuthority();
-        } catch (Exception e) {
-            return null;
+        } catch (Exception ignored) {
+            return "";
         }
     }
 
     private String normalize(String value) {
-        String v = value == null ? "" : value.trim();
-        while (v.endsWith("/") && v.length() > 8) v = v.substring(0, v.length() - 1);
-        return v;
+        if (value == null) {
+            return "";
+        }
+
+        String v = value.trim();
+        if (v.isBlank() || "null".equalsIgnoreCase(v)) {
+            return v.isBlank() ? "" : "null";
+        }
+
+        try {
+            URI uri = URI.create(v);
+            if (uri.getScheme() != null && uri.getHost() != null) {
+                String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
+                String host = uri.getHost().toLowerCase(Locale.ROOT);
+                int port = uri.getPort();
+                boolean defaultPort = ("http".equals(scheme) && port == 80)
+                        || ("https".equals(scheme) && port == 443)
+                        || port == -1;
+                return defaultPort ? scheme + "://" + host : scheme + "://" + host + ":" + port;
+            }
+        } catch (Exception ignored) {
+            // Fall through to conservative string normalization.
+        }
+
+        while (v.endsWith("/") && v.length() > 8) {
+            v = v.substring(0, v.length() - 1);
+        }
+        return v.toLowerCase(Locale.ROOT);
+    }
+
+    private void reject(HttpServletResponse response) throws IOException {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        response.getWriter().write(
+                "{\"success\":false,\"error\":\"Cross-site state-changing request rejected.\"}");
     }
 }

@@ -25,6 +25,84 @@ const API: AxiosInstance = axios.create({
   },
 });
 
+let csrfToken: string | null = null;
+let csrfRefreshPromise: Promise<string | null> | null = null;
+
+function isMutationMethod(method?: string): boolean {
+  const value = String(method ?? "GET").toUpperCase();
+  return (
+    value === "POST" ||
+    value === "PUT" ||
+    value === "PATCH" ||
+    value === "DELETE"
+  );
+}
+
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+
+  const prefix = `${name}=`;
+  const item = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+
+  return item ? decodeURIComponent(item.slice(prefix.length)) : null;
+}
+
+async function refreshCsrfToken(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+
+  if (!csrfRefreshPromise) {
+    csrfRefreshPromise = axios
+      .get(`${API_BASE_URL}/auth/csrf`, {
+        withCredentials: true,
+        timeout: 10000,
+      })
+      .then((response) => {
+        const token =
+          typeof response.data?.token === "string"
+            ? response.data.token
+            : readCookie("XSRF-TOKEN");
+        csrfToken = token || null;
+        return csrfToken;
+      })
+      .finally(() => {
+        csrfRefreshPromise = null;
+      });
+  }
+
+  return csrfRefreshPromise;
+}
+
+API.interceptors.request.use(async (config) => {
+  if (!isMutationMethod(config.method)) {
+    return config;
+  }
+
+  const url = String(config.url ?? "");
+  if (
+    url.includes("/auth/login") ||
+    url.includes("/auth/register") ||
+    url.includes("/auth/forgot-password") ||
+    url.includes("/auth/reset-password") ||
+    url.includes("/auth/logout")
+  ) {
+    return config;
+  }
+
+  const token =
+    csrfToken || readCookie("XSRF-TOKEN") || (await refreshCsrfToken());
+  if (token) {
+    if (!config.headers) config.headers = new AxiosHeaders();
+    const headers = AxiosHeaders.from(config.headers);
+    headers.set("X-XSRF-TOKEN", token);
+    config.headers = headers;
+  }
+
+  return config;
+});
+
 API.interceptors.response.use(
   (response) => {
     return response;

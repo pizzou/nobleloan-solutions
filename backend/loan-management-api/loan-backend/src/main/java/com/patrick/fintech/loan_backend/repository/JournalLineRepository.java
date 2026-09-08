@@ -254,119 +254,75 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
     List<JournalLine> findInterestAccrualLines(
             @Param("accountId") Long accountId,
             @Param("organizationId") Long organizationId);
-    /*
-     * ============================================================
-     * BNR ACCOUNT-LEVEL LEDGER AGGREGATION
-     * ============================================================
+
+    /**
+     * Lightweight BNR financial-statement aggregation.
      *
-     * Returns historical and requested-period totals without hydrating
-     * JournalEntry/JournalLine entity graphs into Hibernate.
+     * PostgreSQL performs the ledger aggregation instead of hydrating every
+     * historical JournalEntry and JournalLine into Hibernate.
      */
+    interface BnrAccountAggregate {
+        Long getAccountId();
+        java.math.BigDecimal getHistoricalDebit();
+        java.math.BigDecimal getHistoricalCredit();
+        java.math.BigDecimal getPeriodDebit();
+        java.math.BigDecimal getPeriodCredit();
+    }
+
     @Query(value = """
             SELECT
-                l.account_id AS accountId,
-                COALESCE(SUM(l.debit), 0) AS historicalDebit,
-                COALESCE(SUM(l.credit), 0) AS historicalCredit,
-                COALESCE(SUM(
-                    CASE
-                        WHEN e.entry_date >= :fromDate
-                         AND e.entry_date <= :toDate
-                        THEN l.debit
-                        ELSE 0
-                    END
-                ), 0) AS periodDebit,
-                COALESCE(SUM(
-                    CASE
-                        WHEN e.entry_date >= :fromDate
-                         AND e.entry_date <= :toDate
-                        THEN l.credit
-                        ELSE 0
-                    END
-                ), 0) AS periodCredit
-            FROM journal_lines l
-            INNER JOIN journal_entries e
-                ON e.id = l.journal_entry_id
-            INNER JOIN chart_of_accounts a
-                ON a.id = l.account_id
-            WHERE e.organization_id = :organizationId
-              AND a.organization_id = :organizationId
-              AND e.entry_date >= :epochDate
-              AND e.entry_date <= :toDate
-              AND COALESCE(e.reversed, FALSE) = FALSE
-            GROUP BY l.account_id
-            ORDER BY l.account_id
+                jl.account_id AS accountId,
+                COALESCE(SUM(jl.debit), 0) AS historicalDebit,
+                COALESCE(SUM(jl.credit), 0) AS historicalCredit,
+                COALESCE(SUM(CASE
+                    WHEN je.entry_date BETWEEN :fromDate AND :toDate THEN jl.debit
+                    ELSE 0
+                END), 0) AS periodDebit,
+                COALESCE(SUM(CASE
+                    WHEN je.entry_date BETWEEN :fromDate AND :toDate THEN jl.credit
+                    ELSE 0
+                END), 0) AS periodCredit
+            FROM journal_lines jl
+            INNER JOIN journal_entries je
+                ON je.id = jl.journal_entry_id
+            WHERE je.organization_id = :organizationId
+              AND je.reversed = false
+              AND je.entry_date BETWEEN :historicalFrom AND :toDate
+            GROUP BY jl.account_id
+            ORDER BY jl.account_id
             """, nativeQuery = true)
-    List<BnrLedgerAggregateProjection> aggregateBnrLedger(
+    List<BnrAccountAggregate> findBnrAccountAggregates(
             @Param("organizationId") Long organizationId,
-            @Param("epochDate") java.time.LocalDate epochDate,
+            @Param("historicalFrom") java.time.LocalDate historicalFrom,
             @Param("fromDate") java.time.LocalDate fromDate,
             @Param("toDate") java.time.LocalDate toDate);
 
     /**
-     * Finds the first invalid BNR journal entry without hydrating the full
-     * ledger. This preserves the report's accounting-integrity gate.
+     * Finds the first active journal entry whose lines violate the same
+     * accounting invariants enforced by the previous entity-based report:
+     * empty lines, negative amounts, both debit and credit on one line,
+     * zero-value lines, or an imbalance of at least the materiality tolerance.
      */
     @Query(value = """
-            SELECT entry_id
-            FROM (
-                SELECT e.id AS entry_id
-                FROM journal_entries e
-                WHERE e.organization_id = :organizationId
-                  AND e.entry_date >= :epochDate
-                  AND e.entry_date <= :toDate
-                  AND COALESCE(e.reversed, FALSE) = FALSE
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM journal_lines l
-                      WHERE l.journal_entry_id = e.id
-                  )
-
-                UNION
-
-                SELECT e.id AS entry_id
-                FROM journal_entries e
-                INNER JOIN journal_lines l
-                    ON l.journal_entry_id = e.id
-                WHERE e.organization_id = :organizationId
-                  AND e.entry_date >= :epochDate
-                  AND e.entry_date <= :toDate
-                  AND COALESCE(e.reversed, FALSE) = FALSE
-                  AND (
-                       COALESCE(l.debit, 0) < 0
-                    OR COALESCE(l.credit, 0) < 0
-                    OR (
-                        COALESCE(l.debit, 0) > 0
-                        AND COALESCE(l.credit, 0) > 0
-                    )
-                    OR (
-                        COALESCE(l.debit, 0) = 0
-                        AND COALESCE(l.credit, 0) = 0
-                    )
-                    OR l.account_id IS NULL
-                  )
-
-                UNION
-
-                SELECT e.id AS entry_id
-                FROM journal_entries e
-                INNER JOIN journal_lines l
-                    ON l.journal_entry_id = e.id
-                WHERE e.organization_id = :organizationId
-                  AND e.entry_date >= :epochDate
-                  AND e.entry_date <= :toDate
-                  AND COALESCE(e.reversed, FALSE) = FALSE
-                GROUP BY e.id
-                HAVING ABS(
-                    COALESCE(SUM(l.debit), 0)
-                    - COALESCE(SUM(l.credit), 0)
-                ) > :tolerance
-            ) invalid_entries
-            ORDER BY entry_id
+            SELECT je.id
+            FROM journal_entries je
+            LEFT JOIN journal_lines jl
+                ON jl.journal_entry_id = je.id
+            WHERE je.organization_id = :organizationId
+              AND je.reversed = false
+              AND je.entry_date BETWEEN :fromDate AND :toDate
+            GROUP BY je.id
+            HAVING COUNT(jl.id) = 0
+                OR SUM(CASE WHEN jl.debit < 0 OR jl.credit < 0 THEN 1 ELSE 0 END) > 0
+                OR SUM(CASE WHEN jl.debit > 0 AND jl.credit > 0 THEN 1 ELSE 0 END) > 0
+                OR SUM(CASE WHEN COALESCE(jl.debit, 0) = 0 AND COALESCE(jl.credit, 0) = 0 THEN 1 ELSE 0 END) > 0
+                OR ABS(COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0)) >= :tolerance
+            ORDER BY je.id
             LIMIT 1
             """, nativeQuery = true)
-    List<Long> findInvalidBnrJournalEntryIds(
+    java.util.Optional<Long> findFirstInvalidBnrJournalEntry(
             @Param("organizationId") Long organizationId,
-            @Param("epochDate") java.time.LocalDate epochDate,
+            @Param("fromDate") java.time.LocalDate fromDate,
             @Param("toDate") java.time.LocalDate toDate,
             @Param("tolerance") java.math.BigDecimal tolerance);
 

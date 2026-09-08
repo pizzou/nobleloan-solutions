@@ -95,15 +95,6 @@ public class BnrTemplateExportService {
                         branchId,
                         reportDate.plusDays(1).atStartOfDay()));
 
-        List<Loan> disbursedLoans = safeLoans(
-                loanRepository.findLoansDisbursedDuringPeriod(
-                        organizationId,
-                        branchId,
-                        window[0].atStartOfDay(),
-                        window[1].plusDays(1).atStartOfDay(),
-                        window[0],
-                        window[1]));
-
         // Load all schedules and borrower loan histories in bulk. The old
         // implementation executed one or more SQL queries for every loan,
         // which made large BNR exports progressively slower and could lead to
@@ -152,7 +143,12 @@ public class BnrTemplateExportService {
                     window[0],
                     window[1]);
 
-            populateFinancialStatement(workbook, financialStatement, loans, disbursedLoans);
+            populateFinancialStatement(
+                    workbook,
+                    financialStatement,
+                    loans,
+                    window[0],
+                    window[1]);
             workbook.setForceFormulaRecalculation(true);
             workbook.write(output);
             output.flush();
@@ -3213,7 +3209,10 @@ public class BnrTemplateExportService {
             int end = Math.min(start + 500, borrowerIds.size());
             List<Long> batch = borrowerIds.subList(start, end);
             List<Loan> history = safeLoans(
-                    loanRepository.findByBorrowerIdInAndOrganizationId(batch, organizationId));
+                    loanRepository.findByBorrowerIdInAndOrganizationIdAndStatusIn(
+                            batch,
+                            organizationId,
+                            List.of(LoanStatus.PAID, LoanStatus.CLOSED)));
 
             for (Loan loan : history) {
                 if (loan == null || loan.getBorrower() == null || loan.getBorrower().getId() == null) {
@@ -3372,7 +3371,8 @@ public class BnrTemplateExportService {
             XSSFWorkbook workbook,
             BnrFinancialStatementReport report,
             List<Loan> portfolioLoans,
-            List<Loan> disbursedLoans) {
+            LocalDate from,
+            LocalDate to) {
 
         Sheet sheet = workbook.getSheet("A1.2. FS");
         if (sheet == null || report == null) {
@@ -3386,33 +3386,22 @@ public class BnrTemplateExportService {
 
         setCellValue(sheet, 2, currentColumn, report.getPeriodEnd());
 
-        // Supplementary portfolio totals are sourced from the same
-        // RegulatoryReportingService used by the BNR API. The exporter never
-        // reconstructs accounting balances from loan totals.
-        BnrSummaryReport summaryReport = regulatoryReportingService.buildBnrSummary(
-                report.getOrganizationId(),
-                report.getBranchId(),
-                RegulatoryReportingService.ReportPeriod.valueOf(
-                        report.getReportPeriod()),
-                report.getPeriodStart(),
-                report.getPeriodEnd());
+        // Reuse the already-loaded BNR portfolio. This avoids three additional
+        // database queries during export (portfolio, disbursements and payments)
+        // and removes a major source of long-running export requests.
+        BnrSummaryValues summary = buildSummaryValues(
+                portfolioLoans,
+                from,
+                to);
 
-        BigDecimal summaryRequiredProvision = BigDecimal.valueOf(summaryReport.getRequiredProvision());
         // Preserve the template's regulatory formulas. We only supply the
         // component inputs that the system can authoritatively source.
-        // Gross loans, net loans, NPLs and all regulatory totals remain formulas.
-        setCellValue(sheet, 9, currentColumn, summaryRequiredProvision); // Excel row 10: Provisions
+        setCellValue(sheet, 9, currentColumn, summary.requiredProvision); // Excel row 10: Provisions
         setCellValue(sheet, 30, currentColumn, report.getCurrentPeriodNetIncome()); // Excel row 31
 
         // Do not replace the template's regulatory formulas. The official form
         // already contains the NPL, ratio, total and cross-section formulas.
         populateAccountingComponents(sheet, currentColumn, report);
-
-        BnrSummaryValues summary = buildSummaryValues(
-                portfolioLoans,
-                disbursedLoans,
-                report.getPeriodStart(),
-                report.getPeriodEnd());
 
         setCellValue(sheet, 86, currentColumn, summary.normalOutstanding);
         setCellValue(sheet, 87, currentColumn, summary.watchOutstanding);
@@ -3660,12 +3649,10 @@ public class BnrTemplateExportService {
 
     private BnrSummaryValues buildSummaryValues(
             List<Loan> portfolio,
-            List<Loan> loans,
             LocalDate from,
             LocalDate to) {
 
-        portfolio = portfolio == null ? List.of() : portfolio;
-        loans = loans == null ? List.of() : loans;
+        List<Loan> safePortfolio = safeLoans(portfolio);
 
         BigDecimal normal = ZERO;
         BigDecimal watch = ZERO;
@@ -3679,8 +3666,16 @@ public class BnrTemplateExportService {
         long maleOutstandingLoans = 0;
         long femaleOutstandingLoans = 0;
         long otherOutstandingLoans = 0;
+        long maleDisbursedLoans = 0;
+        long femaleDisbursedLoans = 0;
+        long otherDisbursedLoans = 0;
+        BigDecimal maleDisbursedAmount = ZERO;
+        BigDecimal femaleDisbursedAmount = ZERO;
+        BigDecimal otherDisbursedAmount = ZERO;
 
-        for (Loan loan : portfolio) {
+        for (Loan loan : safePortfolio) {
+            if (loan == null) continue;
+
             BigDecimal outstanding = money(loan.getOutstandingBalanceDecimal()).max(ZERO);
             String classification = classificationKey(loan);
 
@@ -3709,8 +3704,7 @@ public class BnrTemplateExportService {
                 case "DOUBTFUL" -> doubtful = add(doubtful, outstanding);
                 case "LOSS" -> loss = add(loss, outstanding);
                 case "RESTRUCTURED" -> restructured = add(restructured, outstanding);
-                default -> {
-                }
+                default -> { }
             }
 
             String gender = loan.getBorrower() == null
@@ -3724,63 +3718,39 @@ public class BnrTemplateExportService {
             } else {
                 otherOutstandingLoans++;
             }
-        }
 
-        long maleDisbursedLoans = 0;
-        long femaleDisbursedLoans = 0;
-        long otherDisbursedLoans = 0;
-        BigDecimal maleDisbursedAmount = ZERO;
-        BigDecimal femaleDisbursedAmount = ZERO;
-        BigDecimal otherDisbursedAmount = ZERO;
-
-        for (Loan loan : loans) {
             LocalDate disbursedDate = loan.getDisbursedAt() == null
                     ? loan.getStartDate()
                     : loan.getDisbursedAt().toLocalDate();
 
-            if (disbursedDate == null
-                    || disbursedDate.isBefore(from)
-                    || disbursedDate.isAfter(to)) {
-                continue;
-            }
+            if (from != null && to != null
+                    && disbursedDate != null
+                    && !disbursedDate.isBefore(from)
+                    && !disbursedDate.isAfter(to)) {
 
-            BigDecimal amount = principalOrDisbursed(loan);
-            String gender = loan.getBorrower() == null
-                    ? ""
-                    : normalize(loan.getBorrower().getGender());
+                BigDecimal amount = principalOrDisbursed(loan);
 
-            if ("MALE".equals(gender) || "M".equals(gender)) {
-                maleDisbursedLoans++;
-                maleDisbursedAmount = add(maleDisbursedAmount, amount);
-            } else if ("FEMALE".equals(gender) || "F".equals(gender)) {
-                femaleDisbursedLoans++;
-                femaleDisbursedAmount = add(femaleDisbursedAmount, amount);
-            } else {
-                otherDisbursedLoans++;
-                otherDisbursedAmount = add(otherDisbursedAmount, amount);
+                if ("MALE".equals(gender) || "M".equals(gender)) {
+                    maleDisbursedLoans++;
+                    maleDisbursedAmount = add(maleDisbursedAmount, amount);
+                } else if ("FEMALE".equals(gender) || "F".equals(gender)) {
+                    femaleDisbursedLoans++;
+                    femaleDisbursedAmount = add(femaleDisbursedAmount, amount);
+                } else {
+                    otherDisbursedLoans++;
+                    otherDisbursedAmount = add(otherDisbursedAmount, amount);
+                }
             }
         }
 
         return new BnrSummaryValues(
-                normal,
-                watch,
-                substandard,
-                doubtful,
-                loss,
-                restructured,
+                normal, watch, substandard, doubtful, loss, restructured,
                 add(add(add(normal, watch), add(substandard, doubtful)),
                         add(loss, restructured)),
-                requiredProvision,
-                nplAmount,
-                maleOutstandingLoans,
-                femaleOutstandingLoans,
-                otherOutstandingLoans,
-                maleDisbursedLoans,
-                femaleDisbursedLoans,
-                otherDisbursedLoans,
-                maleDisbursedAmount,
-                femaleDisbursedAmount,
-                otherDisbursedAmount);
+                requiredProvision, nplAmount,
+                maleOutstandingLoans, femaleOutstandingLoans, otherOutstandingLoans,
+                maleDisbursedLoans, femaleDisbursedLoans, otherDisbursedLoans,
+                maleDisbursedAmount, femaleDisbursedAmount, otherDisbursedAmount);
     }
 
     private void addValidationSheet(

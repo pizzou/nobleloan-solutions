@@ -13,6 +13,7 @@ import com.patrick.fintech.loan_backend.service.RegulatoryReportingService;
 import com.patrick.fintech.loan_backend.service.RegulatoryReportingService.ReportPeriod;
 import com.patrick.fintech.loan_backend.service.ReportExportService;
 import com.patrick.fintech.loan_backend.service.BnrTemplateExportService;
+import com.patrick.fintech.loan_backend.service.BnrExportJobService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 
 import lombok.RequiredArgsConstructor;
@@ -20,6 +21,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 
@@ -46,6 +49,8 @@ public class BnrReportController {
         private final RegulatoryReportingService reportingService;
 
         private final BnrTemplateExportService bnrTemplateExportService;
+
+        private final BnrExportJobService bnrExportJobService;
 
         private final ReportExportService exportService;
 
@@ -220,6 +225,78 @@ public class BnrReportController {
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(result));
+        }
+
+        @PostMapping("/export/jobs")
+        public ResponseEntity<Map<String, Object>> startBnrExport(
+                        @RequestParam(defaultValue = "xlsx") String format,
+                        @RequestParam(required = false) Long branchId,
+                        @RequestParam(required = false, defaultValue = "MONTHLY") ReportPeriod period,
+                        @RequestParam(required = false) String from,
+                        @RequestParam(required = false) String to) {
+
+                if (format == null || !"xlsx".equalsIgnoreCase(format.trim())) {
+                        throw new IllegalArgumentException(
+                                        "The BNR regulatory workbook export is available as XLSX.");
+                }
+
+                Long organizationId = currentUserUtil.getCurrentOrganizationId();
+                if (organizationId == null) {
+                        throw new IllegalStateException("No organization is associated with the current user.");
+                }
+
+                var job = bnrExportJobService.create(
+                                organizationId, branchId, period, parseDate(from), parseDate(to));
+                bnrExportJobService.process(job.getId());
+
+                return ResponseEntity.accepted().body(Map.of(
+                                "success", true,
+                                "jobId", job.getId(),
+                                "status", job.getStatus().name()));
+        }
+
+        @GetMapping("/export/jobs/{jobId}")
+        public ResponseEntity<Map<String, Object>> bnrExportStatus(@PathVariable String jobId) {
+                var job = bnrExportJobService.get(jobId);
+                if (job == null || !organizationMatches(job.getOrganizationId())) {
+                        throw new IllegalArgumentException("BNR export job not found.");
+                }
+
+                Map<String, Object> body = new LinkedHashMap<>();
+                body.put("success", true);
+                body.put("jobId", job.getId());
+                body.put("status", job.getStatus().name());
+                body.put("size", job.getSize());
+                if (job.getError() != null) body.put("error", job.getError());
+                return ResponseEntity.ok(body);
+        }
+
+        @GetMapping("/export/jobs/{jobId}/download")
+        public ResponseEntity<Resource> downloadBnrExport(@PathVariable String jobId) {
+                var job = bnrExportJobService.get(jobId);
+                if (job == null || !organizationMatches(job.getOrganizationId())) {
+                        throw new IllegalArgumentException("BNR export job not found.");
+                }
+                if (job.getStatus() != BnrExportJobService.Status.COMPLETED) {
+                        throw new IllegalStateException("BNR export is not ready yet.");
+                }
+
+                var file = bnrExportJobService.completedFile(job);
+                if (file == null) {
+                        throw new IllegalStateException("BNR export file is no longer available.");
+                }
+
+                String filename = "BNR-REPORT-"
+                                + LocalDate.now().format(DateTimeFormatter.ISO_DATE)
+                                + ".xlsx";
+
+                return ResponseEntity.ok()
+                                .contentType(MediaType.parseMediaType(
+                                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                                .contentLength(job.getSize())
+                                .header(HttpHeaders.CONTENT_DISPOSITION,
+                                                "attachment; filename=\"" + filename + "\"")
+                                .body(new FileSystemResource(file));
         }
 
         @GetMapping("/export")
@@ -1075,6 +1152,11 @@ public class BnrReportController {
         // ============================================================
         // DATE PARSER
         // ============================================================
+
+        private boolean organizationMatches(Long organizationId) {
+                Long current = currentUserUtil.getCurrentOrganizationId();
+                return current != null && current.equals(organizationId);
+        }
 
         private LocalDate parseDate(
                         String value) {

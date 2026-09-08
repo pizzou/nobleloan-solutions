@@ -22,6 +22,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -53,6 +54,12 @@ public class SecurityConfig {
     @Value("${app.security.expose-api-docs:false}")
     private boolean exposeApiDocs;
 
+    @Value("${app.auth.cookie.secure:true}")
+    private boolean secureCookies;
+
+    @Value("${app.auth.cookie.same-site:None}")
+    private String sameSite;
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 
@@ -65,36 +72,28 @@ public class SecurityConfig {
                 .configurationSource(corsConfigurationSource())
             )
 
-            // ============================================================
-            // CSRF
-            // ============================================================
-            //
-            // IMPORTANT:
-            //
-            // The authentication bootstrap endpoints cannot require a CSRF
-            // token because the user does not yet have an authenticated
-            // application session.
-            //
-            // Login/register/password recovery are therefore excluded.
-            //
-            // CSRF remains ENABLED for the rest of the application.
-            // ============================================================
-            .csrf(csrf -> csrf
-                .csrfTokenRepository(
-                    CookieCsrfTokenRepository.withHttpOnlyFalse()
-                )
-                .csrfTokenRequestHandler(
-                    new CsrfTokenRequestAttributeHandler()
-                )
-                .ignoringRequestMatchers(
-                    "/api/auth/login",
-                    "/api/auth/register",
-                    "/api/auth/forgot-password",
-                    "/api/auth/reset-password",
-                    "/api/auth/logout",
-                    "/api/public/webhooks/**"
-                )
-            )
+           
+.csrf(csrf -> csrf
+    .csrfTokenRepository(
+        CookieCsrfTokenRepository.withHttpOnlyFalse()
+    )
+    .csrfTokenRequestHandler(
+        new CsrfTokenRequestAttributeHandler()
+    )
+    .ignoringRequestMatchers(request -> {
+
+        String uri = request.getRequestURI();
+
+        return "/api/auth/login".equals(uri)
+            || "/api/auth/register".equals(uri)
+            || "/api/auth/forgot-password".equals(uri)
+            || "/api/auth/reset-password".equals(uri)
+            || "/api/auth/logout".equals(uri)
+            || uri.startsWith("/api/public/webhooks/");
+    })
+)
+
+
 
             // ============================================================
             // STATELESS SECURITY
@@ -288,12 +287,12 @@ public class SecurityConfig {
             )
 
             .addFilterBefore(
-                sameOriginMutationFilter,
+                jwtFilter,
                 UsernamePasswordAuthenticationFilter.class
             )
 
             .addFilterBefore(
-                jwtFilter,
+                sameOriginMutationFilter,
                 UsernamePasswordAuthenticationFilter.class
             )
 
@@ -436,6 +435,45 @@ public class SecurityConfig {
     // ================================================================
     // AUTHENTICATION MANAGER
     // ================================================================
+
+    @Bean
+    public CookieCsrfTokenRepository csrfTokenRepository() {
+        CookieCsrfTokenRepository repository =
+            CookieCsrfTokenRepository.withHttpOnlyFalse();
+
+        repository.setCookieCustomizer(builder -> builder
+            .secure(secureCookies)
+            .httpOnly(false)
+            .sameSite(normalizeSameSite(sameSite))
+            .path("/"));
+
+        return repository;
+    }
+
+    private RequestMatcher bearerAuthenticationMatcher() {
+        return request -> {
+            String authorization = request.getHeader("Authorization");
+            return authorization != null
+                && authorization.regionMatches(true, 0, "Bearer ", 0, 7)
+                && authorization.substring(7).trim().length() > 0;
+        };
+    }
+
+    private RequestMatcher apiKeyAuthenticationMatcher() {
+        return request -> {
+            String apiKey = request.getHeader("X-Api-Key");
+            return apiKey != null && !apiKey.isBlank();
+        };
+    }
+
+    private String normalizeSameSite(String value) {
+        if (value == null || value.isBlank()) return "None";
+        if ("strict".equalsIgnoreCase(value)) return "Strict";
+        if ("lax".equalsIgnoreCase(value)) return "Lax";
+        if ("none".equalsIgnoreCase(value)) return "None";
+        throw new IllegalStateException(
+            "Invalid AUTH_COOKIE_SAME_SITE value. Use Strict, Lax, or None.");
+    }
 
     @Bean
     public AuthenticationManager authenticationManager(

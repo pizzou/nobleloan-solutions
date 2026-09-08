@@ -843,37 +843,74 @@ export const regulatoryApi = {
     format: ExportFormat,
     params?: BnrReportParams,
   ): Promise<void> {
-    try {
-      const response = await api.get("/regulatory/bnr/export", {
-        params: {
-          ...toQueryParams(params),
-          format,
-        },
-
-        responseType: "blob",
-        // Regulatory workbooks are generated server-side and may contain
-        // thousands of rows. Do not let the normal 20s API timeout abort the
-        // download and cause a server-side broken-pipe log.
-        timeout: 120000,
-
-        headers: {
-          Accept: getExportAcceptHeader(format),
-        },
-      });
-
-      const blob =
-        response.data instanceof Blob
-          ? response.data
-          : new Blob([response.data], {
-              type: getExportContentType(format),
-            });
-
-      triggerDownload(blob, `bnr-summary.${format}`);
-    } catch (error) {
-      console.error("BNR export failed:", error);
-
-      throw error;
+    if (format !== "xlsx") {
+      throw new Error("The BNR regulatory export is available as XLSX.");
     }
+
+    // BNR XLSX generation is intentionally asynchronous. A large workbook can
+    // take longer than Vercel/Render's gateway timeout; keeping the original
+    // HTTP request open caused the persistent 502 seen during export.
+    const started = await api.post("/regulatory/bnr/export/jobs", null, {
+      params: {
+        ...toQueryParams(params),
+        format,
+      },
+    });
+
+    const jobId = started?.data?.jobId;
+    if (!jobId || typeof jobId !== "string") {
+      throw new Error("The BNR export job could not be started.");
+    }
+
+    const deadline = Date.now() + 15 * 60 * 1000;
+
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+
+      const statusResponse = await api.get(
+        `/regulatory/bnr/export/jobs/${encodeURIComponent(jobId)}`,
+        { timeout: 20000 },
+      );
+
+      const status = statusResponse?.data?.status;
+
+      if (status === "COMPLETED") {
+        const response = await api.get(
+          `/regulatory/bnr/export/jobs/${encodeURIComponent(jobId)}/download`,
+          {
+            responseType: "blob",
+            timeout: 120000,
+            headers: {
+              Accept: getExportAcceptHeader(format),
+            },
+          },
+        );
+
+        const blob =
+          response.data instanceof Blob
+            ? response.data
+            : new Blob([response.data], {
+                type: getExportContentType(format),
+              });
+
+        triggerDownload(
+          blob,
+          `BNR-REPORT-${new Date().toISOString().slice(0, 10)}.xlsx`,
+        );
+        return;
+      }
+
+      if (status === "FAILED") {
+        throw new Error(
+          statusResponse?.data?.error ||
+            "BNR export failed while generating the workbook.",
+        );
+      }
+    }
+
+    throw new Error(
+      "BNR export is taking longer than expected. The report is still processing; please retry the export status shortly.",
+    );
   },
 
   /**

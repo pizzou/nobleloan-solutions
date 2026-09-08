@@ -5,9 +5,8 @@ import com.patrick.fintech.loan_backend.model.ChartOfAccount;
 import com.patrick.fintech.loan_backend.model.JournalEntry;
 import com.patrick.fintech.loan_backend.model.JournalLine;
 import com.patrick.fintech.loan_backend.model.Loan;
-import com.patrick.fintech.loan_backend.repository.BnrLedgerAggregateProjection;
 import com.patrick.fintech.loan_backend.repository.ChartOfAccountRepository;
-import com.patrick.fintech.loan_backend.repository.JournalLineRepository;
+import com.patrick.fintech.loan_backend.repository.JournalEntryRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -35,7 +34,7 @@ public class BnrFinancialStatementService {
 
         private final ChartOfAccountRepository chartOfAccountRepository;
 
-        private final JournalLineRepository journalLineRepository;
+        private final JournalEntryRepository journalEntryRepository;
 
         private final LoanRepository loanRepository;
 
@@ -106,45 +105,36 @@ public class BnrFinancialStatementService {
                                 .toList();
 
                 // ========================================================
-                // DATABASE-SIDE LEDGER AGGREGATION
-                // ========================================================
-                //
-                // The previous implementation loaded every JournalEntry and
-                // every JournalLine from the accounting epoch to the report
-                // date into Hibernate. On a growing production ledger this
-                // creates large entity graphs, persistence-context pressure
-                // and potentially thousands of lazy-loading queries.
-                //
-                // BNR only needs account-level totals. PostgreSQL is therefore
-                // asked to aggregate the ledger directly. This keeps the
-                // accounting result equivalent while making the amount of Java
-                // work essentially proportional to the number of chart-of-
-                // account rows rather than the number of journal lines.
+                // LOAD HISTORICAL JOURNAL ENTRIES
                 // ========================================================
 
-                validateBnrLedgerIntegrity(
-                                organizationId,
-                                from,
-                                to);
-
-                List<BnrLedgerAggregateProjection> aggregates =
-                                journalLineRepository.aggregateBnrLedger(
+                List<JournalEntry> historicalEntries = journalEntryRepository
+                                .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAsc(
                                                 organizationId,
                                                 ACCOUNTING_EPOCH,
-                                                from,
                                                 to);
 
-                // ========================================================
-                // ACCOUNT LOOKUP
-                // ========================================================
-
-                Map<Long, ChartOfAccount> accountsById = new LinkedHashMap<>();
-
-                for (ChartOfAccount account : accounts) {
-                        if (account != null && account.getId() != null) {
-                                accountsById.put(account.getId(), account);
-                        }
+                if (historicalEntries == null) {
+                        historicalEntries = new ArrayList<>();
                 }
+
+                // ========================================================
+                // ACTIVE ENTRIES / PERIOD VIEW
+                // ========================================================
+                // The historical query already contains every entry through
+                // the reporting cut-off. Re-querying the current period was
+                // doubling database I/O and entity hydration. Build the
+                // period view from the already-loaded ledger instead.
+
+                historicalEntries = activeEntries(
+                                historicalEntries);
+
+                List<JournalEntry> periodEntries = historicalEntries.stream()
+                                .filter(Objects::nonNull)
+                                .filter(entry -> entry.getEntryDate() != null)
+                                .filter(entry -> !entry.getEntryDate().isBefore(from)
+                                                && !entry.getEntryDate().isAfter(to))
+                                .toList();
 
                 // ========================================================
                 // ACCOUNT MAPS
@@ -166,89 +156,34 @@ public class BnrFinancialStatementService {
                                 accounts);
 
                 // ========================================================
-                // APPLY DATABASE AGGREGATES
+                // PROCESS HISTORICAL ENTRIES
                 // ========================================================
 
-                for (BnrLedgerAggregateProjection aggregate : aggregates) {
+                for (JournalEntry entry : historicalEntries) {
 
-                        if (aggregate == null || aggregate.getAccountId() == null) {
-                                continue;
-                        }
+                        processEndingBalanceEntry(
+                                        entry,
+                                        endingBalances,
+                                        organizationId);
 
-                        Long accountId = aggregate.getAccountId();
+                        processIncomeExpenseEntry(
+                                        entry,
+                                        historicalIncome,
+                                        historicalExpenses,
+                                        organizationId);
+                }
 
-                        // Ignore ledger lines belonging to an account that is
-                        // not part of this organization's chart of accounts.
-                        if (!endingBalances.containsKey(accountId)) {
-                                continue;
-                        }
+                // ========================================================
+                // PROCESS CURRENT PERIOD
+                // ========================================================
 
-                        BigDecimal historicalDebit = value(
-                                aggregate.getHistoricalDebit());
+                for (JournalEntry entry : periodEntries) {
 
-                        BigDecimal historicalCredit = value(
-                                aggregate.getHistoricalCredit());
-
-                        BigDecimal periodDebit = value(
-                                aggregate.getPeriodDebit());
-
-                        BigDecimal periodCredit = value(
-                                aggregate.getPeriodCredit());
-
-                        ChartOfAccount account = accountsById.get(accountId);
-
-                        if (account == null) {
-                                continue;
-                        }
-
-                        BigDecimal endingMovement;
-
-                        if (account.getNormalBalance()
-                                == ChartOfAccount.NormalBalance.DEBIT) {
-
-                                endingMovement = subtract(
-                                        historicalDebit,
-                                        historicalCredit);
-
-                        } else {
-
-                                endingMovement = subtract(
-                                        historicalCredit,
-                                        historicalDebit);
-                        }
-
-                        endingBalances.put(
-                                accountId,
-                                normalizeMoney(endingMovement));
-
-                        periodDebits.put(
-                                accountId,
-                                normalizeMoney(periodDebit));
-
-                        periodCredits.put(
-                                accountId,
-                                normalizeMoney(periodCredit));
-
-                        if (account.getType()
-                                == ChartOfAccount.AccountType.INCOME) {
-
-                                historicalIncome.put(
-                                        accountId,
-                                        normalizeMoney(
-                                                subtract(
-                                                        historicalCredit,
-                                                        historicalDebit)));
-
-                        } else if (account.getType()
-                                == ChartOfAccount.AccountType.EXPENSE) {
-
-                                historicalExpenses.put(
-                                        accountId,
-                                        normalizeMoney(
-                                                subtract(
-                                                        historicalDebit,
-                                                        historicalCredit)));
-                        }
+                        processPeriodEntry(
+                                        entry,
+                                        periodDebits,
+                                        periodCredits,
+                                        organizationId);
                 }
 
                 // ========================================================
@@ -564,29 +499,41 @@ public class BnrFinancialStatementService {
                 // ========================================================
                 // TRIAL BALANCE
                 // ========================================================
-                // The same database aggregation already contains the complete
-                // requested-period debit and credit totals. Reusing those
-                // totals avoids loading JournalEntry/JournalLine entities a
-                // second time and keeps the trial balance consistent with the
-                // statement figures. Ledger integrity was checked above.
 
                 BigDecimal trialBalanceDebit = ZERO;
 
                 BigDecimal trialBalanceCredit = ZERO;
 
-                for (BnrLedgerAggregateProjection aggregate : aggregates) {
+                for (JournalEntry entry : periodEntries) {
 
-                        if (aggregate == null) {
+                        if (entry == null) {
                                 continue;
                         }
 
-                        trialBalanceDebit = add(
-                                        trialBalanceDebit,
-                                        value(aggregate.getPeriodDebit()));
+                        if (entry.getLines() == null) {
+                                continue;
+                        }
 
-                        trialBalanceCredit = add(
-                                        trialBalanceCredit,
-                                        value(aggregate.getPeriodCredit()));
+                        validateJournalEntry(
+                                        entry,
+                                        organizationId);
+
+                        for (JournalLine line : entry.getLines()) {
+
+                                if (line == null) {
+                                        continue;
+                                }
+
+                                trialBalanceDebit = add(
+                                                trialBalanceDebit,
+                                                value(
+                                                                line.getDebit()));
+
+                                trialBalanceCredit = add(
+                                                trialBalanceCredit,
+                                                value(
+                                                                line.getCredit()));
+                        }
                 }
 
                 trialBalanceDebit = normalizeMoney(
@@ -2070,37 +2017,4 @@ public class BnrFinancialStatementService {
                                         "Financial statement start date cannot be after end date.");
                 }
         }
-        // ============================================================
-        // BNR LEDGER INTEGRITY
-        // ============================================================
-
-        /**
-         * Preserve the financial-statement safety checks without hydrating
-         * the complete historical ledger into Hibernate.
-         */
-        private void validateBnrLedgerIntegrity(
-                        Long organizationId,
-                        LocalDate from,
-                        LocalDate to) {
-
-                List<Long> invalidIds = journalLineRepository
-                                .findInvalidBnrJournalEntryIds(
-                                                organizationId,
-                                                ACCOUNTING_EPOCH,
-                                                to,
-                                                BALANCE_TOLERANCE);
-
-                if (invalidIds == null || invalidIds.isEmpty()) {
-                        return;
-                }
-
-                Long invalidId = invalidIds.get(0);
-
-                throw new IllegalStateException(
-                                "BNR accounting ledger contains an invalid journal entry: "
-                                                + invalidId
-                                                + ". The report was not generated.");
-
-        }
-
 }
