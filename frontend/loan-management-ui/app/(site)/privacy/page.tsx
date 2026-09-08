@@ -5,127 +5,87 @@ import { useTenant } from "../layout";
 export default function PrivacyPage() {
   const tenant = useTenant();
   if (!tenant) return null;
-
+  const primary = tenant.primaryColor || "#0B1F3A";
+  const accent = tenant.accentColor || "#D4AF37";
+  const sections = [
+    [
+      "1. What we collect",
+      `When you apply for a loan or use our borrower portal, we collect information needed to verify and service your account, including identity, contact, employment, income, loan, document, payment and communication information.`,
+    ],
+    [
+      "2. How we use it",
+      `We use information to verify identity, assess applications, service approved loans, communicate with clients, meet legal and regulatory obligations and improve our services.`,
+    ],
+    [
+      "3. How we protect it",
+      `Sensitive information is protected using appropriate technical and organizational controls. Access is limited to staff who need it for legitimate business purposes and access is logged.`,
+    ],
+    [
+      "4. Who we share it with",
+      `We may share information with payment providers, credit reference bureaus where applicable, regulators, law enforcement where legally required, and other service providers necessary to operate the financial service. We do not sell personal information.`,
+    ],
+    [
+      "5. Retention",
+      `Personal information is retained for the period required by applicable financial, tax, regulatory and legal recordkeeping obligations.`,
+    ],
+    [
+      "6. Your rights",
+      `Depending on applicable law, you may have rights to access, correct or ask about the use of personal information. Contact us using the details published on this website.`,
+    ],
+    [
+      "7. Contact",
+      `Questions about this policy can be sent to ${tenant.contactEmail || "the contact email published on this website"}${tenant.contactPhone ? ` or ${tenant.contactPhone}` : ""}.`,
+    ],
+  ];
   return (
-    <div className="max-w-3xl mx-auto px-4 py-16">
-      <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl px-5 py-4 mb-10 text-sm leading-relaxed">
-        <strong>⚠️ Draft template — not legal advice.</strong> This describes,
-        in general terms, the categories of data this platform actually collects
-        and stores (based on its own code), so it starts from something true
-        rather than generic boilerplate. It still needs review by a qualified
-        lawyer for compliance with the data protection law that applies to{" "}
-        {tenant.name} (e.g. Rwanda's Law No. 058/2021 on the protection of
-        personal data, or the equivalent in your jurisdiction) before this is
-        published to real customers.
-      </div>
-
-      <h1 className="text-3xl font-extrabold text-gray-900 mb-2">
-        Privacy Policy
-      </h1>
-      <p className="text-sm text-gray-500 mb-10">
-        Last updated: [DATE] — {tenant.name}
-      </p>
-
-      <div className="prose prose-gray max-w-none space-y-8 text-gray-700 text-sm leading-relaxed">
-        <section>
-          <h2 className="text-lg font-bold text-gray-900 mb-2">
-            1. What we collect
-          </h2>
-          <p>
-            When you apply for a loan or use our borrower portal, we collect:
-            your name, date of birth, gender, national ID number, phone number,
-            email, home address, marital status (and spouse details where
-            applicable), employment and income information, loan purpose and
-            amount requested, and any identity or income documents you upload
-            (e.g. national ID, proof of address, payslip). We also keep a record
-            of communications, payments, and decisions related to your
-            application and loan.
+    <main className="bg-slate-50 py-12 sm:py-16">
+      <div className="mx-auto max-w-4xl px-5 sm:px-8">
+        <div className="rounded-[30px] border border-slate-200 bg-white p-7 shadow-[0_20px_70px_rgba(15,23,42,.06)] sm:p-10 lg:p-14">
+          <div className="flex items-center gap-3">
+            <div
+              className="h-2 w-2 rounded-full"
+              style={{ backgroundColor: accent }}
+            />
+            <span
+              className="text-[10px] font-black uppercase tracking-[.22em]"
+              style={{ color: primary }}
+            >
+              Legal & privacy
+            </span>
+          </div>
+          <h1 className="mt-5 text-4xl font-black tracking-[-.045em] sm:text-5xl">
+            Privacy Policy
+          </h1>
+          <p className="mt-3 text-xs text-slate-400">
+            Last updated: 8 September 2026 · {tenant.name}
           </p>
-        </section>
-
-        <section>
-          <h2 className="text-lg font-bold text-gray-900 mb-2">
-            2. How we use it
-          </h2>
-          <p>
-            We use this information to verify your identity, assess your
-            application, service your loan if approved, communicate with you
-            about your application or account, meet our legal and regulatory
-            obligations (including KYC/AML requirements), and improve our
-            services.
-          </p>
-        </section>
-
-        <section>
-          <h2 className="text-lg font-bold text-gray-900 mb-2">
-            3. How we protect it
-          </h2>
-          <p>
-            Sensitive fields — including your national ID, phone number, and
-            address — are encrypted in our systems. Access to your information
-            is limited to staff who need it to process your application or
-            service your loan, and all such access is logged.
-          </p>
-        </section>
-
-        <section>
-          <h2 className="text-lg font-bold text-gray-900 mb-2">
-            4. Who we share it with
-          </h2>
-          <p>
-            We may share your information with: our payment application provider
-            to disburse funds or collect repayments; a credit reference bureau,
-            where we use one, to assess creditworthiness and report repayment
-            history; and regulators or law enforcement where required by law.
-            [INSERT: name any additional processors/providers you actually use,
-            and confirm whether a data application agreement is in place with
-            each.] We do not sell your personal information.
-          </p>
-        </section>
-
-        <section>
-          <h2 className="text-lg font-bold text-gray-900 mb-2">
-            5. How long we keep it
-          </h2>
-          <p>
-            [INSERT: your actual retention period — typically driven by
-            financial recordkeeping regulations in your jurisdiction, often
-            several years after a loan is closed.]
-          </p>
-        </section>
-
-        <section>
-          <h2 className="text-lg font-bold text-gray-900 mb-2">
-            6. Your rights
-          </h2>
-          <p>
-            Depending on where you live, you may have the right to request a
-            copy of the personal data we hold about you, ask us to correct
-            inaccurate data, or ask about how your data is used. [INSERT: the
-            specific process and contact for exercising these rights under your
-            applicable law.]
-          </p>
-        </section>
-
-        <section>
-          <h2 className="text-lg font-bold text-gray-900 mb-2">7. Contact</h2>
-          <p>
-            Questions about this policy or your data can be sent to{" "}
-            {tenant.contactEmail || "[contact email]"}
-            {tenant.contactPhone ? ` or ${tenant.contactPhone}` : ""}.
-          </p>
-        </section>
-
-        <section>
-          <p className="text-xs text-gray-400">
-            See also our{" "}
-            <Link href="/terms" className="underline">
-              Terms &amp; Conditions
+          <div className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm leading-6 text-slate-600">
+            <strong className="text-slate-900">Important:</strong> This policy
+            should be reviewed against your actual licensing, regulatory,
+            data-processing and retention obligations before publication to
+            customers.
+          </div>
+          <div className="mt-10 space-y-9">
+            {sections.map(([title, text]) => (
+              <section key={title}>
+                <h2 className="text-lg font-black text-slate-900">{title}</h2>
+                <p className="mt-3 text-sm leading-7 text-slate-600">{text}</p>
+              </section>
+            ))}
+          </div>
+          <div className="mt-10 border-t border-slate-100 pt-6 text-xs text-slate-400">
+            See also{" "}
+            <Link
+              href="/terms"
+              className="font-bold underline"
+              style={{ color: primary }}
+            >
+              Terms & Conditions
             </Link>
             .
-          </p>
-        </section>
+          </div>
+        </div>
       </div>
-    </div>
+    </main>
   );
 }

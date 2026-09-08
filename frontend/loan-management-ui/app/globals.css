@@ -204,3 +204,30 @@
     transform: none;
   }
 }
+
+/* ============================================================
+   PUBLIC BANK-GRADE DESIGN SYSTEM
+   ============================================================ */
+
+html { scroll-behavior: smooth; }
+
+.site-public-nav { transition: box-shadow .25s ease, background-color .25s ease; }
+.site-public-nav a, .site-public-nav button { -webkit-tap-highlight-color: transparent; }
+
+.public-glass {
+  background: rgba(255,255,255,.72);
+  border: 1px solid rgba(255,255,255,.5);
+  box-shadow: 0 24px 70px rgba(15,23,42,.08);
+  backdrop-filter: blur(18px);
+}
+
+.public-section-label {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+}
+
+@media (min-width: 1024px) {
+  .site-public-nav { box-shadow: 0 10px 35px rgba(15,23,42,.045); }
+}
