@@ -95,6 +95,15 @@ public class BnrTemplateExportService {
                         branchId,
                         reportDate.plusDays(1).atStartOfDay()));
 
+        List<Loan> disbursedLoans = safeLoans(
+                loanRepository.findLoansDisbursedDuringPeriod(
+                        organizationId,
+                        branchId,
+                        window[0].atStartOfDay(),
+                        window[1].plusDays(1).atStartOfDay(),
+                        window[0],
+                        window[1]));
+
         // Load all schedules and borrower loan histories in bulk. The old
         // implementation executed one or more SQL queries for every loan,
         // which made large BNR exports progressively slower and could lead to
@@ -143,7 +152,7 @@ public class BnrTemplateExportService {
                     window[0],
                     window[1]);
 
-            populateFinancialStatement(workbook, financialStatement);
+            populateFinancialStatement(workbook, financialStatement, loans, disbursedLoans);
             workbook.setForceFormulaRecalculation(true);
             workbook.write(output);
             output.flush();
@@ -3361,7 +3370,9 @@ public class BnrTemplateExportService {
 
     private void populateFinancialStatement(
             XSSFWorkbook workbook,
-            BnrFinancialStatementReport report) {
+            BnrFinancialStatementReport report,
+            List<Loan> portfolioLoans,
+            List<Loan> disbursedLoans) {
 
         Sheet sheet = workbook.getSheet("A1.2. FS");
         if (sheet == null || report == null) {
@@ -3398,8 +3409,8 @@ public class BnrTemplateExportService {
         populateAccountingComponents(sheet, currentColumn, report);
 
         BnrSummaryValues summary = buildSummaryValues(
-                report.getOrganizationId(),
-                report.getBranchId(),
+                portfolioLoans,
+                disbursedLoans,
                 report.getPeriodStart(),
                 report.getPeriodEnd());
 
@@ -3648,25 +3659,13 @@ public class BnrTemplateExportService {
     }
 
     private BnrSummaryValues buildSummaryValues(
-            Long organizationId,
-            Long branchId,
+            List<Loan> portfolio,
+            List<Loan> loans,
             LocalDate from,
             LocalDate to) {
 
-        List<Loan> portfolio = safeLoans(
-                loanRepository.findPortfolioAsOfForBnrExport(
-                        organizationId,
-                        branchId,
-                        to.plusDays(1).atStartOfDay()));
-
-        List<Loan> loans = safeLoans(
-                loanRepository.findLoansDisbursedDuringPeriod(
-                        organizationId,
-                        branchId,
-                        from.atStartOfDay(),
-                        to.plusDays(1).atStartOfDay(),
-                        from,
-                        to));
+        portfolio = portfolio == null ? List.of() : portfolio;
+        loans = loans == null ? List.of() : loans;
 
         BigDecimal normal = ZERO;
         BigDecimal watch = ZERO;
