@@ -7,6 +7,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.io.IOException;
 import java.net.URI;
@@ -29,7 +31,7 @@ public class SameOriginMutationFilter extends OncePerRequestFilter {
     private final String sessionCookieName;
 
     public SameOriginMutationFilter(
-            @Value("${app.cors.allowed-origins:https://nobleloan-solutions.vercel.app}") String origins,
+            @Value("${app.cors.allowed-origins:}") String origins,
             @Value("${app.auth.cookie.name:NLS_SESSION}") String sessionCookieName) {
 
         String configured = origins == null ? "" : origins;
@@ -54,29 +56,27 @@ public class SameOriginMutationFilter extends OncePerRequestFilter {
             HttpServletResponse response,
             FilterChain chain) throws ServletException, IOException {
 
-        if (!isMutation(request)) {
+        if (!isMutation(request) || !hasSessionCookie(request)) {
             chain.doFilter(request, response);
             return;
         }
 
-        // Public application/contact/payment endpoints are intentionally
-        // unauthenticated. They do not act on a browser session, so an
-        // unrelated/stale NLS_SESSION cookie must never turn a legitimate
-        // public request into HTTP 403. CORS remains the browser origin
-        // boundary for these endpoints and authenticated mutations below
-        // remain protected by this filter.
-        if (isPublicUnauthenticatedMutation(request)) {
+        // Public endpoints must never be blocked merely because a stale
+        // session cookie happens to be present.  This filter is an additional
+        // defense for an already authenticated browser session only.
+        Authentication authentication =
+                SecurityContextHolder.getContext().getAuthentication();
+
+        if (authentication == null
+                || !authentication.isAuthenticated()
+                || authentication.getPrincipal() == null
+                || "anonymousUser".equals(authentication.getPrincipal())) {
             chain.doFilter(request, response);
             return;
         }
 
-        if (!hasSessionCookie(request)) {
-            chain.doFilter(request, response);
-            return;
-        }
-
-        // A bearer token is not automatically attached by a cross-site browser
-        // request and therefore does not need the cookie-origin defense.
+        // A bearer-token request is protected by the JWT authentication path;
+        // do not impose cookie-origin rules on API clients.
         String authorization = request.getHeader("Authorization");
         if (authorization != null && authorization.regionMatches(true, 0, "Bearer ", 0, 7)
                 && authorization.substring(7).trim().length() > 0) {
@@ -115,19 +115,6 @@ public class SameOriginMutationFilter extends OncePerRequestFilter {
                 || "PUT".equalsIgnoreCase(method)
                 || "PATCH".equalsIgnoreCase(method)
                 || "DELETE".equalsIgnoreCase(method);
-    }
-
-    private boolean isPublicUnauthenticatedMutation(HttpServletRequest request) {
-        String uri = request.getRequestURI();
-        if (uri == null) {
-            return false;
-        }
-
-        return uri.equals("/api/public/loan-application")
-                || uri.startsWith("/api/public/contact")
-                || uri.startsWith("/api/public/applications/")
-                || uri.startsWith("/api/public/webhooks/")
-                || uri.startsWith("/api/public/esignature/");
     }
 
     private boolean hasSessionCookie(HttpServletRequest request) {

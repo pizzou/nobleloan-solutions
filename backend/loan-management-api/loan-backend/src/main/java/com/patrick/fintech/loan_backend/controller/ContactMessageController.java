@@ -20,6 +20,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/contact-messages")
 @RequiredArgsConstructor
+@org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
 public class ContactMessageController {
 
     private final ContactMessageRepository contactMessageRepo;

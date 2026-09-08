@@ -489,6 +489,7 @@ public class PaymentController {
          * Gets the complete repayment schedule for a loan.
          */
         @GetMapping
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','LOAN_OFFICER','TELLER')")
         public ResponseEntity<ApiResponse<List<PaymentResponse>>> getSchedule(
                         @PathVariable Long loanId) {
 

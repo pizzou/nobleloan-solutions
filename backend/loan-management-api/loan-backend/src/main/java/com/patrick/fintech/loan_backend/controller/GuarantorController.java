@@ -17,6 +17,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/loans/{loanId}/guarantors")
 @RequiredArgsConstructor
+@org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
 public class GuarantorController {
 
     private final GuarantorRepository guarantorRepo;

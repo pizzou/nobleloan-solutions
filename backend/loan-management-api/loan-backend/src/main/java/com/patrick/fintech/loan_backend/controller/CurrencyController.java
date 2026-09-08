@@ -6,6 +6,7 @@ import com.patrick.fintech.loan_backend.model.CurrencyRate;
 import com.patrick.fintech.loan_backend.service.CurrencyService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.util.List;
@@ -42,6 +43,7 @@ public class CurrencyController {
     }
 
     @PostMapping("/refresh")
+    @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<CurrencyService.RefreshResult>> refresh() {
         CurrencyService.RefreshResult result = currencyService.refreshRates();
         return ResponseEntity.ok(result.success()

@@ -28,6 +28,7 @@ import java.time.LocalDate;
 @RestController
 @RequestMapping("/api/borrowers")
 @RequiredArgsConstructor
+@org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
 public class BorrowerController {
 
         private final BorrowerRepository borrowerRepo;

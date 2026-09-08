@@ -18,6 +18,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/loans/{loanId}/collateral")
 @RequiredArgsConstructor
+@org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
 public class CollateralController {
 
     private final CollateralRepository collateralRepo;

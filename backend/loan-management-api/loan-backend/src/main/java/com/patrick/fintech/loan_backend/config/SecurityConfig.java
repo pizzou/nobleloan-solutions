@@ -248,13 +248,13 @@ public class SecurityConfig {
             )
 
             .addFilterBefore(
-                sameOriginMutationFilter,
+                jwtFilter,
                 UsernamePasswordAuthenticationFilter.class
             )
 
-            .addFilterBefore(
-                jwtFilter,
-                UsernamePasswordAuthenticationFilter.class
+            .addFilterAfter(
+                sameOriginMutationFilter,
+                JwtAuthFilter.class
             )
 
             .addFilterBefore(

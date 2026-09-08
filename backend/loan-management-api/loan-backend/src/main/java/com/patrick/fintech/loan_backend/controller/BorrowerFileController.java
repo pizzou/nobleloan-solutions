@@ -30,6 +30,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/files")
 @RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
 public class BorrowerFileController {
 
         private final BorrowerFileService fileService;

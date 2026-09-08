@@ -27,6 +27,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/payments")
 @RequiredArgsConstructor
+@org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','LOAN_OFFICER')")
 public class PaymentListController {
 
     private final PaymentRepository paymentRepo;
