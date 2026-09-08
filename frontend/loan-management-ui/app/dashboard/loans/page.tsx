@@ -306,7 +306,7 @@ function EmptyState({ searching }: { searching: boolean }) {
 
       <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
         {searching
-          ? "Try a different reference number, borrower name, phone number or national ID."
+          ? "Try a loan ID, reference number, borrower name, phone number, email or national ID."
           : "Once loans are created or imported, they will appear here with their current operational and financial position."}
       </p>
     </div>
@@ -748,6 +748,7 @@ export default function LoanListPage() {
 
     return loans.filter((loan) => {
       const haystack = [
+        loan.id,
         loan.referenceNumber,
         getBorrowerName(loan),
         loan.borrower?.nationalId,
@@ -756,7 +757,7 @@ export default function LoanListPage() {
         loan.loanType,
         loan.status,
       ]
-        .filter(Boolean)
+        .filter((value) => value !== undefined && value !== null)
         .join(" ")
         .toLowerCase();
 
@@ -1212,8 +1213,8 @@ export default function LoanListPage() {
                 </div>
 
                 <p className="mt-1 text-xs text-slate-400">
-                  Search the loaded page and narrow the server-side portfolio by
-                  status or loan type.
+                  Search by loan ID, reference, borrower name, national ID,
+                  phone, email, loan type or status.
                 </p>
               </div>
 
@@ -1237,7 +1238,7 @@ export default function LoanListPage() {
                   <input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Reference, borrower, ID…"
+                    placeholder="Loan ID, reference, borrower, phone…"
                     className="
                       h-10
                       w-full
