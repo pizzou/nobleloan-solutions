@@ -11,7 +11,7 @@ import axios, {
  * ============================================================
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
+const API_BASE_URL = "/api";
 
 const API: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
