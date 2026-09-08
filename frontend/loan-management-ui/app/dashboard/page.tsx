@@ -178,41 +178,8 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    let mounted = true;
-
-    const run = async () => {
-      try {
-        setLoading(true);
-        setError("");
-
-        const data = await loanApi.dashboard();
-
-        if (!mounted) {
-          return;
-        }
-
-        setStats(normalizeDashboardResponse(data));
-        setLastUpdated(new Date());
-      } catch (e: any) {
-        if (!mounted) {
-          return;
-        }
-
-        console.error("Dashboard loading failed:", e);
-        setError(e?.message || "Unable to load dashboard information.");
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void run();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    void loadDashboard();
+  }, [loadDashboard]);
 
   /* ==========================================================
      PORTFOLIO

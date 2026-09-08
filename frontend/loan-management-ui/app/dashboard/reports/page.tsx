@@ -873,68 +873,77 @@ export default function ReportsPage() {
           setAccountingError("Accounting reports could not be loaded.");
         }
 
-        const today = new Date();
+        /*
+         * Monthly P&L is a secondary visualization. Do not block the first
+         * reports screen on six additional full accounting queries.
+         * Fetch it after the primary reports have rendered.
+         */
+        void (async () => {
+          const today = new Date();
 
-        const periods = Array.from({ length: 6 }, (_, index) => {
-          const date = previousMonth(today, 5 - index);
+          const periods = Array.from({ length: 6 }, (_, index) => {
+            const date = previousMonth(today, 5 - index);
 
-          return {
-            date,
-            from: toDateString(monthStart(date)),
-            to: toDateString(monthEnd(date)),
-          };
-        });
+            return {
+              date,
+              from: toDateString(monthStart(date)),
+              to: toDateString(monthEnd(date)),
+            };
+          });
 
-        const monthlyResults = await Promise.allSettled(
-          periods.map(async (period) => {
-            const response = await API.get("/accounting/profit-and-loss", {
-              params: {
+          const monthlyResults = await Promise.allSettled(
+            periods.map(async (period) => {
+              const response = await API.get("/accounting/profit-and-loss", {
+                params: {
+                  from: period.from,
+                  to: period.to,
+                },
+              });
+
+              const data = unwrap<ProfitAndLossReport>(response);
+
+              return {
+                month: period.from.slice(0, 7),
+                label: new Intl.DateTimeFormat("en-RW", {
+                  month: "short",
+                  year: "numeric",
+                }).format(period.date),
                 from: period.from,
                 to: period.to,
-              },
-            });
+                revenue: numberValue(data?.totalIncome),
+                expenses: numberValue(
+                  data?.totalExpense ?? data?.totalExpenses,
+                ),
+                profit: numberValue(data?.netIncome),
+              } satisfies MonthlyAccountingReport;
+            }),
+          );
 
-            const data = unwrap<ProfitAndLossReport>(response);
+          if (!mounted) return;
 
-            return {
-              month: period.from.slice(0, 7),
-              label: new Intl.DateTimeFormat("en-RW", {
-                month: "short",
-                year: "numeric",
-              }).format(period.date),
-              from: period.from,
-              to: period.to,
-              revenue: numberValue(data?.totalIncome),
-              expenses: numberValue(data?.totalExpense ?? data?.totalExpenses),
-              profit: numberValue(data?.netIncome),
-            } satisfies MonthlyAccountingReport;
-          }),
-        );
+          setMonthlyAccounting(
+            monthlyResults.map((result, index) => {
+              const period = periods[index];
 
-        if (!mounted) return;
+              if (result.status === "fulfilled") {
+                return result.value;
+              }
 
-        setMonthlyAccounting(
-          monthlyResults.map((result, index) => {
-            const period = periods[index];
-
-            if (result.status === "fulfilled") {
-              return result.value;
-            }
-
-            return {
-              month: period.from.slice(0, 7),
-              label: new Intl.DateTimeFormat("en-RW", {
-                month: "short",
-                year: "numeric",
-              }).format(period.date),
-              from: period.from,
-              to: period.to,
-              revenue: 0,
-              expenses: 0,
-              profit: 0,
-            };
-          }),
-        );
+              return {
+                month: period.from.slice(0, 7),
+                label: new Intl.DateTimeFormat("en-RW", {
+                  month: "short",
+                  year: "numeric",
+                }).format(period.date),
+                from: period.from,
+                to: period.to,
+                revenue: 0,
+                expenses: 0,
+                profit: 0,
+              };
+            }),
+          );
+        })();
       } catch (error) {
         console.error("Accounting reports failed", error);
 
