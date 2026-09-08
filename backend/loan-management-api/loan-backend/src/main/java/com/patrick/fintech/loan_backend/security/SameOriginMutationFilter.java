@@ -29,7 +29,7 @@ public class SameOriginMutationFilter extends OncePerRequestFilter {
     private final String sessionCookieName;
 
     public SameOriginMutationFilter(
-            @Value("${app.cors.allowed-origins:}") String origins,
+            @Value("${app.cors.allowed-origins:https://nobleloan-solutions.vercel.app}") String origins,
             @Value("${app.auth.cookie.name:NLS_SESSION}") String sessionCookieName) {
 
         String configured = origins == null ? "" : origins;
@@ -54,7 +54,23 @@ public class SameOriginMutationFilter extends OncePerRequestFilter {
             HttpServletResponse response,
             FilterChain chain) throws ServletException, IOException {
 
-        if (!isMutation(request) || !hasSessionCookie(request)) {
+        if (!isMutation(request)) {
+            chain.doFilter(request, response);
+            return;
+        }
+
+        // Public application/contact/payment endpoints are intentionally
+        // unauthenticated. They do not act on a browser session, so an
+        // unrelated/stale NLS_SESSION cookie must never turn a legitimate
+        // public request into HTTP 403. CORS remains the browser origin
+        // boundary for these endpoints and authenticated mutations below
+        // remain protected by this filter.
+        if (isPublicUnauthenticatedMutation(request)) {
+            chain.doFilter(request, response);
+            return;
+        }
+
+        if (!hasSessionCookie(request)) {
             chain.doFilter(request, response);
             return;
         }
@@ -99,6 +115,19 @@ public class SameOriginMutationFilter extends OncePerRequestFilter {
                 || "PUT".equalsIgnoreCase(method)
                 || "PATCH".equalsIgnoreCase(method)
                 || "DELETE".equalsIgnoreCase(method);
+    }
+
+    private boolean isPublicUnauthenticatedMutation(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        if (uri == null) {
+            return false;
+        }
+
+        return uri.equals("/api/public/loan-application")
+                || uri.startsWith("/api/public/contact")
+                || uri.startsWith("/api/public/applications/")
+                || uri.startsWith("/api/public/webhooks/")
+                || uri.startsWith("/api/public/esignature/");
     }
 
     private boolean hasSessionCookie(HttpServletRequest request) {

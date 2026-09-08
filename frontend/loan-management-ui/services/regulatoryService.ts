@@ -867,10 +867,51 @@ export const regulatoryApi = {
     while (Date.now() < deadline) {
       await new Promise((resolve) => window.setTimeout(resolve, 1500));
 
-      const statusResponse = await api.get(
-        `/regulatory/bnr/export/jobs/${encodeURIComponent(jobId)}`,
-        { timeout: 20000 },
-      );
+      let statusResponse: any;
+      let lastStatusError: unknown = null;
+
+      // Render/Vercel can transiently return a gateway error while the
+      // application instance is waking or a connection is being recycled.
+      // A job-status GET is idempotent, so retry transient gateway failures
+      // with bounded backoff instead of aborting a valid export.
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        try {
+          statusResponse = await api.get(
+            `/regulatory/bnr/export/jobs/${encodeURIComponent(jobId)}`,
+            { timeout: 20000 },
+          );
+          lastStatusError = null;
+          break;
+        } catch (error: any) {
+          lastStatusError = error;
+          const statusCode = error?.response?.status ?? error?.status;
+          const retryable =
+            statusCode === 502 ||
+            statusCode === 503 ||
+            statusCode === 504 ||
+            statusCode === 429 ||
+            statusCode == null;
+
+          if (!retryable || attempt === 3) {
+            throw error;
+          }
+
+          const retryAfterHeader = error?.response?.headers?.["retry-after"];
+          const retryAfterSeconds = Number(retryAfterHeader);
+          const delay = Number.isFinite(retryAfterSeconds)
+            ? Math.min(10_000, Math.max(1_000, retryAfterSeconds * 1_000))
+            : Math.min(8_000, 1_000 * 2 ** attempt);
+
+          await new Promise((resolve) => window.setTimeout(resolve, delay));
+        }
+      }
+
+      if (!statusResponse) {
+        throw (
+          lastStatusError ??
+          new Error("The BNR export status could not be retrieved.")
+        );
+      }
 
       const status = statusResponse?.data?.status;
 
