@@ -48,6 +48,17 @@ public interface PaymentRepository
         Optional<Payment> findTopByLoanIdAndPaidDateIsNotNullOrderByPaidDateDesc(
                         Long loanId);
 
+        /**
+         * Returns payments made after a loan write-off and up to the
+         * supplied reconciliation timestamp.
+         *
+         * PaymentStatus is an inner enum of Payment, so it must not be
+         * referenced as com.patrick.fintech.loan_backend.model.PaymentStatus.
+         *
+         * The Payment entity already maintains the paid flag, which is
+         * consistently used throughout this repository to identify
+         * completed payments.
+         */
         @Query("""
                         SELECT p FROM Payment p
                         WHERE p.loan.id = :loanId
@@ -55,7 +66,7 @@ public interface PaymentRepository
                           AND p.paidDate > :after
                           AND p.paidDate <= :asOf
                           AND p.organization.id = :organizationId
-                          AND p.status = com.patrick.fintech.loan_backend.model.PaymentStatus.COMPLETED
+                          AND p.paid = true
                         ORDER BY p.paidDate ASC
                         """)
         List<Payment> findPaidPaymentsAfterWriteOff(
