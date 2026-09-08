@@ -2709,21 +2709,63 @@ public class PublicController {
                                         "Single Status Certificate number is required for single applicants");
                 }
 
-                Borrower borrower = borrowerRepo
+                /*
+                 * EXISTING BORROWER HANDLING
+                 *
+                 * A borrower may submit more than one loan application. The
+                 * public application must therefore NOT treat an existing phone
+                 * number as a duplicate loan. It must only prevent public KYC
+                 * overwrite.
+                 *
+                 * Security rule:
+                 * - phone + National ID must identify the SAME borrower;
+                 * - when they match, reuse that borrower and create a new loan;
+                 * - never overwrite the borrower's stored KYC/contact data from
+                 *   the public repeat-loan application;
+                 * - if either identifier belongs to a different borrower, stop
+                 *   the request rather than linking the loan to the wrong person.
+                 */
+                Borrower borrowerByPhone = borrowerRepo
                                 .findByPhoneHashAndOrganization_Id(
-                                                HmacIndexer.index(
-                                                                phone),
+                                                HmacIndexer.index(phone),
                                                 org.getId())
                                 .orElse(null);
 
-                if (borrower != null && borrower.getId() != null) {
-                        throw new IllegalStateException(
-                                        "An existing customer was found for this phone number. For security, existing customer KYC information cannot be overwritten through the public application form. Please contact the lender or use the verified borrower portal.");
-                }
+                Borrower borrowerByNationalId = borrowerRepo
+                                .findByNationalIdHashAndOrganization_Id(
+                                                HmacIndexer.index(nationalId),
+                                                org.getId())
+                                .orElse(null);
 
-                borrower = Borrower.builder()
-                                .organization(org)
-                                .build();
+                Borrower borrower;
+
+                if (borrowerByPhone != null || borrowerByNationalId != null) {
+                        /*
+                         * Existing borrower: both protected identifiers must
+                         * resolve to the same database borrower. This prevents a
+                         * public applicant from accidentally or deliberately
+                         * attaching a new loan to another customer's profile.
+                         */
+                        if (borrowerByPhone == null
+                                        || borrowerByNationalId == null
+                                        || borrowerByPhone.getId() == null
+                                        || borrowerByNationalId.getId() == null
+                                        || !borrowerByPhone.getId().equals(borrowerByNationalId.getId())) {
+
+                                throw new IllegalStateException(
+                                                "The phone number and National ID do not match an existing customer record. Please verify your details or contact the lender.");
+                        }
+
+                        borrower = borrowerByPhone;
+
+                        log.info(
+                                        "Public repeat-loan application matched existing borrower without modifying KYC. organizationId={}, borrowerId={}",
+                                        org.getId(),
+                                        borrower.getId());
+                } else {
+                        borrower = Borrower.builder()
+                                        .organization(org)
+                                        .build();
 
                 borrower.setFirstName(
                                 firstName);
@@ -2832,6 +2874,7 @@ public class PublicController {
 
                 borrower = borrowerRepo.save(
                                 borrower);
+                }
 
                 // ========================================================
                 // PLATFORM DURATION RULE
