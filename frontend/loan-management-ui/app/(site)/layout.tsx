@@ -74,21 +74,18 @@ const FALLBACK_TENANT: TenantConfig = {
   services: [],
 };
 
-function Mark({ small = false }: { small?: boolean }) {
+/* eslint-disable @next/next/no-img-element */
+function NobleLogo({ compact = false }: { compact?: boolean }) {
   return (
-    <div
-      className={`relative flex shrink-0 items-center justify-center rounded-2xl ${small ? "h-10 w-10" : "h-12 w-12"}`}
-      style={{ background: `linear-gradient(145deg, ${NAVY}, #16365F)` }}
-      aria-hidden="true"
-    >
-      <div className="absolute inset-1 rounded-[11px] border border-white/10" />
-      <span
-        className={`font-serif font-bold ${small ? "text-lg" : "text-xl"}`}
-        style={{ color: GOLD }}
-      >
-        N
-      </span>
-    </div>
+    <img
+      src="/noble-loan-solutions-logo.svg"
+      alt="Noble Loan Solutions — Financial Support Partner"
+      className={
+        compact
+          ? "h-9 w-auto max-w-[210px] object-contain"
+          : "h-11 w-auto max-w-[270px] object-contain"
+      }
+    />
   );
 }
 
@@ -100,32 +97,21 @@ function Brand({
   compact?: boolean;
 }) {
   if (tenant.logoUrl) {
-    // eslint-disable-next-line @next/next/no-img-element
     return (
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={tenant.logoUrl}
         alt={tenant.name}
         className={
           compact
-            ? "h-9 w-auto max-w-[180px] object-contain"
-            : "h-11 w-auto max-w-[235px] object-contain"
+            ? "h-9 w-auto max-w-[210px] object-contain"
+            : "h-11 w-auto max-w-[270px] object-contain"
         }
       />
     );
   }
-  return (
-    <div className="flex items-center gap-3">
-      <Mark small={compact} />
-      <div className="leading-none">
-        <div className="text-[17px] font-black tracking-[.11em] text-[#0B1F3A]">
-          {tenant.name.toUpperCase()}
-        </div>
-        <div className="mt-1 text-[8px] font-bold uppercase tracking-[.22em] text-[#B8941F]">
-          Financial support partner
-        </div>
-      </div>
-    </div>
-  );
+
+  return <NobleLogo compact={compact} />;
 }
 
 function PhoneIcon() {
@@ -245,7 +231,7 @@ export default function SiteLayout({
       >
         <div className="flex min-h-screen items-center justify-center px-6">
           <div className="text-center">
-            <Mark />
+            <NobleLogo />
             <div className="mx-auto mt-6 h-1 w-32 overflow-hidden rounded-full bg-slate-200">
               <div className="h-full w-1/2 animate-pulse rounded-full bg-[#D4AF37]" />
             </div>
@@ -262,7 +248,7 @@ export default function SiteLayout({
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F4F7FB] px-6">
         <div className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-8 text-center shadow-[0_30px_90px_rgba(15,23,42,.10)]">
-          <Mark />
+          <NobleLogo />
           <h1 className="mt-6 text-2xl font-black tracking-tight text-[#0B1F3A]">
             {notFound ? "Site not found" : "Service temporarily unavailable"}
           </h1>
