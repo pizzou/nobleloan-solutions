@@ -1,147 +1,110 @@
 package com.patrick.fintech.loan_backend.service;
 
+import com.patrick.fintech.loan_backend.model.RoleName;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.UserRepository;
-
-import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
-
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
+/**
+ * Loads the authoritative application role from the database and converts it
+ * into Spring Security authorities.
+ *
+ * ADMIN is the platform administrator.  It therefore receives ROLE_ADMIN plus
+ * the application staff authorities so method-security expressions such as
+ * hasAnyRole('ADMIN','ACCOUNTANT') remain true for an administrator.  This is
+ * intentionally centralized here rather than requiring every controller to
+ * repeat ADMIN in every @PreAuthorize expression.
+ */
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
 
     private final UserRepository userRepository;
 
-    public CustomUserDetailsService(
-            UserRepository userRepository) {
-
+    public CustomUserDetailsService(UserRepository userRepository) {
         this.userRepository = userRepository;
     }
 
     @Override
-    public UserDetails loadUserByUsername(
-            String email)
+    public UserDetails loadUserByUsername(String email)
             throws UsernameNotFoundException {
 
-        if (email == null || email.isBlank()) {
-            throw new UsernameNotFoundException(
-                    "Email is required");
-        }
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new UsernameNotFoundException(
+                        "User not found: " + email));
 
-        String normalizedEmail =
-                email.trim().toLowerCase(Locale.ROOT);
-
-        User user =
-                userRepository
-                        .findByEmail(normalizedEmail)
-                        .orElseThrow(
-                                () -> new UsernameNotFoundException(
-                                        "User not found: "
-                                                + normalizedEmail));
-
-        if (user.getStatus() != User.UserStatus.ACTIVE) {
-            throw new DisabledException(
-                    "User account is not active");
-        }
-
-        String roleName =
-                normalizeRole(
-                        user.getRole() != null
-                                ? user.getRole().getName()
-                                : null);
+        String roleName = normalizeRole(
+                user.getRole() != null ? user.getRole().getName() : null);
 
         if (roleName == null) {
-            throw new DisabledException(
+            throw new UsernameNotFoundException(
                     "User has no valid security role assigned");
         }
 
-        /*
-         * Spring Security's hasRole('ADMIN') and hasAnyRole(...)
-         * expect ROLE_ADMIN-style authorities by default.
-         *
-         * Always expose the normalized role using the ROLE_ prefix.
-         */
-        String authority =
-                "ROLE_" + roleName;
+        Set<String> authorities = new LinkedHashSet<>();
+        authorities.add("ROLE_" + roleName);
+
+        // ADMIN is the top-level application administrator.  Grant every
+        // defined staff authority so existing endpoint-specific method
+        // security cannot accidentally deny an administrator.
+        if ("ADMIN".equals(roleName) || "INSTITUTION_ADMIN".equals(roleName)) {
+            for (RoleName role : RoleName.values()) {
+                authorities.add("ROLE_" + role.name());
+            }
+
+            // Kept for compatibility with the existing UserController rule:
+            // hasAnyRole('ADMIN','INSTITUTION_ADMIN').
+            authorities.add("ROLE_INSTITUTION_ADMIN");
+        }
+
+        List<SimpleGrantedAuthority> grantedAuthorities = new ArrayList<>();
+        for (String authority : authorities) {
+            grantedAuthorities.add(new SimpleGrantedAuthority(authority));
+        }
 
         return new org.springframework.security.core.userdetails.User(
-                normalizedEmail,
+                user.getEmail(),
                 user.getPassword(),
-
-                // enabled
+                user.getStatus() == User.UserStatus.ACTIVE,
                 true,
-
-                // accountNonExpired
                 true,
-
-                // credentialsNonExpired
                 true,
-
-                // accountNonLocked
-                !user.isLocked(),
-
-                List.of(
-                        new SimpleGrantedAuthority(authority)
-                )
+                grantedAuthorities
         );
     }
 
-    /**
-     * Converts all supported database/API role representations into
-     * the canonical role name expected by Spring Security.
-     *
-     * Examples:
-     *
-     * ADMIN                  -> ADMIN
-     * admin                  -> ADMIN
-     * ROLE_ADMIN             -> ADMIN
-     * role_admin             -> ADMIN
-     * ROLE-ADMIN             -> ADMIN
-     * " role admin "         -> ADMIN
-     */
     private String normalizeRole(String raw) {
-
         if (raw == null || raw.isBlank()) {
             return null;
         }
 
-        String normalized =
-                raw.trim()
-                        .toUpperCase(Locale.ROOT)
-                        .replace('-', '_')
-                        .replace(' ', '_');
+        String normalized = raw.trim()
+                .toUpperCase(Locale.ROOT)
+                .replace('-', '_')
+                .replace(' ', '_');
 
-        /*
-         * Database records should normally contain ADMIN rather than
-         * ROLE_ADMIN, but accept both formats safely.
-         */
-        while (normalized.startsWith("ROLE_")) {
-            normalized =
-                    normalized.substring(5);
+        for (RoleName role : RoleName.values()) {
+            if (role.name().equals(normalized)) {
+                return role.name();
+            }
         }
 
-        /*
-         * Security role names are intentionally restricted to
-         * uppercase letters, numbers and underscores.
-         *
-         * This prevents malformed database values from becoming
-         * unexpected Spring Security authorities.
-         */
-        if (
-                normalized.isBlank()
-                    || !normalized.matches(
-                            "[A-Z][A-Z0-9_]*")) {
-
-            return null;
+        // Some deployments may already persist the legacy institution-admin
+        // name even though it is not part of RoleName. Treat it as a valid
+        // administrator role for compatibility.
+        if ("INSTITUTION_ADMIN".equals(normalized)) {
+            return normalized;
         }
 
-        return normalized;
+        return null;
     }
 }

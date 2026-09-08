@@ -45,7 +45,7 @@ public class AuthController {
     @Value("${app.auth.cookie.secure:true}")
     private boolean sessionCookieSecure;
 
-    @Value("${app.auth.cookie.same-site:None}")
+    @Value("${app.auth.cookie.same-site:Lax}")
     private String sessionCookieSameSite;
 
     @Value("${app.jwt.expiration-ms:900000}")
