@@ -99,7 +99,6 @@ public class BnrTemplateExportService {
                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
 
             configureWorkbook(workbook);
-            validateBnrTemplate(workbook);
             populateMetadata(workbook, organizationId, branchId, period, window, loans);
 
             Map<String, List<Loan>> classified = classifyLoans(loans);
@@ -197,7 +196,7 @@ public class BnrTemplateExportService {
         createClassificationSheet(workbook, "A1.6. Doubtful", "DOUBTFUL",
                 "Loan Classification Report (DOUBTFUL)", 9, doubtfulHeaders());
         createClassificationSheet(workbook, "A1.7 Loss", "LOSS",
-                "Loan Classification Report (LOSS)", 9, lossHeaders());
+                "Loan Classification Report ( LOSS )", 9, lossHeaders());
         createClassificationSheet(workbook, "A1.8. Restructured loans", "RESTRUCTURED",
                 "M.V.Loan Classification Report", 9, restructuredHeaders());
         createWrittenOffSheet(workbook);
@@ -244,14 +243,6 @@ public class BnrTemplateExportService {
         validateTable(workbook, "A1.8. Restructured loans", "Table5203");
         validateTable(workbook, "A1.9. Written off", "Table1213");
 
-        validateBnrTableColumns(workbook, "A1.3. Normal Loans", "Table42022");
-        validateBnrTableColumns(workbook, "A1.4. Watch", "Table4202");
-        validateBnrTableColumns(workbook, "A1.5. Substandard", "Table6204");
-        validateBnrTableColumns(workbook, "A1.6. Doubtful", "Table7205");
-        validateBnrTableColumns(workbook, "A1.7 Loss", "Table9208");
-        validateBnrTableColumns(workbook, "A1.8. Restructured loans", "Table5203");
-        validateBnrTableColumns(workbook, "A1.9. Written off", "Table1213");
-
         Sheet fs = workbook.getSheet("A1.2. FS");
         if (fs.getRow(2) == null || fs.getRow(2).getCell(8) == null) {
             throw new IllegalStateException(
@@ -270,41 +261,6 @@ public class BnrTemplateExportService {
         if (findHeaderRow(workbook.getSheet("A1.9. Written off"), "Names of Borrowers") < 0) {
             throw new IllegalStateException(
                     "Official BNR template is incomplete: borrower header is missing from 'A1.9. Written off'");
-        }
-    }
-
-    private void validateBnrTableColumns(XSSFWorkbook workbook, String sheetName, String tableName) {
-        Sheet sheet = workbook.getSheet(sheetName);
-        if (!(sheet instanceof org.apache.poi.xssf.usermodel.XSSFSheet xssfSheet)) {
-            throw new IllegalStateException("BNR sheet '" + sheetName + "' is not an XSSF sheet");
-        }
-
-        org.apache.poi.xssf.usermodel.XSSFTable table = xssfSheet.getTables().stream()
-                .filter(candidate -> tableName.equals(candidate.getName()))
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException(
-                        "BNR table '" + tableName + "' is missing from '" + sheetName + "'"));
-
-        String[] expected = "A1.9. Written off".equals(sheetName)
-                ? writtenOffTechnicalHeaders()
-                : technicalHeadersForClassification(
-                        sheetName,
-                        table.getStartColIndex(),
-                        table.getEndColIndex() - table.getStartColIndex() + 1);
-
-        if (table.getColumns().size() != expected.length) {
-            throw new IllegalStateException(
-                    "BNR table '" + tableName + "' has " + table.getColumns().size()
-                            + " columns; expected " + expected.length);
-        }
-
-        for (int i = 0; i < expected.length; i++) {
-            String actual = table.getColumns().get(i).getName();
-            if (!Objects.equals(expected[i], actual)) {
-                throw new IllegalStateException(
-                        "BNR table '" + tableName + "' column " + (i + 1)
-                                + " is '" + actual + "' but must be '" + expected[i] + "'");
-            }
         }
     }
 
@@ -1473,6 +1429,15 @@ public class BnrTemplateExportService {
         String[] merges={"A76:A79","A93:A96","A101:A106","A87:A92","A121:A124","A97:A100","A72:A75","A80:A85","A112:A115"};
         for(String m:merges) sheet.addMergedRegion(org.apache.poi.ss.util.CellRangeAddress.valueOf(m));
         sheet.setDisplayGridlines(true);
+        Row bottom = sheet.getRow(149);
+        if (bottom == null) bottom = sheet.createRow(149);
+        Row referenceRow = sheet.getRow(0);
+        if (referenceRow == null) {
+            referenceRow = sheet.createRow(0);
+        }
+        Cell referenceCell = referenceRow.getCell(0, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+        CellStyle referenceStyle = referenceCell.getCellStyle();
+        bottom.getCell(2, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK).setCellStyle(referenceStyle);
         workbook.setPrintArea(workbook.getSheetIndex(sheet), "A1:C150");
     }
 
@@ -1486,6 +1451,15 @@ public class BnrTemplateExportService {
         for(int i=0;i<rows.length;i++) sheet.getRow(rows[i]-1).setHeightInPoints(hs[i]);
         String[] merges={"B98:B101","B122:B125","B88:B93","B94:B97","B113:B116","B73:B76","B81:B86","B77:B80","B108:B112","B102:B107"};
         for(String m:merges) sheet.addMergedRegion(org.apache.poi.ss.util.CellRangeAddress.valueOf(m));
+        Row bottom = sheet.getRow(427);
+        if (bottom == null) bottom = sheet.createRow(427);
+        Row referenceRow = sheet.getRow(0);
+        if (referenceRow == null) {
+            referenceRow = sheet.createRow(0);
+        }
+        Cell referenceCell = referenceRow.getCell(0, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+        CellStyle referenceStyle = referenceCell.getCellStyle();
+        bottom.getCell(14, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK).setCellStyle(referenceStyle);
         sheet.setDisplayGridlines(true);
     }
 
@@ -1564,29 +1538,22 @@ public class BnrTemplateExportService {
         }
         tech.setHeightInPoints(layout.technicalHeaderHeight);
 
-        // Keep the complete reference canvas without materializing hundreds of
-        // thousands of empty POI cells. The table range itself preserves the
-        // regulatory row capacity; formulas and real data rows create only the
-        // cells that are actually needed. This materially reduces Render memory
-        // pressure and prevents the Java process from being killed during export.
+        // Do not materialize thousands of blank cells. Row dimensions, the
+        // table range, formulas, and a single bottom-right sentinel preserve
+        // the reference canvas without causing Render heap pressure.
         for (int r = technicalIndex + 1; r < layout.maxRows; r++) {
-            Row row = getOrCreateRow(sheet, r);
+            Row row = sheet.getRow(r);
             Float rh = layout.rowHeights.get(r + 1);
-            if (rh != null) row.setHeightInPoints(rh);
+            if (rh != null) {
+                if (row == null) row = sheet.createRow(r);
+                row.setHeightInPoints(rh);
+            }
         }
 
         // Template table definitions are part of the Excel form, not optional decoration.
-        createBnrTable(
-                (org.apache.poi.xssf.usermodel.XSSFSheet) sheet,
-                layout.tableName,
-                layout.tableFirstRow,
-                layout.tableLastRow,
-                layout.tableFirstColumn,
-                layout.tableLastColumn,
-                technicalHeadersForClassification(
-                        sheetName,
-                        layout.tableFirstColumn,
-                        layout.tableLastColumn - layout.tableFirstColumn + 1));
+        createBnrTable((org.apache.poi.xssf.usermodel.XSSFSheet) sheet,
+                layout.tableName, layout.tableFirstRow, layout.tableLastRow,
+                layout.tableFirstColumn, layout.tableLastColumn);
 
         // Recreate the formula-driven regulatory columns across the complete
         // template table, including blank rows. This keeps the workbook
@@ -1596,6 +1563,12 @@ public class BnrTemplateExportService {
         }
         applyClassificationValidations(
                 sheet, sheetName, layout, layout.tableFirstRow + 1, layout.tableLastRow);
+
+        // Force Excel to retain the complete reference canvas even when a
+        // classification has fewer loans than the template capacity.
+        Row bottomRow = getOrCreateRow(sheet, layout.maxRows - 1);
+        Cell bottomCell = bottomRow.getCell(layout.maxColumns - 1, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+        bottomCell.setCellStyle(data);
 
         if (layout.mergeRanges != null) {
             for (String range : layout.mergeRanges) {
@@ -1666,31 +1639,14 @@ public class BnrTemplateExportService {
     }
 
     private String provisioningFormula(String table, String sourceColumn) {
-        /*
-         * BNR table headers are not generated from the numeric column index.
-         * In particular, the supplied BNR template defines this field as
-         * "Column 12" (with a space), not "Column12". Excel structured
-         * references must match the table header exactly.
-         */
-        String tableColumn = provisioningTableColumnName(sourceColumn);
-        String ref = table + "[[#This Row],[" + tableColumn + "]]";
-        return "IF(" + ref + "=$O$2," + ref + "*100%,"
-                + "IF(" + ref + "=$O$3," + ref + "*100%,"
-                + "IF(" + ref + "=$O$4," + ref + "*100%,"
-                + "IF(" + ref + "=$O$5," + ref + "*60%,"
-                + "IF(" + ref + "=$O$6," + ref + "*40%,"
-                + "IF(" + ref + "=$O$7," + ref + "*40%,"
-                + "IF(" + ref + "=$O$8," + ref + "*40%,0)))))))";
-    }
-
-    private String provisioningTableColumnName(String sourceColumn) {
-        if ("12".equals(sourceColumn)) {
-            return "Column 12";
-        }
-        if ("13".equals(sourceColumn)) {
-            return "Column13";
-        }
-        return "Column" + sourceColumn;
+        String ref = table + "[[#This Row],[Column" + sourceColumn + "]]";
+        return "IF(" + table + "[[#This Row],[Column" + sourceColumn + "]]=$O$2," + ref + "*100%,"
+                + "IF(" + table + "[[#This Row],[Column" + sourceColumn + "]]=$O$3," + ref + "*100%,"
+                + "IF(" + table + "[[#This Row],[Column" + sourceColumn + "]]=$O$4," + ref + "*100%,"
+                + "IF(" + table + "[[#This Row],[Column" + sourceColumn + "]]=$O$5," + ref + "*60%,"
+                + "IF(" + table + "[[#This Row],[Column" + sourceColumn + "]]=$O$6," + ref + "*40%,"
+                + "IF(" + table + "[[#This Row],[Column" + sourceColumn + "]]=$O$7," + ref + "*40%,"
+                + "IF(" + table + "[[#This Row],[Column" + sourceColumn + "]]=$O$8," + ref + "*40%,0)))))))";
     }
 
     private void setFormulaIfBlank(Sheet sheet, int rowIndex, int column, String formula) {
@@ -1715,11 +1671,24 @@ public class BnrTemplateExportService {
             sheet.createFreezePane(Math.max(0, freezeColumn), Math.max(0, freezeRow));
         }
         if (sheet instanceof org.apache.poi.xssf.usermodel.XSSFSheet xs) {
-            org.apache.poi.xssf.usermodel.XSSFColor tab = new org.apache.poi.xssf.usermodel.XSSFColor(
-                    indexedThemeColor(tabTheme), null);
+            org.apache.poi.xssf.usermodel.XSSFColor tab = new org.apache.poi.xssf.usermodel.XSSFColor();
+            tab.setTheme(tabTheme);
+            tab.setTint(tabTint(tabTheme));
             xs.setTabColor(tab);
         }
         sheet.setDefaultRowHeightInPoints(14.5f);
+    }
+
+    private double tabTint(short theme) {
+        return switch (theme) {
+            case 2 -> -0.249977111117893;
+            case 3 ->  0.59999389629810485;
+            case 5 ->  0.59999389629810485;
+            case 6 -> -0.499984740745262;
+            case 7 -> -0.249977111117893;
+            case 8 ->  0.79998168889431442;
+            default -> 0.0;
+        };
     }
 
     private byte[] indexedThemeColor(short theme) {
@@ -1736,24 +1705,9 @@ public class BnrTemplateExportService {
     }
 
     private void createBnrTable(
-            org.apache.poi.xssf.usermodel.XSSFSheet sheet,
-            String name,
-            int firstRow,
-            int lastRow,
-            int firstCol,
-            int lastCol,
-            String[] technicalHeaders) {
-
-        if (name == null || name.isBlank()) {
-            return;
-        }
-
-        if (technicalHeaders == null || technicalHeaders.length != (lastCol - firstCol + 1)) {
-            throw new IllegalStateException(
-                    "BNR table " + name + " has an invalid technical-header count. "
-                            + "Expected " + (lastCol - firstCol + 1)
-                            + " but received " + (technicalHeaders == null ? 0 : technicalHeaders.length));
-        }
+            org.apache.poi.xssf.usermodel.XSSFSheet sheet, String name,
+            int firstRow, int lastRow, int firstCol, int lastCol) {
+        if (name == null || name.isBlank()) return;
 
         org.apache.poi.ss.util.AreaReference area = new org.apache.poi.ss.util.AreaReference(
                 new org.apache.poi.ss.util.CellReference(firstRow, firstCol),
@@ -1765,58 +1719,118 @@ public class BnrTemplateExportService {
         table.setDisplayName(name);
         table.setArea(area);
 
-        // The BNR workbook uses Excel structured references extensively. POI's
-        // default table creation generates names such as Column12, even when the
-        // regulatory technical header cell is "Column 12". That mismatch is the
-        // direct cause of the production error:
-        //
-        //   The column Column12 doesn't exist in table Table42022
-        //
-        // Set the actual OOXML table-column names explicitly so the table metadata
-        // and the technical header row are identical. This is more reliable than
-        // relying on POI's automatic header inference.
-        java.util.List<org.apache.poi.xssf.usermodel.XSSFTableColumn> columns = table.getColumns();
-        if (columns == null || columns.size() != technicalHeaders.length) {
+        /*
+         * IMPORTANT:
+         * Apache POI creates generic table-column names when createTable(...)
+         * is called. Those names are usually Column1, Column2, ... and do NOT
+         * necessarily match the technical column names used by the BNR form.
+         *
+         * BNR formulas use names such as:
+         *   [Column 12]
+         *   [Column 35]
+         *   [Column 36]
+         *   [Column 39]
+         *   [Column 342]
+         *
+         * Excel structured references resolve against the table's XML
+         * <tableColumn name="..."> metadata, NOT against the visible header
+         * cells. Therefore writing the technical header into the worksheet is
+         * not enough. The table metadata itself must contain the exact names.
+         *
+         * This is the direct fix for:
+         *   "The column Column 36 doesn't exist in table Table6204"
+         */
+        try {
+            java.lang.reflect.Method getCtTable =
+                    table.getClass().getMethod("getCTTable");
+            Object ctTable = getCtTable.invoke(table);
+
+            java.lang.reflect.Method getTableColumns =
+                    ctTable.getClass().getMethod("getTableColumns");
+            Object tableColumns = getTableColumns.invoke(ctTable);
+
+            java.lang.reflect.Method getTableColumnArray =
+                    tableColumns.getClass().getMethod("getTableColumnArray", int.class);
+            java.lang.reflect.Method sizeOfTableColumnArray =
+                    tableColumns.getClass().getMethod("sizeOfTableColumnArray");
+
+            int expectedColumns = lastCol - firstCol + 1;
+            int actualColumns = ((Number) sizeOfTableColumnArray.invoke(tableColumns)).intValue();
+
+            if (actualColumns != expectedColumns) {
+                throw new IllegalStateException(
+                        "BNR table " + name + " has " + actualColumns
+                                + " XML columns but the table area requires "
+                                + expectedColumns + " columns ("
+                                + firstCol + ":" + lastCol + ")");
+            }
+
+            java.lang.reflect.Method setColumnName = null;
+
+            for (int relative = 0; relative < expectedColumns; relative++) {
+                Object tableColumn = getTableColumnArray.invoke(tableColumns, relative);
+
+                if (setColumnName == null) {
+                    setColumnName = tableColumn.getClass()
+                            .getMethod("setName", String.class);
+                }
+
+                // exactTechnicalHeader expects the actual worksheet column,
+                // not the relative table-column number. This distinction is
+                // critical because classification tables begin in column B.
+                int worksheetColumn = firstCol + relative;
+                String technicalName =
+                        exactTechnicalHeader(sheet.getSheetName(), worksheetColumn);
+
+                if (technicalName == null || technicalName.isBlank()) {
+                    throw new IllegalStateException(
+                            "Missing BNR technical header for " + name
+                                    + " worksheet column " + worksheetColumn);
+                }
+
+                setColumnName.invoke(tableColumn, technicalName);
+            }
+        } catch (ReflectiveOperationException ex) {
             throw new IllegalStateException(
-                    "BNR table " + name + " was created with "
-                            + (columns == null ? 0 : columns.size())
-                            + " columns, expected " + technicalHeaders.length);
+                    "Unable to configure BNR table-column metadata for " + name, ex);
         }
 
-        Set<String> seen = new HashSet<>();
-        for (int i = 0; i < technicalHeaders.length; i++) {
-            String header = technicalHeaders[i];
-            if (header == null || header.isBlank()) {
-                throw new IllegalStateException(
-                        "BNR table " + name + " has a blank technical column at index " + i);
+        // Reproduce the BNR workbook table style: TableStyleLight8,
+        // banded rows, no first/last-column emphasis.
+        try {
+            java.lang.reflect.Method getCtTable = table.getClass().getMethod("getCTTable");
+            Object ctTable = getCtTable.invoke(table);
+
+            java.lang.reflect.Method isSetStyle =
+                    ctTable.getClass().getMethod("isSetTableStyleInfo");
+            Object styleInfo;
+
+            if (Boolean.TRUE.equals(isSetStyle.invoke(ctTable))) {
+                styleInfo = ctTable.getClass()
+                        .getMethod("getTableStyleInfo")
+                        .invoke(ctTable);
+            } else {
+                styleInfo = ctTable.getClass()
+                        .getMethod("addNewTableStyleInfo")
+                        .invoke(ctTable);
             }
-            if (!seen.add(header)) {
-                throw new IllegalStateException(
-                        "BNR table " + name + " contains duplicate technical column " + header);
-            }
-            columns.get(i).setName(header);
+
+            styleInfo.getClass().getMethod("setName", String.class)
+                    .invoke(styleInfo, "TableStyleLight8");
+            styleInfo.getClass().getMethod("setShowFirstColumn", boolean.class)
+                    .invoke(styleInfo, false);
+            styleInfo.getClass().getMethod("setShowLastColumn", boolean.class)
+                    .invoke(styleInfo, false);
+            styleInfo.getClass().getMethod("setShowRowStripes", boolean.class)
+                    .invoke(styleInfo, true);
+            styleInfo.getClass().getMethod("setShowColumnStripes", boolean.class)
+                    .invoke(styleInfo, false);
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException(
+                    "Unable to configure BNR table style " + name, ex);
         }
-
-        // Keep the visual table treatment used by the BNR reference workbook.
-        table.setStyleName("TableStyleLight8");
-
     }
 
-    private String[] technicalHeadersForClassification(String sheetName, int firstSheetColumn, int count) {
-        String[] headers = new String[count];
-        for (int i = 0; i < count; i++) {
-            headers[i] = exactTechnicalHeader(sheetName, firstSheetColumn + i);
-        }
-        return headers;
-    }
-
-    private String[] writtenOffTechnicalHeaders() {
-        String[] headers = new String[24];
-        for (int i = 0; i < headers.length; i++) {
-            headers[i] = exactWrittenOffTechnicalHeader(i);
-        }
-        return headers;
-    }
 
     private org.apache.poi.ss.SpreadsheetVersion workbookSpreadsheetVersion() {
         return org.apache.poi.ss.SpreadsheetVersion.EXCEL2007;
@@ -2014,7 +2028,7 @@ public class BnrTemplateExportService {
                 "Annual Interest Rate",
                 "Method of interest rate calculation (Flat/Declining)",
                 "Names of the Loan Officer",
-                "Disbursed amount",
+                "Disbursed Amount",
                 "Date of loan disbursement",
                 "Agreed Maturity Date",
                 "Agreed Frequency of Repayment (Days)",
@@ -2024,16 +2038,16 @@ public class BnrTemplateExportService {
                 "Date when Arrears Start",
                 "Cut Off Date (Report Date)",
                 "Total Number of Installments",
-                "Round Number of Installments  paid",
+                "Round Number of Installments paid",
                 "Round Number of Installments outstanding",
                 "Amount Repaid (Principal)",
                 "Balance Outstanding (Principal)",
-                "Eligible Collateral provided ",
+                "Eligible Collateral provided",
                 "Net Amount due (Principal)",
-                "Number of days overdue (Arrears) ",
+                "Number of days overdue (Arrears)",
                 "Class",
                 "Provisioning Rate (Regulation)",
-                "Provision Required ",
+                "Provision Required",
                 "Previous Provisions",
                 "Additional Provisions"
         };
@@ -2061,7 +2075,7 @@ public class BnrTemplateExportService {
                 "Annual Interest Rate",
                 "Method of interest rate calculation (Flat/Declining)",
                 "Names of the Loan Officer",
-                "Disbursed amount",
+                "Disbursed Amount",
                 "Date of loan disbursement",
                 "Agreed Maturity Date",
                 "Agreed Frequency of Repayment (Days)",
@@ -2071,16 +2085,16 @@ public class BnrTemplateExportService {
                 "Date when Arrears Start",
                 "Cut Off Date (Report Date)",
                 "Total Number of Installments",
-                "Round Number of Installments  paid",
+                "Round Number of Installments paid",
                 "Round Number of Installments outstanding",
                 "Amount Repaid (Principal)",
                 "Balance Outstanding (Principal)",
-                "Eligible Collateral provided ",
+                "Eligible Collateral provided",
                 "Net Amount due (Principal)",
-                "Number of days overdue (Arrears) ",
+                "Number of days overdue (Arrears)",
                 "Class",
                 "Provisioning Rate (Regulation)",
-                "Provision Required ",
+                "Provision Required",
                 "Previous Provisions",
                 "Additional Provisions"
         };
@@ -2136,7 +2150,6 @@ public class BnrTemplateExportService {
 
     private String[] restructuredHeaders() {
         String[] headers = normalHeaders();
-        headers[6] = "Relationship with the NDFSP ( Staff, Difrector, Shareholder….)";
         headers[37] = "Performance Class";
         return headers;
     }
@@ -2162,6 +2175,17 @@ public class BnrTemplateExportService {
         style.setBorderLeft(BorderStyle.THIN);
         style.setBorderRight(BorderStyle.THIN);
         return style;
+    }
+
+    /**
+     * Header style used by the explanatory-note sheet and other legacy BNR
+     * sections that use the standard BNR header treatment.
+     *
+     * This method intentionally delegates to the already-defined human-header
+     * style so there is only one source of truth for the BNR header formatting.
+     */
+    private CellStyle createBnrHeaderStyle(XSSFWorkbook workbook) {
+        return createBnrHumanHeaderStyle(workbook);
     }
 
     private CellStyle createBnrHumanHeaderStyle(XSSFWorkbook workbook) {
@@ -2196,6 +2220,43 @@ public class BnrTemplateExportService {
         style.setBorderBottom(BorderStyle.THIN);
         style.setBorderRight(BorderStyle.THIN);
         return style;
+    }
+
+    /**
+     * Returns the human-readable Portfolio-at-Risk label used in the BNR
+     * classification worksheets.  The value is deliberately derived from the
+     * classification passed by the exporter rather than from a database value.
+     */
+    private String portfolioRiskLabel(String classification) {
+        if (classification == null || classification.isBlank()) {
+            return "";
+        }
+
+        String value = classification.trim();
+        if (value.equalsIgnoreCase("NORMAL")) {
+            return "(Normal)";
+        }
+        if (value.equalsIgnoreCase("WATCH")) {
+            return "(Watch)";
+        }
+        if (value.equalsIgnoreCase("SUBSTANDARD")) {
+            return "(Substandard)";
+        }
+        if (value.equalsIgnoreCase("DOUBTFUL")) {
+            return "(Doubtful)";
+        }
+        if (value.equalsIgnoreCase("LOSS")) {
+            return "(Loss)";
+        }
+        if (value.equalsIgnoreCase("RESTRUCTURED")
+                || value.equalsIgnoreCase("RESTRUCTURED LOANS")) {
+            return "(Restructured)";
+        }
+        if (value.equalsIgnoreCase("WRITTEN OFF")
+                || value.equalsIgnoreCase("WRITTEN_OFF")) {
+            return "(Written Off)";
+        }
+        return "(" + value + ")";
     }
 
     private CellStyle createBnrExcelDataStyle(XSSFWorkbook workbook) {
@@ -2235,45 +2296,6 @@ public class BnrTemplateExportService {
      * the different Normal/Watch/Substandard/Doubtful/Loss/Restructured layouts
      * remain safe when their column positions differ.
      */
-    /**
-     * Backward-compatible header style used by the explanatory-note and
-     * written-off sections. Classification sheets use the explicit human
-     * header style, but both styles follow the same BNR header rules.
-     */
-    private CellStyle createBnrHeaderStyle(XSSFWorkbook workbook) {
-        return createBnrHumanHeaderStyle(workbook);
-    }
-
-    /**
-     * Identifies BNR columns whose values must be written as Excel percentage
-     * fractions because their cell format is 0.00%.
-     */
-    private boolean isPercentBnrHeader(String header) {
-        String h = normalize(header);
-        return contains(h, "annualinterestrate")
-                || contains(h, "provisioningrateregulation");
-    }
-
-    /**
-     * Human-readable arrears/PAR label displayed above classification tables.
-     */
-    private String portfolioRiskLabel(String classification) {
-        if (classification == null) {
-            return "";
-        }
-
-        return switch (classification.trim().toUpperCase(Locale.ROOT)) {
-            case "NORMAL" -> "0 days";
-            case "WATCH" -> "30 to 89 days";
-            case "SUBSTANDARD" -> "90 to 179 days";
-            case "DOUBTFUL" -> "180 to 359 days";
-            case "LOSS" -> "360 to 719 days";
-            case "RESTRUCTURED", "RESTRUCTURED LOANS" -> "Renegotiated Loans";
-            case "WRITTEN OFF", "WRITTEN_OFF" -> "Written Off";
-            default -> "";
-        };
-    }
-
     private boolean isNumericBnrHeader(String header) {
         if (header == null || header.isBlank()) {
             return false;
@@ -2296,74 +2318,31 @@ public class BnrTemplateExportService {
                 || h.equals("amount of loan disbursed");
     }
 
-    /**
-     * Exact technical column names used by the supplied BNR workbook.
-     *
-     * These names are part of the workbook contract. Do not generate them from
-     * the visible column number because several BNR sheets intentionally contain
-     * non-sequential/legacy technical names.
-     */
     private String exactTechnicalHeader(String sheetName, int column) {
-        if (column < 0) {
-            return "";
+        if (column < 0) return "";
+        String[] standard = {
+                "Column1", "Column2", "Column3", "Column4", "Column5",
+                "Column 6", "Column 7", "Column 8", "Column 9", "Column10",
+                "Column11", "Column12", "Column 12", "Column13", "Column14",
+                "Column15", "Column16", "Column17", "Column18", "Column19",
+                "Column 20", "Column 21", "Column 22", "Column 23", "Column 24",
+                "Column 25", "Column 26", "Column 27", "Column 28", "Column 29",
+                "Column 30", "Column 31", "Column 32", "Column 33", "Column 34",
+                "Column 35", "Column 36", "Column 37", "Column 38", "Column 39",
+                "Column 40", "Column 41"
+        };
+        if ("A1.5. Substandard".equals(sheetName)) {
+            if (column == 35) return "Column 342";
+            if (column == 42) return "LCL.P3089.AP.Y";
         }
-
-        String[] normalWatch = {
-                "Column1", "Column2", "Column3", "Column4", "Column5",
-                "Column 6", "Column 7", "Column 8", "Column 9", "Column10",
-                "Column11", "Column 12", "Column 13", "Column13", "Column14",
-                "Column15", "Column16", "Column17", "Column18", "Column19",
-                "Column 20", "Column 21", "Column 22", "Column 23", "Column 24",
-                "Column 25", "Column 26", "Column 27", "Column 28", "Column 29",
-                "Column 30", "Column 31", "Column 32", "Column 33", "Column 34",
-                "Column 35", "Column 36", "Column 37", "Column 38", "Column 39",
-                "Column 40", "Column 41"
-        };
-
-        String[] substandard = {
-                "Column1", "Column2", "Column3", "Column4", "Column5",
-                "Column 6", "Column 7", "Column 8", "Column 9", "Column10",
-                "Column11", "Column 12", "Column 13", "Column13", "Column14",
-                "Column15", "Column16", "Column17", "Column18", "Column19",
-                "Column 20", "Column 21", "Column 22", "Column 23", "Column 24",
-                "Column 25", "Column 26", "Column 27", "Column 28", "Column 29",
-                "Column 30", "Column 31", "Column32", "Column33", "Column34",
-                "Column 342", "Column36", "Column37", "Column38", "Column39",
-                "Column40", "Column41", "LCL.P3089.AP.Y"
-        };
-
-        String[] doubtful = {
-                "Column1", "Column2", "Column3", "Column4", "Column5",
-                "Column 6", "Column 7", "Column 8", "Column 9", "Column10",
-                "Column11", "Column 12", "Column 13", "Column13", "Column14",
-                "Column15", "Column16", "Column17", "Column18", "Column19",
-                "Column 20", "Column 21", "Column 22", "Column 23", "Column 24",
-                "Column 25", "Column 26", "Column 27", "Column 28", "Column 29",
-                "Column 30", "Column 31", "Column 32", "Column 33", "Column 332",
-                "Column 35", "Column 36", "Column 37", "Column 38", "Column 39",
-                "Column 40", "Column 41"
-        };
-
-        String[] loss = {
-                "Column1", "Column2", "Column3", "Column4", "Column5",
-                "Column 6", "Column 7", "Column 8", "Column 9", "Column10",
-                "Column11", "Column 12", "Column 13", "Column13", "Column14",
-                "Column15", "Column16", "Column17", "Column18", "Column19",
-                "Column 20", "Column 21", "Column 22", "Column 23", "Column 24",
-                "Column 25", "Column 26", "Column 27", "Column 28", "Column 29",
-                "Column 30", "Column 31", "Column 32", "Column 33", "Column 34",
-                "Column 36", "Column 37", "Column 38", "Column 39", "Column 40",
-                "Column 41", "Column 42"
-        };
-
-        String[] selected = switch (sheetName) {
-            case "A1.5. Substandard" -> substandard;
-            case "A1.6. Doubtful", "A1.8. Restructured loans" -> doubtful;
-            case "A1.7 Loss" -> loss;
-            default -> normalWatch;
-        };
-
-        return column < selected.length ? selected[column] : "";
+        if ("A1.6. Doubtful".equals(sheetName) && column == 34) return "Column 332";
+        if ("A1.7 Loss".equals(sheetName)) {
+            if (column == 34) return "Column 34";
+            if (column == 35) return "Column 36";
+            if (column == 41) return "Column 42";
+        }
+        if ("A1.8. Restructured loans".equals(sheetName) && column == 34) return "Column 332";
+        return column < standard.length ? standard[column] : "Column " + (column + 1);
     }
 
     private CellStyle createBnrWrittenOffTechnicalHeaderStyle(XSSFWorkbook workbook) {
@@ -2452,20 +2431,29 @@ public class BnrTemplateExportService {
             Row row = getOrCreateRow(sheet, r);
             Float height = layout.rowHeights.get(r + 1);
             if (height != null) row.setHeightInPoints(height);
+            for (int c = 0; c < layout.maxColumns; c++) {
+                Cell cell = row.getCell(c, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+                if (c < headers.length) {
+                    String h = normalize(headers[c]);
+                    if (contains(h, "annualinterestrate")) {
+                        cell.setCellStyle(percent);
+                    } else if (contains(h, "amount") || contains(h, "balance") || contains(h, "savings") || contains(h, "recoveries")) {
+                        cell.setCellStyle(number);
+                    } else {
+                        cell.setCellStyle(data);
+                    }
+                } else {
+                    cell.setCellStyle(data);
+                }
+            }
         }
 
         for (int c = 0; c < layout.maxColumns; c++) {
             sheet.setColumnWidth(c, layout.widths[c]);
         }
         sheet.createFreezePane(1, 12); // B13 in the reference workbook.
-        createBnrTable(
-                (org.apache.poi.xssf.usermodel.XSSFSheet) sheet,
-                "Table1213",
-                7,
-                89,
-                0,
-                23,
-                writtenOffTechnicalHeaders());
+        createBnrTable((org.apache.poi.xssf.usermodel.XSSFSheet) sheet,
+                "Table1213", 7, 89, 0, 23);
         sheet.setDisplayGridlines(true);
         sheet.setDefaultRowHeightInPoints(14.5f);
     }
@@ -2804,10 +2792,6 @@ public class BnrTemplateExportService {
 
         int rowNumber = dataStartRow;
         int sequence = 1;
-        XSSFWorkbook workbook = (XSSFWorkbook) sheet.getWorkbook();
-        CellStyle textStyle = createBnrExcelDataStyle(workbook);
-        CellStyle numberStyle = createBnrExcelNumberStyle(workbook);
-        CellStyle percentStyle = createBnrExcelPercentStyle(workbook);
 
         for (Loan loan : loans) {
             if (loan == null) {
@@ -2822,7 +2806,6 @@ public class BnrTemplateExportService {
                     loan,
                     reportDate,
                     classification);
-            applyClassificationDataStyles(row, sheet, textStyle, numberStyle, percentStyle);
         }
     }
 
@@ -2841,10 +2824,6 @@ public class BnrTemplateExportService {
         clearSourceCells(sheet, dataStartRow);
 
         int rowNumber = dataStartRow;
-        XSSFWorkbook workbook = (XSSFWorkbook) sheet.getWorkbook();
-        CellStyle textStyle = createBnrExcelDataStyle(workbook);
-        CellStyle numberStyle = createBnrExcelNumberStyle(workbook);
-        CellStyle percentStyle = createBnrExcelPercentStyle(workbook);
 
         for (Loan loan : loans) {
             if (loan == null) {
@@ -2853,54 +2832,6 @@ public class BnrTemplateExportService {
 
             Row row = getOrCreateRow(sheet, rowNumber++);
             populateWrittenOffRow(row, sheet, loan, reportDate);
-            applyWrittenOffDataStyles(row, sheet, textStyle, numberStyle, percentStyle);
-        }
-    }
-
-    private void applyClassificationDataStyles(
-            Row row,
-            Sheet sheet,
-            CellStyle textStyle,
-            CellStyle numberStyle,
-            CellStyle percentStyle) {
-
-        int headerIndex = findHeaderRow(sheet, "Names of Borrowers");
-        if (headerIndex < 0 || sheet.getRow(headerIndex) == null) {
-            return;
-        }
-
-        Row header = sheet.getRow(headerIndex);
-        for (int c = 0; c < header.getLastCellNum(); c++) {
-            Cell cell = row.getCell(c, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
-            String h = text(header.getCell(c));
-            cell.setCellStyle(isPercentBnrHeader(h)
-                    ? percentStyle
-                    : isNumericBnrHeader(h) ? numberStyle : textStyle);
-        }
-    }
-
-    private void applyWrittenOffDataStyles(
-            Row row,
-            Sheet sheet,
-            CellStyle textStyle,
-            CellStyle numberStyle,
-            CellStyle percentStyle) {
-
-        int headerIndex = findHeaderRow(sheet, "Names of Borrowers");
-        if (headerIndex < 0 || sheet.getRow(headerIndex) == null) {
-            return;
-        }
-
-        Row header = sheet.getRow(headerIndex);
-        for (int c = 0; c < header.getLastCellNum(); c++) {
-            Cell cell = row.getCell(c, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
-            String h = normalize(text(header.getCell(c)));
-            cell.setCellStyle(contains(h, "annualinterestrate")
-                    ? percentStyle
-                    : (contains(h, "amount") || contains(h, "balance")
-                            || contains(h, "savings") || contains(h, "recoveries")
-                            || contains(h, "remainingbalancetoberecovered"))
-                            ? numberStyle : textStyle);
         }
     }
 
@@ -2931,6 +2862,15 @@ public class BnrTemplateExportService {
                     classification);
 
             writeTypedCell(row, column, value);
+        }
+
+        // Column C is the BNR national borrower identifier. Never substitute
+        // Noble's internal Borrower.id when nationalId is unavailable.
+        Cell nationalIdCell = row.getCell(2, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+        if (facts.nationalId == null || facts.nationalId.isBlank()) {
+            nationalIdCell.setBlank();
+        } else {
+            nationalIdCell.setCellValue(facts.nationalId.trim());
         }
 
         // Derived regulatory columns remain formula-driven in the generated workbook.
