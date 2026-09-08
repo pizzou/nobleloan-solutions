@@ -7,6 +7,7 @@ import com.patrick.fintech.loan_backend.model.JournalLine;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.repository.ChartOfAccountRepository;
 import com.patrick.fintech.loan_backend.repository.JournalEntryRepository;
+import com.patrick.fintech.loan_backend.repository.JournalLineRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,8 @@ public class BnrFinancialStatementService {
         private final ChartOfAccountRepository chartOfAccountRepository;
 
         private final JournalEntryRepository journalEntryRepository;
+
+        private final JournalLineRepository journalLineRepository;
 
         private final LoanRepository loanRepository;
 
@@ -72,10 +75,7 @@ public class BnrFinancialStatementService {
                         LocalDate from,
                         LocalDate to) {
 
-                validateDates(
-                                organizationId,
-                                from,
-                                to);
+                validateDates(organizationId, from, to);
 
                 log.info(
                                 "Generating BNR financial statement: organizationId={}, from={}, to={}",
@@ -83,13 +83,8 @@ public class BnrFinancialStatementService {
                                 from,
                                 to);
 
-                // ========================================================
-                // LOAD CHART OF ACCOUNTS
-                // ========================================================
-
                 List<ChartOfAccount> accounts = chartOfAccountRepository
-                                .findByOrganization_IdOrderByCodeAsc(
-                                                organizationId);
+                                .findByOrganization_IdOrderByCodeAsc(organizationId);
 
                 if (accounts == null) {
                         accounts = new ArrayList<>();
@@ -98,675 +93,263 @@ public class BnrFinancialStatementService {
                 accounts = accounts.stream()
                                 .filter(Objects::nonNull)
                                 .filter(account -> account.getId() != null)
-                                .sorted(
-                                                Comparator.comparing(
-                                                                account -> safeString(
-                                                                                account.getCode())))
+                                .sorted(Comparator.comparing(
+                                                account -> safeString(account.getCode())))
                                 .toList();
 
-                // ========================================================
-                // LOAD HISTORICAL JOURNAL ENTRIES
-                // ========================================================
+                /*
+                 * IMPORTANT PERFORMANCE FIX:
+                 *
+                 * The previous implementation loaded every historical JournalEntry
+                 * and every JournalLine into Hibernate, then walked the entity graph
+                 * repeatedly. On a growing ledger this creates very high memory usage
+                 * and N+1 SQL activity.
+                 *
+                 * Reporting totals are additive accounting facts, so PostgreSQL can
+                 * aggregate them directly. We only hydrate the small chart of accounts
+                 * and the loan portfolio needed for the BNR report.
+                 */
+                validateLedgerIntegrity(organizationId, ACCOUNTING_EPOCH, to);
 
-                List<JournalEntry> historicalEntries = journalEntryRepository
-                                .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAsc(
+                List<JournalLineRepository.BnrAccountAggregate> aggregates =
+                                journalLineRepository.findBnrAccountAggregates(
                                                 organizationId,
                                                 ACCOUNTING_EPOCH,
+                                                from,
                                                 to);
 
-                if (historicalEntries == null) {
-                        historicalEntries = new ArrayList<>();
+                Map<Long, BigDecimal> endingBalances = createBalanceMap(accounts);
+                Map<Long, BigDecimal> periodDebits = createBalanceMap(accounts);
+                Map<Long, BigDecimal> periodCredits = createBalanceMap(accounts);
+                Map<Long, BigDecimal> historicalIncome = createBalanceMap(accounts);
+                Map<Long, BigDecimal> historicalExpenses = createBalanceMap(accounts);
+
+                BigDecimal trialBalanceDebit = ZERO;
+                BigDecimal trialBalanceCredit = ZERO;
+
+                if (aggregates != null) {
+                        for (JournalLineRepository.BnrAccountAggregate aggregate : aggregates) {
+                                if (aggregate == null || aggregate.getAccountId() == null) {
+                                        continue;
+                                }
+
+                                Long accountId = aggregate.getAccountId();
+                                BigDecimal historicalDebit = normalizeMoney(aggregate.getHistoricalDebit());
+                                BigDecimal historicalCredit = normalizeMoney(aggregate.getHistoricalCredit());
+                                BigDecimal periodDebit = normalizeMoney(aggregate.getPeriodDebit());
+                                BigDecimal periodCredit = normalizeMoney(aggregate.getPeriodCredit());
+
+                                // Trial balance is based on every active journal line in
+                                // the requested period, including a line whose account is
+                                // not currently present in the chart-of-accounts list.
+                                trialBalanceDebit = add(trialBalanceDebit, periodDebit);
+                                trialBalanceCredit = add(trialBalanceCredit, periodCredit);
+
+                                ChartOfAccount account = accounts.stream()
+                                                .filter(a -> accountId.equals(a.getId()))
+                                                .findFirst()
+                                                .orElse(null);
+
+                                if (account == null) {
+                                        continue;
+                                }
+
+                                BigDecimal movement = account.getNormalBalance() == ChartOfAccount.NormalBalance.DEBIT
+                                                ? subtract(historicalDebit, historicalCredit)
+                                                : subtract(historicalCredit, historicalDebit);
+
+                                endingBalances.merge(accountId, movement, this::add);
+                                periodDebits.merge(accountId, periodDebit, this::add);
+                                periodCredits.merge(accountId, periodCredit, this::add);
+
+                                if (account.getType() == ChartOfAccount.AccountType.INCOME) {
+                                        historicalIncome.merge(
+                                                        accountId,
+                                                        subtract(historicalCredit, historicalDebit),
+                                                        this::add);
+                                } else if (account.getType() == ChartOfAccount.AccountType.EXPENSE) {
+                                        historicalExpenses.merge(
+                                                        accountId,
+                                                        subtract(historicalDebit, historicalCredit),
+                                                        this::add);
+                                }
+
+                        }
                 }
-
-                // ========================================================
-                // ACTIVE ENTRIES / PERIOD VIEW
-                // ========================================================
-                // The historical query already contains every entry through
-                // the reporting cut-off. Re-querying the current period was
-                // doubling database I/O and entity hydration. Build the
-                // period view from the already-loaded ledger instead.
-
-                historicalEntries = activeEntries(
-                                historicalEntries);
-
-                List<JournalEntry> periodEntries = historicalEntries.stream()
-                                .filter(Objects::nonNull)
-                                .filter(entry -> entry.getEntryDate() != null)
-                                .filter(entry -> !entry.getEntryDate().isBefore(from)
-                                                && !entry.getEntryDate().isAfter(to))
-                                .toList();
-
-                // ========================================================
-                // ACCOUNT MAPS
-                // ========================================================
-
-                Map<Long, BigDecimal> endingBalances = createBalanceMap(
-                                accounts);
-
-                Map<Long, BigDecimal> periodDebits = createBalanceMap(
-                                accounts);
-
-                Map<Long, BigDecimal> periodCredits = createBalanceMap(
-                                accounts);
-
-                Map<Long, BigDecimal> historicalIncome = createBalanceMap(
-                                accounts);
-
-                Map<Long, BigDecimal> historicalExpenses = createBalanceMap(
-                                accounts);
-
-                // ========================================================
-                // PROCESS HISTORICAL ENTRIES
-                // ========================================================
-
-                for (JournalEntry entry : historicalEntries) {
-
-                        processEndingBalanceEntry(
-                                        entry,
-                                        endingBalances,
-                                        organizationId);
-
-                        processIncomeExpenseEntry(
-                                        entry,
-                                        historicalIncome,
-                                        historicalExpenses,
-                                        organizationId);
-                }
-
-                // ========================================================
-                // PROCESS CURRENT PERIOD
-                // ========================================================
-
-                for (JournalEntry entry : periodEntries) {
-
-                        processPeriodEntry(
-                                        entry,
-                                        periodDebits,
-                                        periodCredits,
-                                        organizationId);
-                }
-
-                // ========================================================
-                // STATEMENT COLLECTIONS
-                // ========================================================
 
                 List<Map<String, Object>> assets = new ArrayList<>();
-
                 List<Map<String, Object>> liabilities = new ArrayList<>();
-
                 List<Map<String, Object>> equity = new ArrayList<>();
-
                 List<Map<String, Object>> income = new ArrayList<>();
-
                 List<Map<String, Object>> expenses = new ArrayList<>();
 
-                // ========================================================
-                // TOTALS
-                // ========================================================
-
                 BigDecimal totalAssets = ZERO;
-
                 BigDecimal totalLiabilities = ZERO;
-
                 BigDecimal totalEquity = ZERO;
-
                 BigDecimal totalIncome = ZERO;
-
                 BigDecimal totalExpenses = ZERO;
-
                 BigDecimal historicalIncomeTotal = ZERO;
-
                 BigDecimal historicalExpenseTotal = ZERO;
 
-                // ========================================================
-                // CLASSIFY ACCOUNTS
-                // ========================================================
-
                 for (ChartOfAccount account : accounts) {
-
-                        if (account == null) {
-                                continue;
-                        }
-
                         Long accountId = account.getId();
-
-                        if (accountId == null) {
-                                continue;
-                        }
-
                         if (account.getType() == null) {
                                 continue;
                         }
 
                         BigDecimal endingBalance = normalizeMoney(
-                                        endingBalances.getOrDefault(
-                                                        accountId,
-                                                        ZERO));
-
+                                        endingBalances.getOrDefault(accountId, ZERO));
                         BigDecimal debit = normalizeMoney(
-                                        periodDebits.getOrDefault(
-                                                        accountId,
-                                                        ZERO));
-
+                                        periodDebits.getOrDefault(accountId, ZERO));
                         BigDecimal credit = normalizeMoney(
-                                        periodCredits.getOrDefault(
-                                                        accountId,
-                                                        ZERO));
-
+                                        periodCredits.getOrDefault(accountId, ZERO));
                         BigDecimal historicalIncomeAmount = normalizeMoney(
-                                        historicalIncome.getOrDefault(
-                                                        accountId,
-                                                        ZERO));
-
+                                        historicalIncome.getOrDefault(accountId, ZERO));
                         BigDecimal historicalExpenseAmount = normalizeMoney(
-                                        historicalExpenses.getOrDefault(
-                                                        accountId,
-                                                        ZERO));
+                                        historicalExpenses.getOrDefault(accountId, ZERO));
 
                         switch (account.getType()) {
-
-                                // =================================================
-                                // ASSET
-                                // =================================================
-
                                 case ASSET -> {
-
-                                        if (!isMaterial(endingBalance)) {
-                                                continue;
-                                        }
-
-                                        Map<String, Object> row = accountRow(
-                                                        account,
-                                                        endingBalance);
-
-                                        boolean contraAsset = isContraAsset(
-                                                        account);
-
+                                        if (!isMaterial(endingBalance)) continue;
+                                        Map<String, Object> row = accountRow(account, endingBalance);
+                                        boolean contraAsset = isContraAsset(account);
                                         if (contraAsset) {
-
-                                                row.put(
-                                                                "presentation",
-                                                                "CONTRA_ASSET");
-
-                                                BigDecimal deduction = normalizeMoney(
-                                                                endingBalance
-                                                                                .abs()
-                                                                                .negate());
-
-                                                row.put(
-                                                                "deduction",
-                                                                deduction);
-
-                                                totalAssets = subtract(
-                                                                totalAssets,
-                                                                endingBalance.abs());
-
+                                                row.put("presentation", "CONTRA_ASSET");
+                                                BigDecimal deduction = normalizeMoney(endingBalance.abs().negate());
+                                                row.put("deduction", deduction);
+                                                totalAssets = subtract(totalAssets, endingBalance.abs());
                                         } else {
-
-                                                row.put(
-                                                                "presentation",
-                                                                "ASSET");
-
-                                                totalAssets = add(
-                                                                totalAssets,
-                                                                endingBalance);
+                                                row.put("presentation", "ASSET");
+                                                totalAssets = add(totalAssets, endingBalance);
                                         }
-
                                         assets.add(row);
                                 }
-
-                                // =================================================
-                                // LIABILITY
-                                // =================================================
-
                                 case LIABILITY -> {
-
-                                        if (!isMaterial(endingBalance)) {
-                                                continue;
-                                        }
-
-                                        Map<String, Object> row = accountRow(
-                                                        account,
-                                                        endingBalance);
-
-                                        row.put(
-                                                        "presentation",
-                                                        "LIABILITY");
-
-                                        totalLiabilities = add(
-                                                        totalLiabilities,
-                                                        normalizedStatementBalance(
-                                                                        account,
-                                                                        endingBalance));
-
+                                        if (!isMaterial(endingBalance)) continue;
+                                        Map<String, Object> row = accountRow(account, endingBalance);
+                                        row.put("presentation", "LIABILITY");
+                                        totalLiabilities = add(totalLiabilities, normalizedStatementBalance(account, endingBalance));
                                         liabilities.add(row);
                                 }
-
-                                // =================================================
-                                // EQUITY
-                                // =================================================
-
                                 case EQUITY -> {
-
-                                        if (!isMaterial(endingBalance)) {
-                                                continue;
-                                        }
-
-                                        Map<String, Object> row = accountRow(
-                                                        account,
-                                                        endingBalance);
-
-                                        row.put(
-                                                        "presentation",
-                                                        "EQUITY");
-
-                                        totalEquity = add(
-                                                        totalEquity,
-                                                        normalizedStatementBalance(
-                                                                        account,
-                                                                        endingBalance));
-
+                                        if (!isMaterial(endingBalance)) continue;
+                                        Map<String, Object> row = accountRow(account, endingBalance);
+                                        row.put("presentation", "EQUITY");
+                                        totalEquity = add(totalEquity, normalizedStatementBalance(account, endingBalance));
                                         equity.add(row);
                                 }
-
-                                // =================================================
-                                // INCOME
-                                // =================================================
-
                                 case INCOME -> {
-
-                                        BigDecimal periodIncome = subtract(
-                                                        credit,
-                                                        debit);
-
-                                        historicalIncomeTotal = add(
-                                                        historicalIncomeTotal,
-                                                        historicalIncomeAmount);
-
-                                        if (!isMaterial(periodIncome)) {
-                                                continue;
-                                        }
-
-                                        Map<String, Object> row = accountRow(
-                                                        account,
-                                                        periodIncome);
-
-                                        row.put(
-                                                        "presentation",
-                                                        "INCOME");
-
-                                        row.put(
-                                                        "periodDebit",
-                                                        debit);
-
-                                        row.put(
-                                                        "periodCredit",
-                                                        credit);
-
-                                        row.put(
-                                                        "periodAmount",
-                                                        periodIncome);
-
-                                        totalIncome = add(
-                                                        totalIncome,
-                                                        periodIncome);
-
+                                        BigDecimal periodIncome = subtract(credit, debit);
+                                        historicalIncomeTotal = add(historicalIncomeTotal, historicalIncomeAmount);
+                                        if (!isMaterial(periodIncome)) continue;
+                                        Map<String, Object> row = accountRow(account, periodIncome);
+                                        row.put("presentation", "INCOME");
+                                        row.put("periodDebit", debit);
+                                        row.put("periodCredit", credit);
+                                        row.put("periodAmount", periodIncome);
+                                        totalIncome = add(totalIncome, periodIncome);
                                         income.add(row);
                                 }
-
-                                // =================================================
-                                // EXPENSE
-                                // =================================================
-
                                 case EXPENSE -> {
-
-                                        BigDecimal periodExpense = subtract(
-                                                        debit,
-                                                        credit);
-
-                                        historicalExpenseTotal = add(
-                                                        historicalExpenseTotal,
-                                                        historicalExpenseAmount);
-
-                                        if (!isMaterial(periodExpense)) {
-                                                continue;
-                                        }
-
-                                        Map<String, Object> row = accountRow(
-                                                        account,
-                                                        periodExpense);
-
-                                        row.put(
-                                                        "presentation",
-                                                        "EXPENSE");
-
-                                        row.put(
-                                                        "periodDebit",
-                                                        debit);
-
-                                        row.put(
-                                                        "periodCredit",
-                                                        credit);
-
-                                        row.put(
-                                                        "periodAmount",
-                                                        periodExpense);
-
-                                        totalExpenses = add(
-                                                        totalExpenses,
-                                                        periodExpense);
-
+                                        BigDecimal periodExpense = subtract(debit, credit);
+                                        historicalExpenseTotal = add(historicalExpenseTotal, historicalExpenseAmount);
+                                        if (!isMaterial(periodExpense)) continue;
+                                        Map<String, Object> row = accountRow(account, periodExpense);
+                                        row.put("presentation", "EXPENSE");
+                                        row.put("periodDebit", debit);
+                                        row.put("periodCredit", credit);
+                                        row.put("periodAmount", periodExpense);
+                                        totalExpenses = add(totalExpenses, periodExpense);
                                         expenses.add(row);
                                 }
                         }
                 }
 
-                // ========================================================
-                // CURRENT PERIOD NET INCOME
-                // ========================================================
+                trialBalanceDebit = normalizeMoney(trialBalanceDebit);
+                trialBalanceCredit = normalizeMoney(trialBalanceCredit);
+                BigDecimal trialBalanceDifference = subtract(trialBalanceDebit, trialBalanceCredit);
+                boolean trialBalanceBalanced = isWithinTolerance(trialBalanceDifference);
 
-                BigDecimal netIncome = subtract(
-                                totalIncome,
-                                totalExpenses);
+                BigDecimal netIncome = subtract(totalIncome, totalExpenses);
+                BigDecimal totalEquityIncludingProfit = add(totalEquity, netIncome);
+                BigDecimal liabilitiesPlusEquity = add(totalLiabilities, totalEquityIncludingProfit);
+                BigDecimal balanceDifference = subtract(totalAssets, liabilitiesPlusEquity);
+                boolean balanceSheetBalanced = isWithinTolerance(balanceDifference);
 
-                // ========================================================
-                // CURRENT PERIOD EQUITY
-                // ========================================================
-
-                BigDecimal totalEquityIncludingProfit = add(
-                                totalEquity,
-                                netIncome);
-
-                // ========================================================
-                // LIABILITIES + EQUITY
-                // ========================================================
-
-                BigDecimal liabilitiesPlusEquity = add(
-                                totalLiabilities,
-                                totalEquityIncludingProfit);
-
-                // ========================================================
-                // BALANCE SHEET DIFFERENCE
-                // ========================================================
-
-                BigDecimal balanceDifference = subtract(
-                                totalAssets,
-                                liabilitiesPlusEquity);
-
-                boolean balanceSheetBalanced = isWithinTolerance(
-                                balanceDifference);
-
-                // ========================================================
-                // TRIAL BALANCE
-                // ========================================================
-
-                BigDecimal trialBalanceDebit = ZERO;
-
-                BigDecimal trialBalanceCredit = ZERO;
-
-                for (JournalEntry entry : periodEntries) {
-
-                        if (entry == null) {
-                                continue;
-                        }
-
-                        if (entry.getLines() == null) {
-                                continue;
-                        }
-
-                        validateJournalEntry(
-                                        entry,
-                                        organizationId);
-
-                        for (JournalLine line : entry.getLines()) {
-
-                                if (line == null) {
-                                        continue;
-                                }
-
-                                trialBalanceDebit = add(
-                                                trialBalanceDebit,
-                                                value(
-                                                                line.getDebit()));
-
-                                trialBalanceCredit = add(
-                                                trialBalanceCredit,
-                                                value(
-                                                                line.getCredit()));
-                        }
-                }
-
-                trialBalanceDebit = normalizeMoney(
-                                trialBalanceDebit);
-
-                trialBalanceCredit = normalizeMoney(
-                                trialBalanceCredit);
-
-                BigDecimal trialBalanceDifference = subtract(
-                                trialBalanceDebit,
-                                trialBalanceCredit);
-
-                boolean trialBalanceBalanced = isWithinTolerance(
-                                trialBalanceDifference);
-
-                // ========================================================
-                // LOAN PORTFOLIO STATISTICS
-                // ========================================================
-
-                Map<String, Object> loanPortfolio = buildLoanPortfolioStatistics(
-                                organizationId,
-                                from,
-                                to);
-
-                // ========================================================
-                // STATEMENT OF FINANCIAL POSITION
-                // ========================================================
+                Map<String, Object> loanPortfolio = buildLoanPortfolioStatistics(organizationId, from, to);
 
                 Map<String, Object> statementOfFinancialPosition = new LinkedHashMap<>();
-
-                statementOfFinancialPosition.put(
-                                "assets",
-                                assets);
-
-                statementOfFinancialPosition.put(
-                                "liabilities",
-                                liabilities);
-
-                statementOfFinancialPosition.put(
-                                "equity",
-                                equity);
-
-                statementOfFinancialPosition.put(
-                                "currentPeriodNetIncome",
-                                netIncome);
-
-                statementOfFinancialPosition.put(
-                                "totalAssets",
-                                totalAssets);
-
-                statementOfFinancialPosition.put(
-                                "totalLiabilities",
-                                totalLiabilities);
-
-                statementOfFinancialPosition.put(
-                                "totalEquity",
-                                totalEquityIncludingProfit);
-
-                statementOfFinancialPosition.put(
-                                "liabilitiesPlusEquity",
-                                liabilitiesPlusEquity);
-
-                statementOfFinancialPosition.put(
-                                "balanceDifference",
-                                balanceDifference);
-
-                statementOfFinancialPosition.put(
-                                "balanced",
-                                balanceSheetBalanced);
-
-                // ========================================================
-                // INCOME STATEMENT
-                // ========================================================
+                statementOfFinancialPosition.put("assets", assets);
+                statementOfFinancialPosition.put("liabilities", liabilities);
+                statementOfFinancialPosition.put("equity", equity);
+                statementOfFinancialPosition.put("currentPeriodNetIncome", netIncome);
+                statementOfFinancialPosition.put("totalAssets", totalAssets);
+                statementOfFinancialPosition.put("totalLiabilities", totalLiabilities);
+                statementOfFinancialPosition.put("totalEquity", totalEquityIncludingProfit);
+                statementOfFinancialPosition.put("liabilitiesPlusEquity", liabilitiesPlusEquity);
+                statementOfFinancialPosition.put("balanceDifference", balanceDifference);
+                statementOfFinancialPosition.put("balanced", balanceSheetBalanced);
 
                 Map<String, Object> incomeStatement = new LinkedHashMap<>();
-
-                incomeStatement.put(
-                                "income",
-                                income);
-
-                incomeStatement.put(
-                                "expenses",
-                                expenses);
-
-                incomeStatement.put(
-                                "totalIncome",
-                                totalIncome);
-
-                incomeStatement.put(
-                                "totalExpenses",
-                                totalExpenses);
-
-                incomeStatement.put(
-                                "netIncome",
-                                netIncome);
-
-                // ========================================================
-                // TRIAL BALANCE
-                // ========================================================
+                incomeStatement.put("income", income);
+                incomeStatement.put("expenses", expenses);
+                incomeStatement.put("totalIncome", totalIncome);
+                incomeStatement.put("totalExpenses", totalExpenses);
+                incomeStatement.put("netIncome", netIncome);
 
                 Map<String, Object> trialBalance = new LinkedHashMap<>();
+                trialBalance.put("debit", trialBalanceDebit);
+                trialBalance.put("credit", trialBalanceCredit);
+                trialBalance.put("difference", trialBalanceDifference);
+                trialBalance.put("balanced", trialBalanceBalanced);
 
-                trialBalance.put(
-                                "debit",
-                                trialBalanceDebit);
-
-                trialBalance.put(
-                                "credit",
-                                trialBalanceCredit);
-
-                trialBalance.put(
-                                "difference",
-                                trialBalanceDifference);
-
-                trialBalance.put(
-                                "balanced",
-                                trialBalanceBalanced);
-
-                // ========================================================
-                // ACCOUNTING INTEGRITY
-                // ========================================================
-
-                boolean accountingBalanced = balanceSheetBalanced
-                                && trialBalanceBalanced;
-
-                // ========================================================
-                // FINAL REPORT
-                // ========================================================
+                boolean accountingBalanced = balanceSheetBalanced && trialBalanceBalanced;
 
                 Map<String, Object> result = new LinkedHashMap<>();
-
-                result.put(
-                                "reportType",
-                                "BNR_FINANCIAL_STATEMENT");
-
-                result.put(
-                                "organizationId",
-                                organizationId);
-
-                result.put(
-                                "from",
-                                from);
-
-                result.put(
-                                "to",
-                                to);
-
-                result.put(
-                                "generatedAt",
-                                LocalDateTime.now());
-
-                result.put(
-                                "currencyPrecision",
-                                MONEY_SCALE);
-
-                result.put(
-                                "materialityTolerance",
-                                BALANCE_TOLERANCE);
-
-                result.put(
-                                "statementOfFinancialPosition",
-                                statementOfFinancialPosition);
-
-                result.put(
-                                "incomeStatement",
-                                incomeStatement);
-
-                result.put(
-                                "trialBalance",
-                                trialBalance);
-
-                // ========================================================
-                // BNR LOAN PORTFOLIO
-                // ========================================================
-
-                result.put(
-                                "loanPortfolio",
-                                loanPortfolio);
-
-                result.put(
-                                "accountingBalanced",
-                                accountingBalanced);
-
-                result.put(
-                                "balanceSheetBalanced",
-                                balanceSheetBalanced);
-
-                result.put(
-                                "balanceDifference",
-                                balanceDifference);
-
-                result.put(
-                                "trialBalanceDebit",
-                                trialBalanceDebit);
-
-                result.put(
-                                "trialBalanceCredit",
-                                trialBalanceCredit);
-
-                result.put(
-                                "trialBalanceDifference",
-                                trialBalanceDifference);
-
-                result.put(
-                                "trialBalanceBalanced",
-                                trialBalanceBalanced);
-
-                result.put(
-                                "historicalIncomeTotal",
-                                historicalIncomeTotal);
-
-                result.put(
-                                "historicalExpenseTotal",
-                                historicalExpenseTotal);
+                result.put("reportType", "BNR_FINANCIAL_STATEMENT");
+                result.put("organizationId", organizationId);
+                result.put("from", from);
+                result.put("to", to);
+                result.put("generatedAt", LocalDateTime.now());
+                result.put("currencyPrecision", MONEY_SCALE);
+                result.put("materialityTolerance", BALANCE_TOLERANCE);
+                result.put("statementOfFinancialPosition", statementOfFinancialPosition);
+                result.put("incomeStatement", incomeStatement);
+                result.put("trialBalance", trialBalance);
+                result.put("loanPortfolio", loanPortfolio);
+                result.put("accountingBalanced", accountingBalanced);
+                result.put("balanceSheetBalanced", balanceSheetBalanced);
+                result.put("balanceDifference", balanceDifference);
+                result.put("trialBalanceDebit", trialBalanceDebit);
+                result.put("trialBalanceCredit", trialBalanceCredit);
+                result.put("trialBalanceDifference", trialBalanceDifference);
+                result.put("trialBalanceBalanced", trialBalanceBalanced);
+                result.put("historicalIncomeTotal", historicalIncomeTotal);
+                result.put("historicalExpenseTotal", historicalExpenseTotal);
 
                 log.info(
                                 "BNR financial statement generated: organizationId={}, from={}, to={}, assets={}, liabilities={}, equity={}, income={}, expenses={}, netIncome={}, totalLoans={}, totalLoanAmount={}, balanceDifference={}, trialBalanceDifference={}, accountingBalanced={}",
-                                organizationId,
-                                from,
-                                to,
-                                totalAssets,
-                                totalLiabilities,
-                                totalEquityIncludingProfit,
-                                totalIncome,
-                                totalExpenses,
-                                netIncome,
-                                loanPortfolio.get("totalLoans"),
-                                loanPortfolio.get("totalLoanAmount"),
-                                balanceDifference,
-                                trialBalanceDifference,
-                                accountingBalanced);
+                                organizationId, from, to, totalAssets, totalLiabilities,
+                                totalEquityIncludingProfit, totalIncome, totalExpenses, netIncome,
+                                loanPortfolio.get("totalLoans"), loanPortfolio.get("totalLoanAmount"),
+                                balanceDifference, trialBalanceDifference, accountingBalanced);
 
                 return result;
+        }
+
+        private void validateLedgerIntegrity(
+                        Long organizationId,
+                        LocalDate from,
+                        LocalDate to) {
+
+                java.util.Optional<Long> invalidEntryId = journalLineRepository
+                                .findFirstInvalidBnrJournalEntry(organizationId, from, to, BALANCE_TOLERANCE);
+
+                if (invalidEntryId.isPresent()) {
+                        throw new IllegalStateException(
+                                        "Journal entry " + invalidEntryId.get()
+                                                        + " failed accounting integrity validation for the BNR financial statement.");
+                }
         }
 
         // ============================================================
