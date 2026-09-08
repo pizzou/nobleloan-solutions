@@ -4,57 +4,64 @@ import Link from "next/link";
 import PublicLoanCalculator from "../../components/PublicLoanCalculator";
 import { useTenant } from "./layout";
 
-function Arrow() {
+function Arrow({ className = "h-4 w-4" }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
       strokeWidth="1.9"
-      className="h-4 w-4"
+      className={className}
+      aria-hidden="true"
     >
       <path d="M5 12h14" />
       <path d="m13 6 6 6-6 6" />
     </svg>
   );
 }
-function Shield() {
+
+function Shield({ className = "h-4 w-4" }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.7"
-      className="h-5 w-5"
+      strokeWidth="1.8"
+      className={className}
+      aria-hidden="true"
     >
       <path d="M12 3 20 6v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-3Z" />
       <path d="m9 12 2 2 4-4" />
     </svg>
   );
 }
+
 function Check() {
   return (
     <svg
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2.2"
+      strokeWidth="2.3"
       className="h-4 w-4"
+      aria-hidden="true"
     >
       <path d="m5 12 4 4L19 6" />
     </svg>
   );
 }
+
 function formatAmount(
   currency: string,
   value: string | number | null | undefined,
 ) {
   if (value == null || value === "") return "No stated limit";
-  const n = Number(String(value).replace(/[^0-9.-]/g, ""));
-  return Number.isFinite(n)
-    ? `${currency} ${n.toLocaleString("en-RW", { maximumFractionDigits: 0 })}`
+  const amount = Number(String(value).replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(amount)
+    ? `${currency} ${amount.toLocaleString("en-RW", { maximumFractionDigits: 0 })}`
     : "No stated limit";
 }
+
 function formatRate(value: string | number | null | undefined) {
   if (value == null || value === "") return "Contact us";
   return String(value).includes("%") ? String(value) : `${value}%`;
@@ -63,116 +70,186 @@ function formatRate(value: string | number | null | undefined) {
 export default function HomePage() {
   const tenant = useTenant();
   if (!tenant) return null;
+
   const primary = tenant.primaryColor || "#0B1F3A";
   const accent = tenant.accentColor || "#D4AF37";
   const products = tenant.services || [];
 
   return (
     <main className="overflow-hidden bg-white text-slate-950">
-      <section className="relative isolate overflow-hidden bg-[#061326] text-white">
+      {/* ==========================================================
+          HERO — ABOVE THE FOLD
+         ========================================================== */}
+      <section
+        className="relative isolate overflow-hidden text-white"
+        style={{
+          background: `linear-gradient(118deg, #061326 0%, ${primary} 55%, #102B50 100%)`,
+        }}
+      >
         <div
-          className="absolute inset-0 opacity-60"
+          className="pointer-events-none absolute inset-0"
+          aria-hidden="true"
           style={{
-            background: `radial-gradient(circle at 8% 10%, ${primary} 0, transparent 35%), radial-gradient(circle at 88% 18%, ${accent}25, transparent 25%), linear-gradient(120deg,#061326 0%,${primary} 62%,#102B50 100%)`,
+            backgroundImage: `radial-gradient(circle at 9% 18%, ${accent}20 0, transparent 26%), radial-gradient(circle at 83% 9%, ${accent}18 0, transparent 23%), linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px)`,
+            backgroundSize: "auto, auto, 56px 56px, 56px 56px",
           }}
         />
         <div
-          className="absolute inset-0 opacity-[.06]"
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,.8) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.8) 1px,transparent 1px)",
-            backgroundSize: "54px 54px",
-          }}
+          className="pointer-events-none absolute -right-48 top-20 h-[520px] w-[520px] rounded-full border border-white/[.06]"
+          aria-hidden="true"
         />
-        <div className="relative mx-auto grid max-w-7xl gap-14 px-5 pb-20 pt-14 sm:px-8 sm:pb-24 sm:pt-20 lg:grid-cols-[1fr_500px] lg:items-center lg:gap-20 lg:py-24">
-          <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[.07] px-3.5 py-2 text-[10px] font-black uppercase tracking-[.18em] text-white/75 backdrop-blur">
+        <div
+          className="pointer-events-none absolute -right-28 top-48 h-[380px] w-[380px] rounded-full border border-white/[.05]"
+          aria-hidden="true"
+        />
+
+        <div className="relative mx-auto grid min-h-[610px] max-w-7xl grid-cols-1 gap-10 px-5 pb-12 pt-12 sm:px-8 sm:pb-16 sm:pt-14 lg:grid-cols-[minmax(0,1fr)_500px] lg:gap-14 lg:pb-14 lg:pt-16">
+          {/* Left: start high, never vertically centered into empty space */}
+          <div className="relative z-10 flex flex-col justify-start lg:pt-4">
+            <div className="inline-flex w-fit items-center gap-2 rounded-full border border-white/15 bg-white/[.07] px-4 py-2 text-[10px] font-black uppercase tracking-[.2em] text-white/80 backdrop-blur-xl">
               <span
                 className="h-1.5 w-1.5 rounded-full"
                 style={{ backgroundColor: accent }}
               />
               Trusted financial support
             </div>
-            <h1 className="mt-7 text-5xl font-black leading-[.98] tracking-[-.055em] sm:text-6xl lg:text-[5.1rem]">
+
+            <h1 className="mt-6 max-w-[720px] text-[2.8rem] font-black leading-[.98] tracking-[-.055em] sm:text-5xl lg:text-[4.7rem]">
               {tenant.hero?.headline ||
                 tenant.tagline ||
                 "Finance with clarity. Progress with confidence."}
             </h1>
-            <p className="mt-7 max-w-2xl text-base leading-7 text-white/65 sm:text-lg">
+
+            <p className="mt-6 max-w-[650px] text-[15px] leading-7 text-white/68 sm:text-lg sm:leading-8">
               {tenant.hero?.subtext ||
                 tenant.mission ||
                 "Clear, responsible lending with transparent terms and a secure digital application journey."}
             </p>
-            <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/apply"
-                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-6 py-3.5 text-sm font-black text-[#111827] shadow-[0_18px_40px_rgba(0,0,0,.25)] transition hover:-translate-y-0.5"
+                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-6 py-3.5 text-sm font-black text-[#111827] shadow-[0_18px_45px_rgba(0,0,0,.28)] transition hover:-translate-y-0.5"
                 style={{ backgroundColor: accent }}
               >
                 Start an application <Arrow />
               </Link>
               <Link
                 href="/services"
-                className="inline-flex min-h-12 items-center justify-center rounded-xl border border-white/15 bg-white/[.06] px-6 py-3.5 text-sm font-bold text-white backdrop-blur transition hover:bg-white/10"
+                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[.06] px-6 py-3.5 text-sm font-bold text-white backdrop-blur transition hover:bg-white/[.11]"
               >
-                Explore solutions
+                Explore solutions <Arrow className="h-3.5 w-3.5" />
               </Link>
             </div>
-            <div className="mt-10 flex flex-wrap gap-x-7 gap-y-3 text-[11px] font-bold text-white/55">
-              <span className="flex items-center gap-2">
-                <Shield /> Secure application journey
-              </span>
-              <span className="flex items-center gap-2">
-                <Check /> Transparent terms
-              </span>
-              <span className="flex items-center gap-2">
-                <Check /> Human support
-              </span>
+
+            <div className="mt-8 grid max-w-[700px] gap-3 sm:grid-cols-3">
+              {[
+                [
+                  "Clear terms",
+                  "Rates and repayment information presented before you apply.",
+                ],
+                [
+                  "Secure journey",
+                  "A structured digital application experience.",
+                ],
+                [
+                  "Human support",
+                  "A lending team available throughout your journey.",
+                ],
+              ].map(([title, description]) => (
+                <div
+                  key={title}
+                  className="rounded-2xl border border-white/10 bg-white/[.055] p-4 backdrop-blur-xl"
+                >
+                  <div className="flex items-center gap-2 text-xs font-black text-white">
+                    <span
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+                      style={{ backgroundColor: `${accent}18`, color: accent }}
+                    >
+                      <Check />
+                    </span>
+                    {title}
+                  </div>
+                  <p className="mt-2.5 text-[10px] leading-5 text-white/48">
+                    {description}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {tenant.stats?.length ? (
+              <div className="mt-7 flex flex-wrap gap-x-7 gap-y-3 border-t border-white/10 pt-5">
+                {tenant.stats.slice(0, 3).map((stat) => (
+                  <div key={stat.label} className="flex items-baseline gap-2">
+                    <span className="text-lg font-black text-white">
+                      {stat.value}
+                    </span>
+                    <span className="text-[9px] font-black uppercase tracking-[.14em] text-white/40">
+                      {stat.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          {/* Right: calculator begins near the top of the hero */}
+          <div className="relative z-10 lg:pt-0">
+            <div
+              className="pointer-events-none absolute -inset-8 rounded-[48px] blur-3xl"
+              style={{ backgroundColor: `${accent}18` }}
+              aria-hidden="true"
+            />
+            <div className="relative rounded-[30px] border border-white/15 bg-white p-2 shadow-[0_35px_100px_rgba(0,0,0,.38)]">
+              <div className="overflow-hidden rounded-[24px] bg-slate-50">
+                <PublicLoanCalculator
+                  products={products}
+                  currency={tenant.currency}
+                  primary={primary}
+                  accent={accent}
+                />
+              </div>
+            </div>
+            <div className="mt-3 flex items-center justify-center gap-2 text-center text-[9px] font-bold uppercase tracking-[.15em] text-white/38">
+              <Shield className="h-3.5 w-3.5" />
+              Indicative estimate · subject to assessment and approval
+            </div>
+
+            <div className="mx-auto mt-5 grid max-w-[500px] grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-white/10 bg-white/[.06] px-4 py-3 backdrop-blur-xl">
+                <div className="text-[9px] font-black uppercase tracking-[.14em] text-white/35">
+                  Digital
+                </div>
+                <div className="mt-1 text-xs font-bold text-white/80">
+                  Apply online
+                </div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[.06] px-4 py-3 backdrop-blur-xl">
+                <div className="text-[9px] font-black uppercase tracking-[.14em] text-white/35">
+                  Planning
+                </div>
+                <div className="mt-1 text-xs font-bold text-white/80">
+                  Estimate repayment
+                </div>
+              </div>
             </div>
           </div>
-          <div className="relative">
-            <div
-              className="absolute -inset-8 rounded-[48px] blur-3xl"
-              style={{ backgroundColor: `${accent}20` }}
-            />
-            <div className="relative rounded-[30px] border border-white/10 bg-white/95 p-2 shadow-[0_35px_100px_rgba(0,0,0,.35)]">
-              <PublicLoanCalculator
-                products={products}
-                currency={tenant.currency}
-                primary={primary}
-                accent={accent}
-              />
-            </div>
-            <div className="mt-4 flex justify-center text-[9px] font-bold uppercase tracking-[.16em] text-white/35">
-              Indicative estimate • subject to assessment and approval
-            </div>
+        </div>
+
+        <div className="relative border-t border-white/10 bg-black/10">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-4 text-[10px] font-bold uppercase tracking-[.14em] text-white/45 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+            <span>{tenant.name}</span>
+            <span className="flex items-center gap-2">
+              <Shield className="h-3.5 w-3.5" /> Secure digital lending ·{" "}
+              {tenant.country || "Rwanda"}
+            </span>
           </div>
         </div>
       </section>
 
-      {tenant.stats?.length ? (
-        <section className="border-b border-slate-200 bg-white">
-          <div className="mx-auto grid max-w-7xl grid-cols-2 sm:grid-cols-4">
-            {tenant.stats.slice(0, 4).map((s) => (
-              <div
-                key={s.label}
-                className="border-r border-b border-slate-100 px-5 py-7 text-center last:border-r-0 sm:border-b-0"
-              >
-                <div
-                  className="text-2xl font-black tracking-tight"
-                  style={{ color: primary }}
-                >
-                  {s.value}
-                </div>
-                <div className="mt-1 text-[9px] font-black uppercase tracking-[.18em] text-slate-400">
-                  {s.label}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
+      {/* ==========================================================
+          PRODUCTS
+         ========================================================== */}
       <section
         id="loan-products"
         className="mx-auto max-w-7xl px-5 py-20 sm:px-8 lg:py-28"
@@ -201,6 +278,7 @@ export default function HomePage() {
             View all solutions <Arrow />
           </Link>
         </div>
+
         {products.length ? (
           <div className="mt-12 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
             {products.slice(0, 6).map((service, index) => (
@@ -217,7 +295,7 @@ export default function HomePage() {
                     className="flex h-12 w-12 items-center justify-center rounded-2xl text-xl"
                     style={{ backgroundColor: `${primary}0D`, color: primary }}
                   >
-                    {service.icon}
+                    {service.icon || "•"}
                   </div>
                   <span className="text-[9px] font-black uppercase tracking-[.16em] text-slate-400">
                     {String(index + 1).padStart(2, "0")}
@@ -379,9 +457,9 @@ export default function HomePage() {
             </h2>
           </div>
           <div className="mt-12 grid gap-5 md:grid-cols-3">
-            {tenant.testimonials.slice(0, 3).map((t, i) => (
+            {tenant.testimonials.slice(0, 3).map((testimonial, index) => (
               <article
-                key={`${t.name}-${i}`}
+                key={`${testimonial.name}-${index}`}
                 className="rounded-[26px] border border-slate-200 bg-white p-7 shadow-[0_12px_45px_rgba(15,23,42,.045)]"
               >
                 <div
@@ -391,11 +469,13 @@ export default function HomePage() {
                   ★★★★★
                 </div>
                 <p className="mt-5 text-sm leading-7 text-slate-600">
-                  “{t.text}”
+                  “{testimonial.text}”
                 </p>
                 <div className="mt-7 border-t border-slate-100 pt-5">
-                  <div className="text-sm font-black">{t.name}</div>
-                  <div className="mt-1 text-xs text-slate-400">{t.role}</div>
+                  <div className="text-sm font-black">{testimonial.name}</div>
+                  <div className="mt-1 text-xs text-slate-400">
+                    {testimonial.role}
+                  </div>
                 </div>
               </article>
             ))}
