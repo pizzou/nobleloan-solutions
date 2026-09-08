@@ -19,13 +19,20 @@ if [[ "$BACKUP_ENVIRONMENT" == "production" ]]; then
   : "${BACKUP_REMOTE_CMD:?BACKUP_REMOTE_CMD is required for production backups}"
 fi
 
-command -v docker-compose >/dev/null || { echo "docker-compose is required" >&2; exit 1; }
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  COMPOSE=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE=(docker-compose)
+else
+  echo "Docker Compose v2 (preferred) or docker-compose is required" >&2
+  exit 1
+fi
 command -v openssl >/dev/null || { echo "openssl is required" >&2; exit 1; }
 command -v sha256sum >/dev/null || { echo "sha256sum is required" >&2; exit 1; }
 command -v gzip >/dev/null || { echo "gzip is required" >&2; exit 1; }
 
 echo "[BACKUP] Starting consistent PostgreSQL dump: $DB_NAME"
-docker-compose exec -T postgres pg_dump \
+"${COMPOSE[@]}" exec -T postgres pg_dump \
   --username="$DB_USER" \
   --dbname="$DB_NAME" \
   --no-owner --no-privileges --format=plain \

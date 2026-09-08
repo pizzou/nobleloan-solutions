@@ -4,6 +4,15 @@ set -euo pipefail
 umask 077
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
+
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  COMPOSE=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE=(docker-compose)
+else
+  echo "Docker Compose v2 (preferred) or docker-compose is required" >&2
+  exit 1
+fi
 BACKUP_FILE="${1:?Usage: restore.sh <backup.sql.gz[.enc]>}"
 DB_NAME="${DB_NAME:-loansaas_nobleloansolutions}"
 [[ -f "$BACKUP_FILE" ]] || { echo "Backup file not found: $BACKUP_FILE" >&2; exit 1; }
@@ -25,14 +34,14 @@ if [[ "$BACKUP_FILE" == *.enc ]]; then
 fi
 
 echo "[RESTORE] Stopping backend..."
-docker-compose stop backend
+"${COMPOSE[@]}" stop backend
 
 echo "[RESTORE] Restoring verified backup into $DB_NAME..."
-gunzip -c "$INPUT_FILE" | docker-compose exec -T postgres psql \
+gunzip -c "$INPUT_FILE" | "${COMPOSE[@]}" exec -T postgres psql \
   --username=loansaas --dbname="$DB_NAME" --set ON_ERROR_STOP=1 >/tmp/loansaas-restore.log
 
 echo "[RESTORE] Starting backend..."
-docker-compose start backend
+"${COMPOSE[@]}" start backend
 
 echo "[RESTORE] Waiting for readiness..."
 for i in $(seq 1 60); do
