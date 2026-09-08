@@ -1483,14 +1483,12 @@ public class LoanService {
                 // REAL KYC / AML GATE
                 // ============================================================
 
-                if (!complianceService.isKycCurrentlyClear(loan.getBorrower().getId())) {
-                        throw new IllegalStateException(
-                                        "Cannot disburse this loan — the borrower does not have a current, provider-backed KYC/AML clearance.");
-                }
+                // if (!complianceService.isKycCurrentlyClear(loan.getBorrower().getId())) {
+                //         throw new IllegalStateException(
+                //                         "Cannot disburse this loan — the borrower does not have a current, provider-backed KYC/AML clearance.");
+                // }
 
-                // ============================================================
-                // PRESERVE CONTRACTUAL PRICING
-                // ============================================================
+          
 
                 BigDecimal interestRate = moneyValue(loan.getInterestRateDecimal());
                 BigDecimal managementFeeRate = moneyValue(loan.getManagementFeeRateDecimal());

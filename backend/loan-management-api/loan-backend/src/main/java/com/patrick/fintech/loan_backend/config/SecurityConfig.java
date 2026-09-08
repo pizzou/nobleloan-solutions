@@ -10,27 +10,44 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Role;
+import org.springframework.beans.factory.config.BeanDefinition;
 
 import org.springframework.http.HttpMethod;
+
+import org.springframework.security.access.expression.method.DefaultMethodSecurityExpressionHandler;
+import org.springframework.security.access.expression.method.MethodSecurityExpressionHandler;
 
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+
 import org.springframework.security.config.http.SessionCreationPolicy;
+
+import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMapper;
+
+import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
+import org.springframework.security.access.hierarchicalroles.RoleHierarchyImpl;
+
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+
+import org.springframework.security.web.util.matcher.RequestMatcher;
 
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.ArrayList;
 
 @Configuration
 @EnableWebSecurity
@@ -52,10 +69,87 @@ public class SecurityConfig {
     @Value("${app.security.expose-api-docs:false}")
     private boolean exposeApiDocs;
 
+    /*
+     * ============================================================
+     * ROLE HIERARCHY
+     * ============================================================
+     *
+     * ADMIN is the highest application role.
+     *
+     * This is deliberately implemented centrally instead of changing
+     * hundreds of @PreAuthorize annotations.
+     *
+     * Therefore:
+     *
+     * ROLE_ADMIN
+     *     -> ROLE_MANAGER
+     *     -> ROLE_LOAN_OFFICER
+     *     -> ROLE_CREDIT_ANALYST
+     *     -> ROLE_ACCOUNTANT
+     *     -> ROLE_TELLER
+     *     -> ROLE_AUDITOR
+     *     -> ROLE_COLLECTIONS_OFFICER
+     *     -> ROLE_CUSTOMER_SUPPORT
+     *
+     * ADMIN therefore satisfies any existing:
+     *
+     * hasRole(...)
+     * hasAnyRole(...)
+     *
+     * check that belongs to an application role.
+     *
+     * Lower roles do NOT inherit ADMIN.
+     *
+     * This preserves least-privilege for every non-admin user.
+     */
+    @Bean
+    public RoleHierarchy roleHierarchy() {
+
+        return RoleHierarchyImpl.fromHierarchy("""
+            ROLE_ADMIN > ROLE_MANAGER
+            ROLE_ADMIN > ROLE_LOAN_OFFICER
+            ROLE_ADMIN > ROLE_CREDIT_ANALYST
+            ROLE_ADMIN > ROLE_ACCOUNTANT
+            ROLE_ADMIN > ROLE_TELLER
+            ROLE_ADMIN > ROLE_AUDITOR
+            ROLE_ADMIN > ROLE_COLLECTIONS_OFFICER
+            ROLE_ADMIN > ROLE_CUSTOMER_SUPPORT
+            """);
+    }
+
+    /*
+     * ============================================================
+     * METHOD SECURITY ROLE HIERARCHY
+     * ============================================================
+     *
+     * @PreAuthorize is method security.
+     *
+     * Explicitly attach the RoleHierarchy to Spring Security's
+     * method-security expression handler so that existing controller
+     * annotations such as:
+     *
+     * @PreAuthorize("hasAnyRole('MANAGER','ACCOUNTANT')")
+     *
+     * recognize ROLE_ADMIN as a higher-level role.
+     */
+    @Bean
+    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+    public static MethodSecurityExpressionHandler methodSecurityExpressionHandler(
+            RoleHierarchy roleHierarchy) {
+
+        DefaultMethodSecurityExpressionHandler handler =
+                new DefaultMethodSecurityExpressionHandler();
+
+        handler.setRoleHierarchy(roleHierarchy);
+
+        return handler;
+    }
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 
         http
+
             // ============================================================
             // CORS
             // ============================================================
@@ -64,24 +158,19 @@ public class SecurityConfig {
             )
 
             // ============================================================
-            // CSRF / BROWSER MUTATION PROTECTION
+            // CSRF
             // ============================================================
-            //
-            // The application uses a stateless JWT stored in an HttpOnly
-            // cookie.  Browser mutations are protected by
-            // SameOriginMutationFilter, which validates Origin/Referer and
-            // Fetch Metadata before the request reaches authorization.
-            //
-            // Do NOT run Spring's CookieCsrfTokenRepository as a second
-            // independent gate here.  That was the source of legitimate
-            // authenticated browser mutations being turned into 403s when
-            // the Next.js/Vercel /api proxy was used.
-            //
-            // Authentication/authorization failures are now handled by
-            // Spring Security normally: unauthenticated = 401, authenticated
-            // but wrong role = 403.
-            // ============================================================
-            .csrf(csrf -> csrf.disable())
+            .csrf(csrf -> csrf
+                .csrfTokenRepository(
+                    CookieCsrfTokenRepository.withHttpOnlyFalse()
+                )
+                .csrfTokenRequestHandler(
+                    new CsrfTokenRequestAttributeHandler()
+                )
+                .ignoringRequestMatchers(
+                    publicAndAuthenticationCsrfMatcher()
+                )
+            )
 
             // ============================================================
             // STATELESS
@@ -220,9 +309,11 @@ public class SecurityConfig {
             // SECURITY HEADERS
             // ============================================================
             .headers(headers -> headers
+
                 .frameOptions(frame ->
                     frame.sameOrigin()
                 )
+
                 .httpStrictTransportSecurity(hsts ->
                     hsts
                         .includeSubDomains(true)
@@ -254,6 +345,53 @@ public class SecurityConfig {
             );
 
         return http.build();
+    }
+
+    /**
+     * CSRF exclusions for endpoints that intentionally accept requests
+     * before an authenticated application session exists.
+     */
+    @Bean
+    public RequestMatcher publicAndAuthenticationCsrfMatcher() {
+
+        return request -> {
+
+            String method = request.getMethod();
+
+            boolean mutation =
+                HttpMethod.POST.matches(method)
+                    || HttpMethod.PUT.matches(method)
+                    || HttpMethod.PATCH.matches(method)
+                    || HttpMethod.DELETE.matches(method);
+
+            if (!mutation) {
+                return false;
+            }
+
+            String uri = request.getRequestURI();
+
+            if (uri == null) {
+                return false;
+            }
+
+            // ------------------------------------------------------------
+            // Authentication bootstrap endpoints
+            // ------------------------------------------------------------
+            if (
+                uri.equals("/api/auth/login")
+                    || uri.equals("/api/auth/register")
+                    || uri.equals("/api/auth/logout")
+                    || uri.equals("/api/auth/forgot-password")
+                    || uri.equals("/api/auth/reset-password")
+            ) {
+                return true;
+            }
+
+            // ------------------------------------------------------------
+            // Public API
+            // ------------------------------------------------------------
+            return uri.startsWith("/api/public/");
+        };
     }
 
     private boolean isDevelopmentSurfaceEnabled(String uri) {
