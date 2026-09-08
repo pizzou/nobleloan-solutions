@@ -1,4 +1,5 @@
 package com.patrick.fintech.loan_backend.config;
+
 import com.patrick.fintech.loan_backend.security.JwtAuthFilter;
 import com.patrick.fintech.loan_backend.security.RateLimitFilter;
 import com.patrick.fintech.loan_backend.security.RegulatoryApiKeyAuthFilter;
@@ -54,17 +55,10 @@ public class SecurityConfig {
     @Value("${app.security.expose-api-docs:false}")
     private boolean exposeApiDocs;
 
-    @Value("${app.auth.cookie.secure:true}")
-    private boolean secureCookies;
-
-    @Value("${app.auth.cookie.same-site:None}")
-    private String sameSite;
-
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 
         http
-
             // ============================================================
             // CORS
             // ============================================================
@@ -72,31 +66,34 @@ public class SecurityConfig {
                 .configurationSource(corsConfigurationSource())
             )
 
-           
-.csrf(csrf -> csrf
-    .csrfTokenRepository(
-        CookieCsrfTokenRepository.withHttpOnlyFalse()
-    )
-    .csrfTokenRequestHandler(
-        new CsrfTokenRequestAttributeHandler()
-    )
-    .ignoringRequestMatchers(request -> {
-
-        String uri = request.getRequestURI();
-
-        return "/api/auth/login".equals(uri)
-            || "/api/auth/register".equals(uri)
-            || "/api/auth/forgot-password".equals(uri)
-            || "/api/auth/reset-password".equals(uri)
-            || "/api/auth/logout".equals(uri)
-            || uri.startsWith("/api/public/webhooks/");
-    })
-)
-
-
+            // ============================================================
+            // CSRF
+            // ============================================================
+            //
+            // Browser-session mutations remain protected by the
+            // SameOriginMutationFilter.
+            //
+            // Public APIs do not have an authenticated application
+            // session, so Spring CSRF must not reject legitimate
+            // public borrower/payment/application submissions.
+            //
+            // Authentication endpoints are also excluded because
+            // authentication has not happened yet.
+            // ============================================================
+            .csrf(csrf -> csrf
+                .csrfTokenRepository(
+                    CookieCsrfTokenRepository.withHttpOnlyFalse()
+                )
+                .csrfTokenRequestHandler(
+                    new CsrfTokenRequestAttributeHandler()
+                )
+                .ignoringRequestMatchers(
+                    publicAndAuthenticationCsrfMatcher()
+                )
+            )
 
             // ============================================================
-            // STATELESS SECURITY
+            // STATELESS
             // ============================================================
             .sessionManagement(session ->
                 session.sessionCreationPolicy(
@@ -105,7 +102,7 @@ public class SecurityConfig {
             )
 
             // ============================================================
-            // SECURITY ERROR RESPONSES
+            // SECURITY ERROR HANDLING
             // ============================================================
             .exceptionHandling(exception -> exception
 
@@ -113,17 +110,11 @@ public class SecurityConfig {
                     (request, response, authException) -> {
 
                         response.setStatus(
-                            jakarta.servlet.http.HttpServletResponse
-                                .SC_UNAUTHORIZED
+                            jakarta.servlet.http.HttpServletResponse.SC_UNAUTHORIZED
                         );
 
-                        response.setContentType(
-                            "application/json"
-                        );
-
-                        response.setCharacterEncoding(
-                            "UTF-8"
-                        );
+                        response.setContentType("application/json");
+                        response.setCharacterEncoding("UTF-8");
 
                         response.getWriter().write("""
                             {
@@ -138,17 +129,11 @@ public class SecurityConfig {
                     (request, response, accessDeniedException) -> {
 
                         response.setStatus(
-                            jakarta.servlet.http.HttpServletResponse
-                                .SC_FORBIDDEN
+                            jakarta.servlet.http.HttpServletResponse.SC_FORBIDDEN
                         );
 
-                        response.setContentType(
-                            "application/json"
-                        );
-
-                        response.setCharacterEncoding(
-                            "UTF-8"
-                        );
+                        response.setContentType("application/json");
+                        response.setCharacterEncoding("UTF-8");
 
                         response.getWriter().write("""
                             {
@@ -165,23 +150,14 @@ public class SecurityConfig {
             // ============================================================
             .authorizeHttpRequests(authorize -> authorize
 
-                // --------------------------------------------------------
                 // CORS preflight
-                // --------------------------------------------------------
                 .requestMatchers(
                     HttpMethod.OPTIONS,
                     "/**"
                 )
                 .permitAll()
 
-                // --------------------------------------------------------
-                // Authentication endpoints
-                // --------------------------------------------------------
-                //
-                // These are intentionally public.
-                // Authentication is performed by AuthController/
-                // AuthenticationManager.
-                // --------------------------------------------------------
+                // Authentication
                 .requestMatchers(
                     "/api/auth/login",
                     "/api/auth/register",
@@ -192,21 +168,16 @@ public class SecurityConfig {
                 )
                 .permitAll()
 
-                // --------------------------------------------------------
-                // Authenticated user endpoints
-                // --------------------------------------------------------
+                // Authenticated account endpoints
                 .requestMatchers(
                     "/api/auth/me",
                     "/api/auth/change-password"
                 )
                 .authenticated()
 
-                // --------------------------------------------------------
-                // Explicit public API allow-list
-                // --------------------------------------------------------
-                //
-                // Do NOT replace this with /api/public/**.
-                // --------------------------------------------------------
+                // ========================================================
+                // PUBLIC BORROWER/APPLICANT API
+                // ========================================================
                 .requestMatchers(
                     "/api/public/contact",
                     "/api/public/borrower/**",
@@ -220,27 +191,21 @@ public class SecurityConfig {
                 )
                 .permitAll()
 
-                // --------------------------------------------------------
-                // Health checks
-                // --------------------------------------------------------
+                // Health
                 .requestMatchers(
                     "/actuator/health",
                     "/actuator/health/**"
                 )
                 .permitAll()
 
-                // --------------------------------------------------------
                 // WebSocket handshake
-                // --------------------------------------------------------
                 .requestMatchers(
                     "/ws",
                     "/ws/**"
                 )
                 .permitAll()
 
-                // --------------------------------------------------------
-                // Development-only surfaces
-                // --------------------------------------------------------
+                // Development surfaces
                 .requestMatchers(
                     "/h2-console/**",
                     "/swagger-ui/**",
@@ -248,17 +213,14 @@ public class SecurityConfig {
                     "/api-docs/**"
                 )
                 .access((authentication, context) ->
-                    new org.springframework.security.authorization
-                        .AuthorizationDecision(
-                            isDevelopmentSurfaceEnabled(
-                                context.getRequest().getRequestURI()
-                            )
+                    new org.springframework.security.authorization.AuthorizationDecision(
+                        isDevelopmentSurfaceEnabled(
+                            context.getRequest().getRequestURI()
                         )
+                    )
                 )
 
-                // --------------------------------------------------------
                 // Everything else requires authentication.
-                // --------------------------------------------------------
                 .anyRequest()
                 .authenticated()
             )
@@ -267,19 +229,18 @@ public class SecurityConfig {
             // SECURITY HEADERS
             // ============================================================
             .headers(headers -> headers
-
                 .frameOptions(frame ->
                     frame.sameOrigin()
                 )
-
-                .httpStrictTransportSecurity(hsts -> hsts
-                    .includeSubDomains(true)
-                    .maxAgeInSeconds(31536000)
+                .httpStrictTransportSecurity(hsts ->
+                    hsts
+                        .includeSubDomains(true)
+                        .maxAgeInSeconds(31536000)
                 )
             )
 
             // ============================================================
-            // CUSTOM FILTER ORDER
+            // FILTER ORDER
             // ============================================================
             .addFilterBefore(
                 rateLimitFilter,
@@ -287,12 +248,12 @@ public class SecurityConfig {
             )
 
             .addFilterBefore(
-                jwtFilter,
+                sameOriginMutationFilter,
                 UsernamePasswordAuthenticationFilter.class
             )
 
             .addFilterBefore(
-                sameOriginMutationFilter,
+                jwtFilter,
                 UsernamePasswordAuthenticationFilter.class
             )
 
@@ -304,9 +265,62 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // ================================================================
-    // DEVELOPMENT SURFACES
-    // ================================================================
+    /**
+     * CSRF exclusions for endpoints that intentionally accept requests
+     * before an authenticated application session exists.
+     *
+     * We use Spring Security's RequestMatcher directly instead of
+     * AntPathRequestMatcher, so no additional dependency is required.
+     */
+    @Bean
+    public RequestMatcher publicAndAuthenticationCsrfMatcher() {
+
+        return request -> {
+
+            String method = request.getMethod();
+
+            boolean mutation =
+                HttpMethod.POST.matches(method)
+                    || HttpMethod.PUT.matches(method)
+                    || HttpMethod.PATCH.matches(method)
+                    || HttpMethod.DELETE.matches(method);
+
+            if (!mutation) {
+                return false;
+            }
+
+            String uri = request.getRequestURI();
+
+            if (uri == null) {
+                return false;
+            }
+
+            // ------------------------------------------------------------
+            // Authentication bootstrap endpoints
+            // ------------------------------------------------------------
+            if (
+                uri.equals("/api/auth/login")
+                    || uri.equals("/api/auth/register")
+                    || uri.equals("/api/auth/logout")
+                    || uri.equals("/api/auth/forgot-password")
+                    || uri.equals("/api/auth/reset-password")
+            ) {
+                return true;
+            }
+
+            // ------------------------------------------------------------
+            // Public API
+            // ------------------------------------------------------------
+            //
+            // These endpoints intentionally support unauthenticated
+            // borrowers/applicants.
+            //
+            // If an NLS_SESSION cookie is nevertheless present, the
+            // SameOriginMutationFilter still protects the mutation.
+            // ------------------------------------------------------------
+            return uri.startsWith("/api/public/");
+        };
+    }
 
     private boolean isDevelopmentSurfaceEnabled(String uri) {
 
@@ -320,10 +334,6 @@ public class SecurityConfig {
 
         return exposeApiDocs;
     }
-
-    // ================================================================
-    // CORS
-    // ================================================================
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
@@ -339,12 +349,10 @@ public class SecurityConfig {
                 && !allowedOrigins.isBlank()
         ) {
 
-            Arrays.stream(
-                allowedOrigins.split(",")
-            )
-            .map(this::normalizeCorsOrigin)
-            .filter(origin -> !origin.isBlank())
-            .forEach(originSet::add);
+            Arrays.stream(allowedOrigins.split(","))
+                .map(this::normalizeCorsOrigin)
+                .filter(origin -> !origin.isBlank())
+                .forEach(originSet::add);
         }
 
         configuration.setAllowedOrigins(
@@ -404,24 +412,18 @@ public class SecurityConfig {
         return source;
     }
 
-    // ================================================================
-    // CORS ORIGIN NORMALIZATION
-    // ================================================================
-
     private String normalizeCorsOrigin(String origin) {
 
         if (origin == null) {
             return "";
         }
 
-        String normalized =
-            origin.trim();
+        String normalized = origin.trim();
 
         while (
             normalized.endsWith("/")
                 && normalized.length() > 8
         ) {
-
             normalized =
                 normalized.substring(
                     0,
@@ -432,55 +434,11 @@ public class SecurityConfig {
         return normalized;
     }
 
-    // ================================================================
-    // AUTHENTICATION MANAGER
-    // ================================================================
-
-    @Bean
-    public CookieCsrfTokenRepository csrfTokenRepository() {
-        CookieCsrfTokenRepository repository =
-            CookieCsrfTokenRepository.withHttpOnlyFalse();
-
-        repository.setCookieCustomizer(builder -> builder
-            .secure(secureCookies)
-            .httpOnly(false)
-            .sameSite(normalizeSameSite(sameSite))
-            .path("/"));
-
-        return repository;
-    }
-
-    private RequestMatcher bearerAuthenticationMatcher() {
-        return request -> {
-            String authorization = request.getHeader("Authorization");
-            return authorization != null
-                && authorization.regionMatches(true, 0, "Bearer ", 0, 7)
-                && authorization.substring(7).trim().length() > 0;
-        };
-    }
-
-    private RequestMatcher apiKeyAuthenticationMatcher() {
-        return request -> {
-            String apiKey = request.getHeader("X-Api-Key");
-            return apiKey != null && !apiKey.isBlank();
-        };
-    }
-
-    private String normalizeSameSite(String value) {
-        if (value == null || value.isBlank()) return "None";
-        if ("strict".equalsIgnoreCase(value)) return "Strict";
-        if ("lax".equalsIgnoreCase(value)) return "Lax";
-        if ("none".equalsIgnoreCase(value)) return "None";
-        throw new IllegalStateException(
-            "Invalid AUTH_COOKIE_SAME_SITE value. Use Strict, Lax, or None.");
-    }
-
     @Bean
     public AuthenticationManager authenticationManager(
-        AuthenticationConfiguration configuration
-    ) throws Exception {
+            AuthenticationConfiguration configuration)
+            throws Exception {
 
         return configuration.getAuthenticationManager();
     }
 }
-
