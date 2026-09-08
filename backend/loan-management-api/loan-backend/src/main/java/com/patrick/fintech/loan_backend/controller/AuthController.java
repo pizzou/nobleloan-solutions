@@ -39,7 +39,7 @@ public class AuthController {
     @Value("${app.environment:development}")
     private String applicationEnvironment;
 
-    @Value("${app.auth.cookie.same-site:Lax}")
+    @Value("${app.auth.cookie.same-site:None}")
     private String sessionCookieSameSite;
 
     @Value("${app.jwt.expiration-ms:900000}")
@@ -344,7 +344,23 @@ public class AuthController {
     @GetMapping("/me")
     @Transactional
     public ResponseEntity<Map<String, Object>> me(Authentication auth) {
-        User user = userRepository.findByEmail(auth.getName()).orElseThrow(() -> new RuntimeException("Not found"));
+        if (auth == null || auth.getName() == null || auth.getName().isBlank()) {
+            return ResponseEntity.status(401).body(Map.of(
+                    "success", false,
+                    "authenticated", false,
+                    "message", "Authentication required"
+            ));
+        }
+
+        User user = userRepository.findByEmail(auth.getName()).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(401).body(Map.of(
+                    "success", false,
+                    "authenticated", false,
+                    "message", "Authentication required"
+            ));
+        }
+
         return ResponseEntity.ok(safe(user));
     }
 
