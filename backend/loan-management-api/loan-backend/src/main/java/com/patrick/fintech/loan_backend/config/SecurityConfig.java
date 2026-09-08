@@ -1,8 +1,8 @@
 package com.patrick.fintech.loan_backend.config;
-
 import com.patrick.fintech.loan_backend.security.JwtAuthFilter;
 import com.patrick.fintech.loan_backend.security.RateLimitFilter;
 import com.patrick.fintech.loan_backend.security.RegulatoryApiKeyAuthFilter;
+import com.patrick.fintech.loan_backend.security.SameOriginMutationFilter;
 
 import lombok.RequiredArgsConstructor;
 
@@ -18,7 +18,6 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import com.patrick.fintech.loan_backend.security.SameOriginMutationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
@@ -58,104 +57,157 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 
         http
-            /*
-             * ============================================================
-             * CORS
-             * ============================================================
-             *
-             * CORS must execute before authentication filters.
-             * This is particularly important for browser OPTIONS
-             * preflight requests.
-             */
-            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
-            /*
-             * The browser session is carried in an HttpOnly cookie, so CSRF
-             * protection is mandatory for state-changing browser requests.
-             * Provider webhooks are machine-to-machine and are authenticated
-             * by their own signatures/secrets, so they are excluded below.
-             */
+            // ============================================================
+            // CORS
+            // ============================================================
+            .cors(cors -> cors
+                .configurationSource(corsConfigurationSource())
+            )
+
+            // ============================================================
+            // CSRF
+            // ============================================================
+            //
+            // IMPORTANT:
+            //
+            // The authentication bootstrap endpoints cannot require a CSRF
+            // token because the user does not yet have an authenticated
+            // application session.
+            //
+            // Login/register/password recovery are therefore excluded.
+            //
+            // CSRF remains ENABLED for the rest of the application.
+            // ============================================================
             .csrf(csrf -> csrf
-                .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+                .csrfTokenRepository(
+                    CookieCsrfTokenRepository.withHttpOnlyFalse()
+                )
+                .csrfTokenRequestHandler(
+                    new CsrfTokenRequestAttributeHandler()
+                )
                 .ignoringRequestMatchers(
+                    "/api/auth/login",
+                    "/api/auth/register",
+                    "/api/auth/forgot-password",
+                    "/api/auth/reset-password",
+                    "/api/auth/logout",
                     "/api/public/webhooks/**"
                 )
             )
 
+            // ============================================================
+            // STATELESS SECURITY
+            // ============================================================
             .sessionManagement(session ->
-                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                session.sessionCreationPolicy(
+                    SessionCreationPolicy.STATELESS
+                )
             )
 
-            /*
-             * ============================================================
-             * AUTHENTICATION / AUTHORIZATION ERRORS
-             * ============================================================
-             *
-             * Always return JSON instead of Spring's HTML error page.
-             */
+            // ============================================================
+            // SECURITY ERROR RESPONSES
+            // ============================================================
             .exceptionHandling(exception -> exception
 
-                .authenticationEntryPoint((request, response, authException) -> {
+                .authenticationEntryPoint(
+                    (request, response, authException) -> {
 
-                    response.setStatus(
-                        jakarta.servlet.http.HttpServletResponse.SC_UNAUTHORIZED
-                    );
+                        response.setStatus(
+                            jakarta.servlet.http.HttpServletResponse
+                                .SC_UNAUTHORIZED
+                        );
 
-                    response.setContentType("application/json");
-                    response.setCharacterEncoding("UTF-8");
+                        response.setContentType(
+                            "application/json"
+                        );
 
-                    response.getWriter().write("""
-                        {
-                          "success": false,
-                          "error": "Authentication is required for this resource."
-                        }
-                        """);
-                })
+                        response.setCharacterEncoding(
+                            "UTF-8"
+                        );
 
-                .accessDeniedHandler((request, response, accessDeniedException) -> {
+                        response.getWriter().write("""
+                            {
+                              "success": false,
+                              "error": "Authentication is required for this resource."
+                            }
+                            """);
+                    }
+                )
 
-                    response.setStatus(
-                        jakarta.servlet.http.HttpServletResponse.SC_FORBIDDEN
-                    );
+                .accessDeniedHandler(
+                    (request, response, accessDeniedException) -> {
 
-                    response.setContentType("application/json");
-                    response.setCharacterEncoding("UTF-8");
+                        response.setStatus(
+                            jakarta.servlet.http.HttpServletResponse
+                                .SC_FORBIDDEN
+                        );
 
-                    response.getWriter().write("""
-                        {
-                          "success": false,
-                          "error": "You do not have permission to perform this action."
-                        }
-                        """);
-                })
+                        response.setContentType(
+                            "application/json"
+                        );
+
+                        response.setCharacterEncoding(
+                            "UTF-8"
+                        );
+
+                        response.getWriter().write("""
+                            {
+                              "success": false,
+                              "error": "You do not have permission to perform this action."
+                            }
+                            """);
+                    }
+                )
             )
 
-            /*
-             * ============================================================
-             * AUTHORIZATION
-             * ============================================================
-             */
+            // ============================================================
+            // AUTHORIZATION
+            // ============================================================
             .authorizeHttpRequests(authorize -> authorize
 
-                /*
-                 * Browser CORS preflight must NEVER be blocked by JWT.
-                 */
-                .requestMatchers(HttpMethod.OPTIONS, "/**")
+                // --------------------------------------------------------
+                // CORS preflight
+                // --------------------------------------------------------
+                .requestMatchers(
+                    HttpMethod.OPTIONS,
+                    "/**"
+                )
                 .permitAll()
 
-                /*
-                 * Authentication endpoints.
-                 */
-                .requestMatchers("/api/auth/**")
+                // --------------------------------------------------------
+                // Authentication endpoints
+                // --------------------------------------------------------
+                //
+                // These are intentionally public.
+                // Authentication is performed by AuthController/
+                // AuthenticationManager.
+                // --------------------------------------------------------
+                .requestMatchers(
+                    "/api/auth/login",
+                    "/api/auth/register",
+                    "/api/auth/logout",
+                    "/api/auth/forgot-password",
+                    "/api/auth/reset-password",
+                    "/api/auth/csrf"
+                )
                 .permitAll()
 
-                /*
-                 * Explicit public API allow-list. Do NOT use /api/public/** here:
-                 * a newly added controller under that prefix must not become
-                 * public merely because a developer forgot an authorization
-                 * annotation.
-                 */
+                // --------------------------------------------------------
+                // Authenticated user endpoints
+                // --------------------------------------------------------
+                .requestMatchers(
+                    "/api/auth/me",
+                    "/api/auth/change-password"
+                )
+                .authenticated()
+
+                // --------------------------------------------------------
+                // Explicit public API allow-list
+                // --------------------------------------------------------
+                //
+                // Do NOT replace this with /api/public/**.
+                // --------------------------------------------------------
                 .requestMatchers(
                     "/api/public/contact",
                     "/api/public/borrower/**",
@@ -169,36 +221,27 @@ public class SecurityConfig {
                 )
                 .permitAll()
 
-                /*
-                 * Render / monitoring health checks.
-                 *
-                 * These endpoints must be reachable without a JWT so
-                 * Render can determine whether the application is alive.
-                 */
+                // --------------------------------------------------------
+                // Health checks
+                // --------------------------------------------------------
                 .requestMatchers(
                     "/actuator/health",
                     "/actuator/health/**"
                 )
                 .permitAll()
 
-                /*
-                 * Public webhook endpoints.
-                 */
-                .requestMatchers("/api/public/webhooks/**")
-                .permitAll()
-
-                /*
-                 * WebSocket handshake.
-                 */
+                // --------------------------------------------------------
+                // WebSocket handshake
+                // --------------------------------------------------------
                 .requestMatchers(
                     "/ws",
                     "/ws/**"
                 )
                 .permitAll()
 
-                /*
-                 * Development-only surfaces.
-                 */
+                // --------------------------------------------------------
+                // Development-only surfaces
+                // --------------------------------------------------------
                 .requestMatchers(
                     "/h2-console/**",
                     "/swagger-ui/**",
@@ -206,28 +249,29 @@ public class SecurityConfig {
                     "/api-docs/**"
                 )
                 .access((authentication, context) ->
-                    new org.springframework.security.authorization.AuthorizationDecision(
-                        isDevelopmentSurfaceEnabled(
-                            context.getRequest().getRequestURI()
+                    new org.springframework.security.authorization
+                        .AuthorizationDecision(
+                            isDevelopmentSurfaceEnabled(
+                                context.getRequest().getRequestURI()
+                            )
                         )
-                    )
                 )
 
-                /*
-                 * Everything else requires authentication.
-                 */
+                // --------------------------------------------------------
+                // Everything else requires authentication.
+                // --------------------------------------------------------
                 .anyRequest()
                 .authenticated()
             )
 
-            /*
-             * ============================================================
-             * SECURITY HEADERS
-             * ============================================================
-             */
+            // ============================================================
+            // SECURITY HEADERS
+            // ============================================================
             .headers(headers -> headers
 
-                .frameOptions(frame -> frame.sameOrigin())
+                .frameOptions(frame ->
+                    frame.sameOrigin()
+                )
 
                 .httpStrictTransportSecurity(hsts -> hsts
                     .includeSubDomains(true)
@@ -235,14 +279,9 @@ public class SecurityConfig {
                 )
             )
 
-            /*
-             * ============================================================
-             * FILTER ORDER
-             * ============================================================
-             *
-             * All custom filters are placed before the normal username /
-             * password authentication filter.
-             */
+            // ============================================================
+            // CUSTOM FILTER ORDER
+            // ============================================================
             .addFilterBefore(
                 rateLimitFilter,
                 UsernamePasswordAuthenticationFilter.class
@@ -266,11 +305,10 @@ public class SecurityConfig {
         return http.build();
     }
 
-    /*
-     * ================================================================
-     * DEVELOPMENT SURFACES
-     * ================================================================
-     */
+    // ================================================================
+    // DEVELOPMENT SURFACES
+    // ================================================================
+
     private boolean isDevelopmentSurfaceEnabled(String uri) {
 
         if (uri == null) {
@@ -284,44 +322,36 @@ public class SecurityConfig {
         return exposeApiDocs;
     }
 
-    /*
-     * ================================================================
-     * CORS
-     * ================================================================
-     */
+    // ================================================================
+    // CORS
+    // ================================================================
+
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
 
-        CorsConfiguration configuration = new CorsConfiguration();
+        CorsConfiguration configuration =
+            new CorsConfiguration();
 
-        /*
-         * Build an explicit list of origins.
-         *
-         * Never use:
-         *
-         *     allowedOrigins = "*"
-         *
-         * together with credentials.
-         */
-        Set<String> originSet = new LinkedHashSet<>();
+        Set<String> originSet =
+            new LinkedHashSet<>();
 
-        if (allowedOrigins != null && !allowedOrigins.isBlank()) {
+        if (
+            allowedOrigins != null
+                && !allowedOrigins.isBlank()
+        ) {
 
-            Arrays.stream(allowedOrigins.split(","))
-                .map(this::normalizeCorsOrigin)
-                .filter(origin -> !origin.isBlank())
-                .forEach(originSet::add);
+            Arrays.stream(
+                allowedOrigins.split(",")
+            )
+            .map(this::normalizeCorsOrigin)
+            .filter(origin -> !origin.isBlank())
+            .forEach(originSet::add);
         }
 
         configuration.setAllowedOrigins(
             new ArrayList<>(originSet)
         );
 
-        /*
-         * ============================================================
-         * METHODS
-         * ============================================================
-         */
         configuration.setAllowedMethods(
             List.of(
                 "GET",
@@ -334,15 +364,6 @@ public class SecurityConfig {
             )
         );
 
-        /*
-         * ============================================================
-         * REQUEST HEADERS
-         * ============================================================
-         *
-         * X-Api-Key is required by the external regulatory API filter.
-         * X-Tenant-Slug is used by the frontend.
-         * X-Request-Id is used by request tracing.
-         */
         configuration.setAllowedHeaders(
             List.of(
                 "Authorization",
@@ -355,15 +376,11 @@ public class SecurityConfig {
                 "X-Tenant-Host",
                 "X-Request-Id",
                 "Idempotency-Key",
-                "X-Webhook-Secret"
+                "X-Webhook-Secret",
+                "X-XSRF-TOKEN"
             )
         );
 
-        /*
-         * ============================================================
-         * RESPONSE HEADERS
-         * ============================================================
-         */
         configuration.setExposedHeaders(
             List.of(
                 "Location",
@@ -373,16 +390,8 @@ public class SecurityConfig {
             )
         );
 
-        /*
-         * Your frontend uses JWT Authorization headers.
-         *
-         * Explicit origins above make credentials safe.
-         */
         configuration.setAllowCredentials(true);
 
-        /*
-         * Browser may cache the preflight result for 30 minutes.
-         */
         configuration.setMaxAge(1800L);
 
         UrlBasedCorsConfigurationSource source =
@@ -396,23 +405,24 @@ public class SecurityConfig {
         return source;
     }
 
-    /*
-     * ================================================================
-     * ORIGIN NORMALIZATION
-     * ================================================================
-     */
+    // ================================================================
+    // CORS ORIGIN NORMALIZATION
+    // ================================================================
+
     private String normalizeCorsOrigin(String origin) {
 
         if (origin == null) {
             return "";
         }
 
-        String normalized = origin.trim();
+        String normalized =
+            origin.trim();
 
         while (
             normalized.endsWith("/")
                 && normalized.length() > 8
         ) {
+
             normalized =
                 normalized.substring(
                     0,
@@ -423,11 +433,10 @@ public class SecurityConfig {
         return normalized;
     }
 
-    /*
-     * ================================================================
-     * AUTHENTICATION MANAGER
-     * ================================================================
-     */
+    // ================================================================
+    // AUTHENTICATION MANAGER
+    // ================================================================
+
     @Bean
     public AuthenticationManager authenticationManager(
         AuthenticationConfiguration configuration
@@ -436,3 +445,4 @@ public class SecurityConfig {
         return configuration.getAuthenticationManager();
     }
 }
+
