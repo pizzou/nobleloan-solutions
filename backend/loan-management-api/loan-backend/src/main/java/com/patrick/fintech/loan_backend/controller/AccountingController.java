@@ -417,6 +417,7 @@ public class AccountingController {
 
         @PostMapping("/journal/{id}/reverse")
         @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT')")
+        @org.springframework.transaction.annotation.Transactional
         public ResponseEntity<ApiResponse<Object>> reverseEntry(
                         @PathVariable Long id,
                         @RequestBody(required = false) Map<String, String> body) {
@@ -432,7 +433,7 @@ public class AccountingController {
                 if (approvalIdValue == null || approvalIdValue.isBlank()) {
                         throw new IllegalArgumentException("approvalId is required for journal reversal");
                 }
-                financialApprovalService.requireApproved(Long.valueOf(approvalIdValue),
+                financialApprovalService.consumeApproved(Long.valueOf(approvalIdValue),
                                 currentUserUtil.getCurrentUser().getOrganization(),
                                 "JOURNAL_REVERSAL", String.valueOf(id));
 

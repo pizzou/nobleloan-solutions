@@ -38,20 +38,39 @@ public class UserService {
         return userRepository.save(user);
     }
 
-    @Transactional
-    public List<User> getAll() {
-        return userRepository.findAll();
+    @Transactional(readOnly = true)
+    public List<User> getAll(Long organizationId) {
+        requireOrganizationId(organizationId);
+        return userRepository.findByOrganization_Id(organizationId);
     }
 
-    @Transactional
+    /**
+     * Legacy unscoped lookup retained only for non-request/background callers.
+     * Request-facing staff operations must use the organization-scoped overload.
+     */
+    @Deprecated
+    @Transactional(readOnly = true)
     public User getById(Long id) {
+        if (id == null || id <= 0) {
+            throw new IllegalArgumentException("Invalid user id");
+        }
         return userRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("User not found: " + id));
     }
 
+    @Transactional(readOnly = true)
+    public User getById(Long id, Long organizationId) {
+        if (id == null || id <= 0) {
+            throw new IllegalArgumentException("Invalid user id");
+        }
+        requireOrganizationId(organizationId);
+        return userRepository.findByIdAndOrganizationId(id, organizationId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + id));
+    }
+
     @Transactional
-    public User update(Long id, User updated) {
-        User user = getById(id);
+    public User update(Long id, User updated, Long organizationId) {
+        User user = getById(id, organizationId);
         if (updated.getName() != null && !updated.getName().isBlank())
             user.setName(updated.getName());
         return userRepository.save(user);
@@ -69,8 +88,8 @@ public class UserService {
      * the role in the database never changed.
      */
     @Transactional
-    public User changeRole(Long id, Role role) {
-        User user = getById(id);
+    public User changeRole(Long id, Role role, Long organizationId) {
+        User user = getById(id, organizationId);
         user.setRole(role);
         return userRepository.save(user);
     }
@@ -83,8 +102,8 @@ public class UserService {
      * the caller's current password before calling this).
      */
     @Transactional
-    public User updateEmail(Long id, String newEmail) {
-        User user = getById(id);
+    public User updateEmail(Long id, String newEmail, Long organizationId) {
+        User user = getById(id, organizationId);
         String normalized = newEmail.trim().toLowerCase();
         if (!normalized.equals(user.getEmail())) {
             if (userRepository.existsByEmail(normalized))
@@ -104,8 +123,8 @@ public class UserService {
      * see UserController for the self-vs-other authorization split.
      */
     @Transactional
-    public User updatePassword(Long id, String newPassword) {
-        User user = getById(id);
+    public User updatePassword(Long id, String newPassword, Long organizationId) {
+        User user = getById(id, organizationId);
         com.patrick.fintech.loan_backend.security.PasswordPolicy.validate(newPassword);
         user.setPassword(passwordEncoder.encode(newPassword));
         user.setTokenVersion((user.getTokenVersion() == null ? 0L : user.getTokenVersion()) + 1L);
@@ -122,8 +141,8 @@ public class UserService {
      * verification.
      */
     @Transactional
-    public User changeOwnPassword(Long id, String currentPassword, String newPassword) {
-        User user = getById(id);
+    public User changeOwnPassword(Long id, String currentPassword, String newPassword, Long organizationId) {
+        User user = getById(id, organizationId);
         if (currentPassword == null || !passwordEncoder.matches(currentPassword, user.getPassword()))
             throw new RuntimeException("Current password is incorrect");
         com.patrick.fintech.loan_backend.security.PasswordPolicy.validate(newPassword);
@@ -134,8 +153,8 @@ public class UserService {
     }
 
     @Transactional
-    public boolean verifyPassword(Long id, String rawPassword) {
-        User user = getById(id);
+    public boolean verifyPassword(Long id, String rawPassword, Long organizationId) {
+        User user = getById(id, organizationId);
         return rawPassword != null && passwordEncoder.matches(rawPassword, user.getPassword());
     }
 
@@ -162,16 +181,22 @@ public class UserService {
      * intact) is the correct operation here, not a workaround.
      */
     @Transactional
-    public User deactivate(Long id) {
-        User user = getById(id);
+    public User deactivate(Long id, Long organizationId) {
+        User user = getById(id, organizationId);
         user.setStatus(User.UserStatus.SUSPENDED);
         return userRepository.save(user);
     }
 
     @Transactional
-    public User reactivate(Long id) {
-        User user = getById(id);
+    public User reactivate(Long id, Long organizationId) {
+        User user = getById(id, organizationId);
         user.setStatus(User.UserStatus.ACTIVE);
         return userRepository.save(user);
     }
+    private void requireOrganizationId(Long organizationId) {
+        if (organizationId == null || organizationId <= 0) {
+            throw new IllegalArgumentException("Organization ID is required");
+        }
+    }
+
 }

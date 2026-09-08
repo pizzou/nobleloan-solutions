@@ -54,5 +54,18 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Override
     @EntityGraph(attributePaths = {"role", "organization", "branch"})
     Optional<User> findById(Long id);
+
+    /**
+     * Security-boundary lookup: the organization predicate is part of the SQL
+     * query, not merely a controller-side check.
+     */
+    @EntityGraph(attributePaths = {"role", "organization", "branch"})
+    @Query("select u from User u where u.id = :id and u.organization.id = :organizationId")
+    Optional<User> findByIdAndOrganizationId(
+            @Param("id") Long id,
+            @Param("organizationId") Long organizationId);
+
+    @EntityGraph(attributePaths = {"role", "organization", "branch"})
+    List<User> findByOrganization_Id(Long organizationId);
 }
 

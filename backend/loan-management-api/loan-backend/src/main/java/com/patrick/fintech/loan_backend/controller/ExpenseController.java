@@ -483,6 +483,7 @@ public class ExpenseController {
 
         @PatchMapping("/{id}/void")
         @PreAuthorize("hasAnyRole('ADMIN','ACCOUNTANT')")
+        @org.springframework.transaction.annotation.Transactional
         public ResponseEntity<ApiResponse<Object>> voidExpense(
 
                         @PathVariable Long id,
@@ -508,7 +509,7 @@ public class ExpenseController {
                         throw new IllegalArgumentException("approvalId is required to void an expense");
                 }
                 com.patrick.fintech.loan_backend.model.User currentUser = currentUserUtil.getCurrentUser();
-                financialApprovalService.requireApproved(Long.valueOf(approvalIdValue),
+                financialApprovalService.consumeApproved(Long.valueOf(approvalIdValue),
                                 currentUser.getOrganization(), "JOURNAL_REVERSAL", String.valueOf(id));
 
                 Expense voided = expenseService.voidExpense(

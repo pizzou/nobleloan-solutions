@@ -151,9 +151,22 @@ public class SecurityConfig {
                 .permitAll()
 
                 /*
-                 * Public API.
+                 * Explicit public API allow-list. Do NOT use /api/public/** here:
+                 * a newly added controller under that prefix must not become
+                 * public merely because a developer forgot an authorization
+                 * annotation.
                  */
-                .requestMatchers("/api/public/**")
+                .requestMatchers(
+                    "/api/public/contact",
+                    "/api/public/borrower/**",
+                    "/api/public/applications/**",
+                    "/api/public/tenant/**",
+                    "/api/public/loan-application",
+                    "/api/public/dashboard",
+                    "/api/public/payment-schedule",
+                    "/api/public/esignature/**",
+                    "/api/public/webhooks/**"
+                )
                 .permitAll()
 
                 /*

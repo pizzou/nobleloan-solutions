@@ -32,6 +32,8 @@ public class ProductionConfigurationValidator {
         private String publicTenant;
         @Value("${spring.jpa.open-in-view:false}")
         private boolean openInView;
+        @Value("${server.forward-headers-strategy:none}")
+        private String forwardHeadersStrategy;
         @Value("${app.security.expose-h2:false}")
         private boolean exposeH2;
         @Value("${app.security.expose-api-docs:false}")
@@ -82,6 +84,15 @@ public class ProductionConfigurationValidator {
         @Value("${app.regulatory.provision.doubtful:0}") private String provisionDoubtful;
         @Value("${app.regulatory.provision.written-off:0}") private String provisionWrittenOff;
         @Value("${app.regulatory.provision.policy-approved:false}") private boolean provisioningPolicyApproved;
+        @Value("${BOOTSTRAP_ADMIN_EMAIL:}") private String bootstrapAdminEmail;
+        @Value("${BOOTSTRAP_ADMIN_PASSWORD:}") private String bootstrapAdminPassword;
+        @Value("${BOOTSTRAP_ADMIN_NAME:}") private String bootstrapAdminName;
+        @Value("${BOOTSTRAP_ADMIN_PHONE:}") private String bootstrapAdminPhone;
+        @Value("${BOOTSTRAP_ORG_NAME:}") private String bootstrapOrgName;
+        @Value("${BOOTSTRAP_ORG_COUNTRY:}") private String bootstrapOrgCountry;
+        @Value("${BOOTSTRAP_ORG_CURRENCY:}") private String bootstrapOrgCurrency;
+        @Value("${BOOTSTRAP_ORG_TIMEZONE:}") private String bootstrapOrgTimezone;
+        @Value("${BOOTSTRAP_ORG_LOCALE:}") private String bootstrapOrgLocale;
 
         @PostConstruct
         public void validate() {
@@ -90,6 +101,16 @@ public class ProductionConfigurationValidator {
                 if (jwtSecret == null || jwtSecret.length() < 32 || isWeak(jwtSecret))
                         throw new IllegalStateException(
                                         "JWT_SECRET must be a strong secret of at least 32 characters in production");
+
+                requireNonBlank(bootstrapAdminEmail, "BOOTSTRAP_ADMIN_EMAIL");
+                requireStrongBootstrapPassword(bootstrapAdminPassword);
+                requireNonBlank(bootstrapAdminName, "BOOTSTRAP_ADMIN_NAME");
+                requireNonBlank(bootstrapAdminPhone, "BOOTSTRAP_ADMIN_PHONE");
+                requireNonBlank(bootstrapOrgName, "BOOTSTRAP_ORG_NAME");
+                requireNonBlank(bootstrapOrgCountry, "BOOTSTRAP_ORG_COUNTRY");
+                requireNonBlank(bootstrapOrgCurrency, "BOOTSTRAP_ORG_CURRENCY");
+                requireNonBlank(bootstrapOrgTimezone, "BOOTSTRAP_ORG_TIMEZONE");
+                requireNonBlank(bootstrapOrgLocale, "BOOTSTRAP_ORG_LOCALE");
 
                 if (!"Lax".equalsIgnoreCase(authCookieSameSite) && !"Strict".equalsIgnoreCase(authCookieSameSite)) {
                         throw new IllegalStateException("AUTH_COOKIE_SAME_SITE must be Lax or Strict in production. Use the same-origin Next.js /api proxy rather than cross-site browser cookies.");
@@ -165,6 +186,8 @@ public class ProductionConfigurationValidator {
                                         "PUBLIC_TENANT_SLUG is required when public registration is enabled");
                 if (openInView)
                         throw new IllegalStateException("spring.jpa.open-in-view must be false in production");
+                if (!"none".equalsIgnoreCase(forwardHeadersStrategy))
+                        throw new IllegalStateException("server.forward-headers-strategy must be none in production unless a trusted proxy model has been explicitly configured");
                 if (exposeH2)
                         throw new IllegalStateException("H2 console must remain disabled in production");
                 if (exposeApiDocs)
@@ -212,6 +235,20 @@ public class ProductionConfigurationValidator {
                         }
                 } catch (NumberFormatException e) {
                         throw new IllegalStateException(name + " must be a decimal percentage");
+                }
+        }
+
+        private void requireNonBlank(String value, String variable) {
+                if (value == null || value.isBlank()) {
+                        throw new IllegalStateException(variable + " is required in production");
+                }
+        }
+
+        private void requireStrongBootstrapPassword(String value) {
+                requireNonBlank(value, "BOOTSTRAP_ADMIN_PASSWORD");
+                if (value.length() < 14 || isWeak(value)) {
+                        throw new IllegalStateException(
+                                        "BOOTSTRAP_ADMIN_PASSWORD must be a strong password of at least 14 characters in production");
                 }
         }
 

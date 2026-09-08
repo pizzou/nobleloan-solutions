@@ -6,7 +6,9 @@ import com.patrick.fintech.loan_backend.model.PaymentSchedule;
 import com.patrick.fintech.loan_backend.model.PaymentSchedule.ScheduleStatus;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentScheduleRepository;
+import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.util.FinancialPolicy;
+import com.patrick.fintech.loan_backend.security.HmacIndexer;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +27,8 @@ import java.util.List;
 public class PaymentScheduleService {
 
         private final PaymentScheduleRepository repository;
+
+        private final LoanRepository loanRepository;
 
         private final PaymentRepository paymentRepository;
 
@@ -58,19 +62,46 @@ public class PaymentScheduleService {
         // GET SCHEDULE
         // ================================================================
 
+        /**
+         * Public borrower schedule lookup.
+         *
+         * The internal Loan.id is deliberately not accepted here. The caller
+         * must prove ownership using the public reference and the HMAC-indexed
+         * phone number stored on the borrower record.
+         */
         @Transactional(readOnly = true)
-        public List<PaymentScheduleResponse> getSchedule(Long loanId) {
+        public List<PaymentScheduleResponse> getPublicSchedule(
+                        String reference,
+                        String phone) {
 
-                if (loanId == null) {
-                        throw new IllegalArgumentException(
-                                        "Loan ID is required");
-                }
+                String normalizedReference = normalizeReference(reference);
+                String normalizedPhone = normalizePhone(phone);
+                String phoneHash = HmacIndexer.index(normalizedPhone);
+
+                Loan loan = loanRepository
+                                .findByReferenceNumberAndBorrower_PhoneHash(normalizedReference, phoneHash)
+                                .orElseThrow(() -> new IllegalArgumentException(
+                                                "We couldn't find an application with that reference number and phone number."));
 
                 return repository
-                                .findByLoanIdOrderByInstallmentNumberAsc(loanId)
+                                .findByLoanIdOrderByInstallmentNumberAsc(loan.getId())
                                 .stream()
                                 .map(this::toResponse)
                                 .toList();
+        }
+
+        private String normalizeReference(String reference) {
+                if (reference == null || reference.isBlank() || reference.trim().length() > 100) {
+                        throw new IllegalArgumentException("Application reference number is required.");
+                }
+                return reference.trim().toUpperCase(java.util.Locale.ROOT);
+        }
+
+        private String normalizePhone(String phone) {
+                if (phone == null || phone.isBlank() || phone.trim().length() > 50) {
+                        throw new IllegalArgumentException("Phone number is required.");
+                }
+                return phone.trim();
         }
 
         // ================================================================
@@ -339,17 +370,7 @@ public class PaymentScheduleService {
                                                                 .add(totalScheduledInterest)
                                                                 .add(totalScheduledManagementFee)));
 
-                // ============================================================
-                // SYNCHRONIZE LOAN AGGREGATE
-                // ============================================================
-
-                /*
-                 * The Loan entity now stores monetary values as BigDecimal.
-                 *
-                 * Therefore we deliberately use the BigDecimal setters.
-                 *
-                 * We do NOT convert these values back to Double.
-                 */
+               
 
                 loan.setAmount(
                                 principal);
@@ -458,32 +479,7 @@ public class PaymentScheduleService {
                                                                 .orElse(null));
         }
 
-        // ================================================================
-        // MONTHLY RATE
-        // ================================================================
-
-        /**
-         * Converts the configured interest rate into a contractual
-         * monthly rate.
-         *
-         * MONTHLY:
-         *
-         * 10% / 100
-         *
-         * = 0.10 monthly
-         *
-         * ANNUAL:
-         *
-         * 10% / 100 / 12
-         *
-         * = 0.008333...
-         *
-         * IMPORTANT:
-         *
-         * This is the contractual monthly schedule rate.
-         *
-         * It is NOT the elapsed-day payment interest calculation.
-         */
+        
         private BigDecimal calculateMonthlyRate(
                         BigDecimal rate,
                         String rateType) {
@@ -709,18 +705,7 @@ public class PaymentScheduleService {
                                 RoundingMode.HALF_UP);
         }
 
-        // ================================================================
-        // NORMALIZE MONEY
-        // ================================================================
-
-        /**
-         * Normalizes an authoritative BigDecimal monetary value.
-         *
-         * No Double conversion is performed here.
-         *
-         * This is important because Loan stores its financial
-         * fields as BigDecimal.
-         */
+        
         private BigDecimal normalizeMoney(
                         BigDecimal value) {
 

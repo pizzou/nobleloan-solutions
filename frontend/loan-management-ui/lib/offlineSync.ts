@@ -1,4 +1,5 @@
 import { TENANT_SLUG } from "./tenant";
+import { API_BASE_URL } from "./apiBase";
 import {
   bumpAttempt,
   getPendingActions,
@@ -7,9 +8,7 @@ import {
   removePendingAction,
 } from "./offlineDb";
 
-const API_BASE = (
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api"
-).replace(/\/+$/, "");
+const API_BASE = API_BASE_URL;
 const API_ORIGIN = API_BASE.replace(/\/api$/i, "");
 
 const MAX_RETRYABLE_ATTEMPTS = 12;

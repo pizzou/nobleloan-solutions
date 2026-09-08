@@ -68,13 +68,16 @@ services:
       # PRODUCTION GO-LIVE: set these three to skip demo-data seeding entirely and get one real
       # organization + one real admin account instead (see DataSeeder.bootstrapProductionOrg).
       # Leaving BOOTSTRAP_ADMIN_EMAIL blank means this deploys with published demo credentials
-      # (admin@nobleloansolutions.rw / Admin@1234) — never acceptable for a real launch.
+      # Never leave BOOTSTRAP_ADMIN_EMAIL/PASSWORD blank for a production launch.
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-}
+      BOOTSTRAP_ADMIN_PHONE: ${BOOTSTRAP_ADMIN_PHONE:-}
       BOOTSTRAP_ORG_NAME: ${BOOTSTRAP_ORG_NAME:-}
       BOOTSTRAP_ORG_COUNTRY: ${BOOTSTRAP_ORG_COUNTRY:-}
       BOOTSTRAP_ORG_CURRENCY: ${BOOTSTRAP_ORG_CURRENCY:-}
+      BOOTSTRAP_ORG_TIMEZONE: ${BOOTSTRAP_ORG_TIMEZONE:-}
+      BOOTSTRAP_ORG_LOCALE: ${BOOTSTRAP_ORG_LOCALE:-}
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-900000}

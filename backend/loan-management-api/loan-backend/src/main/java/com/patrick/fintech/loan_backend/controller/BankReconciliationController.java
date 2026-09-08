@@ -66,6 +66,7 @@ public class BankReconciliationController {
     }
 
     @PostMapping("/{bankAccountId}/sign")
+    @org.springframework.transaction.annotation.Transactional
     public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> sign(
             @PathVariable Long bankAccountId,
             @RequestParam String from,
@@ -75,7 +76,7 @@ public class BankReconciliationController {
     ) {
         Organization organization = org();
 
-        var approval = approvalService.requireApproved(
+        var approval = approvalService.consumeApproved(
                 approvalId,
                 organization,
                 "BANK_RECONCILIATION",

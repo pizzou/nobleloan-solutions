@@ -39,15 +39,7 @@ public class UserController {
             throw new IllegalArgumentException("Request body is required");
         }
 
-        
-        Long organizationId =
-                currentUserUtil.getCurrentOrganizationId();
-
-        if (organizationId == null || organizationId <= 0) {
-            throw new AccessDeniedException(
-                    "Authenticated user has no valid organization"
-            );
-        }
+        Long organizationId = requireCurrentOrganizationId();
 
         req.setOrganizationId(organizationId);
 
@@ -79,24 +71,17 @@ public class UserController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getAll() {
 
-        Long organizationId =
-                currentUserUtil.getCurrentOrganizationId();
-
-        if (organizationId == null || organizationId <= 0) {
-            throw new AccessDeniedException(
-                    "Authenticated user has no valid organization"
-            );
-        }
+        Long organizationId = requireCurrentOrganizationId();
 
         List<Map<String, Object>> users =
-                userService.getAll()
+                userService.getAll(organizationId)
                         .stream()
                         .filter(u ->
                                 u != null
                                         && u.getOrganization() != null
                                         && organizationId.equals(
-                                                u.getOrganization().getId()
-                                        )
+                                        u.getOrganization().getId()
+                                )
                         )
                         .map(this::safeUser)
                         .toList();
@@ -111,20 +96,12 @@ public class UserController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> getById(
             @PathVariable Long id) {
 
-        if (id == null || id <= 0) {
-            throw new IllegalArgumentException(
-                    "Invalid user id"
-            );
-        }
+        validateUserId(id);
 
-        Long organizationId =
-                currentUserUtil.getCurrentOrganizationId();
+        Long organizationId = requireCurrentOrganizationId();
 
-        User user =
-                userService.getById(id);
-
-        assertSameOrganization(
-                user,
+        User user = userService.getById(
+                id,
                 organizationId
         );
 
@@ -141,45 +118,42 @@ public class UserController {
             @PathVariable Long id,
             @RequestBody Map<String, String> body) {
 
-        if (id == null || id <= 0) {
-            throw new IllegalArgumentException(
-                    "Invalid user id"
-            );
-        }
+        validateUserId(id);
 
         if (body == null) {
             body = Map.of();
         }
 
-        Long callerOrganizationId =
-                currentUserUtil.getCurrentOrganizationId();
+        Long organizationId = requireCurrentOrganizationId();
 
-        Long callerId =
-                currentUserUtil.getCurrentUserId();
+        Long callerId = currentUserUtil.getCurrentUserId();
 
-        User caller =
-                currentUserUtil.getCurrentUser();
+        User caller = currentUserUtil.getCurrentUser();
 
-        User user =
-                userService.getById(id);
-
-        
-        assertSameOrganization(
-                user,
-                callerOrganizationId
+        User user = userService.getById(
+                id,
+                organizationId
         );
 
-        boolean isSelf =
-                id.equals(callerId);
+        /*
+         * The service already performs organization-scoped lookup.
+         * Keep this additional controller-level assertion as defense
+         * in depth.
+         */
+        assertSameOrganization(
+                user,
+                organizationId
+        );
+
+        boolean isSelf = id.equals(callerId);
 
         boolean isAdmin =
                 caller != null
                         && caller.getRole() != null
                         && "ADMIN".equalsIgnoreCase(
-                                caller.getRole().getName()
-                        );
+                        caller.getRole().getName()
+                );
 
-       
         if (!isSelf && !isAdmin) {
             throw new AccessDeniedException(
                     "Only an administrator can edit another user's account"
@@ -189,21 +163,18 @@ public class UserController {
         if (body.containsKey("name")
                 && body.get("name") != null) {
 
-            String name =
-                    body.get("name").trim();
+            String name = body.get("name").trim();
 
             if (!name.isBlank()) {
                 user.setName(name);
             }
         }
 
-       
         if (body.containsKey("email")
                 && body.get("email") != null
                 && !body.get("email").isBlank()) {
 
-            String newEmail =
-                    body.get("email").trim();
+            String newEmail = body.get("email").trim();
 
             if (newEmail.isBlank()) {
                 throw new IllegalArgumentException(
@@ -226,7 +197,8 @@ public class UserController {
 
                 if (!userService.verifyPassword(
                         id,
-                        currentPassword
+                        currentPassword,
+                        organizationId
                 )) {
 
                     throw new IllegalArgumentException(
@@ -235,20 +207,18 @@ public class UserController {
                 }
             }
 
-            user =
-                    userService.updateEmail(
-                            id,
-                            newEmail
-                    );
+            user = userService.updateEmail(
+                    id,
+                    newEmail,
+                    organizationId
+            );
         }
 
-       
         if (body.containsKey("password")
                 && body.get("password") != null
                 && !body.get("password").isBlank()) {
 
-            String newPassword =
-                    body.get("password");
+            String newPassword = body.get("password");
 
             if (isSelf) {
 
@@ -263,28 +233,28 @@ public class UserController {
                     );
                 }
 
-                user =
-                        userService.changeOwnPassword(
-                                id,
-                                currentPassword,
-                                newPassword
-                        );
+                user = userService.changeOwnPassword(
+                        id,
+                        currentPassword,
+                        newPassword,
+                        organizationId
+                );
 
             } else {
 
-                user =
-                        userService.updatePassword(
-                                id,
-                                newPassword
-                        );
+                user = userService.updatePassword(
+                        id,
+                        newPassword,
+                        organizationId
+                );
             }
         }
 
-        User updated =
-                userService.update(
-                        id,
-                        user
-                );
+        User updated = userService.update(
+                id,
+                user,
+                organizationId
+        );
 
         auditService.log(
                 updated.getOrganization(),
@@ -312,11 +282,7 @@ public class UserController {
             @PathVariable Long id,
             @RequestBody Map<String, String> body) {
 
-        if (id == null || id <= 0) {
-            throw new IllegalArgumentException(
-                    "Invalid user id"
-            );
-        }
+        validateUserId(id);
 
         if (body == null) {
             throw new IllegalArgumentException(
@@ -324,8 +290,7 @@ public class UserController {
             );
         }
 
-        String suppliedRoleName =
-                body.get("role");
+        String suppliedRoleName = body.get("role");
 
         if (suppliedRoleName == null
                 || suppliedRoleName.isBlank()) {
@@ -335,19 +300,18 @@ public class UserController {
             );
         }
 
-       
         final String normalizedRoleName =
                 suppliedRoleName
                         .trim()
                         .toUpperCase(Locale.ROOT);
 
-        Long organizationId =
-                currentUserUtil.getCurrentOrganizationId();
+        Long organizationId = requireCurrentOrganizationId();
 
-        User user =
-                userService.getById(id);
+        User user = userService.getById(
+                id,
+                organizationId
+        );
 
-        
         assertSameOrganization(
                 user,
                 organizationId
@@ -368,12 +332,11 @@ public class UserController {
                         ? user.getRole().getName()
                         : null;
 
-       
-        User updated =
-                userService.changeRole(
-                        id,
-                        role
-                );
+        User updated = userService.changeRole(
+                id,
+                role,
+                organizationId
+        );
 
         auditService.log(
                 updated.getOrganization(),
@@ -404,11 +367,7 @@ public class UserController {
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable Long id) {
 
-        if (id == null || id <= 0) {
-            throw new IllegalArgumentException(
-                    "Invalid user id"
-            );
-        }
+        validateUserId(id);
 
         Long currentUserId =
                 currentUserUtil.getCurrentUserId();
@@ -419,19 +378,22 @@ public class UserController {
             );
         }
 
-        Long organizationId =
-                currentUserUtil.getCurrentOrganizationId();
+        Long organizationId = requireCurrentOrganizationId();
 
-        User target =
-                userService.getById(id);
+        User target = userService.getById(
+                id,
+                organizationId
+        );
 
         assertSameOrganization(
                 target,
                 organizationId
         );
 
-       
-        userService.deactivate(id);
+        userService.deactivate(
+                id,
+                organizationId
+        );
 
         auditService.log(
                 target.getOrganization(),
@@ -456,31 +418,29 @@ public class UserController {
         );
     }
 
-   
     @PutMapping("/{id}/reactivate")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> reactivate(
             @PathVariable Long id) {
 
-        if (id == null || id <= 0) {
-            throw new IllegalArgumentException(
-                    "Invalid user id"
-            );
-        }
+        validateUserId(id);
 
-        Long organizationId =
-                currentUserUtil.getCurrentOrganizationId();
+        Long organizationId = requireCurrentOrganizationId();
 
-        User target =
-                userService.getById(id);
+        User target = userService.getById(
+                id,
+                organizationId
+        );
 
         assertSameOrganization(
                 target,
                 organizationId
         );
 
-        User updated =
-                userService.reactivate(id);
+        User updated = userService.reactivate(
+                id,
+                organizationId
+        );
 
         auditService.log(
                 updated.getOrganization(),
@@ -506,6 +466,36 @@ public class UserController {
         );
     }
 
+    /**
+     * Returns the authenticated user's organization ID.
+     *
+     * This is deliberately centralized so every request-facing user
+     * operation is guaranteed to operate within the authenticated
+     * tenant/organization boundary.
+     */
+    private Long requireCurrentOrganizationId() {
+
+        Long organizationId =
+                currentUserUtil.getCurrentOrganizationId();
+
+        if (organizationId == null || organizationId <= 0) {
+            throw new AccessDeniedException(
+                    "Authenticated user has no valid organization"
+            );
+        }
+
+        return organizationId;
+    }
+
+    private void validateUserId(Long id) {
+
+        if (id == null || id <= 0) {
+            throw new IllegalArgumentException(
+                    "Invalid user id"
+            );
+        }
+    }
+
     private void assertSameOrganization(
             User user,
             Long organizationId) {
@@ -527,8 +517,8 @@ public class UserController {
         if (user.getOrganization() == null
                 || user.getOrganization().getId() == null
                 || !organizationId.equals(
-                        user.getOrganization().getId()
-                )) {
+                user.getOrganization().getId()
+        )) {
 
             throw new AccessDeniedException(
                     "Access denied"
@@ -536,7 +526,10 @@ public class UserController {
         }
     }
 
-  
+    /**
+     * Prevents sensitive/internal user fields from being exposed
+     * through the API.
+     */
     private Map<String, Object> safeUser(User u) {
 
         if (u == null) {
@@ -565,11 +558,11 @@ public class UserController {
                 "role",
                 u.getRole() != null
                         ? Map.of(
-                                "id",
-                                u.getRole().getId(),
-                                "name",
-                                u.getRole().getName()
-                        )
+                        "id",
+                        u.getRole().getId(),
+                        "name",
+                        u.getRole().getName()
+                )
                         : null
         );
 
@@ -577,11 +570,11 @@ public class UserController {
                 "organization",
                 u.getOrganization() != null
                         ? Map.of(
-                                "id",
-                                u.getOrganization().getId(),
-                                "name",
-                                u.getOrganization().getName()
-                        )
+                        "id",
+                        u.getOrganization().getId(),
+                        "name",
+                        u.getOrganization().getName()
+                )
                         : null
         );
 

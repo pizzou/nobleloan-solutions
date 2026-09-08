@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useTenant } from "../layout";
 import { TENANT_SLUG } from "../../../lib/tenant";
+import { getApiBaseUrl } from "../../../lib/apiBase";
 
 export default function ContactPage() {
   const tenant = useTenant();
@@ -34,8 +35,7 @@ export default function ContactPage() {
     setSending(true);
     setError("");
     try {
-      const API_BASE =
-        process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+      const API_BASE = getApiBaseUrl();
       const res = await fetch(`${API_BASE}/public/contact`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

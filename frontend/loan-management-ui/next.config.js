@@ -1,9 +1,6 @@
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
-  env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || "/api",
-  },
   async rewrites() {
     const api = process.env.BACKEND_API_URL;
     if (!api || api.startsWith("/")) return [];

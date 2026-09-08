@@ -20,32 +20,20 @@ public class LoanRestructuringController {
         private final CurrentUserUtil currentUserUtil;
         private final com.patrick.fintech.loan_backend.service.FinancialApprovalService financialApprovalService;
 
-        @PostMapping("/restructure")
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
-        public ResponseEntity<ApiResponse<LoanResponse>> restructure(@PathVariable Long loanId,
-                        @RequestBody Map<String, Object> body) {
-                var u = currentUserUtil.getCurrentUser();
-                Object approvalId = body.get("approvalId");
-                if (approvalId == null) throw new IllegalArgumentException("approvalId is required for loan restructuring");
-                financialApprovalService.requireApproved(Long.valueOf(approvalId.toString()), u.getOrganization(), "RESTRUCTURE", String.valueOf(loanId));
-                return ResponseEntity.ok(ApiResponse.ok("Loan restructured",
-                                ResponseDtoMapper.loan(svc.restructure(loanId, u.getOrganization().getId(), u,
-                                                Integer.parseInt(body.get("newDurationMonths").toString()),
-                                                body.containsKey("newInterestRate")
-                                                                ? Double.parseDouble(
-                                                                                body.get("newInterestRate").toString())
-                                                                : null,
-                                                body.getOrDefault("reason", "Borrower request").toString()))));
-        }
-
         @PostMapping("/write-off")
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+        @org.springframework.transaction.annotation.Transactional
         public ResponseEntity<ApiResponse<LoanResponse>> writeOff(@PathVariable Long loanId,
                         @RequestBody Map<String, String> body) {
+                if (body == null) {
+                        throw new IllegalArgumentException("Write-off request body is required.");
+                }
                 var u = currentUserUtil.getCurrentUser();
                 Object approvalId = body.get("approvalId");
                 if (approvalId == null) throw new IllegalArgumentException("approvalId is required for loan write-off");
-                financialApprovalService.requireApproved(Long.valueOf(approvalId.toString()), u.getOrganization(), "WRITE_OFF", String.valueOf(loanId));
+                String reason = body.getOrDefault("reason", "Uncollectible");
+                String operationId = loanId + "|" + reason;
+                financialApprovalService.consumeApproved(Long.valueOf(approvalId.toString()), u.getOrganization(), "WRITE_OFF", operationId);
                 return ResponseEntity.ok(ApiResponse.ok("Loan written off",
                                 ResponseDtoMapper.loan(svc.writeOff(loanId, u.getOrganization().getId(), u,
                                                 body.getOrDefault("reason", "Uncollectible")))));
@@ -53,12 +41,22 @@ public class LoanRestructuringController {
 
         @PostMapping("/moratorium")
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+        @org.springframework.transaction.annotation.Transactional
         public ResponseEntity<ApiResponse<LoanResponse>> moratorium(@PathVariable Long loanId,
                         @RequestBody Map<String, Object> body) {
+                if (body == null || body.get("pauseMonths") == null) {
+                        throw new IllegalArgumentException("pauseMonths is required");
+                }
                 var u = currentUserUtil.getCurrentUser();
+                int pauseMonths = Integer.parseInt(body.get("pauseMonths").toString());
+                String reason = body.getOrDefault("reason", "Payment holiday").toString();
+                Object approvalId = body.get("approvalId");
+                if (approvalId == null) {
+                        throw new IllegalArgumentException("approvalId is required for moratorium");
+                }
+                String operationId = loanId + "|" + pauseMonths + "|" + reason;
+                financialApprovalService.consumeApproved(Long.valueOf(approvalId.toString()), u.getOrganization(), "MORATORIUM", operationId);
                 return ResponseEntity.ok(ApiResponse.ok("Moratorium granted",
-                                ResponseDtoMapper.loan(svc.grantMoratorium(loanId, u.getOrganization().getId(), u,
-                                                Integer.parseInt(body.get("pauseMonths").toString()),
-                                                body.getOrDefault("reason", "Payment holiday").toString()))));
+                                ResponseDtoMapper.loan(svc.grantMoratorium(loanId, u.getOrganization().getId(), u, pauseMonths, reason))));
         }
 }

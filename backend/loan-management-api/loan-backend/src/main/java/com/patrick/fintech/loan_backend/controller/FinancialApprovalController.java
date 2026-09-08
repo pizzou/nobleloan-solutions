@@ -127,6 +127,7 @@ public class FinancialApprovalController {
         response.put("payloadHash", approval.getPayloadHash());
         response.put("createdAt", approval.getCreatedAt());
         response.put("decidedAt", approval.getDecidedAt());
+        response.put("consumedAt", approval.getConsumedAt());
 
         return response;
     }

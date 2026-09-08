@@ -6,6 +6,7 @@ import { useTenant } from "../layout";
 import { useOnlineStatus } from "../../../hooks/useOnlineStatus";
 import { queueAction } from "../../../lib/offlineDb";
 import { TENANT_SLUG } from "../../../lib/tenant";
+import { getApiBaseUrl } from "../../../lib/apiBase";
 import DocumentUploadPanel from "../../../components/DocumentUploadPanel";
 import {
   calculateContractualSchedule,
@@ -308,8 +309,7 @@ export default function ApplyPage() {
     let responseStatus: number | null = null;
 
     try {
-      const API_BASE =
-        process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+      const API_BASE = getApiBaseUrl();
 
       const res = await fetch(`${API_BASE}/public/loan-application`, {
         method: "POST",

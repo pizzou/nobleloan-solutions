@@ -28,5 +28,6 @@ public class FinancialApproval {
  @Column(name="payload_hash",nullable=false,length=64) private String payloadHash;
  @Column(name="created_at",nullable=false) private LocalDateTime createdAt;
  @Column(name="decided_at") private LocalDateTime decidedAt;
+ @Column(name="consumed_at") private LocalDateTime consumedAt;
  @PrePersist void prePersist(){ if(createdAt==null) createdAt=LocalDateTime.now(); }
 }

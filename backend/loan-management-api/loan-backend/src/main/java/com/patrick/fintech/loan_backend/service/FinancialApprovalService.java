@@ -5,6 +5,7 @@ import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.repository.FinancialApprovalRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -32,7 +33,9 @@ private static final Set<String> TYPES = Set.of(
         "MANUAL_ADJUSTMENT",
         "JOURNAL_REVERSAL",
         "PAYMENT_ADJUSTMENT",
-        "BANK_RECONCILIATION"
+        "BANK_RECONCILIATION",
+        "LOAN_EXTENSION",
+        "MORATORIUM"
 );
 
 private static final BigDecimal LEVEL_1_MAX = new BigDecimal("1000000.00");
@@ -99,7 +102,12 @@ public FinancialApproval submit(
             .status("PENDING")
             .build();
 
-    return repo.save(approval);
+    try {
+        return repo.save(approval);
+    } catch (DataIntegrityViolationException ex) {
+        throw new IllegalStateException(
+                "A pending approval already exists for this financial operation", ex);
+    }
 }
 
 
@@ -291,6 +299,21 @@ public FinancialApproval requireApproved(
     return approval;
 }
 
+/** Atomically consumes an approved financial control. The caller must execute
+ * the actual financial mutation in the same database transaction. */
+@Transactional
+public FinancialApproval consumeApproved(
+        Long id,
+        Organization org,
+        String operationType,
+        String operationId) {
+
+    FinancialApproval approval = requireApproved(id, org, operationType, operationId);
+    approval.setStatus("CONSUMED");
+    approval.setConsumedAt(LocalDateTime.now());
+    return repo.save(approval);
+}
+
 
 public int requiredLevel(BigDecimal amount) {
     if (amount == null) {
@@ -455,7 +478,12 @@ private String cleanRequired(
         throw new IllegalArgumentException(errorMessage);
     }
 
-    return value.trim();
+    String normalized = value.trim();
+    if (normalized.length() > 100) {
+        throw new IllegalArgumentException(
+                "Operation ID exceeds the maximum supported length of 100 characters");
+    }
+    return normalized;
 }
 
 
