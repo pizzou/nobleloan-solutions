@@ -5,6 +5,10 @@ import com.patrick.fintech.loan_backend.security.RateLimitFilter;
 import com.patrick.fintech.loan_backend.security.RegulatoryApiKeyAuthFilter;
 import com.patrick.fintech.loan_backend.security.SameOriginMutationFilter;
 
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -55,50 +59,72 @@ public class SecurityConfig {
     @Value("${app.security.expose-api-docs:false}")
     private boolean exposeApiDocs;
 
+    @Value("${app.auth.cookie.name:NLS_SESSION}")
+    private String sessionCookieName;
+
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(
+            HttpSecurity http)
+            throws Exception {
 
         http
+
             // ============================================================
             // CORS
             // ============================================================
             .cors(cors -> cors
-                .configurationSource(corsConfigurationSource())
+                    .configurationSource(
+                            corsConfigurationSource()
+                    )
             )
 
             // ============================================================
             // CSRF
             // ============================================================
             //
-            // Browser-session mutations remain protected by the
-            // SameOriginMutationFilter.
+            // The application uses a stateless JWT stored in the
+            // HttpOnly NLS_SESSION cookie.
             //
-            // Public APIs do not have an authenticated application
-            // session, so Spring CSRF must not reject legitimate
-            // public borrower/payment/application submissions.
+            // Browser-cookie mutations are protected by the dedicated
+            // SameOriginMutationFilter, which validates:
             //
-            // Authentication endpoints are also excluded because
-            // authentication has not happened yet.
+            //   Origin
+            //   Referer
+            //   Sec-Fetch-Site
+            //
+            // This is important because the frontend runs through the
+            // Vercel /api reverse proxy while the backend runs on Render.
+            //
+            // Requiring CookieCsrfTokenRepository again for these same
+            // browser mutations can fail when the reverse proxy does not
+            // preserve the XSRF cookie exactly as expected.
+            //
+            // Spring CSRF remains enabled for requests which are not using
+            // the authenticated NLS_SESSION browser cookie.
             // ============================================================
             .csrf(csrf -> csrf
-                .csrfTokenRepository(
-                    CookieCsrfTokenRepository.withHttpOnlyFalse()
-                )
-                .csrfTokenRequestHandler(
-                    new CsrfTokenRequestAttributeHandler()
-                )
-                .ignoringRequestMatchers(
-                    publicAndAuthenticationCsrfMatcher()
-                )
+
+                    .csrfTokenRepository(
+                            CookieCsrfTokenRepository
+                                    .withHttpOnlyFalse()
+                    )
+
+                    .csrfTokenRequestHandler(
+                            new CsrfTokenRequestAttributeHandler()
+                    )
+
+                    .ignoringRequestMatchers(
+                            publicAndAuthenticationCsrfMatcher()
+                    )
             )
 
             // ============================================================
             // STATELESS
             // ============================================================
             .sessionManagement(session ->
-                session.sessionCreationPolicy(
-                    SessionCreationPolicy.STATELESS
-                )
+                    session.sessionCreationPolicy(
+                            SessionCreationPolicy.STATELESS
+                    )
             )
 
             // ============================================================
@@ -106,43 +132,67 @@ public class SecurityConfig {
             // ============================================================
             .exceptionHandling(exception -> exception
 
-                .authenticationEntryPoint(
-                    (request, response, authException) -> {
+                    .authenticationEntryPoint(
+                            (request, response, authException) -> {
 
-                        response.setStatus(
-                            jakarta.servlet.http.HttpServletResponse.SC_UNAUTHORIZED
-                        );
+                                response.setStatus(
+                                        HttpServletResponse.SC_UNAUTHORIZED
+                                );
 
-                        response.setContentType("application/json");
-                        response.setCharacterEncoding("UTF-8");
+                                response.setContentType(
+                                        "application/json"
+                                );
 
-                        response.getWriter().write("""
-                            {
-                              "success": false,
-                              "error": "Authentication is required for this resource."
+                                response.setCharacterEncoding(
+                                        "UTF-8"
+                                );
+
+                                response.setHeader(
+                                        "Cache-Control",
+                                        "no-store, no-cache, must-revalidate, max-age=0"
+                                );
+
+                                response.getWriter().write(
+                                        """
+                                        {
+                                          "success": false,
+                                          "error": "Authentication is required for this resource."
+                                        }
+                                        """
+                                );
                             }
-                            """);
-                    }
-                )
+                    )
 
-                .accessDeniedHandler(
-                    (request, response, accessDeniedException) -> {
+                    .accessDeniedHandler(
+                            (request, response, accessDeniedException) -> {
 
-                        response.setStatus(
-                            jakarta.servlet.http.HttpServletResponse.SC_FORBIDDEN
-                        );
+                                response.setStatus(
+                                        HttpServletResponse.SC_FORBIDDEN
+                                );
 
-                        response.setContentType("application/json");
-                        response.setCharacterEncoding("UTF-8");
+                                response.setContentType(
+                                        "application/json"
+                                );
 
-                        response.getWriter().write("""
-                            {
-                              "success": false,
-                              "error": "You do not have permission to perform this action."
+                                response.setCharacterEncoding(
+                                        "UTF-8"
+                                );
+
+                                response.setHeader(
+                                        "Cache-Control",
+                                        "no-store, no-cache, must-revalidate, max-age=0"
+                                );
+
+                                response.getWriter().write(
+                                        """
+                                        {
+                                          "success": false,
+                                          "error": "You do not have permission to perform this action."
+                                        }
+                                        """
+                                );
                             }
-                            """);
-                    }
-                )
+                    )
             )
 
             // ============================================================
@@ -150,179 +200,242 @@ public class SecurityConfig {
             // ============================================================
             .authorizeHttpRequests(authorize -> authorize
 
-                // CORS preflight
-                .requestMatchers(
-                    HttpMethod.OPTIONS,
-                    "/**"
-                )
-                .permitAll()
-
-                // Authentication
-                .requestMatchers(
-                    "/api/auth/login",
-                    "/api/auth/register",
-                    "/api/auth/logout",
-                    "/api/auth/forgot-password",
-                    "/api/auth/reset-password",
-                    "/api/auth/csrf"
-                )
-                .permitAll()
-
-                // Authenticated account endpoints
-                .requestMatchers(
-                    "/api/auth/me",
-                    "/api/auth/change-password"
-                )
-                .authenticated()
-
-                // ========================================================
-                // PUBLIC BORROWER/APPLICANT API
-                // ========================================================
-                .requestMatchers(
-                    "/api/public/contact",
-                    "/api/public/borrower/**",
-                    "/api/public/applications/**",
-                    "/api/public/tenant/**",
-                    "/api/public/loan-application",
-                    "/api/public/dashboard",
-                    "/api/public/payment-schedule",
-                    "/api/public/esignature/**",
-                    "/api/public/webhooks/**"
-                )
-                .permitAll()
-
-                // Health
-                .requestMatchers(
-                    "/actuator/health",
-                    "/actuator/health/**"
-                )
-                .permitAll()
-
-                // WebSocket handshake
-                .requestMatchers(
-                    "/ws",
-                    "/ws/**"
-                )
-                .permitAll()
-
-                // Development surfaces
-                .requestMatchers(
-                    "/h2-console/**",
-                    "/swagger-ui/**",
-                    "/swagger-ui.html",
-                    "/api-docs/**"
-                )
-                .access((authentication, context) ->
-                    new org.springframework.security.authorization.AuthorizationDecision(
-                        isDevelopmentSurfaceEnabled(
-                            context.getRequest().getRequestURI()
-                        )
+                    // ----------------------------------------------------
+                    // CORS preflight
+                    // ----------------------------------------------------
+                    .requestMatchers(
+                            HttpMethod.OPTIONS,
+                            "/**"
                     )
-                )
+                    .permitAll()
 
-                // Everything else requires authentication.
-                .anyRequest()
-                .authenticated()
+                    // ----------------------------------------------------
+                    // Authentication
+                    // ----------------------------------------------------
+                    .requestMatchers(
+                            "/api/auth/login",
+                            "/api/auth/register",
+                            "/api/auth/logout",
+                            "/api/auth/forgot-password",
+                            "/api/auth/reset-password",
+                            "/api/auth/csrf"
+                    )
+                    .permitAll()
+
+                    // ----------------------------------------------------
+                    // Authenticated account endpoints
+                    // ----------------------------------------------------
+                    .requestMatchers(
+                            "/api/auth/me",
+                            "/api/auth/change-password"
+                    )
+                    .authenticated()
+
+                    // ====================================================
+                    // PUBLIC BORROWER / APPLICANT API
+                    // ====================================================
+                    .requestMatchers(
+                            "/api/public/contact",
+                            "/api/public/borrower/**",
+                            "/api/public/applications/**",
+                            "/api/public/tenant/**",
+                            "/api/public/loan-application",
+                            "/api/public/dashboard",
+                            "/api/public/payment-schedule",
+                            "/api/public/esignature/**",
+                            "/api/public/webhooks/**"
+                    )
+                    .permitAll()
+
+                    // ----------------------------------------------------
+                    // Health
+                    // ----------------------------------------------------
+                    .requestMatchers(
+                            "/actuator/health",
+                            "/actuator/health/**"
+                    )
+                    .permitAll()
+
+                    // ----------------------------------------------------
+                    // WebSocket handshake
+                    // ----------------------------------------------------
+                    .requestMatchers(
+                            "/ws",
+                            "/ws/**"
+                    )
+                    .permitAll()
+
+                    // ----------------------------------------------------
+                    // Development surfaces
+                    // ----------------------------------------------------
+                    .requestMatchers(
+                            "/h2-console/**",
+                            "/swagger-ui/**",
+                            "/swagger-ui.html",
+                            "/api-docs/**"
+                    )
+                    .access((authentication, context) ->
+                            new org.springframework.security.authorization
+                                    .AuthorizationDecision(
+                                            isDevelopmentSurfaceEnabled(
+                                                    context.getRequest()
+                                                            .getRequestURI()
+                                            )
+                                    )
+                    )
+
+                    // ----------------------------------------------------
+                    // Everything else requires authentication.
+                    // ----------------------------------------------------
+                    .anyRequest()
+                    .authenticated()
             )
 
             // ============================================================
             // SECURITY HEADERS
             // ============================================================
             .headers(headers -> headers
-                .frameOptions(frame ->
-                    frame.sameOrigin()
-                )
-                .httpStrictTransportSecurity(hsts ->
-                    hsts
-                        .includeSubDomains(true)
-                        .maxAgeInSeconds(31536000)
-                )
+
+                    .frameOptions(frame ->
+                            frame.sameOrigin()
+                    )
+
+                    .httpStrictTransportSecurity(hsts ->
+                            hsts
+                                    .includeSubDomains(true)
+                                    .maxAgeInSeconds(31536000)
+                    )
             )
 
             // ============================================================
             // FILTER ORDER
             // ============================================================
+            //
+            // Rate limiting runs before authentication.
+            // JWT authentication runs before authorization.
+            // Same-origin protection runs after JWT authentication so
+            // it can determine whether the NLS_SESSION cookie is valid.
+            // ============================================================
             .addFilterBefore(
-                rateLimitFilter,
-                UsernamePasswordAuthenticationFilter.class
+                    rateLimitFilter,
+                    UsernamePasswordAuthenticationFilter.class
             )
 
             .addFilterBefore(
-                jwtFilter,
-                UsernamePasswordAuthenticationFilter.class
+                    jwtFilter,
+                    UsernamePasswordAuthenticationFilter.class
             )
 
             .addFilterAfter(
-                sameOriginMutationFilter,
-                JwtAuthFilter.class
+                    sameOriginMutationFilter,
+                    JwtAuthFilter.class
             )
 
             .addFilterBefore(
-                regulatoryApiKeyAuthFilter,
-                UsernamePasswordAuthenticationFilter.class
+                    regulatoryApiKeyAuthFilter,
+                    UsernamePasswordAuthenticationFilter.class
             );
 
         return http.build();
     }
 
     /**
-     * CSRF exclusions for endpoints that intentionally accept requests
-     * before an authenticated application session exists.
+     * CSRF exclusions.
      *
-     * We use Spring Security's RequestMatcher directly instead of
-     * AntPathRequestMatcher, so no additional dependency is required.
+     * Authentication bootstrap and public APIs are intentionally excluded.
+     *
+     * For authenticated browser requests carrying NLS_SESSION, the
+     * SameOriginMutationFilter is the authoritative browser CSRF protection.
+     * This prevents the Vercel -> Render rewrite from causing legitimate
+     * authenticated POST/PUT/PATCH/DELETE operations to fail merely because
+     * the XSRF-TOKEN cookie was not preserved by the proxy.
      */
     @Bean
     public RequestMatcher publicAndAuthenticationCsrfMatcher() {
 
         return request -> {
 
-            String method = request.getMethod();
+            String method =
+                    request.getMethod();
 
             boolean mutation =
-                HttpMethod.POST.matches(method)
-                    || HttpMethod.PUT.matches(method)
-                    || HttpMethod.PATCH.matches(method)
-                    || HttpMethod.DELETE.matches(method);
+                    HttpMethod.POST.matches(method)
+                            || HttpMethod.PUT.matches(method)
+                            || HttpMethod.PATCH.matches(method)
+                            || HttpMethod.DELETE.matches(method);
 
             if (!mutation) {
                 return false;
             }
 
-            String uri = request.getRequestURI();
+            String uri =
+                    request.getRequestURI();
 
             if (uri == null) {
                 return false;
             }
 
             // ------------------------------------------------------------
-            // Authentication bootstrap endpoints
+            // Authentication bootstrap
             // ------------------------------------------------------------
-            if (
-                uri.equals("/api/auth/login")
+            if (uri.equals("/api/auth/login")
                     || uri.equals("/api/auth/register")
                     || uri.equals("/api/auth/logout")
                     || uri.equals("/api/auth/forgot-password")
-                    || uri.equals("/api/auth/reset-password")
-            ) {
+                    || uri.equals("/api/auth/reset-password")) {
+
                 return true;
             }
 
             // ------------------------------------------------------------
-            // Public API
+            // Public APIs
             // ------------------------------------------------------------
-            //
-            // These endpoints intentionally support unauthenticated
-            // borrowers/applicants.
-            //
-            // If an NLS_SESSION cookie is nevertheless present, the
-            // SameOriginMutationFilter still protects the mutation.
-            // ------------------------------------------------------------
-            return uri.startsWith("/api/public/");
+            if (uri.startsWith("/api/public/")) {
+                return true;
+            }
+
+            /*
+             * ------------------------------------------------------------
+             * Authenticated browser session
+             * ------------------------------------------------------------
+             *
+             * SameOriginMutationFilter protects these requests.
+             */
+            return hasSessionCookie(request);
         };
     }
 
-    private boolean isDevelopmentSurfaceEnabled(String uri) {
+    private boolean hasSessionCookie(
+            HttpServletRequest request) {
+
+        String cookieName =
+                (sessionCookieName == null
+                        || sessionCookieName.isBlank())
+                        ? "NLS_SESSION"
+                        : sessionCookieName.trim();
+
+        Cookie[] cookies =
+                request.getCookies();
+
+        if (cookies == null) {
+            return false;
+        }
+
+        for (Cookie cookie : cookies) {
+
+            if (cookieName.equals(cookie.getName())
+                    && cookie.getValue() != null
+                    && !cookie.getValue().isBlank()) {
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean isDevelopmentSurfaceEnabled(
+            String uri) {
 
         if (uri == null) {
             return false;
@@ -339,96 +452,103 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
 
         CorsConfiguration configuration =
-            new CorsConfiguration();
+                new CorsConfiguration();
 
         Set<String> originSet =
-            new LinkedHashSet<>();
+                new LinkedHashSet<>();
 
-        if (
-            allowedOrigins != null
-                && !allowedOrigins.isBlank()
-        ) {
+        if (allowedOrigins != null
+                && !allowedOrigins.isBlank()) {
 
-            Arrays.stream(allowedOrigins.split(","))
-                .map(this::normalizeCorsOrigin)
-                .filter(origin -> !origin.isBlank())
-                .forEach(originSet::add);
+            Arrays.stream(
+                            allowedOrigins.split(",")
+                    )
+                    .map(this::normalizeCorsOrigin)
+                    .filter(origin -> !origin.isBlank())
+                    .forEach(originSet::add);
         }
 
         configuration.setAllowedOrigins(
-            new ArrayList<>(originSet)
+                new ArrayList<>(originSet)
         );
 
         configuration.setAllowedMethods(
-            List.of(
-                "GET",
-                "POST",
-                "PUT",
-                "PATCH",
-                "DELETE",
-                "OPTIONS",
-                "HEAD"
-            )
+                List.of(
+                        "GET",
+                        "POST",
+                        "PUT",
+                        "PATCH",
+                        "DELETE",
+                        "OPTIONS",
+                        "HEAD"
+                )
         );
 
         configuration.setAllowedHeaders(
-            List.of(
-                "Authorization",
-                "Content-Type",
-                "Accept",
-                "Origin",
-                "X-Requested-With",
-                "X-Api-Key",
-                "X-Tenant-Slug",
-                "X-Tenant-Host",
-                "X-Request-Id",
-                "Idempotency-Key",
-                "X-Webhook-Secret",
-                "X-XSRF-TOKEN"
-            )
+                List.of(
+                        "Authorization",
+                        "Content-Type",
+                        "Accept",
+                        "Origin",
+                        "X-Requested-With",
+                        "X-Api-Key",
+                        "X-Tenant-Slug",
+                        "X-Tenant-Host",
+                        "X-Request-Id",
+                        "Idempotency-Key",
+                        "X-Webhook-Secret",
+                        "X-XSRF-TOKEN"
+                )
         );
 
         configuration.setExposedHeaders(
-            List.of(
-                "Location",
-                "Retry-After",
-                "X-Request-Id",
-                "Content-Disposition"
-            )
+                List.of(
+                        "Location",
+                        "Retry-After",
+                        "X-Request-Id",
+                        "Content-Disposition"
+                )
         );
 
-        configuration.setAllowCredentials(true);
+        configuration.setAllowCredentials(
+                true
+        );
 
-        configuration.setMaxAge(1800L);
+        configuration.setMaxAge(
+                1800L
+        );
 
         UrlBasedCorsConfigurationSource source =
-            new UrlBasedCorsConfigurationSource();
+                new UrlBasedCorsConfigurationSource();
 
         source.registerCorsConfiguration(
-            "/**",
-            configuration
+                "/**",
+                configuration
         );
 
         return source;
     }
 
-    private String normalizeCorsOrigin(String origin) {
+    private String normalizeCorsOrigin(
+            String origin) {
 
         if (origin == null) {
             return "";
         }
 
-        String normalized = origin.trim();
+        String normalized =
+                origin.trim();
 
         while (
-            normalized.endsWith("/")
-                && normalized.length() > 8
+                normalized.endsWith("/")
+                        && normalized.length() > 8
         ) {
+
             normalized =
-                normalized.substring(
-                    0,
-                    normalized.length() - 1
-                );
+                    normalized.substring(
+                            0,
+                            normalized.length() - 1
+                    );
         }
 
         return normalized;
