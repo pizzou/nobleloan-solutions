@@ -27,6 +27,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.security.access.prepost.PreAuthorize;
 
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.RequestMethod;
 
 import java.nio.charset.StandardCharsets;
 
@@ -255,7 +256,14 @@ public class BnrReportController {
                                 "status", job.getStatus().name()));
         }
 
-        @GetMapping("/export/jobs/{jobId}")
+        /**
+         * Polling endpoint for asynchronous BNR exports.
+         *
+         * This is deliberately declared with RequestMapping rather than relying
+         * on an implicit GET shortcut so the HTTP method is explicit in the
+         * generated Spring mapping metadata.
+         */
+        @RequestMapping(value = "/export/jobs/{jobId}", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
         public ResponseEntity<Map<String, Object>> bnrExportStatus(@PathVariable String jobId) {
                 var job = bnrExportJobService.get(jobId);
                 if (job == null || !organizationMatches(job.getOrganizationId())) {
@@ -267,8 +275,23 @@ public class BnrReportController {
                 body.put("jobId", job.getId());
                 body.put("status", job.getStatus().name());
                 body.put("size", job.getSize());
+                body.put("createdAt", job.getCreatedAt());
+                body.put("startedAt", job.getStartedAt());
+                body.put("completedAt", job.getCompletedAt());
                 if (job.getError() != null) body.put("error", job.getError());
-                return ResponseEntity.ok(body);
+                return ResponseEntity.ok()
+                                .header(HttpHeaders.CACHE_CONTROL, "no-store, no-cache, must-revalidate, max-age=0")
+                                .header("Pragma", "no-cache")
+                                .body(body);
+        }
+
+        /**
+         * Explicit status alias retained for clients/proxies that normalize
+         * resource paths differently. The frontend may use either endpoint.
+         */
+        @RequestMapping(value = "/export/jobs/{jobId}/status", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+        public ResponseEntity<Map<String, Object>> bnrExportStatusAlias(@PathVariable String jobId) {
+                return bnrExportStatus(jobId);
         }
 
         @GetMapping("/export/jobs/{jobId}/download")

@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -45,6 +46,16 @@ public class BnrExportJobService {
             LocalDate from,
             LocalDate to) {
 
+        if (organizationId == null) {
+            throw new IllegalArgumentException("Organization is required for a BNR export job.");
+        }
+        if (period == null) {
+            throw new IllegalArgumentException("Report period is required for a BNR export job.");
+        }
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new IllegalArgumentException("BNR report start date cannot be after the end date.");
+        }
+
         String jobId = UUID.randomUUID().toString();
         Job job = new Job(jobId, organizationId, branchId, period, from, to);
         jobs.put(jobId, job);
@@ -58,17 +69,28 @@ public class BnrExportJobService {
     @Async("loansaasAsyncExecutor")
     public void process(String jobId) {
         Job job = jobs.get(jobId);
-        if (job == null) return;
+        if (job == null) {
+            log.warn("Ignoring BNR export request for unknown jobId={}", jobId);
+            return;
+        }
 
-        job.status = Status.RUNNING;
-        job.startedAt = Instant.now();
+        synchronized (job) {
+            if (job.status != Status.QUEUED) {
+                log.debug("BNR export job is already being processed or finished. jobId={}, status={}",
+                        job.id, job.status);
+                return;
+            }
+            job.status = Status.RUNNING;
+            job.startedAt = Instant.now();
+        }
 
         try {
             Path root = Path.of(stagingDir).toAbsolutePath().normalize();
             Files.createDirectories(root);
 
             Path output = root.resolve("bnr-export-" + job.id + ".xlsx").normalize();
-            if (!output.startsWith(root)) {
+            Path temporary = root.resolve(".bnr-export-" + job.id + ".tmp").normalize();
+            if (!output.startsWith(root) || !temporary.startsWith(root)) {
                 throw new IllegalStateException("Invalid BNR export path.");
             }
 
@@ -84,11 +106,20 @@ public class BnrExportJobService {
             }
 
             Files.write(
-                    output,
+                    temporary,
                     bytes,
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING,
                     StandardOpenOption.WRITE);
+
+            // Never expose a partially written XLSX to the download endpoint.
+            try {
+                Files.move(temporary, output,
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException ex) {
+                Files.move(temporary, output, StandardCopyOption.REPLACE_EXISTING);
+            }
 
             job.path = output.toString();
             job.size = bytes.length;
@@ -99,6 +130,12 @@ public class BnrExportJobService {
                     "BNR export job completed. jobId={}, organizationId={}, branchId={}, bytes={}",
                     job.id, job.organizationId, job.branchId, job.size);
         } catch (Exception e) {
+            try {
+                Path root = Path.of(stagingDir).toAbsolutePath().normalize();
+                Files.deleteIfExists(root.resolve(".bnr-export-" + job.id + ".tmp").normalize());
+            } catch (Exception cleanupError) {
+                log.debug("Unable to clean temporary BNR export file. jobId={}", job.id, cleanupError);
+            }
             job.status = Status.FAILED;
             job.error = safeMessage(e);
             job.completedAt = Instant.now();
@@ -135,6 +172,12 @@ public class BnrExportJobService {
                 } catch (IOException e) {
                     log.warn("Unable to delete expired BNR export file. jobId={}", job.id, e);
                 }
+            }
+            try {
+                Path root = Path.of(stagingDir).toAbsolutePath().normalize();
+                Files.deleteIfExists(root.resolve(".bnr-export-" + job.id + ".tmp").normalize());
+            } catch (IOException e) {
+                log.debug("Unable to delete temporary BNR export file. jobId={}", job.id, e);
             }
             return true;
         });
