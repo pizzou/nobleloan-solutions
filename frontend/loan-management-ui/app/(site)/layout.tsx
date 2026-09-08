@@ -74,9 +74,9 @@ const FALLBACK_TENANT: TenantConfig = {
   services: [],
 };
 
-/* eslint-disable @next/next/no-img-element */
 function NobleLogo({ compact = false }: { compact?: boolean }) {
   return (
+    // eslint-disable-next-line @next/next/no-img-element
     <img
       src="/noble-loan-solutions-logo.svg"
       alt="Noble Loan Solutions — Financial Support Partner"
@@ -97,8 +97,8 @@ function Brand({
   compact?: boolean;
 }) {
   if (tenant.logoUrl) {
+    // eslint-disable-next-line @next/next/no-img-element
     return (
-      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={tenant.logoUrl}
         alt={tenant.name}
