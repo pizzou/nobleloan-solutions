@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -103,4 +104,31 @@ public class AuditService {
         HttpServletRequest req = currentRequest();
         return req != null ? req.getHeader("User-Agent") : null;
     }
+    /**
+     * Authentication-only audit path for latency-sensitive login operations.
+     *
+     * Request metadata is captured on the request thread. The database write
+     * then runs on the application async executor and uses the audit
+     * persistence service's own REQUIRES_NEW transaction.
+     */
+    @Async("loansaasAsyncExecutor")
+    public void logAuthenticationAsync(Organization org, User user, String action,
+                                        String entityType, String entityId, String description,
+                                        String before, String after, String module) {
+        try {
+            Long orgId = org != null ? org.getId() : null;
+            Long actorId = user != null ? user.getId() : null;
+            String ip = extractIp();
+            String ua = extractUserAgent();
+
+            persistenceService.persist(
+                    orgId, actorId, action, entityType, entityId,
+                    description, before, after, ip, ua, module);
+        } catch (Exception e) {
+            log.error(
+                    "Asynchronous authentication audit failed: action={}, entityType={}, entityId={}",
+                    action, entityType, entityId, e);
+        }
+    }
+
 }

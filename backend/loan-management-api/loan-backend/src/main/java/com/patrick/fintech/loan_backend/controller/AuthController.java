@@ -79,7 +79,7 @@ public class AuthController {
      * deliberately independent of TOTP/Auth­enticator enrollment so staff are
      * not forced to use an authenticator application as their only login factor.
      */
-    private static final java.util.Set<String> EMAIL_SMS_OTP_ROLES = java.util.Set.of("ADMIN", "MANAGER");
+    private static final java.util.Set<String> EMAIL_OTP_ROLES = java.util.Set.of("ADMIN", "MANAGER");
 
     private static final int MAX_FAILED_ATTEMPTS = 5;
     private static final int LOCKOUT_MINUTES = 15;
@@ -142,15 +142,15 @@ public class AuthController {
             user.setLockedUntil(null);
         }
 
-        boolean emailSmsOtpRequired = isEmailSmsOtpRole(user);
+        boolean emailOtpRequired = isEmailOtpRole(user);
 
         /*
-         * ADMIN and MANAGER: email + SMS OTP is the login second factor.
+         * ADMIN and MANAGER: one email OTP is the login second factor.
          * This branch intentionally runs BEFORE the existing TOTP branch so an
-         * authenticator app is not the only way these roles can authenticate.
+         * authenticator app is not required for these roles.
          */
-        if (emailSmsOtpRequired) {
-            return handleEmailSmsLoginOtp(user, req.getOtp());
+        if (emailOtpRequired) {
+            return handleEmailOtp(user, req.getOtp());
         }
 
         user.setLastLoginAt(java.time.LocalDateTime.now());
@@ -168,80 +168,60 @@ public class AuthController {
             }
         } else {
             // Existing email OTP fallback for non-ADMIN/non-MANAGER users.
-            return handleEmailLoginOtp(user, req.getOtp());
+            return handleEmailOtp(user, req.getOtp());
         }
 
         return successfulLogin(user);
     }
 
-    private boolean isEmailSmsOtpRole(User user) {
+    private boolean isEmailOtpRole(User user) {
         return user.getRole() != null
                 && user.getRole().getName() != null
-                && EMAIL_SMS_OTP_ROLES.contains(user.getRole().getName().trim().toUpperCase());
+                && EMAIL_OTP_ROLES.contains(user.getRole().getName().trim().toUpperCase());
     }
 
-    private ResponseEntity<Map<String, Object>> handleEmailSmsLoginOtp(User user, String submittedOtp) {
+   
+    private ResponseEntity<Map<String, Object>> handleEmailOtp(User user, String submittedOtp) {
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
 
         if (submittedOtp == null || submittedOtp.isBlank()) {
-            if (user.getPhone() == null || user.getPhone().isBlank()) {
-                auditService.log(user.getOrganization(), user, "LOGIN_OTP_SMS_UNAVAILABLE", "AUTH",
+            boolean activeOtp = user.getLoginOtpHash() != null
+                    && user.getLoginOtpExpiresAt() != null
+                    && user.getLoginOtpExpiresAt().isAfter(now);
+
+            if (!activeOtp) {
+                String code = String.format("%06d", OTP_RANDOM.nextInt(1_000_000));
+                user.setLoginOtpHash(passwordEncoder.encode(code));
+                user.setLoginOtpExpiresAt(now.plusMinutes(OTP_EXPIRY_MINUTES));
+                user.setLoginOtpAttempts(0);
+                user.setLastLoginAt(null);
+                userRepository.save(user);
+
+                // MailService.sendLoginOtp() is @Async, so the HTTP request
+                // does not wait for the external email provider.
+                mailService.sendLoginOtp(user, code);
+
+                // Do not block login on the audit-chain database lock.
+                auditService.logAuthenticationAsync(
+                        user.getOrganization(),
+                        user,
+                        "LOGIN_OTP_SENT",
+                        "AUTH",
                         String.valueOf(user.getId()),
-                        "ADMIN/MANAGER login OTP could not be issued because no mobile number is registered",
-                        null, null, "Authentication");
-                throw new RuntimeException(
-                        "A registered mobile phone number is required for ADMIN and MANAGER login verification. Please ask an administrator to update your phone number.");
+                        "Login OTP issued and sent to registered email address",
+                        null,
+                        null,
+                        "Authentication");
             }
 
-            String code = String.format("%06d", OTP_RANDOM.nextInt(1_000_000));
-            user.setLoginOtpHash(passwordEncoder.encode(code));
-            user.setLoginOtpExpiresAt(now.plusMinutes(OTP_EXPIRY_MINUTES));
-            user.setLoginOtpAttempts(0);
-            user.setLastLoginAt(null);
-            userRepository.save(user);
-
-            mailService.sendLoginOtp(user, code);
-            smsService.sendCustom(
-                    user.getPhone(),
-                    "Noble Loan Solutions: your login verification code is " + code
-                            + ". It expires in " + OTP_EXPIRY_MINUTES
-                            + " minutes. Do not share this code.");
-
-            auditService.log(user.getOrganization(), user, "LOGIN_OTP_SENT", "AUTH",
-                    String.valueOf(user.getId()),
-                    "Login OTP sent to registered email and mobile number",
-                    null, null, "Authentication");
-
-            return ResponseEntity.ok(Map.of(
-                    "otpRequired", true,
-                    "otpDelivery", "EMAIL_AND_SMS",
-                    "email", user.getEmail(),
-                    "phone", maskPhone(user.getPhone()),
-                    "message",
-                    "A 6-digit verification code has been sent to your registered email address and mobile phone. It expires in "
-                            + OTP_EXPIRY_MINUTES + " minutes."));
-        }
-
-        verifyLoginOtp(user, submittedOtp, now);
-        return successfulLogin(user);
-    }
-
-    private ResponseEntity<Map<String, Object>> handleEmailLoginOtp(User user, String submittedOtp) {
-        java.time.LocalDateTime now = java.time.LocalDateTime.now();
-
-        if (submittedOtp == null || submittedOtp.isBlank()) {
-            String code = String.format("%06d", OTP_RANDOM.nextInt(1_000_000));
-            user.setLoginOtpHash(passwordEncoder.encode(code));
-            user.setLoginOtpExpiresAt(now.plusMinutes(OTP_EXPIRY_MINUTES));
-            user.setLoginOtpAttempts(0);
-            userRepository.save(user);
-            mailService.sendLoginOtp(user, code);
             return ResponseEntity.ok(Map.of(
                     "otpRequired", true,
                     "otpDelivery", "EMAIL",
                     "email", user.getEmail(),
-                    "message", "A 6-digit verification code has been sent to your email address. It expires in "
-                            + OTP_EXPIRY_MINUTES + " minutes."));
+                    "message", activeOtp
+                            ? "A verification code has already been sent to your email. Enter that code to continue."
+                            : "A single 6-digit verification code has been sent to your email address. It expires in "
+                                    + OTP_EXPIRY_MINUTES + " minutes."));
         }
 
         verifyLoginOtp(user, submittedOtp, now);
