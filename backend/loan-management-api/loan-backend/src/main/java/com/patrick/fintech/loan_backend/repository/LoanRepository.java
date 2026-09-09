@@ -422,10 +422,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                         END
                     ),
                     0
-                ),
-                COALESCE(SUM(CASE WHEN l.imported = true THEN l.totalPaid ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN l.imported = true THEN l.applicationFeePaid ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN l.imported = false OR l.imported IS NULL THEN l.applicationFeePaid ELSE 0 END), 0)
+                )
 
             FROM Loan l
             WHERE l.organization.id = :organizationId
@@ -605,35 +602,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             """)
     List<Object[]> getLoanTypeBreakdownByOrganizationId(
             @Param("organizationId") Long organizationId);
-
-    /** Lightweight report aggregates. Never hydrate the full loan portfolio. */
-    @Query("""
-            SELECT l.creditQuality, COUNT(l), COALESCE(SUM(l.outstandingBalance), 0)
-            FROM Loan l
-            WHERE l.organization.id = :organizationId
-              AND l.status IN ('ACTIVE','DISBURSED','OVERDUE','DEFAULTED','RESTRUCTURED')
-            GROUP BY l.creditQuality
-            ORDER BY COUNT(l) DESC
-            """)
-    List<Object[]> getReportCreditQualityBreakdown(@Param("organizationId") Long organizationId);
-
-    @Query("""
-            SELECT COALESCE(UPPER(TRIM(l.borrower.gender)), 'UNKNOWN'), COUNT(DISTINCT l.borrower.id)
-            FROM Loan l
-            WHERE l.organization.id = :organizationId
-            GROUP BY COALESCE(UPPER(TRIM(l.borrower.gender)), 'UNKNOWN')
-            ORDER BY COUNT(DISTINCT l.borrower.id) DESC
-            """)
-    List<Object[]> getReportBorrowerGenderBreakdown(@Param("organizationId") Long organizationId);
-
-    @Query("""
-            SELECT l.loanType, COUNT(l), COALESCE(SUM(l.amount), 0)
-            FROM Loan l
-            WHERE l.organization.id = :organizationId
-            GROUP BY l.loanType
-            ORDER BY COUNT(l) DESC
-            """)
-    List<Object[]> getReportLoanProductBreakdown(@Param("organizationId") Long organizationId);
 
     // ============================================================
     // RECENT

@@ -3,8 +3,6 @@ package com.patrick.fintech.loan_backend.controller;
 import com.patrick.fintech.loan_backend.model.JournalEntry;
 import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.repository.JournalEntryRepository;
-import com.patrick.fintech.loan_backend.repository.LoanRepository;
-import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.service.AccountingService;
 import com.patrick.fintech.loan_backend.service.ReportingService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
@@ -40,8 +38,6 @@ public class ReportingController {
         private final AccountingService accountingService;
         private final CurrentUserUtil currentUserUtil;
         private final JournalEntryRepository journalEntryRepository;
-        private final LoanRepository loanRepository;
-        private final PaymentRepository paymentRepository;
 
         private static final MediaType EXCEL_MEDIA_TYPE = MediaType.parseMediaType(
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -75,25 +71,6 @@ public class ReportingController {
 
                 return ResponseEntity.ok(
                                 reportingService.paymentReport(orgId));
-        }
-
-        // ============================================================
-        // LIGHTWEIGHT OPERATIONAL REPORT SUMMARY
-        // ============================================================
-
-        @GetMapping("/operational-summary")
-        public ResponseEntity<Map<String, Object>> operationalSummary() {
-                Long orgId = currentUserUtil.getCurrentOrganizationId();
-                if (orgId == null) {
-                        throw new IllegalStateException("Current organization could not be determined.");
-                }
-
-                Map<String, Object> result = new LinkedHashMap<>();
-                result.put("loanProducts", loanRepository.getReportLoanProductBreakdown(orgId));
-                result.put("creditQuality", loanRepository.getReportCreditQualityBreakdown(orgId));
-                result.put("borrowerGender", loanRepository.getReportBorrowerGenderBreakdown(orgId));
-                result.put("overduePenalties", paymentRepository.sumOverduePenaltiesForReport(orgId, LocalDate.now()));
-                return ResponseEntity.ok(result);
         }
 
         // ============================================================
@@ -625,29 +602,79 @@ public class ReportingController {
                         LocalDate toDate) {
 
                 Map<String, Object> report = new LinkedHashMap<>();
-                report.put("organizationId", organizationId);
-                report.put("period", buildPeriod(fromDate, toDate));
+
+                report.put(
+                                "organizationId",
+                                organizationId);
+
+                report.put(
+                                "period",
+                                buildPeriod(
+                                                fromDate,
+                                                toDate));
 
                 /*
-                 * AccountingService is the single accounting source of truth.
-                 * Keep this endpoint bounded to the requested period and do not
-                 * issue twelve additional monthly P&L queries during page load.
+                 * Balance sheet / trial balance are point-in-time reports.
                  */
-                Map<String, Object> financial = accountingService.getFinancialReport(
-                                organizationId, fromDate, toDate);
+                report.put(
+                                "trialBalance",
+                                accountingService.getTrialBalance(
+                                                organizationId));
 
-                report.put("trialBalance", financial.get("trialBalance"));
-                report.put("balanceSheet", financial.get("balanceSheet"));
-                report.put("profitAndLoss", financial.get("profitAndLoss"));
-                report.put("cashFlow", financial.get("cashFlow"));
+                report.put(
+                                "balanceSheet",
+                                accountingService.getBalanceSheet(
+                                                organizationId));
 
-                // Journal is intentionally not included in the initial accounting
-                // package. It can contain thousands of rows and is loaded only when
-                // the Journal tab is opened.
-                report.put("journal", List.of());
-                report.put("monthlyProfitAndExpenses", List.of());
-                report.put("reconciliation", financial.get("reconciliation"));
-                report.put("allReportsHealthy", financial.get("allReportsHealthy"));
+                /*
+                 * Income statement / P&L is period based.
+                 */
+                report.put(
+                                "profitAndLoss",
+                                accountingService.getProfitAndLoss(
+                                                organizationId,
+                                                fromDate,
+                                                toDate));
+
+                /*
+                 * Cash flow is also period based.
+                 */
+                report.put(
+                                "cashFlow",
+                                accountingService.getCashFlow(
+                                                organizationId,
+                                                fromDate,
+                                                toDate));
+
+                /*
+                 * Journal is included so the frontend can drill down from
+                 * financial statements into actual accounting entries.
+                 */
+                List<JournalEntry> journal = journalEntryRepository
+                                .findByOrganization_IdOrderByEntryDateDesc(
+                                                organizationId)
+                                .stream()
+                                .filter(entry -> entry != null
+                                                && entry.getEntryDate() != null
+                                                && !entry.getEntryDate().isBefore(fromDate)
+                                                && !entry.getEntryDate().isAfter(toDate))
+                                .toList();
+
+                report.put(
+                                "journal",
+                                journal);
+
+                /*
+                 * Monthly profit/expense trend for the selected year.
+                 */
+                int year = fromDate.getYear();
+
+                report.put(
+                                "monthlyProfitAndExpenses",
+                                buildMonthlyProfitAndExpenses(
+                                                organizationId,
+                                                year));
+
                 return report;
         }
 

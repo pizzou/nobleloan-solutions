@@ -281,18 +281,6 @@ public interface PaymentRepository
                         @Param("org") Organization org,
                         @Param("from") LocalDate from);
 
-        /** Lightweight overdue penalty aggregate for reports. */
-        @Query("""
-                        SELECT COALESCE(SUM(COALESCE(p.penalty, 0)), 0)
-                        FROM Payment p
-                        WHERE p.organization.id = :organizationId
-                          AND p.paid = false
-                          AND p.dueDate < :today
-                        """)
-        BigDecimal sumOverduePenaltiesForReport(
-                        @Param("organizationId") Long organizationId,
-                        @Param("today") LocalDate today);
-
         // ============================================================
         // LATE PAYMENTS
         // ============================================================
