@@ -555,6 +555,11 @@ public class UserController {
         );
 
         m.put(
+                "phone",
+                u.getPhone()
+        );
+
+        m.put(
                 "role",
                 u.getRole() != null
                         ? Map.of(

@@ -618,10 +618,12 @@ export default function UsersPage() {
           bg-black/40
           backdrop-blur-[2px]
           flex
-          items-center
+          items-start
           justify-center
           z-50
           p-4
+          overflow-y-auto
+          overscroll-contain
         "
         >
           <div
@@ -630,8 +632,12 @@ export default function UsersPage() {
             rounded-2xl
             w-full
             max-w-lg
+            max-h-[calc(100vh-2rem)]
             shadow-2xl
             overflow-hidden
+            flex
+            flex-col
+            my-auto
           "
           >
             {/* MODAL HEADER */}
@@ -673,7 +679,10 @@ export default function UsersPage() {
             </div>
 
             {/* FORM */}
-            <form onSubmit={handleCreate} className="p-6 space-y-4">
+            <form
+              onSubmit={handleCreate}
+              className="p-6 space-y-4 overflow-y-auto min-h-0"
+            >
               {/* NAME */}
               <div>
                 <label

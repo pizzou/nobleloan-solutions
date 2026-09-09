@@ -79,13 +79,7 @@ public class AuthService {
         return userRepository.save(user);
     }
 
-    /**
-     * Admin-creates-a-teammate path (used by UserController, never by the public
-     * /api/auth/register endpoint). The admin never types a password for someone
-     * else — any "password" field on the request is ignored — the system generates
-     * one, emails it to the new user's inbox, and marks the account so the first
-     * login forces them to set their own password before doing anything else.
-     */
+    
     public User registerByAdmin(RegisterRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("Request body is required");
