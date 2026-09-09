@@ -20,12 +20,10 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -86,12 +84,100 @@ public class CollectionsService {
 
 
     /**
+     * Safely converts an Object returned by a JPA aggregate query
+     * into a normalized BigDecimal.
+     *
+     * JPA aggregate functions such as SUM() may return different
+     * Number implementations depending on the database column
+     * type and JDBC driver.
+     *
+     * This prevents compile-time errors such as:
+     *
+     * The method money(BigDecimal) is not applicable for the
+     * arguments (Object)
+     */
+    private BigDecimal money(Object value) {
+
+        if (value == null) {
+            return ZERO;
+        }
+
+        if (value instanceof BigDecimal) {
+            return money((BigDecimal) value);
+        }
+
+        if (value instanceof Number) {
+
+            Number number = (Number) value;
+
+            if (number instanceof Double
+                    || number instanceof Float) {
+
+                double doubleValue = number.doubleValue();
+
+                if (!Double.isFinite(doubleValue)) {
+                    throw new IllegalArgumentException(
+                            "Monetary amount must be finite"
+                    );
+                }
+
+                return money(
+                        BigDecimal.valueOf(doubleValue)
+                );
+            }
+
+            return money(
+                    new BigDecimal(
+                            number.toString()
+                    )
+            );
+        }
+
+        if (value instanceof String) {
+
+            String text = ((String) value).trim();
+
+            if (text.isEmpty()) {
+                return ZERO;
+            }
+
+            try {
+
+                return money(
+                        new BigDecimal(text)
+                );
+
+            } catch (NumberFormatException ex) {
+
+                log.warn(
+                        "Unable to convert monetary value '{}' to BigDecimal",
+                        value
+                );
+
+                throw new IllegalArgumentException(
+                        "Invalid monetary amount: " + value,
+                        ex
+                );
+            }
+        }
+
+        throw new IllegalArgumentException(
+                "Unsupported monetary value type: "
+                        + value.getClass().getName()
+                        + ", value="
+                        + value
+        );
+    }
+
+
+    /**
      * Converts legacy Double values safely.
      *
-     * This method is retained only for compatibility with
-     * existing entity fields or callers that still use Double.
+     * This method is retained for compatibility with existing
+     * entity fields or callers that still use Double.
      *
-     * New financial code should use BigDecimal.
+     * Existing system monetary fields are intentionally not
+     * changed from Double/double.
      */
     private BigDecimal money(Double value) {
 
@@ -111,6 +197,9 @@ public class CollectionsService {
     }
 
 
+    /**
+     * Converts primitive double values safely.
+     */
     private BigDecimal money(double value) {
 
         if (!Double.isFinite(value)) {
@@ -176,7 +265,7 @@ public class CollectionsService {
      * - Resolved cases are not automatically reopened.
      * - Written-off cases are not automatically reopened.
      * - Existing active cases are refreshed.
-     * - Money is normalized to BigDecimal.
+     * - Money is normalized to BigDecimal internally.
      */
     @Transactional
     public int syncCasesFromOverdueLoans() {
@@ -303,17 +392,10 @@ public class CollectionsService {
 
 
             /*
-             * IMPORTANT:
-             *
-             * Your current implementation uses outstandingBalance
-             * for overdueAmount.
-             *
-             * That is only correct if your Loan model defines the
-             * entire outstanding balance as overdue.
-             *
-             * Since the exact Loan overdue-principal/interest fields
-             * are not available here, we preserve the existing
-             * behavior rather than inventing an entity property.
+             * Preserve the existing system behavior:
+             * outstanding balance is used as the collection
+             * overdue amount because the exact overdue
+             * principal/interest fields are not assumed here.
              */
             BigDecimal outstanding =
                     money(
@@ -389,63 +471,17 @@ public class CollectionsService {
 
 
         List<CollectionCase> cases =
-                caseRepo.findByOrganization_Id(
-                        orgId
+                caseRepo.findQueue(
+                        orgId,
+                        bucket,
+                        status,
+                        agentId
                 );
 
 
-        if (cases == null
-                || cases.isEmpty()) {
-
-            return List.of();
-        }
-
-
-        return cases.stream()
-
-                .filter(
-                        Objects::nonNull
-                )
-
-                .filter(
-                        c ->
-                                bucket == null
-                                        || c.getBucket() == bucket
-                )
-
-                .filter(
-                        c ->
-                                status == null
-                                        || c.getStatus() == status
-                )
-
-                .filter(
-                        c ->
-                                agentId == null
-                                        ||
-                                        (
-                                                c.getAssignedAgent() != null
-                                                        &&
-                                                agentId.equals(
-                                                        c.getAssignedAgent().getId()
-                                                )
-                                        )
-                )
-
-                .sorted(
-                        Comparator
-                                .comparing(
-                                        (
-                                                CollectionCase c
-                                        ) ->
-                                                c.getDaysPastDue() == null
-                                                        ? 0
-                                                        : c.getDaysPastDue()
-                                )
-                                .reversed()
-                )
-
-                .toList();
+        return cases == null
+                ? List.of()
+                : cases;
     }
 
 
@@ -513,7 +549,9 @@ public class CollectionsService {
         if (
                 collectionCase.getOrganization() == null
                         ||
-                collectionCase.getOrganization().getId() == null
+                collectionCase
+                        .getOrganization()
+                        .getId() == null
         ) {
 
             throw new IllegalStateException(
@@ -614,12 +652,6 @@ public class CollectionsService {
 
         /*
          * Tenant isolation.
-         *
-         * We do not allow an agent belonging to another
-         * organization to be assigned to this case.
-         *
-         * This assumes User has getOrganization(), which is
-         * consistent with the multi-tenant architecture.
          */
         if (
                 agent.getOrganization() == null
@@ -771,9 +803,10 @@ public class CollectionsService {
                         : null;
 
 
-        /*
-         * Promise-to-pay validation.
-         */
+        // ========================================================
+        // PROMISE-TO-PAY VALIDATION
+        // ========================================================
+
         if (
                 type
                         == CollectionAction.ActionType.PROMISE_TO_PAY
@@ -818,6 +851,10 @@ public class CollectionsService {
         }
 
 
+        // ========================================================
+        // WRITTEN-OFF CASE PROTECTION
+        // ========================================================
+
         /*
          * Do not allow operational actions on cases that are
          * already written off.
@@ -839,9 +876,6 @@ public class CollectionsService {
         /*
          * Do not create another write-off for a case that has
          * already been written off.
-         *
-         * This is an important protection against duplicate
-         * accounting entries.
          */
         if (
                 type
@@ -856,6 +890,10 @@ public class CollectionsService {
             );
         }
 
+
+        // ========================================================
+        // SAVE ACTION
+        // ========================================================
 
         BigDecimal normalizedPromiseAmount =
                 promiseAmount == null
@@ -1011,9 +1049,7 @@ public class CollectionsService {
                 }
 
 
-                if (
-                        loan.getId() == null
-                ) {
+                if (loan.getId() == null) {
 
                     throw new IllegalStateException(
                             "Cannot write off loan without an ID"
@@ -1022,14 +1058,19 @@ public class CollectionsService {
 
 
                 /*
-                 * The loan status is changed before accounting
-                 * so the transaction can roll back both changes
-                 * if accounting fails.
+                 * Change the loan status before accounting.
+                 *
+                 * Because this method is transactional, an
+                 * accounting failure will roll back the loan
+                 * and collection-case changes.
                  */
                 loan.setStatus(
                         LoanStatus.WRITTEN_OFF
                 );
-                loan.setWrittenOffAt(LocalDateTime.now());
+
+                loan.setWrittenOffAt(
+                        LocalDateTime.now()
+                );
 
 
                 loanRepo.save(
@@ -1065,10 +1106,9 @@ public class CollectionsService {
                 /*
                  * Accounting write-off.
                  *
-                 * This MUST be idempotent in AccountingService.
-                 * If postWriteOff() can create duplicates when called
-                 * twice, that service should be protected with a
-                 * unique reference/idempotency check.
+                 * AccountingService.postWriteOff() should be
+                 * idempotent so that duplicate accounting entries
+                 * cannot be generated.
                  */
                 accountingService.postWriteOff(
                         loan
@@ -1129,12 +1169,10 @@ public class CollectionsService {
                 );
 
 
-        /*
-         * Audit after all business changes have succeeded.
-         *
-         * Because this method is transactional, a failure later
-         * causes the entire transaction to roll back.
-         */
+        // ========================================================
+        // AUDIT
+        // ========================================================
+
         auditService.log(
                 collectionCase.getOrganization(),
                 null,
@@ -1196,7 +1234,11 @@ public class CollectionsService {
     /**
      * Returns collection statistics for one organization.
      *
-     * BigDecimal is used for all monetary calculations.
+     * The repository returns Object[] because the statistics query
+     * uses grouped aggregate values. Monetary aggregate values are
+     * converted safely through money(Object).
+     *
+     * BigDecimal is used internally for monetary calculations.
      */
     @Transactional(readOnly = true)
     public Map<String, Object> getStats(
@@ -1208,42 +1250,31 @@ public class CollectionsService {
         );
 
 
-        List<CollectionCase> cases =
-                caseRepo.findByOrganization_Id(
-                        orgId
-                );
-
-
-        if (cases == null) {
-            cases = List.of();
-        }
-
-
-        Map<CollectionCase.CollectionBucket, Long>
-                bucketCounts =
+        Map<CollectionCase.CollectionBucket, Long> bucketCounts =
                 new EnumMap<>(
                         CollectionCase.CollectionBucket.class
                 );
 
 
-        Map<CollectionCase.CollectionBucket, BigDecimal>
-                bucketAmounts =
+        Map<CollectionCase.CollectionBucket, BigDecimal> bucketAmounts =
                 new EnumMap<>(
                         CollectionCase.CollectionBucket.class
                 );
 
 
+        /*
+         * Initialize every bucket so the API always returns
+         * a complete and predictable statistics structure.
+         */
         for (
                 CollectionCase.CollectionBucket bucket
-                :
-                CollectionCase.CollectionBucket.values()
+                        : CollectionCase.CollectionBucket.values()
         ) {
 
             bucketCounts.put(
                     bucket,
                     0L
             );
-
 
             bucketAmounts.put(
                     bucket,
@@ -1252,75 +1283,122 @@ public class CollectionsService {
         }
 
 
+        long totalOpenCases = 0L;
+
         BigDecimal totalOverdue =
                 ZERO;
 
 
-        long activePromises =
-                0L;
-
-
-        long totalOpenCases =
-                0L;
-
-
-        for (
-                CollectionCase collectionCase
-                :
-                cases
-        ) {
-
-            if (collectionCase == null) {
-                continue;
-            }
-
-
-            CollectionCase.CollectionStatus status =
-                    collectionCase.getStatus();
-
-
-            if (
-                    status
-                            == CollectionCase.CollectionStatus.WRITTEN_OFF
-            ) {
-
-                continue;
-            }
-
-
-            if (
-                    status != CollectionCase.CollectionStatus.RESOLVED
-            ) {
-
-                totalOpenCases++;
-            }
-
-
-            CollectionCase.CollectionBucket bucket =
-                    collectionCase.getBucket();
-
-
-            if (bucket != null) {
-
-                bucketCounts.merge(
-                        bucket,
-                        1L,
-                        Long::sum
+        /*
+         * One grouped database query supplies the collection
+         * statistics instead of loading every CollectionCase
+         * entity into Java.
+         */
+        List<Object[]> rows =
+                caseRepo.getStatsByBucket(
+                        orgId
                 );
 
 
+        if (rows != null) {
+
+            for (Object[] row : rows) {
+
+                if (
+                        row == null
+                                || row.length < 4
+                                || row[0] == null
+                ) {
+
+                    continue;
+                }
+
+
+                CollectionCase.CollectionBucket bucket;
+
+
+                try {
+
+                    bucket =
+                            (CollectionCase.CollectionBucket) row[0];
+
+                } catch (ClassCastException ex) {
+
+                    log.warn(
+                            "Skipping collection statistics row because bucket type is invalid: {}",
+                            row[0],
+                            ex
+                    );
+
+                    continue;
+                }
+
+
+                CollectionCase.CollectionStatus status =
+                        row[1] == null
+                                ? null
+                                : (CollectionCase.CollectionStatus) row[1];
+
+
+                /*
+                 * Resolved and written-off cases are not considered
+                 * open collection exposure.
+                 */
+                if (
+                        status
+                                == CollectionCase.CollectionStatus.RESOLVED
+                                ||
+                        status
+                                == CollectionCase.CollectionStatus.WRITTEN_OFF
+                ) {
+
+                    continue;
+                }
+
+
+                long count =
+                        row[2] == null
+                                ? 0L
+                                : (
+                                        row[2] instanceof Number
+                                                ? ((Number) row[2]).longValue()
+                                                : Long.parseLong(
+                                                        row[2].toString()
+                                                )
+                                );
+
+
+                /*
+                 * IMPORTANT:
+                 *
+                 * row[3] is Object because the repository returns
+                 * List<Object[]>.
+                 *
+                 * Do NOT call money(BigDecimal) directly with row[3].
+                 *
+                 * money(Object) safely converts the actual JDBC/JPA
+                 * aggregate result.
+                 */
                 BigDecimal amount =
                         money(
-                                collectionCase
-                                        .getOverdueAmount()
+                                row[3]
                         );
 
 
-                bucketAmounts.merge(
+                bucketCounts.put(
                         bucket,
-                        amount,
-                        BigDecimal::add
+                        count
                 );
+
+
+                bucketAmounts.put(
+                        bucket,
+                        amount
+                );
+
+
+                totalOpenCases +=
+                        count;
 
 
                 totalOverdue =
@@ -1328,21 +1406,26 @@ public class CollectionsService {
                                 amount
                         );
             }
-
-
-            if (
-                    status
-                            == CollectionCase.CollectionStatus.PROMISE_TO_PAY
-            ) {
-
-                activePromises++;
-            }
         }
 
 
-        /*
-         * Convert maps to String-keyed maps for predictable JSON.
-         */
+        Long promises =
+                caseRepo.countByOrganization_IdAndStatus(
+                        orgId,
+                        CollectionCase.CollectionStatus.PROMISE_TO_PAY
+                );
+
+
+        long activePromises =
+                promises == null
+                        ? 0L
+                        : promises;
+
+
+        // ========================================================
+        // API RESPONSE STRUCTURES
+        // ========================================================
+
         Map<String, Long> casesByBucket =
                 new LinkedHashMap<>();
 
@@ -1353,8 +1436,7 @@ public class CollectionsService {
 
         for (
                 CollectionCase.CollectionBucket bucket
-                :
-                CollectionCase.CollectionBucket.values()
+                        : CollectionCase.CollectionBucket.values()
         ) {
 
             casesByBucket.put(

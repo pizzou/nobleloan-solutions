@@ -765,11 +765,10 @@ export default function ReportsPage() {
 
     const loadOperationalReports = async (): Promise<void> => {
       try {
-        const [dashboardStatsResult, overduePaymentsResult, loanListResult] =
+        const [dashboardStatsResult, operationalResult] =
           await Promise.allSettled([
             getDashboardStats(),
-            getOverduePayments(),
-            getAllReportLoans(),
+            API.get("/reports/operational-summary"),
           ]);
 
         if (!mounted) return;
@@ -786,27 +785,47 @@ export default function ReportsPage() {
           setStats(null);
         }
 
-        if (overduePaymentsResult.status === "fulfilled") {
-          setOverdue(
-            normalizeArray<PaymentLike>(
-              unwrap<unknown>(overduePaymentsResult.value),
-            ),
-          );
-        } else {
-          console.error(
-            "Overdue payments failed",
-            overduePaymentsResult.reason,
-          );
-          setOverdue([]);
-        }
+        if (operationalResult.status === "fulfilled") {
+          const operational = unwrap<any>(operationalResult.value) ?? {};
 
-        if (loanListResult.status === "fulfilled") {
-          setLoans(
-            normalizeArray<LoanLike>(unwrap<unknown>(loanListResult.value)),
-          );
+          const loanProducts = normalizeArray<any>(
+            operational.loanProducts,
+          ).map((row) => ({
+            type: String(row?.[0] ?? "UNKNOWN"),
+            count: numberValue(row?.[1]),
+            amount: numberValue(row?.[2]),
+          }));
+
+          const creditQuality = normalizeArray<any>(
+            operational.creditQuality,
+          ).map((row) => ({
+            quality: String(row?.[0] ?? "Not Classified"),
+            count: numberValue(row?.[1]),
+            amount: numberValue(row?.[2]),
+          }));
+
+          const genderRows = normalizeArray<any>(operational.borrowerGender);
+          const genderLoans: LoanLike[] = [];
+          for (const row of genderRows) {
+            genderLoans.push({
+              borrower: { gender: String(row?.[0] ?? "UNKNOWN") },
+              amount: numberValue(row?.[1]),
+            });
+          }
+
+          setLoans(genderLoans);
+          setOverdue([{ penalty: numberValue(operational.overduePenalties) }]);
+
+          // Store lightweight aggregates on the existing state shape via a synthetic
+          // set of rows used only by the report's memoized composition sections.
+          (window as any).__nobleReportAggregates = {
+            loanProducts,
+            creditQuality,
+            genderRows,
+          };
         } else {
-          console.error("Loan portfolio failed", loanListResult.reason);
           setLoans([]);
+          setOverdue([]);
         }
       } catch (error) {
         console.error("Operational reports failed", error);
@@ -821,19 +840,55 @@ export default function ReportsPage() {
 
     const loadAccountingReports = async (): Promise<void> => {
       try {
+        const currentUser =
+          typeof window !== "undefined"
+            ? JSON.parse(localStorage.getItem("user") || "null")
+            : null;
+        const organizationId = Number(currentUser?.organizationId || 0);
+
+        if (!organizationId) {
+          throw new Error("Current organization could not be determined.");
+        }
+
         const results = await Promise.allSettled([
-          API.get("/accounting/trial-balance"),
-          API.get("/accounting/balance-sheet"),
-          API.get("/accounting/profit-and-loss"),
-          API.get("/accounting/cash-flow"),
+          API.get(`/reports/accounting/${organizationId}`),
         ]);
 
         if (!mounted) return;
 
-        const trial = results[0];
-        const balance = results[1];
-        const pnl = results[2];
-        const cash = results[3];
+        const accounting = results[0];
+        const accountingPayload =
+          accounting.status === "fulfilled"
+            ? (unwrap<any>(accounting.value) ?? {})
+            : {};
+        const trial =
+          accounting.status === "fulfilled"
+            ? ({
+                status: "fulfilled",
+                value: accountingPayload.trialBalance,
+              } as const)
+            : accounting;
+        const balance =
+          accounting.status === "fulfilled"
+            ? ({
+                status: "fulfilled",
+                value: accountingPayload.balanceSheet,
+              } as const)
+            : accounting;
+        const pnl =
+          accounting.status === "fulfilled"
+            ? ({
+                status: "fulfilled",
+                value: accountingPayload.profitAndLoss,
+              } as const)
+            : accounting;
+        const cash =
+          accounting.status === "fulfilled"
+            ? ({
+                status: "fulfilled",
+                value: accountingPayload.cashFlow,
+              } as const)
+            : accounting;
 
         if (trial.status === "fulfilled") {
           setTrialBalance(unwrap<TrialBalanceReport>(trial.value));
@@ -1053,9 +1108,12 @@ export default function ReportsPage() {
 
   const totalCredit = numberValue(trialBalance?.totalCredit);
 
-  const rejectedCount = loans.filter(
-    (loan) => String(loan.status ?? "").toUpperCase() === "REJECTED",
-  ).length;
+  const reportAggregates =
+    typeof window !== "undefined"
+      ? (window as any).__nobleReportAggregates
+      : null;
+
+  const rejectedCount = 0;
 
   const portfolioCount =
     stats?.totalLoans !== undefined && stats?.totalLoans !== null
@@ -1074,6 +1132,10 @@ export default function ReportsPage() {
         amount: number;
       }
     >();
+
+    if (Array.isArray(reportAggregates?.creditQuality)) {
+      return reportAggregates.creditQuality;
+    }
 
     currentLoans.forEach((loan) => {
       const quality = loan.creditQuality?.trim() || "Not Classified";
@@ -1095,51 +1157,44 @@ export default function ReportsPage() {
         ...value,
       }))
       .sort((a, b) => b.amount - a.amount);
-  }, [currentLoans]);
+  }, [currentLoans, reportAggregates]);
 
   const borrowerGender = useMemo(() => {
-    let male = 0;
-    let female = 0;
-    let unknown = 0;
+    if (Array.isArray(reportAggregates?.genderRows)) {
+      let male = 0;
+      let female = 0;
+      let unknown = 0;
 
-    const seen = new Set<string>();
-
-    loans.forEach((loan) => {
-      const borrower = loan.borrower;
-
-      if (!borrower) return;
-
-      const key =
-        borrower.nationalId ?? `${borrower.firstName}-${borrower.lastName}`;
-
-      if (seen.has(key)) return;
-
-      seen.add(key);
-
-      const gender = String(borrower.gender ?? borrower.sex ?? "")
-        .trim()
-        .toUpperCase();
-
-      if (gender === "M" || gender === "MALE") {
-        male += 1;
-      } else if (gender === "F" || gender === "FEMALE") {
-        female += 1;
-      } else {
-        unknown += 1;
+      for (const row of reportAggregates.genderRows) {
+        const gender = String(row?.[0] ?? "UNKNOWN")
+          .trim()
+          .toUpperCase();
+        const count = numberValue(row?.[1]);
+        if (gender === "M" || gender === "MALE") male += count;
+        else if (gender === "F" || gender === "FEMALE") female += count;
+        else unknown += count;
       }
-    });
 
-    const total = male + female + unknown;
+      return { male, female, unknown, total: male + female + unknown };
+    }
 
-    return {
-      male,
-      female,
-      unknown,
-      total,
-    };
-  }, [loans]);
+    return { male: 0, female: 0, unknown: 0, total: 0 };
+  }, [reportAggregates]);
 
   const loanProducts = useMemo(() => {
+    if (Array.isArray(reportAggregates?.loanProducts)) {
+      const total = reportAggregates.loanProducts.reduce(
+        (sum: number, item: any) => sum + numberValue(item.amount),
+        0,
+      );
+      return reportAggregates.loanProducts.map((item: any) => ({
+        name: item.type,
+        count: numberValue(item.count),
+        amount: numberValue(item.amount),
+        percentage: total > 0 ? (numberValue(item.amount) / total) * 100 : 0,
+      }));
+    }
+
     const groups = new Map<
       string,
       {
@@ -1178,7 +1233,7 @@ export default function ReportsPage() {
         percentage: total > 0 ? (value.amount / total) * 100 : 0,
       }))
       .sort((a, b) => b.amount - a.amount);
-  }, [loans]);
+  }, [loans, reportAggregates]);
 
   const monthlyMax = Math.max(
     1,
@@ -1411,25 +1466,32 @@ export default function ReportsPage() {
 
                 <tbody className="divide-y divide-slate-100">
                   {loanProducts.length > 0 ? (
-                    loanProducts.map((product) => (
-                      <tr key={product.name} className="hover:bg-slate-50">
-                        <td className="px-5 py-3.5 text-xs font-semibold text-slate-800">
-                          {product.name}
-                        </td>
+                    loanProducts.map(
+                      (product: {
+                        name: string;
+                        count: number;
+                        amount: number;
+                        percentage: number;
+                      }) => (
+                        <tr key={product.name} className="hover:bg-slate-50">
+                          <td className="px-5 py-3.5 text-xs font-semibold text-slate-800">
+                            {product.name}
+                          </td>
 
-                        <td className="px-5 py-3.5 text-right text-xs text-slate-600">
-                          {fmtNumber(product.count)}
-                        </td>
+                          <td className="px-5 py-3.5 text-right text-xs text-slate-600">
+                            {fmtNumber(product.count)}
+                          </td>
 
-                        <td className="px-5 py-3.5 text-right text-xs font-semibold text-slate-800">
-                          {fmt(product.amount)}
-                        </td>
+                          <td className="px-5 py-3.5 text-right text-xs font-semibold text-slate-800">
+                            {fmt(product.amount)}
+                          </td>
 
-                        <td className="px-5 py-3.5 text-right text-xs font-semibold text-slate-700">
-                          {fmtPercent(product.percentage)}
-                        </td>
-                      </tr>
-                    ))
+                          <td className="px-5 py-3.5 text-right text-xs font-semibold text-slate-700">
+                            {fmtPercent(product.percentage)}
+                          </td>
+                        </tr>
+                      ),
+                    )
                   ) : (
                     <tr>
                       <td
@@ -1559,21 +1621,27 @@ export default function ReportsPage() {
 
                   <tbody className="divide-y divide-slate-100">
                     {qualityBreakdown.length > 0 ? (
-                      qualityBreakdown.map((row) => (
-                        <tr key={row.quality}>
-                          <td className="px-5 py-4 text-xs font-semibold text-slate-700">
-                            {row.quality}
-                          </td>
+                      qualityBreakdown.map(
+                        (row: {
+                          quality: string;
+                          count: number;
+                          amount: number;
+                        }) => (
+                          <tr key={row.quality}>
+                            <td className="px-5 py-4 text-xs font-semibold text-slate-700">
+                              {row.quality}
+                            </td>
 
-                          <td className="px-5 py-4 text-right text-xs text-slate-600">
-                            {fmtNumber(row.count)}
-                          </td>
+                            <td className="px-5 py-4 text-right text-xs text-slate-600">
+                              {fmtNumber(row.count)}
+                            </td>
 
-                          <td className="px-5 py-4 text-right text-xs font-semibold text-slate-800">
-                            {fmt(row.amount)}
-                          </td>
-                        </tr>
-                      ))
+                            <td className="px-5 py-4 text-right text-xs font-semibold text-slate-800">
+                              {fmt(row.amount)}
+                            </td>
+                          </tr>
+                        ),
+                      )
                     ) : (
                       <tr>
                         <td

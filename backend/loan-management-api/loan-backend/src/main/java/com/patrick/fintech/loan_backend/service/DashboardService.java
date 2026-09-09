@@ -74,6 +74,9 @@ public class DashboardService {
         BigDecimal outstandingInterest = money(decimalValue(loanAggregate, 7));
         BigDecimal outstandingFees = money(decimalValue(loanAggregate, 8));
         BigDecimal atRiskPrincipal = money(decimalValue(loanAggregate, 9));
+        BigDecimal importedHistoricalCollected = money(decimalValue(loanAggregate, 10));
+        BigDecimal importedApplicationFees = money(decimalValue(loanAggregate, 11));
+        BigDecimal currentApplicationFees = money(decimalValue(loanAggregate, 12));
 
         long totalBorrowers = borrowerRepository.countByOrganization_Id(orgId);
         long overdueLoans = paymentRepository.countDistinctOverdueLoans(orgId, today);
@@ -88,27 +91,16 @@ public class DashboardService {
         long latePaymentsCount = longValue(paymentAggregate, 2);
 
         /*
-         * Imported loans carry their historical cumulative collection on Loan.
-         * Any post-import Payment rows must not be counted twice.
+         * Imported cumulative totals and application fees are already included
+         * in the single dashboard loan aggregate above. We only need the paid
+         * Payment-row total here to avoid double-counting imported history.
          */
-        BigDecimal importedHistoricalCollected =
-                money(loanRepository.sumImportedHistoricalTotalPaid(
-                        organization(orgId)));
-
         BigDecimal importedPaymentRows =
                 money(loanRepository.sumImportedPaymentRows(
                         organization(orgId)));
 
         BigDecimal currentAndImportedPaymentRows =
                 money(paymentRowsCollected.subtract(importedPaymentRows));
-
-        BigDecimal currentApplicationFees =
-                money(loanRepository.sumApplicationFeesCollected(
-                        organization(orgId)));
-
-        BigDecimal importedApplicationFees =
-                money(loanRepository.sumImportedApplicationFeesCollected(
-                        organization(orgId)));
 
         BigDecimal applicationFeesCollected = money(
                 currentApplicationFees.add(importedApplicationFees));

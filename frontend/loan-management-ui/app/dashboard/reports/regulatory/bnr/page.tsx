@@ -806,27 +806,34 @@ export default function BnrReportPage() {
 
         setError(null);
 
-        const [
-          summaryResponse,
-          financialResponse,
-          loanTypeResponse,
-          branchResponse,
-          genderResponse,
-        ] = await Promise.all([
-          regulatoryApi.bnrSummary(params),
-          regulatoryApi.bnrFinancialStatement(params),
+        // The summary is the smallest useful first response. Render it immediately
+        // instead of keeping the whole page behind the financial statement and
+        // three portfolio-wide breakdown queries.
+        const summaryResponse = await regulatoryApi.bnrSummary(params);
+        setSummary(summaryResponse ?? null);
+        setLoading(false);
+        setRefreshing(false);
+
+        // Load the expensive sections in the background after the first paint.
+        void regulatoryApi
+          .bnrFinancialStatement(params)
+          .then((response) => setFinancialStatement(response ?? null))
+          .catch((error) =>
+            console.error("BNR financial statement failed", error),
+          );
+
+        void Promise.allSettled([
           regulatoryApi.bnrByLoanType(params),
           regulatoryApi.bnrByBranch(params),
           regulatoryApi.bnrByGender(params),
-        ]);
-
-        setSummary(summaryResponse ?? null);
-
-        setFinancialStatement(financialResponse ?? null);
-
-        setLoanTypes(unwrapRows(loanTypeResponse));
-        setBranches(unwrapRows(branchResponse));
-        setGenders(unwrapRows(genderResponse));
+        ]).then(([loanType, branch, gender]) => {
+          if (loanType.status === "fulfilled")
+            setLoanTypes(unwrapRows(loanType.value));
+          if (branch.status === "fulfilled")
+            setBranches(unwrapRows(branch.value));
+          if (gender.status === "fulfilled")
+            setGenders(unwrapRows(gender.value));
+        });
       } catch (err) {
         console.error("BNR report error:", err);
 

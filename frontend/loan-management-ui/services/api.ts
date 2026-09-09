@@ -734,6 +734,11 @@ export const esignatureApi = {
  */
 
 export const accountingApi = {
+  unifiedReport: (organizationId: number, from?: string, to?: string) =>
+    get(
+      `/reports/accounting/${organizationId}${from && to ? `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}` : ""}`,
+    ),
+
   chartOfAccounts: () => get("/accounting/chart-of-accounts"),
 
   createAccount: (data: {
