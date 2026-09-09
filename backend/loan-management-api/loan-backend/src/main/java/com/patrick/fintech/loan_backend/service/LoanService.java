@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -128,61 +129,43 @@ public class LoanService {
 
         private List<DocumentType> requiredDocsFor(Loan loan) {
 
-                if (loan == null || loan.getOrganization() == null) {
+                if (loan == null || loan.getBorrower() == null) {
                         return DEFAULT_REQUIRED_DOCS;
                 }
 
-                Long organizationId = loan.getOrganization().getId();
+                Borrower borrower = loan.getBorrower();
+                List<DocumentType> required = new ArrayList<>();
 
-                if (organizationId == null || loan.getLoanType() == null) {
-                        return DEFAULT_REQUIRED_DOCS;
+                // Mandatory for every public application.
+                required.add(DocumentType.NATIONAL_ID);
+                required.add(DocumentType.BANK_STATEMENT);
+                required.add(DocumentType.SELFIE);
+
+                String maritalStatus = borrower.getMaritalStatus();
+                if ("MARRIED".equalsIgnoreCase(maritalStatus)) {
+                        required.add(DocumentType.MARRIAGE_CERTIFICATE);
+                } else {
+                        required.add(DocumentType.SINGLE_CERTIFICATE);
                 }
 
-                LoanProduct product = loanProductRepo
-                                .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
-                                                organizationId,
-                                                loan.getLoanType())
-                                .orElse(null);
+                String employmentType = borrower.getEmploymentType();
+                if (employmentType != null) {
+                        String normalized = employmentType.trim().toUpperCase(Locale.ROOT)
+                                        .replace('-', '_').replace(' ', '_');
 
-                if (product == null) {
-                        return DEFAULT_REQUIRED_DOCS;
-                }
-
-                List<String> configured = product.getRequiredDocumentTypesList();
-
-                if (configured == null || configured.isEmpty()) {
-                        return DEFAULT_REQUIRED_DOCS;
-                }
-
-                List<DocumentType> documentTypes = new ArrayList<>();
-
-                for (String type : configured) {
-
-                        if (type == null || type.isBlank()) {
-                                continue;
-                        }
-
-                        try {
-
-                                documentTypes.add(
-                                                DocumentType.valueOf(
-                                                                type.trim().toUpperCase()));
-
-                        } catch (IllegalArgumentException ex) {
-
-                                throw new IllegalArgumentException(
-                                                "Invalid document type configured for Loan Product: "
-                                                                + type,
-                                                ex);
+                        if (Set.of("EMPLOYEE", "EMPLOYED", "PERMANENT", "CONTRACT", "SALARIED")
+                                        .contains(normalized)) {
+                                required.add(DocumentType.PAYSLIP);
+                        } else if (Set.of("SELF_EMPLOYED", "SELFEMPLOYED", "BUSINESS",
+                                        "BUSINESS_OWNER", "COMPANY", "COMPANY_OWNER")
+                                        .contains(normalized)) {
+                                required.add(DocumentType.BUSINESS_REGISTRATION);
                         }
                 }
 
-                return documentTypes.isEmpty()
-                                ? DEFAULT_REQUIRED_DOCS
-                                : documentTypes;
+                return required;
         }
 
-        // ================================================================
         // BORROWER DASHBOARD
         // ================================================================
 

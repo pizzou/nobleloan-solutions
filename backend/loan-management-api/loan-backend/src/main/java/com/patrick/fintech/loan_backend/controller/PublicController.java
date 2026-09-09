@@ -2547,11 +2547,26 @@ public class PublicController {
         // LOAN APPLICATION
         // ============================================================
 
-        @PostMapping("/loan-application")
+        @PostMapping(value = "/loan-application", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
         @Transactional
         public ResponseEntity<ApiResponse<Map<String, Object>>> submitApplication(
-                        @RequestBody Map<String, Object> body,
+                        @RequestPart("application") String applicationJson,
+                        @RequestPart(value = "nationalId", required = false) MultipartFile nationalIdFile,
+                        @RequestPart(value = "bankStatement", required = false) MultipartFile bankStatementFile,
+                        @RequestPart(value = "marriageCertificate", required = false) MultipartFile marriageCertificateFile,
+                        @RequestPart(value = "singleCertificate", required = false) MultipartFile singleCertificateFile,
+                        @RequestPart(value = "selfie", required = false) MultipartFile selfieFile,
+                        @RequestPart(value = "payslip", required = false) MultipartFile payslipFile,
+                        @RequestPart(value = "businessRegistration", required = false) MultipartFile businessRegistrationFile,
                         @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+
+                Map<String, Object> body;
+                try {
+                        body = objectMapper.readValue(applicationJson,
+                                        new TypeReference<Map<String, Object>>() {});
+                } catch (Exception ex) {
+                        throw new IllegalArgumentException("Invalid loan application data.", ex);
+                }
 
                 if (body == null) {
 
@@ -2708,6 +2723,24 @@ public class PublicController {
                         throw new RuntimeException(
                                         "Single Status Certificate number is required for single applicants");
                 }
+
+                // ========================================================
+                // MANDATORY KYC DOCUMENTS — BEFORE LOAN CREATION
+                // ========================================================
+                // These files are received in the same atomic transaction as
+                // the application. The loan is never created unless every
+                // mandatory document for the selected employment/marital type
+                // is present and valid.
+                validateRequiredPublicApplicationDocuments(
+                                employmentType(body),
+                                maritalStatus,
+                                nationalIdFile,
+                                bankStatementFile,
+                                marriageCertificateFile,
+                                singleCertificateFile,
+                                selfieFile,
+                                payslipFile,
+                                businessRegistrationFile);
 
                 /*
                  * EXISTING BORROWER HANDLING
@@ -2874,6 +2907,37 @@ public class PublicController {
 
                 borrower = borrowerRepo.save(
                                 borrower);
+                }
+
+                // ========================================================
+                // PERSIST REQUIRED DOCUMENTS BEFORE CREATING THE LOAN
+                // ========================================================
+                saveRequiredPublicApplicationDocument(
+                                borrower.getId(), nationalIdFile, DocumentType.NATIONAL_ID);
+                saveRequiredPublicApplicationDocument(
+                                borrower.getId(), bankStatementFile, DocumentType.BANK_STATEMENT);
+
+                if ("Married".equalsIgnoreCase(maritalStatus)) {
+                        saveRequiredPublicApplicationDocument(
+                                        borrower.getId(), marriageCertificateFile,
+                                        DocumentType.MARRIAGE_CERTIFICATE);
+                } else {
+                        saveRequiredPublicApplicationDocument(
+                                        borrower.getId(), singleCertificateFile,
+                                        DocumentType.SINGLE_CERTIFICATE);
+                }
+
+                saveRequiredPublicApplicationDocument(
+                                borrower.getId(), selfieFile, DocumentType.SELFIE);
+
+                String employment = employmentType(body);
+                if (isEmployeeEmploymentType(employment)) {
+                        saveRequiredPublicApplicationDocument(
+                                        borrower.getId(), payslipFile, DocumentType.PAYSLIP);
+                } else if (isBusinessEmploymentType(employment)) {
+                        saveRequiredPublicApplicationDocument(
+                                        borrower.getId(), businessRegistrationFile,
+                                        DocumentType.BUSINESS_REGISTRATION);
                 }
 
                 // ========================================================
@@ -3987,6 +4051,73 @@ public class PublicController {
         // ============================================================
         // HELPERS
         // ============================================================
+
+        private String employmentType(Map<String, Object> body) {
+                String value = str(body.get("employmentType"));
+                if (value == null || value.isBlank()) {
+                        throw new IllegalArgumentException("Employment type is required");
+                }
+                return value.trim().toUpperCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
+        }
+
+        private boolean isEmployeeEmploymentType(String employmentType) {
+                return Set.of("EMPLOYEE", "EMPLOYED", "PERMANENT", "CONTRACT", "SALARIED")
+                                .contains(employmentType);
+        }
+
+        private boolean isBusinessEmploymentType(String employmentType) {
+                return Set.of("SELF_EMPLOYED", "SELFEMPLOYED", "BUSINESS", "BUSINESS_OWNER", "COMPANY", "COMPANY_OWNER")
+                                .contains(employmentType);
+        }
+
+        private void validateRequiredPublicApplicationDocuments(
+                        String employmentType,
+                        String maritalStatus,
+                        MultipartFile nationalIdFile,
+                        MultipartFile bankStatementFile,
+                        MultipartFile marriageCertificateFile,
+                        MultipartFile singleCertificateFile,
+                        MultipartFile selfieFile,
+                        MultipartFile payslipFile,
+                        MultipartFile businessRegistrationFile) {
+
+                requirePublicDocument(nationalIdFile, "National ID");
+                requirePublicDocument(bankStatementFile, "Bank Statement");
+                requirePublicDocument(selfieFile, "Selfie");
+
+                if ("MARRIED".equalsIgnoreCase(maritalStatus)) {
+                        requirePublicDocument(marriageCertificateFile, "Marriage Certificate");
+                } else if ("SINGLE".equalsIgnoreCase(maritalStatus)) {
+                        requirePublicDocument(singleCertificateFile, "Single Status Certificate");
+                }
+
+                if (isEmployeeEmploymentType(employmentType)) {
+                        requirePublicDocument(payslipFile, "Payslip");
+                } else if (isBusinessEmploymentType(employmentType)) {
+                        requirePublicDocument(businessRegistrationFile, "Business Registration / Company Certificate");
+                }
+        }
+
+        private void requirePublicDocument(MultipartFile file, String label) {
+                if (file == null || file.isEmpty() || file.getSize() <= 0) {
+                        throw new IllegalArgumentException(label + " is mandatory before the loan can be created.");
+                }
+        }
+
+        private void saveRequiredPublicApplicationDocument(
+                        Long borrowerId,
+                        MultipartFile file,
+                        DocumentType documentType) throws Exception {
+                BorrowerFile saved = fileService.upload(
+                                borrowerId,
+                                file,
+                                documentType,
+                                true);
+                if (saved == null || saved.getId() == null) {
+                        throw new IllegalStateException(
+                                        "Failed to persist mandatory " + documentType.name() + " document.");
+                }
+        }
 
         private String str(
                         Object o) {

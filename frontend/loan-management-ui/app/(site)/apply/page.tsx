@@ -4,10 +4,9 @@ import { useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTenant } from "../layout";
 import { useOnlineStatus } from "../../../hooks/useOnlineStatus";
-import { queueAction } from "../../../lib/offlineDb";
 import { TENANT_SLUG } from "../../../lib/tenant";
 import { getApiBaseUrl } from "../../../lib/apiBase";
-import DocumentUploadPanel from "../../../components/DocumentUploadPanel";
+import CameraCapture from "../../../components/CameraCapture";
 import {
   calculateContractualSchedule,
   percentageCharge,
@@ -25,9 +24,20 @@ export default function ApplyPage() {
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [reference, setReference] = useState("");
-  const [queuedOffline, setQueuedOffline] = useState(false);
   const [error, setError] = useState("");
   const [docsComplete, setDocsComplete] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [applicationDocuments, setApplicationDocuments] = useState<
+    Record<string, File | null>
+  >({
+    NATIONAL_ID: null,
+    BANK_STATEMENT: null,
+    MARRIAGE_CERTIFICATE: null,
+    SINGLE_CERTIFICATE: null,
+    SELFIE: null,
+    PAYSLIP: null,
+    BUSINESS_REGISTRATION: null,
+  });
 
   const idempotencyKeyRef = useRef<string | null>(null);
 
@@ -227,6 +237,10 @@ export default function ApplyPage() {
   };
 
   const maximumDateOfBirth = getMaximumDateOfBirth();
+  const employment = form.employmentType
+    .trim()
+    .toUpperCase()
+    .replace(/[ -]/g, "_");
 
   // ============================================================
   // SUBMIT APPLICATION
@@ -236,16 +250,11 @@ export default function ApplyPage() {
     setSaving(true);
     setError("");
 
-    // ----------------------------------------------------------
-    // FINAL CLIENT-SIDE AGE VALIDATION
-    // ----------------------------------------------------------
-
     if (!form.dateOfBirth) {
       setError("Date of birth is required.");
       setSaving(false);
       return;
     }
-
     if (!isAtLeast18(form.dateOfBirth)) {
       setError(
         "The applicant must be at least 18 years old to apply for a loan.",
@@ -254,9 +263,53 @@ export default function ApplyPage() {
       return;
     }
 
-    // ----------------------------------------------------------
-    // IDEMPOTENCY KEY
-    // ----------------------------------------------------------
+    const mandatoryDocumentTypes = [
+      "NATIONAL_ID",
+      "BANK_STATEMENT",
+      form.maritalStatus === "Married"
+        ? "MARRIAGE_CERTIFICATE"
+        : "SINGLE_CERTIFICATE",
+      "SELFIE",
+    ];
+    if (
+      ["EMPLOYEE", "EMPLOYED", "PERMANENT", "CONTRACT", "SALARIED"].includes(
+        employment,
+      )
+    ) {
+      mandatoryDocumentTypes.push("PAYSLIP");
+    } else if (
+      [
+        "SELF_EMPLOYED",
+        "SELFEMPLOYED",
+        "BUSINESS",
+        "BUSINESS_OWNER",
+        "COMPANY",
+        "COMPANY_OWNER",
+      ].includes(employment)
+    ) {
+      mandatoryDocumentTypes.push("BUSINESS_REGISTRATION");
+    }
+
+    const missing = mandatoryDocumentTypes.filter((type) => {
+      const file = applicationDocuments[type];
+      return !file || file.size <= 0;
+    });
+    if (missing.length) {
+      setError(
+        `Please upload all mandatory documents before submitting: ${missing.map((d) => d.replace(/_/g, " ")).join(", ")}.`,
+      );
+      setSaving(false);
+      setStep(4);
+      return;
+    }
+
+    if (!online) {
+      setError(
+        "You must be online to submit because all mandatory documents must be uploaded before the loan is created.",
+      );
+      setSaving(false);
+      return;
+    }
 
     if (!idempotencyKeyRef.current) {
       idempotencyKeyRef.current =
@@ -264,68 +317,38 @@ export default function ApplyPage() {
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     }
-
     const idempotencyKey = idempotencyKeyRef.current;
 
-    // ----------------------------------------------------------
-    // OFFLINE SUBMISSION
-    // ----------------------------------------------------------
-
-    if (!online) {
-      try {
-        await queueAction({
-          url: "/public/loan-application",
-          method: "POST",
-          body: {
-            ...form,
-            tenantSlug: slug,
-          },
-          headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": idempotencyKey,
-          },
-          label: `Loan application — ${form.firstName} ${form.lastName} (${form.amount} ${tenant.currency})`,
-        });
-
-        setReference("Will be assigned once submitted");
-
-        setQueuedOffline(true);
-        setSubmitted(true);
-      } catch (e: any) {
-        setError(
-          "Could not save your application on this device. Please try again once you&apos;re back online.",
-        );
-      } finally {
-        setSaving(false);
-      }
-
-      return;
-    }
-
-    // ----------------------------------------------------------
-    // ONLINE SUBMISSION
-    // ----------------------------------------------------------
-
     let responseStatus: number | null = null;
-
     try {
       const API_BASE = getApiBaseUrl();
+      const multipart = new FormData();
+      multipart.append(
+        "application",
+        JSON.stringify({ ...form, tenantSlug: slug }),
+      );
+
+      const documentPartNames: Record<string, string> = {
+        NATIONAL_ID: "nationalId",
+        BANK_STATEMENT: "bankStatement",
+        MARRIAGE_CERTIFICATE: "marriageCertificate",
+        SINGLE_CERTIFICATE: "singleCertificate",
+        SELFIE: "selfie",
+        PAYSLIP: "payslip",
+        BUSINESS_REGISTRATION: "businessRegistration",
+      };
+      for (const type of mandatoryDocumentTypes) {
+        const file = applicationDocuments[type];
+        if (file) multipart.append(documentPartNames[type], file, file.name);
+      }
 
       const res = await fetch(`${API_BASE}/public/loan-application`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": idempotencyKey,
-        },
-        body: JSON.stringify({
-          ...form,
-          tenantSlug: slug,
-        }),
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: multipart,
       });
-
       responseStatus = res.status;
       const json = await res.json();
-
       if (!res.ok || json.success === false) {
         throw new Error(
           json.error ||
@@ -335,50 +358,18 @@ export default function ApplyPage() {
       }
 
       setReference(json.data?.reference || "");
-
+      setDocsComplete(true);
       setSubmitted(true);
-
       idempotencyKeyRef.current = null;
     } catch (e: any) {
-      // --------------------------------------------------------
-      // NETWORK FAILURE
-      // --------------------------------------------------------
-
-      if (
-        e instanceof TypeError ||
-        responseStatus === 408 ||
-        responseStatus === 425 ||
-        responseStatus === 429 ||
-        (responseStatus !== null && responseStatus >= 500)
-      ) {
-        try {
-          await queueAction({
-            url: "/public/loan-application",
-            method: "POST",
-            body: {
-              ...form,
-              tenantSlug: slug,
-            },
-            headers: {
-              "Content-Type": "application/json",
-              "Idempotency-Key": idempotencyKey,
-            },
-            label: `Loan application — ${form.firstName} ${form.lastName} (${form.amount} ${tenant.currency})`,
-          });
-
-          setReference("Will be assigned once submitted");
-
-          setQueuedOffline(true);
-          setSubmitted(true);
-        } catch {
-          setError(
-            "Lost connection and could not save on this device. Please try again.",
-          );
-        }
+      if (responseStatus === 413) {
+        setError(
+          "One or more documents are too large. Each document must be 8MB or less.",
+        );
       } else {
         setError(
-          e.message ||
-            "Something went wrong. Please check your connection and try again.",
+          e?.message ||
+            "Something went wrong. Please check your documents and try again.",
         );
       }
     } finally {
@@ -419,113 +410,45 @@ export default function ApplyPage() {
         <div className="max-w-xl w-full text-center">
           <div
             className="w-24 h-24 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 shadow-xl"
-            style={{
-              backgroundColor: primary + "10",
-            }}
+            style={{ backgroundColor: primary + "10" }}
           >
-            {queuedOffline ? "📡" : docsComplete ? "🎉" : "📎"}
+            🎉
           </div>
-
           <h2 className="text-3xl font-extrabold text-gray-900 mb-4">
-            {queuedOffline
-              ? "Saved — Will Submit Automatically"
-              : docsComplete
-                ? "All Set — Application Complete!"
-                : "One More Step — Upload Your Documents"}
+            Application Submitted Successfully
           </h2>
-
           <p className="text-gray-600 mb-6 text-lg">
-            {queuedOffline ? (
-              <>
-                Thanks <strong>{form.firstName}</strong> — you&apos;re offline
-                right now, so we&apos;ve saved your application on this device.
-                It will submit itself the moment this device reconnects to the
-                internet. You don&apos;t need to do anything else — just
-                don&apos;t clear your browser data before then.
-              </>
-            ) : docsComplete ? (
-              <>
-                Thank you <strong>{form.firstName}</strong>! Your application
-                and all required documents have been received. We will review
-                everything and contact you within <strong>24–48 hours</strong>.
-              </>
-            ) : (
-              <>
-                Thanks <strong>{form.firstName}</strong> — your application
-                details are saved, but it isn&apos;t complete yet. Please upload
-                the required documents below so our team can begin reviewing it
-                — applications without documents can&apos;t be processed.
-              </>
-            )}
+            Thank you <strong>{form.firstName}</strong>. Your application and
+            all mandatory documents have been received. We will review
+            everything and contact you within <strong>24–48 hours</strong>.
           </p>
-
           <div className="bg-gray-50 rounded-2xl p-6 text-left space-y-3 text-sm mb-8">
             <div className="flex justify-between">
               <span className="text-gray-500">Application Reference</span>
-
-              <code className="font-bold text-gray-800">
-                {reference || "—"}
-              </code>
+              <code className="font-bold">{reference || "—"}</code>
             </div>
-
             <div className="flex justify-between">
               <span className="text-gray-500">Loan Type</span>
-
               <span className="font-bold">{form.loanType}</span>
             </div>
-
             <div className="flex justify-between">
               <span className="text-gray-500">Amount Requested</span>
-
               <span className="font-bold">
                 {tenant.currency} {Number(form.amount).toLocaleString()}
               </span>
             </div>
-
             <div className="flex justify-between">
               <span className="text-gray-500">Contact</span>
-
               <span className="font-bold">{form.phone}</span>
             </div>
           </div>
-
-          {!queuedOffline && reference && !docsComplete && (
-            <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl px-4 py-3 mb-6 text-left">
-              ⚠️ <strong>Your application is not yet complete.</strong> Upload
-              the documents below to send it for review. You can safely bookmark
-              this page or use "Track Your Application" later — your progress is
-              saved.
-            </div>
-          )}
-
-          {!queuedOffline && reference && (
-            <div className="text-left mb-8">
-              <DocumentUploadPanel
-                reference={reference}
-                phone={form.phone}
-                maritalStatus={form.maritalStatus}
-                primary={primary}
-                onStatusChange={setDocsComplete}
-              />
-            </div>
-          )}
-
-          <p className="text-gray-500 text-sm mb-4">
-            Questions? Call us at <strong>{tenant.contactPhone}</strong> or
-            email <strong>{tenant.contactEmail}</strong>
-          </p>
-
-          {!queuedOffline && reference && (
-            <a
-              href="/track"
-              className="inline-block px-6 py-2.5 rounded-md text-sm font-bold text-white shadow-sm hover:opacity-90 transition-opacity"
-              style={{
-                backgroundColor: primary,
-              }}
-            >
-              Track Your Application →
-            </a>
-          )}
+          <a
+            href="/track"
+            className="inline-block px-6 py-2.5 rounded-md text-sm font-bold text-white shadow-sm hover:opacity-90"
+            style={{ backgroundColor: primary }}
+          >
+            Track Your Application →
+          </a>
         </div>
       </div>
     );
@@ -1247,6 +1170,104 @@ export default function ApplyPage() {
                 ))}
               </div>
 
+              <div className="border border-amber-200 bg-amber-50 rounded-2xl p-5 mb-6">
+                <h3 className="font-extrabold text-gray-900 mb-2">
+                  Mandatory Documents
+                </h3>
+                <p className="text-sm text-amber-800 mb-4">
+                  The loan will not be created until every required document is
+                  uploaded.
+                </p>
+                <div className="space-y-3">
+                  {[
+                    ["NATIONAL_ID", "National ID"],
+                    ["BANK_STATEMENT", "Bank Statement — last 3 months"],
+                    [
+                      form.maritalStatus === "Married"
+                        ? "MARRIAGE_CERTIFICATE"
+                        : "SINGLE_CERTIFICATE",
+                      form.maritalStatus === "Married"
+                        ? "Marriage Certificate"
+                        : "Single Status Certificate",
+                    ],
+                    ["SELFIE", "Live Selfie"],
+                    ...([
+                      "EMPLOYEE",
+                      "EMPLOYED",
+                      "PERMANENT",
+                      "CONTRACT",
+                      "SALARIED",
+                    ].includes(employment)
+                      ? [["PAYSLIP", "Payslip"]]
+                      : []),
+                    ...([
+                      "SELF_EMPLOYED",
+                      "SELFEMPLOYED",
+                      "BUSINESS",
+                      "BUSINESS_OWNER",
+                      "COMPANY",
+                      "COMPANY_OWNER",
+                    ].includes(employment)
+                      ? [
+                          [
+                            "BUSINESS_REGISTRATION",
+                            "Business Registration / Company Certificate",
+                          ],
+                        ]
+                      : []),
+                  ].map(([type, label]) => {
+                    const key = type as string;
+                    const file = applicationDocuments[key];
+                    return (
+                      <div
+                        key={key}
+                        className="bg-white border border-gray-200 rounded-xl p-3"
+                      >
+                        <div className="flex items-center justify-between gap-3 mb-2">
+                          <span className="text-sm font-bold text-gray-800">
+                            {label} *
+                          </span>
+                          <span
+                            className={`text-xs font-bold ${file ? "text-green-700" : "text-red-600"}`}
+                          >
+                            {file ? "Uploaded ✓" : "Required"}
+                          </span>
+                        </div>
+                        {key === "SELFIE" ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setCameraOpen(true)}
+                              className="w-full px-4 py-2.5 rounded-xl font-bold text-white"
+                              style={{ backgroundColor: primary }}
+                            >
+                              {file ? "Retake Selfie" : "Take Selfie"}
+                            </button>
+                            {file && (
+                              <p className="text-xs text-gray-500 mt-2 truncate">
+                                {file.name}
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <input
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png,image/jpeg,image/png,application/pdf"
+                            className="w-full text-sm"
+                            onChange={(e) =>
+                              setApplicationDocuments((current) => ({
+                                ...current,
+                                [key]: e.target.files?.[0] || null,
+                              }))
+                            }
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               {error && (
                 <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 mb-4">
                   {error}
@@ -1394,6 +1415,19 @@ export default function ApplyPage() {
           </div>
         </div>
       </div>
+      {cameraOpen && (
+        <CameraCapture
+          primary={primary}
+          onClose={() => setCameraOpen(false)}
+          onCapture={(file) => {
+            setApplicationDocuments((current) => ({
+              ...current,
+              SELFIE: file,
+            }));
+            setCameraOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }
