@@ -76,6 +76,26 @@ async function refreshCsrfToken(): Promise<string | null> {
 }
 
 API.interceptors.request.use(async (config) => {
+  /*
+   * Browser multipart requests must NOT carry the JSON Content-Type header.
+   * When data is FormData, Axios/browser must generate:
+   *
+   *   Content-Type: multipart/form-data; boundary=...
+   *
+   * If Content-Type is forced manually, Spring can receive the request
+   * without a usable multipart boundary and MultipartFile may arrive empty.
+   */
+  if (typeof FormData !== "undefined" && config.data instanceof FormData) {
+    if (config.headers instanceof AxiosHeaders) {
+      config.headers.delete("Content-Type");
+      config.headers.delete("content-type");
+    } else if (config.headers) {
+      const headers = config.headers as Record<string, unknown>;
+      delete headers["Content-Type"];
+      delete headers["content-type"];
+    }
+  }
+
   if (!isMutationMethod(config.method)) {
     return config;
   }
@@ -1010,11 +1030,6 @@ export const publicApi = {
         reference.trim(),
       )}/documents/${fileId}/replace`,
       form,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
     ).then((response) => unwrap(response.data));
   },
 
@@ -1042,11 +1057,6 @@ export const publicApi = {
     return API.post(
       `/public/applications/${encodeURIComponent(reference.trim())}/documents`,
       form,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      },
     ).then((response) => unwrap(response.data));
   },
 };
