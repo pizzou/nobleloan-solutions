@@ -214,31 +214,44 @@ export default function AccountingPage() {
     setError("");
 
     try {
-      // The authenticated organization is supplied by the existing auth context.
-      const currentUser = JSON.parse(localStorage.getItem("user") || "null");
-      const orgId = Number(currentUser?.organizationId || 0);
+      const [
+        accountsResponse,
+        journalResponse,
+        trialResponse,
+        balanceSheetResponse,
+        pnlResponse,
+        cashFlowResponse,
+        branchSummaryResponse,
+        bankAccountsResponse,
+        branchesResponse,
+        dashboardResponse,
+      ] = await Promise.all([
+        accountingApi.chartOfAccounts().catch(() => []),
+        accountingApi.journal().catch(() => []),
+        accountingApi.trialBalance().catch(() => null),
+        accountingApi.balanceSheet().catch(() => null),
+        accountingApi.profitAndLoss().catch(() => null),
+        accountingApi.cashFlow().catch(() => null),
+        accountingApi.branchSummary().catch(() => []),
+        bankAccountApi.list().catch(() => []),
+        branchApi.list().catch(() => []),
+        loanApi.dashboard().catch(() => null),
+      ]);
 
-      if (!orgId) throw new Error("Current organization could not be determined.");
-
-      const [accountsResponse, accountingResponse, branchSummaryResponse, bankAccountsResponse, branchesResponse, dashboardResponse] =
-        await Promise.all([
-          accountingApi.chartOfAccounts().catch(() => []),
-          accountingApi.unifiedReport(orgId).catch(() => null),
-          accountingApi.branchSummary().catch(() => []),
-          bankAccountApi.list().catch(() => []),
-          branchApi.list().catch(() => []),
-          Promise.resolve(null),
-        ]);
-
-      const report = (accountingResponse as any)?.data ?? accountingResponse ?? {};
       setAccounts(accountsResponse as Account[]);
-      setJournal((report.journal ?? []) as JournalEntryRow[]);
-      setTrial((report.trialBalance ?? null) as TrialBalance | null);
-      setBalanceSheet((report.balanceSheet ?? null) as BalanceSheet | null);
-      setPnl((report.profitAndLoss ?? null) as ProfitAndLoss | null);
-      setCashFlow((report.cashFlow ?? null) as CashFlow | null);
+      setJournal(journalResponse as JournalEntryRow[]);
+      setTrial(trialResponse as TrialBalance | null);
+
+      setBalanceSheet(balanceSheetResponse as BalanceSheet | null);
+
+      setPnl(pnlResponse as ProfitAndLoss | null);
+
+      setCashFlow(cashFlowResponse as CashFlow | null);
+
       setBranchSummary(branchSummaryResponse as BranchSummaryRow[]);
+
       setBankAccounts(bankAccountsResponse as BankAccountRow[]);
+
       setBranches(branchesResponse as BranchRow[]);
       setControlTotals(dashboardResponse as typeof controlTotals);
     } catch (err) {
@@ -253,26 +266,6 @@ export default function AccountingPage() {
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
-
-  useEffect(() => {
-    if (tab !== "Journal") return;
-
-    let mounted = true;
-    void accountingApi.journal().then((response) => {
-      if (!mounted) return;
-      const payload = (response as any)?.data ?? response;
-      const rows = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload?.content)
-          ? payload.content
-          : [];
-      setJournal(rows as JournalEntryRow[]);
-    }).catch((error) => {
-      console.error("Failed to load accounting journal", error);
-    });
-
-    return () => { mounted = false; };
-  }, [tab]);
 
   /* =======================================================
      RECONCILE HISTORICAL LOAN ACCOUNTING

@@ -357,7 +357,7 @@ public class PublicController {
                         @PathVariable String reference,
                         @RequestParam String phone,
                         @RequestParam String documentType,
-                        @RequestPart(value = "file", required = false) MultipartFile file) throws Exception {
+                        @RequestPart("file") MultipartFile file) throws Exception {
 
                 Loan loan = verifyOwnership(
                                 reference,
@@ -372,7 +372,7 @@ public class PublicController {
                 if (file == null || file.isEmpty()) {
 
                         throw new RuntimeException(
-                                        "No document file was received. Please select a document and try again.");
+                                        "Please select a document to upload.");
                 }
 
                 DocumentType docType;
@@ -440,7 +440,7 @@ public class PublicController {
                         @PathVariable String reference,
                         @PathVariable Long fileId,
                         @RequestParam String phone,
-                        @RequestPart(value = "file", required = false) MultipartFile file) throws Exception {
+                        @RequestPart("file") MultipartFile file) throws Exception {
 
                 Loan loan = verifyOwnership(reference, phone);
 
@@ -450,7 +450,7 @@ public class PublicController {
                 }
 
                 if (file == null || file.isEmpty()) {
-                        throw new RuntimeException("No replacement file was received. Please select a document and try again.");
+                        throw new RuntimeException("Please select a replacement document.");
                 }
 
                 BorrowerFile existing = fileService.getById(fileId);

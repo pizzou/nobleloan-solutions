@@ -199,21 +199,6 @@ export default function DocumentUploadPanel({
 
   const doUpload = async (type: string, file: File | Blob) => {
     setError("");
-
-    if (!(file instanceof Blob) || file.size <= 0) {
-      setError(
-        type === "SELFIE"
-          ? "The selfie image was not captured correctly. Please take the selfie again."
-          : "The selected document is empty. Please choose another file.",
-      );
-      return;
-    }
-
-    if (type === "SELFIE" && !file.type.startsWith("image/")) {
-      setError("The selfie must be a valid image file.");
-      return;
-    }
-
     setUploadingType(type);
 
     try {
@@ -229,17 +214,6 @@ export default function DocumentUploadPanel({
 
   const doReplace = async (doc: DocItem, file: File | Blob) => {
     setError("");
-
-    if (!(file instanceof Blob) || file.size <= 0) {
-      setError("The replacement file is empty. Please choose another file.");
-      return;
-    }
-
-    if (doc.documentType === "SELFIE" && !file.type.startsWith("image/")) {
-      setError("The replacement selfie must be a valid image file.");
-      return;
-    }
-
     setUploadingType(doc.documentType);
 
     try {
