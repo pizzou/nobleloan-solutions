@@ -76,24 +76,14 @@ async function refreshCsrfToken(): Promise<string | null> {
 }
 
 API.interceptors.request.use(async (config) => {
-  /*
-   * Browser multipart requests must NOT carry the JSON Content-Type header.
-   * When data is FormData, Axios/browser must generate:
-   *
-   *   Content-Type: multipart/form-data; boundary=...
-   *
-   * If Content-Type is forced manually, Spring can receive the request
-   * without a usable multipart boundary and MultipartFile may arrive empty.
-   */
+  // Never send the JSON default Content-Type with FormData. The browser must
+  // generate the multipart boundary automatically; forcing multipart/form-data
+  // without that boundary can cause Spring/Tomcat to expose an empty MultipartFile
+  // in production even though a file was selected in the browser.
   if (typeof FormData !== "undefined" && config.data instanceof FormData) {
-    if (config.headers instanceof AxiosHeaders) {
-      config.headers.delete("Content-Type");
-      config.headers.delete("content-type");
-    } else if (config.headers) {
-      const headers = config.headers as Record<string, unknown>;
-      delete headers["Content-Type"];
-      delete headers["content-type"];
-    }
+    const headers = AxiosHeaders.from(config.headers);
+    headers.delete("Content-Type");
+    config.headers = headers;
   }
 
   if (!isMutationMethod(config.method)) {
@@ -539,11 +529,9 @@ export const expenseApi = {
       form.append("receipt", data.receipt);
     }
 
-    return API.post("/expenses", form, {
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
-    }).then((response) => unwrap(response.data));
+    return API.post("/expenses", form).then((response) =>
+      unwrap(response.data),
+    );
   },
 };
 
@@ -754,11 +742,6 @@ export const esignatureApi = {
  */
 
 export const accountingApi = {
-  unifiedReport: (organizationId: number, from?: string, to?: string) =>
-    get(
-      `/reports/accounting/${organizationId}${from && to ? `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}` : ""}`,
-    ),
-
   chartOfAccounts: () => get("/accounting/chart-of-accounts"),
 
   createAccount: (data: {
@@ -1019,11 +1002,24 @@ export const publicApi = {
 
     const resolvedFileName =
       fileName ||
-      ("name" in file && typeof file.name === "string"
+      ("name" in file && typeof file.name === "string" && file.name.trim()
         ? file.name
         : "replacement.jpg");
 
-    form.append("file", file, resolvedFileName);
+    if (file.size <= 0) {
+      throw new Error(
+        "The selected replacement document is empty. Please choose another file.",
+      );
+    }
+
+    const uploadFile =
+      file instanceof File
+        ? file
+        : new File([file], resolvedFileName, {
+            type: file.type || "application/octet-stream",
+          });
+
+    form.append("file", uploadFile);
 
     return API.post(
       `/public/applications/${encodeURIComponent(
@@ -1048,11 +1044,24 @@ export const publicApi = {
 
     const resolvedFileName =
       fileName ||
-      ("name" in file && typeof file.name === "string"
+      ("name" in file && typeof file.name === "string" && file.name.trim()
         ? file.name
         : "upload.jpg");
 
-    form.append("file", file, resolvedFileName);
+    if (file.size <= 0) {
+      throw new Error(
+        "The selected document is empty. Please choose another file.",
+      );
+    }
+
+    const uploadFile =
+      file instanceof File
+        ? file
+        : new File([file], resolvedFileName, {
+            type: file.type || "application/octet-stream",
+          });
+
+    form.append("file", uploadFile);
 
     return API.post(
       `/public/applications/${encodeURIComponent(reference.trim())}/documents`,
@@ -1080,9 +1089,6 @@ export const importApi = {
 
     return API.post("/import/legacy-loans/preview", form, {
       timeout: 120000,
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
     }).then((response) => unwrap(response.data));
   },
 
@@ -1091,11 +1097,9 @@ export const importApi = {
 
     form.append("file", file);
 
-    return API.post("/import/legacy-loans/commit", form, {
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
-    }).then((response) => unwrap(response.data));
+    return API.post("/import/legacy-loans/commit", form).then((response) =>
+      unwrap(response.data),
+    );
   },
 
   /**
