@@ -468,6 +468,7 @@ export const expenseApi = {
     chequeNumber?: string;
     paymentNotes?: string;
     receipt?: File | null;
+    approvalId: number;
   }) => {
     const form = new FormData();
 
@@ -475,6 +476,7 @@ export const expenseApi = {
     form.append("category", data.category);
     form.append("amount", String(data.amount));
     form.append("paymentAccountId", String(data.paymentAccountId));
+    form.append("approvalId", String(data.approvalId));
 
     if (data.branchId != null) {
       form.append("branchId", String(data.branchId));

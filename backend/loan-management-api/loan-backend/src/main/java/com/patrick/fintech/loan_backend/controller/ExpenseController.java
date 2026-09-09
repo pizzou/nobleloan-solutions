@@ -1,7 +1,6 @@
 package com.patrick.fintech.loan_backend.controller;
 
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
-import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Expense;
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
@@ -75,7 +74,7 @@ public class ExpenseController {
 
                         @RequestParam(value = "receipt", required = false) MultipartFile receipt,
 
-                        @RequestParam("approvalId") Long approvalId
+                        @RequestParam(value = "approvalId", required = false) Long approvalId
 
         ) throws Exception {
 
@@ -253,7 +252,7 @@ public class ExpenseController {
                 return ResponseEntity.ok(
                                 ApiResponse.safe(
                                                 "Expense recorded",
-                                                created));
+                                                toExpenseResponse(created)));
         }
 
         @GetMapping
@@ -387,9 +386,12 @@ public class ExpenseController {
                                                 page,
                                                 size));
 
+                Page<Map<String, Object>> responsePage =
+                                expenses.map(this::toExpenseResponse);
+
                 return ResponseEntity.ok(
                                 ApiResponse.safe(
-                                                expenses));
+                                                responsePage));
         }
 
         // ============================================================
@@ -474,7 +476,7 @@ public class ExpenseController {
 
                 return ResponseEntity.ok(
                                 ApiResponse.safe(
-                                                expense));
+                                                toExpenseResponse(expense)));
         }
 
         // ============================================================
@@ -539,7 +541,69 @@ public class ExpenseController {
                 return ResponseEntity.ok(
                                 ApiResponse.safe(
                                                 "Expense voided",
-                                                voided));
+                                                toExpenseResponse(voided)));
+        }
+
+        // ============================================================
+        // SAFE EXPENSE RESPONSE
+        // ============================================================
+
+        private Map<String, Object> toExpenseResponse(Expense expense) {
+                Map<String, Object> response = new java.util.LinkedHashMap<>();
+
+                response.put("id", expense.getId());
+                response.put("expenseDate", expense.getExpenseDate());
+                response.put("category", expense.getCategory() == null
+                                ? null
+                                : expense.getCategory().name());
+                response.put("amount", expense.getAmount());
+                response.put("currency", expense.getCurrency());
+                response.put("description", expense.getDescription());
+                response.put("status", expense.getStatus() == null
+                                ? null
+                                : expense.getStatus().name());
+
+                if (expense.getPaymentAccount() != null) {
+                        Map<String, Object> paymentAccount = new java.util.LinkedHashMap<>();
+                        paymentAccount.put("id", expense.getPaymentAccount().getId());
+                        paymentAccount.put("name", expense.getPaymentAccount().getName());
+                        response.put("paymentAccount", paymentAccount);
+                } else {
+                        response.put("paymentAccount", null);
+                }
+
+                if (expense.getBranch() != null) {
+                        Map<String, Object> branch = new java.util.LinkedHashMap<>();
+                        branch.put("id", expense.getBranch().getId());
+                        branch.put("name", expense.getBranch().getName());
+                        response.put("branch", branch);
+                } else {
+                        response.put("branch", null);
+                }
+
+                response.put("paymentMethod", expense.getPaymentMethod() == null
+                                ? null
+                                : expense.getPaymentMethod().name());
+                response.put("paymentProvider", expense.getPaymentProvider());
+                response.put("paymentPhoneNumber", expense.getPaymentPhoneNumber());
+                response.put("paymentTransactionReference", expense.getPaymentTransactionReference());
+                response.put("paymentCode", expense.getPaymentCode());
+                response.put("cardBrand", expense.getCardBrand());
+                response.put("cardLastFour", expense.getCardLastFour());
+                response.put("cardAuthorizationCode", expense.getCardAuthorizationCode());
+                response.put("chequeNumber", expense.getChequeNumber());
+                response.put("paymentNotes", expense.getPaymentNotes());
+                response.put("createdByName", expense.getCreatedByName());
+                response.put("createdAt", expense.getCreatedAt());
+                response.put("receiptFileName", expense.getReceiptFileName());
+                response.put("receiptFileType", expense.getReceiptFileType());
+                response.put("receiptFileSize", expense.getReceiptFileSize());
+                response.put("hasReceipt", expense.hasReceipt());
+                response.put("journalEntryId", expense.getJournalEntryId());
+                response.put("voidReason", expense.getVoidReason());
+                response.put("voidedAt", expense.getVoidedAt());
+
+                return response;
         }
 
         // ============================================================

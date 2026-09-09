@@ -89,8 +89,7 @@ public interface ExpenseRepository
             COALESCE(SUM(e.amount), 0)
         FROM Expense e
         WHERE e.organization.id = :orgId
-          AND e.status =
-              com.patrick.fintech.loan_backend.model.Expense$Status.POSTED
+          AND e.status = :status
           AND e.expenseDate >= :from
           AND e.expenseDate <= :to
         GROUP BY e.category
@@ -99,7 +98,8 @@ public interface ExpenseRepository
     List<Object[]> sumByCategory(
         @Param("orgId") Long orgId,
         @Param("from") LocalDate from,
-        @Param("to") LocalDate to
+        @Param("to") LocalDate to,
+        @Param("status") Expense.Status status
     );
 
     // ============================================================
@@ -111,15 +111,15 @@ public interface ExpenseRepository
             COALESCE(SUM(e.amount), 0)
         FROM Expense e
         WHERE e.organization.id = :orgId
-          AND e.status =
-              com.patrick.fintech.loan_backend.model.Expense$Status.POSTED
+          AND e.status = :status
           AND e.expenseDate >= :from
           AND e.expenseDate <= :to
         """)
     BigDecimal sumTotal(
         @Param("orgId") Long orgId,
         @Param("from") LocalDate from,
-        @Param("to") LocalDate to
+        @Param("to") LocalDate to,
+        @Param("status") Expense.Status status
     );
 
     // ============================================================
@@ -132,8 +132,7 @@ public interface ExpenseRepository
         FROM Expense e
         WHERE e.organization.id = :orgId
           AND e.paymentAccount.id = :paymentAccountId
-          AND e.status =
-              com.patrick.fintech.loan_backend.model.Expense$Status.POSTED
+          AND e.status = :status
           AND e.expenseDate >= :from
           AND e.expenseDate <= :to
         """)
@@ -162,8 +161,7 @@ public interface ExpenseRepository
         FROM Expense e
         WHERE e.organization.id = :orgId
           AND e.paymentAccount.id = :paymentAccountId
-          AND e.status =
-              com.patrick.fintech.loan_backend.model.Expense$Status.POSTED
+          AND e.status = :status
           AND e.expenseDate >= :from
           AND e.expenseDate <= :to
         ORDER BY e.expenseDate DESC, e.id DESC

@@ -9,6 +9,7 @@ import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -61,13 +62,13 @@ public class AuditPersistenceService {
     // instead
     // each is annotated separately and both delegate to the private, non-async
     // doPersist().
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void persist(Long orgId, Long actorId, String action, String entityType, String entityId,
             String description, String before, String after, String ip, String ua) {
         doPersist(orgId, actorId, action, entityType, entityId, description, before, after, ip, ua, null);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void persist(Long orgId, Long actorId, String action, String entityType, String entityId,
             String description, String before, String after, String ip, String ua,
             String moduleOverride) {

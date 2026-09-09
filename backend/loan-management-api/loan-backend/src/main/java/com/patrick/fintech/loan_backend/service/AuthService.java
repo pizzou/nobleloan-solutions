@@ -87,11 +87,17 @@ public class AuthService {
      * login forces them to set their own password before doing anything else.
      */
     public User registerByAdmin(RegisterRequest request) {
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("Email already registered: " + request.getEmail());
+        if (request == null) {
+            throw new IllegalArgumentException("Request body is required");
         }
-        if (request.getEmail() == null || request.getEmail().isBlank())
+        if (request.getEmail() == null || request.getEmail().isBlank()) {
             throw new RuntimeException("Email is required so we can send this user their login details.");
+        }
+
+        String normalizedEmail = request.getEmail().trim().toLowerCase();
+        if (userRepository.existsByEmail(normalizedEmail)) {
+            throw new RuntimeException("Email already registered: " + normalizedEmail);
+        }
 
         String roleName = request.getRole() != null ? request.getRole() : "LOAN_OFFICER";
         Role role = roleRepository.findByName(roleName)
@@ -104,7 +110,16 @@ public class AuthService {
 
         User user = new User();
         user.setName(request.getName());
-        user.setEmail(request.getEmail().trim().toLowerCase());
+        user.setEmail(normalizedEmail);
+
+        String phone = request.getPhone();
+        if (phone == null || phone.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Phone number is required so we can send this user their onboarding OTP.");
+        }
+        phone = phone.trim().replaceAll("\\s+", "");
+        user.setPhone(phone);
+
         user.setPassword(passwordEncoder.encode(tempPassword));
         user.setMustChangePassword(true);
         user.setRole(role);

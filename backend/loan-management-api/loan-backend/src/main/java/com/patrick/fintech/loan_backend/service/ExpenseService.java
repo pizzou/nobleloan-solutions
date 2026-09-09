@@ -110,8 +110,6 @@ public class ExpenseService {
             );
         }
 
-        financialApprovalService.requireApproved(approvalId, org, "EXPENSE", expenseDate + "|" + category + "|" + amount.setScale(2, java.math.RoundingMode.HALF_UP) + "|" + paymentAccountId);
-
         if (amount == null) {
             throw new IllegalArgumentException(
                 "Expense amount is required"
@@ -137,6 +135,25 @@ public class ExpenseService {
                 "Payment account is required"
             );
         }
+
+        if (approvalId == null) {
+            throw new IllegalArgumentException(
+                "Financial approval ID is required to record an expense"
+            );
+        }
+
+        String approvalOperationId =
+            expenseDate + "|"
+                + category.name() + "|"
+                + amount.setScale(2, RoundingMode.HALF_UP) + "|"
+                + paymentAccountId;
+
+        financialApprovalService.requireApproved(
+            approvalId,
+            org,
+            "EXPENSE",
+            approvalOperationId
+        );
 
         // ========================================================
         // PAYMENT ACCOUNT
@@ -525,7 +542,8 @@ public class ExpenseService {
             expenseRepository.sumByCategory(
                 orgId,
                 from,
-                to
+                to,
+                Expense.Status.POSTED
             );
 
         Map<String, Object> byCategory =
@@ -560,7 +578,8 @@ public class ExpenseService {
             expenseRepository.sumTotal(
                 orgId,
                 from,
-                to
+                to,
+                Expense.Status.POSTED
             );
 
         if (total == null) {
