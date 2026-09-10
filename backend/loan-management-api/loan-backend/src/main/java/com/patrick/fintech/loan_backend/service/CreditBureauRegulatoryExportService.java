@@ -328,8 +328,6 @@ public class CreditBureauRegulatoryExportService {
                 reportDate
         );
 
-        validateConsumerRequiredFields(loans);
-
         try (
                 XSSFWorkbook workbook = new XSSFWorkbook();
                 ByteArrayOutputStream output =
@@ -686,74 +684,6 @@ public class CreditBureauRegulatoryExportService {
         }
     }
 
-    /**
-     * Regulatory export gate for the CRB Consumer record.
-     *
-     * The account number is a facility field and is therefore sourced from
-     * Loan.referenceNumber. A record is rejected instead of silently producing
-     * an incomplete regulatory workbook.
-     */
-    private void validateConsumerRequiredFields(List<Loan> loans) {
-        if (loans == null || loans.isEmpty()) {
-            return;
-        }
-
-        List<String> errors = new ArrayList<>();
-
-        for (Loan loan : loans) {
-            if (loan == null) {
-                errors.add("A null loan record was encountered");
-                continue;
-            }
-
-            Borrower borrower = loan.getBorrower();
-
-            String reference = loan.getReferenceNumber();
-            String prefix = "Loan " + (reference == null || reference.isBlank()
-                    ? String.valueOf(loan.getId())
-                    : reference);
-
-            if (borrower == null) {
-                errors.add(prefix + ": borrower is missing");
-                continue;
-            }
-
-            if (borrower.getNationality() == null || borrower.getNationality().isBlank()) {
-                borrower.setNationality("Rwandan");
-            }
-            requireCrb(errors, prefix, "Place Of Birth", borrower.getPlaceOfBirth());
-            requireCrb(errors, prefix, "Physical Address Line 1",
-                    firstNonBlank(borrower.getAddressLine1(), borrower.getAddress()));
-            requireCrb(errors, prefix, "Physical Address Province",
-                    firstNonBlank(
-                            borrower.getPhysicalAddressProvince(),
-                            borrower.getStateProvince()));
-            requireCrb(errors, prefix, "Physical Address District",
-                    borrower.getPhysicalAddressDistrict());
-            requireCrb(errors, prefix, "Physical Address Sector",
-                    borrower.getPhysicalAddressSector());
-            requireCrb(errors, prefix, "Physical Address Cell",
-                    borrower.getPhysicalAddressCell());
-            requireCrb(errors, prefix, "Country", borrower.getCountry());
-            requireCrb(errors, prefix, "Account Number", loan.getReferenceNumber());
-        }
-
-        if (!errors.isEmpty()) {
-            throw new IllegalStateException(
-                    "CRB Consumer export validation failed: " + String.join("; ", errors));
-        }
-    }
-
-    private void requireCrb(
-            List<String> errors,
-            String prefix,
-            String field,
-            String value) {
-        if (value == null || value.isBlank()) {
-            errors.add(prefix + ": " + field + " is required");
-        }
-    }
-
     private void writeConsumerRow(
             Row row,
             Loan loan,
@@ -797,9 +727,6 @@ public class CreditBureauRegulatoryExportService {
         values[15] =
                 date(borrower.getDateOfBirth());
 
-        values[16] =
-                borrower.getPlaceOfBirth();
-
         values[20] =
                 borrower.getAddressLine2();
 
@@ -813,18 +740,7 @@ public class CreditBureauRegulatoryExportService {
                 borrower.getPostalCode();
 
         values[23] =
-                firstNonBlank(
-                        borrower.getPhysicalAddressProvince(),
-                        borrower.getStateProvince());
-
-        values[24] =
-                borrower.getPhysicalAddressDistrict();
-
-        values[25] =
-                borrower.getPhysicalAddressSector();
-
-        values[26] =
-                borrower.getPhysicalAddressCell();
+                borrower.getStateProvince();
 
         values[27] =
                 borrower.getCountry();
