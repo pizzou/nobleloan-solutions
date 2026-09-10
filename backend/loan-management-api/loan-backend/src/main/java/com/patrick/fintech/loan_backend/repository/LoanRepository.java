@@ -809,6 +809,67 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("to") LocalDateTime to);
 
     // ============================================================
+    // PORTFOLIO RISK / PAR ANALYTICS
+    // ============================================================
+
+    /**
+     * Single database aggregate for cumulative PAR analytics.
+     *
+     * Result order:
+     * 0 current portfolio loan count
+     * 1 current outstanding principal
+     * 2 PAR1 loan count
+     * 3 PAR1 amount
+     * 4 PAR7 loan count
+     * 5 PAR7 amount
+     * 6 PAR30 loan count
+     * 7 PAR30 amount
+     * 8 PAR60 loan count
+     * 9 PAR60 amount
+     * 10 PAR90 loan count
+     * 11 PAR90 amount
+     *
+     * PAR uses outstanding principal and persisted daysOverdue. The current
+     * receivable portfolio definition mirrors the dashboard/regulatory logic
+     * so imported historical loans are retained when they have an outstanding
+     * balance even if disbursedAt is unavailable.
+     */
+    @Query("""
+            SELECT
+                COUNT(l),
+                COALESCE(SUM(l.outstandingBalance), 0),
+                SUM(CASE WHEN l.daysOverdue >= 1 THEN 1 ELSE 0 END),
+                COALESCE(SUM(CASE WHEN l.daysOverdue >= 1 THEN l.outstandingBalance ELSE 0 END), 0),
+                SUM(CASE WHEN l.daysOverdue >= 7 THEN 1 ELSE 0 END),
+                COALESCE(SUM(CASE WHEN l.daysOverdue >= 7 THEN l.outstandingBalance ELSE 0 END), 0),
+                SUM(CASE WHEN l.daysOverdue >= 30 THEN 1 ELSE 0 END),
+                COALESCE(SUM(CASE WHEN l.daysOverdue >= 30 THEN l.outstandingBalance ELSE 0 END), 0),
+                SUM(CASE WHEN l.daysOverdue >= 60 THEN 1 ELSE 0 END),
+                COALESCE(SUM(CASE WHEN l.daysOverdue >= 60 THEN l.outstandingBalance ELSE 0 END), 0),
+                SUM(CASE WHEN l.daysOverdue >= 90 THEN 1 ELSE 0 END),
+                COALESCE(SUM(CASE WHEN l.daysOverdue >= 90 THEN l.outstandingBalance ELSE 0 END), 0)
+            FROM Loan l
+            WHERE l.organization.id = :organizationId
+              AND COALESCE(l.outstandingBalance, 0) > 0
+              AND l.status IN (
+                  'ACTIVE',
+                  'DISBURSED',
+                  'OVERDUE',
+                  'DEFAULTED',
+                  'RESTRUCTURED'
+              )
+              AND (
+                  l.imported = true
+                  OR l.importBatchId IS NOT NULL
+                  OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+                  OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+                  OR l.disbursedAt IS NOT NULL
+              )
+            """)
+    Object[] calculatePortfolioRiskMetrics(
+            @Param("organizationId") Long organizationId);
+
+    // ============================================================
     // EXISTS
     // ============================================================
 

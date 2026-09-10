@@ -105,6 +105,12 @@ const NAV_STAFF: NavSection[] = [
       },
 
       {
+        href: "/dashboard/reports/portfolio-risk",
+        icon: "⚠️",
+        label: "Portfolio Risk",
+      },
+
+      {
         href: "/dashboard/documents",
         icon: "🗂️",
         label: "Internal Documents",
