@@ -636,7 +636,9 @@ public class LendingIntelligenceService {
                 continue;
             }
             required(errors, loan, "NATIONAL_ID", borrower.getNationalId());
-            required(errors, loan, "NATIONALITY", borrower.getNationality());
+            if (borrower.getNationality() == null || borrower.getNationality().isBlank()) {
+                borrower.setNationality("Rwandan");
+            }
             required(errors, loan, "COUNTRY", borrower.getCountry());
             required(errors, loan, "PLACE_OF_BIRTH", borrower.getPlaceOfBirth());
             required(errors, loan, "PHYSICAL_ADDRESS", borrower.getAddressLine1() != null

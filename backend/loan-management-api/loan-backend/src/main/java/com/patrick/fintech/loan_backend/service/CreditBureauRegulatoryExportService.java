@@ -718,7 +718,9 @@ public class CreditBureauRegulatoryExportService {
                 continue;
             }
 
-            requireCrb(errors, prefix, "Nationality", borrower.getNationality());
+            if (borrower.getNationality() == null || borrower.getNationality().isBlank()) {
+                borrower.setNationality("Rwandan");
+            }
             requireCrb(errors, prefix, "Place Of Birth", borrower.getPlaceOfBirth());
             requireCrb(errors, prefix, "Physical Address Line 1",
                     firstNonBlank(borrower.getAddressLine1(), borrower.getAddress()));

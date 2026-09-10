@@ -14,6 +14,7 @@ public class BorrowerRequest {
     @NotBlank private String lastName;
     @Email   private String email;
     private String phone;
+    @NotBlank
     private String alternatePhone;
        @NotBlank(message = "National ID is required")
 @Pattern(
@@ -28,7 +29,6 @@ public class BorrowerRequest {
     private String gender;
     @NotBlank
     private String maritalStatus;
-    /** Optional on input; backend defaults blank/missing nationality to Rwandan. */
     private String nationality;
     @jakarta.validation.constraints.NotBlank(message = "Place of birth is required")
     private String placeOfBirth;

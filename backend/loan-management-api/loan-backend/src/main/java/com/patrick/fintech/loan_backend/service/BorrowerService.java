@@ -328,8 +328,10 @@ public class BorrowerService {
                     updated.getNationalId());
         }
 
-        if (updated.getNationality() != null) {
+        if (updated.getNationality() != null && !updated.getNationality().isBlank()) {
             b.setNationality(updated.getNationality().trim());
+        } else if (b.getNationality() == null || b.getNationality().isBlank()) {
+            b.setNationality("Rwandan");
         }
         if (updated.getPlaceOfBirth() != null) {
             b.setPlaceOfBirth(updated.getPlaceOfBirth().trim());
@@ -383,7 +385,9 @@ public class BorrowerService {
      * to the loan/facility (loan.referenceNumber), not to the borrower.
      */
     private void validateCrbRequiredFields(Borrower borrower) {
-        requireField(borrower.getNationality(), "Nationality");
+        if (borrower.getNationality() == null || borrower.getNationality().isBlank()) {
+            borrower.setNationality("Rwandan");
+        }
         requireField(borrower.getPlaceOfBirth(), "Place of birth");
         requireField(
                 firstNonBlank(borrower.getAddressLine1(), borrower.getAddress()),

@@ -392,6 +392,14 @@ public class LoanService {
                                         "Borrower does not belong to this organization");
                 }
 
+                // Regulatory invariant: nationality is optional in the UI for Rwanda-based
+                // lending, but the persisted borrower record must always contain a value.
+                // Do this before any underwriting/CRB validation can inspect the borrower.
+                if (borrower.getNationality() == null || borrower.getNationality().isBlank()) {
+                        borrower.setNationality("Rwandan");
+                        borrowerRepo.save(borrower);
+                }
+
                 if (borrower.getStatus() == Borrower.BorrowerStatus.BLACKLISTED) {
 
                         throw new RuntimeException(

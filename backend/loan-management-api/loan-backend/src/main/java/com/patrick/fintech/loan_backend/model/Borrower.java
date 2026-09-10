@@ -164,17 +164,17 @@ private User blacklistedBy;
     @PrePersist protected void onCreate() {
         createdAt = LocalDateTime.now(); updatedAt = LocalDateTime.now();
         if (status == null) status = BorrowerStatus.ACTIVE;
-        if (nationality == null || nationality.isBlank()) nationality = "Rwandan";
         if (kycStatus == null) kycStatus = "PENDING";
+        if (nationality == null || nationality.isBlank()) nationality = "Rwandan";
         phoneHash = com.patrick.fintech.loan_backend.security.HmacIndexer.index(phone);
         nationalIdHash = com.patrick.fintech.loan_backend.security.HmacIndexer.index(nationalId);
     }
 
     @PreUpdate protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+        if (nationality == null || nationality.isBlank()) nationality = "Rwandan";
         phoneHash = com.patrick.fintech.loan_backend.security.HmacIndexer.index(phone);
         nationalIdHash = com.patrick.fintech.loan_backend.security.HmacIndexer.index(nationalId);
-        if (nationality == null || nationality.isBlank()) nationality = "Rwandan";
     }
 
     public String getFullName() {

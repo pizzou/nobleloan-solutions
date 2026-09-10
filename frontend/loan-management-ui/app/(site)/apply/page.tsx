@@ -56,7 +56,7 @@ export default function ApplyPage() {
     spouseNationalId: "",
     spousePhone: "",
     spouseConsent: false,
-    nationality: "",
+    nationality: "Rwandan",
     placeOfBirth: "",
 
     // Address
@@ -269,8 +269,9 @@ export default function ApplyPage() {
       return;
     }
 
+    const nationality = form.nationality.trim() || "Rwandan";
+
     const crbRequiredFields: Array<[string, string]> = [
-      ["Nationality", form.nationality],
       ["Place of birth", form.placeOfBirth],
       ["Physical address", form.address],
       ["Province", form.province],
@@ -355,7 +356,7 @@ export default function ApplyPage() {
       const multipart = new FormData();
       multipart.append(
         "application",
-        JSON.stringify({ ...form, tenantSlug: slug }),
+        JSON.stringify({ ...form, nationality, tenantSlug: slug }),
       );
 
       const documentPartNames: Record<string, string> = {
@@ -691,6 +692,26 @@ export default function ApplyPage() {
                       </option>
                     ))}
                   </select>
+                </Field>
+
+                <Field label="Nationality" required>
+                  <input
+                    required
+                    className={inp}
+                    value={form.nationality || "Rwandan"}
+                    onChange={set("nationality")}
+                    placeholder="Rwandan"
+                  />
+                </Field>
+
+                <Field label="Place of Birth" required>
+                  <input
+                    required
+                    className={inp}
+                    value={form.placeOfBirth}
+                    onChange={set("placeOfBirth")}
+                    placeholder="City / District / Country"
+                  />
                 </Field>
 
                 <Field label="Marital Status">

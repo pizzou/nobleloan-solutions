@@ -2679,9 +2679,6 @@ public class PublicController {
                 }
 
                 String nationality = str(body.get("nationality"));
-                if (nationality == null || nationality.isBlank()) {
-                        nationality = "Rwandan";
-                }
                 String placeOfBirth = str(body.get("placeOfBirth"));
                 String physicalAddressProvince = str(body.get("province"));
                 String physicalAddressDistrict = str(body.get("district"));
@@ -2689,7 +2686,7 @@ public class PublicController {
                 String physicalAddressCell = str(body.get("cell"));
                 String country = str(body.get("country"));
 
-                // Nationality defaults to Rwandan when the applicant does not provide one.
+                requirePublicCrbField(nationality, "Nationality");
                 requirePublicCrbField(placeOfBirth, "Place of birth");
                 requirePublicCrbField(physicalAddressProvince, "Physical address province");
                 requirePublicCrbField(physicalAddressDistrict, "Physical address district");
