@@ -638,9 +638,16 @@ public class LendingIntelligenceService {
             required(errors, loan, "NATIONAL_ID", borrower.getNationalId());
             required(errors, loan, "NATIONALITY", borrower.getNationality());
             required(errors, loan, "COUNTRY", borrower.getCountry());
+            required(errors, loan, "PLACE_OF_BIRTH", borrower.getPlaceOfBirth());
             required(errors, loan, "PHYSICAL_ADDRESS", borrower.getAddressLine1() != null
                     ? borrower.getAddressLine1() : borrower.getAddress());
-            required(errors, loan, "PHYSICAL_ADDRESS_PROVINCE", borrower.getStateProvince());
+            required(errors, loan, "PHYSICAL_ADDRESS_PROVINCE",
+                    borrower.getPhysicalAddressProvince() != null
+                            ? borrower.getPhysicalAddressProvince()
+                            : borrower.getStateProvince());
+            required(errors, loan, "PHYSICAL_ADDRESS_DISTRICT", borrower.getPhysicalAddressDistrict());
+            required(errors, loan, "PHYSICAL_ADDRESS_SECTOR", borrower.getPhysicalAddressSector());
+            required(errors, loan, "PHYSICAL_ADDRESS_CELL", borrower.getPhysicalAddressCell());
             required(errors, loan, "ACCOUNT_NUMBER", loan.getReferenceNumber());
             required(errors, loan, "CURRENCY", loan.getCurrency());
             if (loan.getAmount() == null || loan.getAmount().signum() < 0) {
@@ -656,7 +663,7 @@ public class LendingIntelligenceService {
                 "Physical Address Province", "Physical Address District",
                 "Physical Address Sector", "Physical Address Cell", "Country",
                 "Account Number"));
-        result.put("note", "Fields not represented by the current Borrower entity are reported as unavailable by the CRB export integration rather than populated with guessed values.");
+        result.put("note", "Account Number is sourced from Loan.referenceNumber. CRB location fields are stored explicitly on Borrower; no regulatory value is guessed.");
         return result;
     }
 

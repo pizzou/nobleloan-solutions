@@ -23,6 +23,7 @@ public class BorrowerResponse {
     private String gender;
     private String maritalStatus;
     private String nationality;
+    private String placeOfBirth;
     private Boolean imported;
     private Long importBatchId;
     private String address;
@@ -30,6 +31,11 @@ public class BorrowerResponse {
     private String addressLine2;
     private String city;
     private String stateProvince;
+    private String physicalAddressProvince;
+    private String physicalAddressDistrict;
+    private String physicalAddressSector;
+    private String physicalAddressCell;
+    private String physicalAddressVillage;
     private String postalCode;
     private String country;
     private String employerName;

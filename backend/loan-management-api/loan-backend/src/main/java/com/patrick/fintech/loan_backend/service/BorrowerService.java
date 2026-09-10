@@ -64,6 +64,7 @@ public class BorrowerService {
         // --------------------------------------------------------
 
         validateMinimumAge(borrower.getDateOfBirth());
+        validateCrbRequiredFields(borrower);
 
         // --------------------------------------------------------
         // NATIONAL ID DUPLICATE CHECK
@@ -327,6 +328,34 @@ public class BorrowerService {
                     updated.getNationalId());
         }
 
+        if (updated.getNationality() != null) {
+            b.setNationality(updated.getNationality().trim());
+        }
+        if (updated.getPlaceOfBirth() != null) {
+            b.setPlaceOfBirth(updated.getPlaceOfBirth().trim());
+        }
+        if (updated.getAddressLine1() != null) {
+            b.setAddressLine1(updated.getAddressLine1().trim());
+        }
+        if (updated.getPhysicalAddressProvince() != null) {
+            b.setPhysicalAddressProvince(updated.getPhysicalAddressProvince().trim());
+        }
+        if (updated.getPhysicalAddressDistrict() != null) {
+            b.setPhysicalAddressDistrict(updated.getPhysicalAddressDistrict().trim());
+        }
+        if (updated.getPhysicalAddressSector() != null) {
+            b.setPhysicalAddressSector(updated.getPhysicalAddressSector().trim());
+        }
+        if (updated.getPhysicalAddressCell() != null) {
+            b.setPhysicalAddressCell(updated.getPhysicalAddressCell().trim());
+        }
+        if (updated.getPhysicalAddressVillage() != null) {
+            b.setPhysicalAddressVillage(updated.getPhysicalAddressVillage().trim());
+        }
+        if (updated.getCountry() != null) {
+            b.setCountry(updated.getCountry().trim());
+        }
+
         if (updated.getCreditScore() != null) {
             b.setCreditScore(
                     updated.getCreditScore());
@@ -338,6 +367,49 @@ public class BorrowerService {
         }
 
         return repo.save(b);
+    }
+
+    // ============================================================
+    // CRB REQUIRED BORROWER FIELDS
+    // ============================================================
+
+    /**
+     * The CRB Consumer report marks the following identity/location fields
+     * as mandatory for a consumer record. These are validated when a new
+     * borrower is created so the database cannot accumulate incomplete
+     * profiles that later fail regulatory export.
+     *
+     * Account Number is deliberately not validated here because it belongs
+     * to the loan/facility (loan.referenceNumber), not to the borrower.
+     */
+    private void validateCrbRequiredFields(Borrower borrower) {
+        requireField(borrower.getNationality(), "Nationality");
+        requireField(borrower.getPlaceOfBirth(), "Place of birth");
+        requireField(
+                firstNonBlank(borrower.getAddressLine1(), borrower.getAddress()),
+                "Physical address line 1");
+        requireField(
+                firstNonBlank(
+                        borrower.getPhysicalAddressProvince(),
+                        borrower.getStateProvince()),
+                "Physical address province");
+        requireField(borrower.getPhysicalAddressDistrict(), "Physical address district");
+        requireField(borrower.getPhysicalAddressSector(), "Physical address sector");
+        requireField(borrower.getPhysicalAddressCell(), "Physical address cell");
+        requireField(borrower.getCountry(), "Country");
+    }
+
+    private void requireField(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(fieldName + " is required for CRB-compliant borrower registration");
+        }
+    }
+
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first.trim();
+        }
+        return second == null ? null : second.trim();
     }
 
     // ============================================================

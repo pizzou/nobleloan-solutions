@@ -91,6 +91,8 @@ public class Borrower {
     private String    spousePhone;
     private Boolean   spouseConsent;              // spouse consents to the loan/collateral use
     private String    nationality;       // ISO-3166 alpha-2
+    /** CRB Consumer: exact place of birth. */
+    private String    placeOfBirth;
 
       @Builder.Default
     private Boolean imported = false;
@@ -104,6 +106,16 @@ public class Borrower {
     private String addressLine2;
     private String city;
     private String stateProvince;
+    /** CRB Consumer: physical address province. Kept separate from stateProvince so the regulatory field is explicit. */
+    private String physicalAddressProvince;
+    /** CRB Consumer: physical address district. */
+    private String physicalAddressDistrict;
+    /** CRB Consumer: physical address sector. */
+    private String physicalAddressSector;
+    /** CRB Consumer: physical address cell. */
+    private String physicalAddressCell;
+    /** CRB Consumer: physical address village, also useful for BNR reporting. */
+    private String physicalAddressVillage;
     private String postalCode;
     private String country;
 

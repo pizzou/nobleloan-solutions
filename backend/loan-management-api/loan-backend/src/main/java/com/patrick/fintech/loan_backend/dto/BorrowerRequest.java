@@ -29,13 +29,27 @@ public class BorrowerRequest {
     private String gender;
     @NotBlank
     private String maritalStatus;
+    @jakarta.validation.constraints.NotBlank(message = "Nationality is required")
     private String nationality;
+    @jakarta.validation.constraints.NotBlank(message = "Place of birth is required")
+    private String placeOfBirth;
+    @jakarta.validation.constraints.NotBlank(message = "Physical address line 1 is required")
     private String addressLine1;
     private String addressLine2;
     private String city;
     private String stateProvince;
-    private String postalCode;
+    @jakarta.validation.constraints.NotBlank(message = "Physical address province is required")
+    private String physicalAddressProvince;
+    @jakarta.validation.constraints.NotBlank(message = "Physical address district is required")
+    private String physicalAddressDistrict;
+    @jakarta.validation.constraints.NotBlank(message = "Physical address sector is required")
+    private String physicalAddressSector;
+    @jakarta.validation.constraints.NotBlank(message = "Physical address cell is required")
+    private String physicalAddressCell;
+    private String physicalAddressVillage;
+    @jakarta.validation.constraints.NotBlank(message = "Country is required")
     private String country;
+    private String postalCode;
     private String employerName;
     private String employmentType;
     private String jobTitle;

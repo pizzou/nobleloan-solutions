@@ -251,6 +251,8 @@ public class BorrowerController {
 
                                 .nationality(
                                                 req.getNationality())
+                                .placeOfBirth(
+                                                req.getPlaceOfBirth())
 
                                 // ------------------------------------------------
                                 // ADDRESS
@@ -267,6 +269,16 @@ public class BorrowerController {
 
                                 .stateProvince(
                                                 req.getStateProvince())
+                                .physicalAddressProvince(
+                                                req.getPhysicalAddressProvince())
+                                .physicalAddressDistrict(
+                                                req.getPhysicalAddressDistrict())
+                                .physicalAddressSector(
+                                                req.getPhysicalAddressSector())
+                                .physicalAddressCell(
+                                                req.getPhysicalAddressCell())
+                                .physicalAddressVillage(
+                                                req.getPhysicalAddressVillage())
 
                                 .postalCode(
                                                 req.getPostalCode())
@@ -373,7 +385,7 @@ public class BorrowerController {
         public ResponseEntity<ApiResponse<BorrowerResponse>> update(
                         @PathVariable Long id,
 
-                        @RequestBody BorrowerRequest req) {
+                        @Valid @RequestBody BorrowerRequest req) {
 
                 Organization org = currentUserUtil
                                 .getCurrentUser()
@@ -425,6 +437,34 @@ public class BorrowerController {
 
                         borrower.setPhone(
                                         req.getPhone());
+                }
+
+                if (req.getPlaceOfBirth() != null) {
+                        borrower.setPlaceOfBirth(req.getPlaceOfBirth());
+                }
+                if (req.getNationality() != null) {
+                        borrower.setNationality(req.getNationality());
+                }
+                if (req.getAddressLine1() != null) {
+                        borrower.setAddressLine1(req.getAddressLine1());
+                }
+                if (req.getPhysicalAddressProvince() != null) {
+                        borrower.setPhysicalAddressProvince(req.getPhysicalAddressProvince());
+                }
+                if (req.getPhysicalAddressDistrict() != null) {
+                        borrower.setPhysicalAddressDistrict(req.getPhysicalAddressDistrict());
+                }
+                if (req.getPhysicalAddressSector() != null) {
+                        borrower.setPhysicalAddressSector(req.getPhysicalAddressSector());
+                }
+                if (req.getPhysicalAddressCell() != null) {
+                        borrower.setPhysicalAddressCell(req.getPhysicalAddressCell());
+                }
+                if (req.getPhysicalAddressVillage() != null) {
+                        borrower.setPhysicalAddressVillage(req.getPhysicalAddressVillage());
+                }
+                if (req.getCountry() != null) {
+                        borrower.setCountry(req.getCountry());
                 }
 
                 // ========================================================

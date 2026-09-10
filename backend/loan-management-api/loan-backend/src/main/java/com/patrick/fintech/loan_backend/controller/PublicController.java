@@ -2678,6 +2678,26 @@ public class PublicController {
                                         "Marital status is required");
                 }
 
+                String nationality = str(body.get("nationality"));
+                String placeOfBirth = str(body.get("placeOfBirth"));
+                String physicalAddressProvince = str(body.get("province"));
+                String physicalAddressDistrict = str(body.get("district"));
+                String physicalAddressSector = str(body.get("sector"));
+                String physicalAddressCell = str(body.get("cell"));
+                String country = str(body.get("country"));
+
+                requirePublicCrbField(nationality, "Nationality");
+                requirePublicCrbField(placeOfBirth, "Place of birth");
+                requirePublicCrbField(physicalAddressProvince, "Physical address province");
+                requirePublicCrbField(physicalAddressDistrict, "Physical address district");
+                requirePublicCrbField(physicalAddressSector, "Physical address sector");
+                requirePublicCrbField(physicalAddressCell, "Physical address cell");
+
+                if (country == null || country.isBlank()) {
+                        country = org.getCountry();
+                }
+                requirePublicCrbField(country, "Country");
+
                 String nationalId = str(
                                 body.get("nationalId"));
 
@@ -2828,6 +2848,9 @@ public class PublicController {
                 borrower.setMaritalStatus(
                                 maritalStatus);
 
+                borrower.setNationality(nationality);
+                borrower.setPlaceOfBirth(placeOfBirth);
+
                 borrower.setSingleCertificateNumber(
                                 str(
                                                 body.get(
@@ -2873,12 +2896,20 @@ public class PublicController {
                                                                 "city")));
 
                 borrower.setStateProvince(
-                                str(
-                                                body.get(
-                                                                "province")));
+                                physicalAddressProvince);
 
-                borrower.setCountry(
-                                org.getCountry());
+                borrower.setPhysicalAddressProvince(
+                                physicalAddressProvince);
+                borrower.setPhysicalAddressDistrict(
+                                physicalAddressDistrict);
+                borrower.setPhysicalAddressSector(
+                                physicalAddressSector);
+                borrower.setPhysicalAddressCell(
+                                physicalAddressCell);
+                borrower.setPhysicalAddressVillage(
+                                str(body.get("village")));
+
+                borrower.setCountry(country);
 
                 borrower.setEmploymentType(
                                 str(
@@ -4336,6 +4367,17 @@ public class PublicController {
                 } catch (Exception e) {
 
                         return null;
+                }
+        }
+
+
+        private void requirePublicCrbField(
+                        String value,
+                        String fieldName) {
+
+                if (value == null || value.isBlank()) {
+                        throw new IllegalArgumentException(
+                                        fieldName + " is required for CRB-compliant loan applications");
                 }
         }
 

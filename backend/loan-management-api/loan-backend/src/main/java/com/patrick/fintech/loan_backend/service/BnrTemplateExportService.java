@@ -3233,10 +3233,16 @@ public class BnrTemplateExportService {
                 loan.getBranch() == null ? null : loan.getBranch().getName(),
                 blankIfNull(loan.getCollateralDescription()),
                 collateral,
-                borrower == null ? null : borrower.getStateProvince(),
-                null,
-                null,
-                null,
+                borrower == null
+                        ? null
+                        : (borrower.getPhysicalAddressProvince() != null
+                                && !borrower.getPhysicalAddressProvince().isBlank()
+                                ? borrower.getPhysicalAddressProvince()
+                                : borrower.getStateProvince()),
+                borrower == null ? null : borrower.getPhysicalAddressDistrict(),
+                borrower == null ? null : borrower.getPhysicalAddressSector(),
+                borrower == null ? null : borrower.getPhysicalAddressCell(),
+                borrower == null ? null : borrower.getPhysicalAddressVillage(),
                 money(loan.getInterestRateDecimal() == null
                         ? Loan.DEFAULT_MONTHLY_INTEREST_RATE
                         : loan.getInterestRateDecimal()),
