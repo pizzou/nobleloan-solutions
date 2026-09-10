@@ -10,7 +10,20 @@ public final class FinancialPolicy {
         public static final BigDecimal MONTHLY_INTEREST_RATE = new BigDecimal("5.00");
         public static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = new BigDecimal("5.00");
         public static final BigDecimal APPLICATION_FEE_RATE = new BigDecimal("2.00");
-        public static final BigDecimal MONTHLY_PENALTY_RATE = new BigDecimal("15.00");
+        /**
+         * Overdue penalty is 10% of the outstanding principal per chargeable day.
+         * The first three calendar days after the contractual due date are a
+         * penalty-free grace period.
+         */
+        public static final BigDecimal DAILY_PENALTY_RATE = new BigDecimal("10.00");
+        public static final int PENALTY_GRACE_DAYS = 3;
+
+        /**
+         * @deprecated Kept only for binary/source compatibility with older callers.
+         * New penalty calculations must use DAILY_PENALTY_RATE directly.
+         */
+        @Deprecated
+        public static final BigDecimal MONTHLY_PENALTY_RATE = DAILY_PENALTY_RATE;
         public static final BigDecimal EXTENSION_FEE_RATE = new BigDecimal("10.00");
 
         private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
@@ -127,6 +140,52 @@ public final class FinancialPolicy {
                 }
 
                 return total.setScale(2, ROUNDING);
+        }
+
+        /**
+         * Calculates overdue penalty using the final policy:
+         * - 3 calendar-day grace period after the due date;
+         * - from day 4 onward, 10% of the outstanding principal per day;
+         * - penalty is never charged on the grace days.
+         */
+        public static BigDecimal dailyPenalty(
+                        BigDecimal outstandingPrincipal,
+                        int daysLate) {
+
+                if (outstandingPrincipal == null
+                                || outstandingPrincipal.signum() <= 0
+                                || daysLate <= PENALTY_GRACE_DAYS) {
+                        return BigDecimal.ZERO.setScale(2, ROUNDING);
+                }
+
+                int chargeableDays = daysLate - PENALTY_GRACE_DAYS;
+
+                return outstandingPrincipal
+                                .multiply(DAILY_PENALTY_RATE)
+                                .divide(ONE_HUNDRED, RATE_SCALE, ROUNDING)
+                                .multiply(BigDecimal.valueOf(chargeableDays))
+                                .setScale(2, ROUNDING);
+        }
+
+        /**
+         * Calculates the penalty for a newly chargeable interval.
+         * Each chargeable day is assessed at 10% of the outstanding principal.
+         */
+        public static BigDecimal dailyPenaltyForDays(
+                        BigDecimal outstandingPrincipal,
+                        int chargeableDays) {
+
+                if (outstandingPrincipal == null
+                                || outstandingPrincipal.signum() <= 0
+                                || chargeableDays <= 0) {
+                        return BigDecimal.ZERO.setScale(2, ROUNDING);
+                }
+
+                return outstandingPrincipal
+                                .multiply(DAILY_PENALTY_RATE)
+                                .divide(ONE_HUNDRED, RATE_SCALE, ROUNDING)
+                                .multiply(BigDecimal.valueOf(chargeableDays))
+                                .setScale(2, ROUNDING);
         }
 
         public static ScheduleLine contractualScheduleLine(

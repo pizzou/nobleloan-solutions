@@ -4,7 +4,6 @@ import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -45,13 +44,17 @@ class FinancialCalculationServiceTest {
     }
 
     @Test
-    void dailyCalculationIsUsedOnlyForExplicitPenaltyProducts() {
-        BigDecimal penalty = FinancialPolicy.accrueDaily(
-                new BigDecimal("1000.00"),
-                LocalDate.of(2026, 1, 1),
-                LocalDate.of(2026, 1, 3),
-                FinancialPolicy.MONTHLY_PENALTY_RATE);
+    void penaltyUsesThreeDayGraceAndTenPercentPerChargeableDay() {
+        assertEquals(
+                new BigDecimal("0.00"),
+                service.penalty(new BigDecimal("1000.00"), 3));
 
-        assertEquals(new BigDecimal("9.68"), penalty);
+        assertEquals(
+                new BigDecimal("100.00"),
+                service.penalty(new BigDecimal("1000.00"), 4));
+
+        assertEquals(
+                new BigDecimal("300.00"),
+                service.penalty(new BigDecimal("1000.00"), 6));
     }
 }

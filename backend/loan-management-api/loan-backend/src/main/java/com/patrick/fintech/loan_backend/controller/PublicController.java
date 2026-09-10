@@ -4089,6 +4089,9 @@ public class PublicController {
                         requirePublicDocument(marriageCertificateFile, "Marriage Certificate");
                 } else if ("SINGLE".equalsIgnoreCase(maritalStatus)) {
                         requirePublicDocument(singleCertificateFile, "Single Status Certificate");
+                } else {
+                        throw new IllegalArgumentException(
+                                        "Marital status must be Married or Single, and the corresponding certificate is mandatory.");
                 }
 
                 if (isEmployeeEmploymentType(employmentType)) {
@@ -4107,12 +4110,18 @@ public class PublicController {
         private void saveRequiredPublicApplicationDocument(
                         Long borrowerId,
                         MultipartFile file,
-                        DocumentType documentType) throws Exception {
-                BorrowerFile saved = fileService.upload(
+                        DocumentType documentType) {
+                final BorrowerFile saved;
+                try {
+                        saved = fileService.upload(
                                 borrowerId,
                                 file,
                                 documentType,
                                 true);
+                } catch (java.io.IOException ex) {
+                        throw new IllegalStateException(
+                                        "Failed to persist mandatory " + documentType.name() + " document.", ex);
+                }
                 if (saved == null || saved.getId() == null) {
                         throw new IllegalStateException(
                                         "Failed to persist mandatory " + documentType.name() + " document.");

@@ -15,7 +15,8 @@ class FinancialPolicyTest {
                 assertEquals(new BigDecimal("5.00"), FinancialPolicy.MONTHLY_INTEREST_RATE);
                 assertEquals(new BigDecimal("5.00"), FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE);
                 assertEquals(new BigDecimal("2.00"), FinancialPolicy.APPLICATION_FEE_RATE);
-                assertEquals(new BigDecimal("15.00"), FinancialPolicy.MONTHLY_PENALTY_RATE);
+                assertEquals(new BigDecimal("10.00"), FinancialPolicy.DAILY_PENALTY_RATE);
+                assertEquals(3, FinancialPolicy.PENALTY_GRACE_DAYS);
                 assertEquals(new BigDecimal("10.00"), FinancialPolicy.EXTENSION_FEE_RATE);
         }
 
@@ -114,16 +115,20 @@ class FinancialPolicyTest {
         }
 
         @Test
-        void dailyAccrualRemainsAvailableForPenaltyProductsOnly() {
-                BigDecimal penalty = FinancialPolicy.accrueDaily(
-                                new BigDecimal("1000000.00"),
-                                LocalDate.of(2026, 1, 30),
-                                LocalDate.of(2026, 2, 2),
-                                FinancialPolicy.MONTHLY_PENALTY_RATE);
+        void penaltyHasThreeDayGraceAndThenChargesTenPercentPerDay() {
+                BigDecimal principal = new BigDecimal("1000000.00");
 
-                // Daily accrual is retained only for explicitly daily products such as
-                // penalties.
-                assertEquals(new BigDecimal("15034.56"), penalty);
+                assertEquals(
+                                new BigDecimal("0.00"),
+                                FinancialPolicy.dailyPenalty(principal, 3));
+
+                assertEquals(
+                                new BigDecimal("100000.00"),
+                                FinancialPolicy.dailyPenalty(principal, 4));
+
+                assertEquals(
+                                new BigDecimal("300000.00"),
+                                FinancialPolicy.dailyPenalty(principal, 6));
         }
 
         @Test

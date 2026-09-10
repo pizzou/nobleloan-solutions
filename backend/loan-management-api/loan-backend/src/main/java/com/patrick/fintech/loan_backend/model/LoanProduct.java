@@ -148,7 +148,7 @@ public class LoanProduct {
 
         public static final BigDecimal DEFAULT_MANAGEMENT_FEE_PERCENT = FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE;
 
-        public static final BigDecimal DEFAULT_PENALTY_PERCENT = FinancialPolicy.MONTHLY_PENALTY_RATE;
+        public static final BigDecimal DEFAULT_PENALTY_PERCENT = FinancialPolicy.DAILY_PENALTY_RATE;
 
         public static final String DEFAULT_INTEREST_RATE_TYPE = "MONTHLY";
 

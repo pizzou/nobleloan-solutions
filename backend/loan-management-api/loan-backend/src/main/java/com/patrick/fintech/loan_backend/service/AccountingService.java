@@ -1984,8 +1984,8 @@ public class AccountingService {
         // ============================================================
 
         /**
-         * Records daily late-payment penalty as a receivable. The platform
-         * policy is 15% per month accrued by actual calendar day.
+         * Records the daily late-payment penalty as a receivable. The platform
+         * policy is 10% of outstanding principal per chargeable day after a 3-day grace period.
          */
         @Transactional
         public JournalEntry postPenaltyAccrual(
@@ -2030,7 +2030,7 @@ public class AccountingService {
                                 "PENALTY_ACCRUAL",
                                 sourceId,
                                 reference,
-                                "15% monthly / calendar-day penalty accrual for " + reference
+                                "10% daily penalty accrual after 3-day grace period for " + reference
                                                 + " (" + accrualDate + ")",
                                 List.of(
                                                 JournalLine.builder()

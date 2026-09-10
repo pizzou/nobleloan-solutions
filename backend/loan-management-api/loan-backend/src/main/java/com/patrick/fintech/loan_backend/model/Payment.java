@@ -220,11 +220,11 @@ public class Payment {
          *
          * Platform rule:
          *
-         * 15% per month.
+         * 10% per chargeable day after a 3-day grace period.
          *
          * Using a 30-day month:
          *
-         * 15% / 30 = 0.5% per overdue day.
+         * 10% per chargeable overdue day after the grace period.
          */
         @Column(name = "penalty", precision = 19, scale = 2)
         @Builder.Default

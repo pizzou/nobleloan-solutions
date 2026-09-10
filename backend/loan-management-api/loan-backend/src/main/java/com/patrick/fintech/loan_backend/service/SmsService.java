@@ -64,7 +64,7 @@ public class SmsService {
 
         private static final BigDecimal APPLICATION_FEE_RATE = new BigDecimal("2.00");
 
-        private static final BigDecimal MONTHLY_PENALTY_RATE = new BigDecimal("15.00");
+        private static final BigDecimal DAILY_PENALTY_RATE = new BigDecimal("10.00");
 
         // ================================================================
         // LOAN APPROVED
@@ -272,7 +272,7 @@ public class SmsService {
 
                                                 "REMINDER: Payment of %s %s is due %s "
                                                                 + "for loan %s. "
-                                                                + "Overdue penalty is 15%% per month, "
+                                                                + "Overdue penalty is 10%% per day after a 3-day grace period, "
                                                                 + "calculated daily. "
                                                                 + "Please pay on time. -%s",
 
@@ -374,7 +374,7 @@ public class SmsService {
 
                                                 "URGENT: Loan %s is %d day(s) overdue. "
                                                                 + "Outstanding principal: %s %s. "
-                                                                + "Penalty: 15%% per month, calculated "
+                                                                + "Penalty: 10%% per day after a 3-day grace period, calculated "
                                                                 + "daily on overdue exposure. "
                                                                 + "Please contact us immediately. -%s",
 

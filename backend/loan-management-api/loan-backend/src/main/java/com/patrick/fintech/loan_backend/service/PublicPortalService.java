@@ -424,7 +424,7 @@ public class PublicPortalService {
          *
          * 5% monthly interest
          * 5% monthly management fee
-         * 15% monthly penalty when overdue
+         * 10% daily penalty after a 3-day grace period when overdue
          *
          * Interest and management fee accrue on the outstanding
          * principal balance.
@@ -604,22 +604,26 @@ public class PublicPortalService {
                                                 installment.getDaysLate())
                                 : 0;
 
+                int previouslyChargeablePenaltyDays = Math.max(
+                                0,
+                                recordedOverdueDays - FinancialPolicy.PENALTY_GRACE_DAYS);
+
+                int currentlyChargeablePenaltyDays = Math.max(
+                                0,
+                                daysLate - FinancialPolicy.PENALTY_GRACE_DAYS);
+
                 int newPenaltyDays = Math.max(
                                 0,
-                                daysLate - recordedOverdueDays);
+                                currentlyChargeablePenaltyDays - previouslyChargeablePenaltyDays);
 
                 BigDecimal newPenalty = ZERO;
 
                 if (newPenaltyDays > 0
-                                && currentBalance.compareTo(
-                                                ZERO) > 0) {
-
+                                && currentBalance.compareTo(ZERO) > 0) {
                         newPenalty = money(
-                                        FinancialPolicy.accrueDaily(
+                                        FinancialPolicy.dailyPenaltyForDays(
                                                         currentBalance,
-                                                        cycleDueDate.plusDays(recordedOverdueDays),
-                                                        today.plusDays(1),
-                                                        FinancialPolicy.MONTHLY_PENALTY_RATE));
+                                                        newPenaltyDays));
                 }
 
                 BigDecimal totalPenalty = money(
@@ -646,14 +650,16 @@ public class PublicPortalService {
                  * + management fee
                  * + outstanding principal
                  */
+                BigDecimal extensionFeeOutstanding = safe(
+                                loan.getExtensionFeeOutstandingDecimal())
+                                .max(ZERO);
+
                 BigDecimal currentPayable = money(
                                 unpaidPenalty
-                                                .add(
-                                                                remainingInterest)
-                                                .add(
-                                                                remainingManagementFee)
-                                                .add(
-                                                                currentBalance));
+                                                .add(remainingInterest)
+                                                .add(remainingManagementFee)
+                                                .add(extensionFeeOutstanding)
+                                                .add(currentBalance));
 
                 log.debug(
                                 "PUBLIC PORTAL CONTRACTUAL PAYABLE CALCULATION: " +
@@ -662,7 +668,7 @@ public class PublicPortalService {
                                                 "monthlyManagementRate={}, scheduledManagementFee={}, remainingManagementFee={}, "
                                                 +
                                                 "daysLate={}, newPenaltyDays={}, " +
-                                                "dailyPenaltyRate={}, totalPenalty={}, " +
+                                                "dailyPenaltyRate={}, graceDays={}, totalPenalty={}, " +
                                                 "unpaidPenalty={}, currentPayable={}",
                                 loan.getId(),
                                 currentBalance,
@@ -674,7 +680,8 @@ public class PublicPortalService {
                                 remainingManagementFee,
                                 daysLate,
                                 newPenaltyDays,
-                                FinancialPolicy.MONTHLY_PENALTY_RATE,
+                                FinancialPolicy.DAILY_PENALTY_RATE,
+                                FinancialPolicy.PENALTY_GRACE_DAYS,
                                 totalPenalty,
                                 unpaidPenalty,
                                 currentPayable);

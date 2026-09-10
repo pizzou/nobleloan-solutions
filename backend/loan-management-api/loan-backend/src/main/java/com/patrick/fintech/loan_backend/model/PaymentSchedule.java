@@ -72,7 +72,7 @@ public class PaymentSchedule {
         private BigDecimal managementFeeAmount = MoneyMath.ZERO;
 
         /**
-         * 15% monthly / 0.5% daily overdue penalty.
+         * 10% per chargeable day overdue penalty after a 3-day grace period.
          */
         @Builder.Default
         @Column(precision = 19, scale = 2)

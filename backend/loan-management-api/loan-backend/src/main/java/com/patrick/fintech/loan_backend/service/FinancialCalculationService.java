@@ -63,31 +63,22 @@ public class FinancialCalculationService {
     }
 
     /**
-     * Calculates 15% monthly penalty across the actual calendar days ending today.
+     * Calculates the final overdue penalty: 3-day grace, then 10% of outstanding principal per chargeable day.
      */
     public BigDecimal penalty(BigDecimal principal, int daysLate) {
-        if (principal == null || principal.signum() <= 0 || daysLate <= 0) {
-            return MoneyMath.ZERO;
-        }
-
-        LocalDate endDate = LocalDate.now();
-        LocalDate startDate = endDate.minusDays(daysLate);
-        return FinancialPolicy.accrueDaily(
-                principal,
-                startDate,
-                endDate,
-                FinancialPolicy.MONTHLY_PENALTY_RATE);
+        return FinancialPolicy.dailyPenalty(principal, daysLate);
     }
 
     public BigDecimal penalty(
             BigDecimal principal,
             LocalDate startDate,
             LocalDate endDate) {
-        return FinancialPolicy.accrueDaily(
-                principal,
-                startDate,
-                endDate,
-                FinancialPolicy.MONTHLY_PENALTY_RATE);
+        long totalDays = java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate);
+        if (totalDays <= FinancialPolicy.PENALTY_GRACE_DAYS) {
+            return MoneyMath.ZERO;
+        }
+        long chargeableDays = totalDays - FinancialPolicy.PENALTY_GRACE_DAYS;
+        return FinancialPolicy.dailyPenaltyForDays(principal, (int) chargeableDays);
     }
 
     public Allocation allocatePayment(

@@ -76,9 +76,9 @@ public class PaymentService {
         /**
          * Monthly late-payment penalty.
          *
-         * 15% per month.
+         * 10% per chargeable day after a 3-day grace period.
          */
-        private static final BigDecimal MONTHLY_PENALTY_RATE = FinancialPolicy.MONTHLY_PENALTY_RATE;
+        private static final BigDecimal DAILY_PENALTY_RATE = FinancialPolicy.DAILY_PENALTY_RATE;
 
         /**
          * Monthly penalty is accrued against the actual calendar days in each month.
@@ -485,22 +485,42 @@ public class PaymentService {
                 // ============================================================
                 // PENALTY STATE
                 // ============================================================
+                // Penalties are accrued at loan level by the EOD accounting
+                // scheduler. Payment processing must therefore consume already
+                // accrued loan-level penalties and only calculate a catch-up
+                // amount when the scheduler has not yet caught up. This prevents
+                // the same daily penalty from being charged twice.
 
-                BigDecimal existingPenaltyAssessed = roundMoney(
-                                safe(
-                                                installment.getPenaltyDecimal()))
+                BigDecimal installmentPenaltyRecorded = roundMoney(
+                                safe(installment.getPenaltyDecimal()))
                                 .max(ZERO);
 
                 BigDecimal penaltyAlreadyPaid = roundMoney(
-                                safe(
-                                                installment.getPenaltyPaidDecimal()))
+                                safe(installment.getPenaltyPaidDecimal()))
                                 .max(ZERO);
 
-                if (penaltyAlreadyPaid.compareTo(
-                                existingPenaltyAssessed) > 0) {
-
-                        penaltyAlreadyPaid = existingPenaltyAssessed;
+                if (penaltyAlreadyPaid.compareTo(installmentPenaltyRecorded) > 0) {
+                        penaltyAlreadyPaid = installmentPenaltyRecorded;
                 }
+
+                BigDecimal loanPenaltyAssessedBeforePayment = roundMoney(
+                                safe(loan.getPenaltiesAssessedDecimal()))
+                                .max(ZERO);
+
+                BigDecimal recordedPenaltyOnPaymentRows = paymentRepo.findByLoanId(loan.getId())
+                                .stream()
+                                .filter(java.util.Objects::nonNull)
+                                .map(p -> safe(p.getPenaltyDecimal()))
+                                .reduce(ZERO, BigDecimal::add);
+
+                BigDecimal unallocatedAccruedPenalty = roundMoney(
+                                loanPenaltyAssessedBeforePayment
+                                                .subtract(recordedPenaltyOnPaymentRows)
+                                                .max(ZERO));
+
+                BigDecimal existingPenaltyAssessed = roundMoney(
+                                installmentPenaltyRecorded
+                                                .add(unallocatedAccruedPenalty));
 
                 // ============================================================
                 // CURRENT GROSS PRINCIPAL
@@ -648,28 +668,27 @@ public class PaymentService {
                                                 installment.getDaysLate())
                                 : 0;
 
-                int newPenaltyDays = Math.max(
+                int currentlyChargeablePenaltyDays = Math.max(
                                 0,
-                                daysLate - existingDaysLate);
+                                daysLate - FinancialPolicy.PENALTY_GRACE_DAYS);
 
-                // ============================================================
-                // NEW PENALTY
-                // ============================================================
+                // The scheduler normally keeps loan.penaltiesAssessed current.
+                // If payment arrives before the scheduler has posted today's
+                // penalty, calculate only the missing amount.
+                BigDecimal requiredPenaltyToDate = currentlyChargeablePenaltyDays > 0
+                                ? FinancialPolicy.dailyPenaltyForDays(
+                                                currentBalance,
+                                                currentlyChargeablePenaltyDays)
+                                : ZERO;
 
-                BigDecimal newlyCalculatedPenalty = ZERO;
+                BigDecimal newlyCalculatedPenalty = roundMoney(
+                                requiredPenaltyToDate
+                                                .subtract(loanPenaltyAssessedBeforePayment)
+                                                .max(ZERO));
 
-                if (newPenaltyDays > 0
-                                && currentBalance.compareTo(ZERO) > 0) {
-
-                        LocalDate penaltyStartDate = cycleDueDate
-                                        .plusDays(existingDaysLate);
-
-                        newlyCalculatedPenalty = FinancialPolicy.accrueDaily(
-                                        currentBalance,
-                                        penaltyStartDate,
-                                        today,
-                                        MONTHLY_PENALTY_RATE);
-                }
+                int newPenaltyDays = newlyCalculatedPenalty.compareTo(ZERO) > 0
+                                ? currentlyChargeablePenaltyDays
+                                : 0;
 
                 // ============================================================
                 // TOTAL PENALTY
@@ -691,43 +710,36 @@ public class PaymentService {
                                                 .max(ZERO));
 
                 // ============================================================
-                // PAYMENT ALLOCATION
+                // PAYMENT ALLOCATION — CANONICAL ORDER
                 // ============================================================
+                // Penalty -> extension fee -> interest -> management fee -> principal.
+                // This is the single operational allocation order used by the
+                // lending engine. Principal is never reduced while an older
+                // penalty/fee/contractual charge remains unpaid.
 
                 BigDecimal paymentRemaining = amount;
 
-                // ============================================================
-                // 1. INTEREST
-                // ============================================================
-
-                BigDecimal interestPaidThisPayment = roundMoney(
+                // 1. PENALTY
+                BigDecimal penaltyPaidThisPayment = roundMoney(
                                 paymentRemaining.min(
-                                                remainingInterestBeforePayment));
+                                                penaltyRemainingBeforePayment));
 
                 paymentRemaining = roundMoney(
                                 paymentRemaining
-                                                .subtract(
-                                                                interestPaidThisPayment)
+                                                .subtract(penaltyPaidThisPayment)
                                                 .max(ZERO));
 
-                // ============================================================
-                // 2. MANAGEMENT FEE
-                // ============================================================
+                BigDecimal totalPenaltyPaid = roundMoney(
+                                penaltyAlreadyPaid
+                                                .add(penaltyPaidThisPayment))
+                                .min(totalPenalty);
 
-                BigDecimal managementFeePaidThisPayment = roundMoney(
-                                paymentRemaining.min(
-                                                remainingManagementFeeBeforePayment));
-
-                paymentRemaining = roundMoney(
-                                paymentRemaining
-                                                .subtract(
-                                                                managementFeePaidThisPayment)
+                BigDecimal remainingPenaltyAfterPayment = roundMoney(
+                                totalPenalty
+                                                .subtract(totalPenaltyPaid)
                                                 .max(ZERO));
 
-                // ============================================================
-                // 3. EXTENSION / RESTRUCTURING FEE
-                // ============================================================
-
+                // 2. EXTENSION / RESTRUCTURING FEE
                 BigDecimal extensionFeeOutstandingBeforePayment = roundMoney(
                                 safe(loan.getExtensionFeeOutstandingDecimal()))
                                 .max(ZERO);
@@ -749,63 +761,41 @@ public class PaymentService {
                                 safe(loan.getExtensionFeePaidDecimal())
                                                 .add(extensionFeePaidThisPayment));
 
-                // ============================================================
-                // 4. PENALTY
-                // ============================================================
-
-                BigDecimal penaltyPaidThisPayment = roundMoney(
-                                paymentRemaining.min(
-                                                penaltyRemainingBeforePayment));
+                // 3. INTEREST
+                BigDecimal interestPaidThisPayment = roundMoney(
+                                paymentRemaining.min(remainingInterestBeforePayment));
 
                 paymentRemaining = roundMoney(
                                 paymentRemaining
-                                                .subtract(
-                                                                penaltyPaidThisPayment)
+                                                .subtract(interestPaidThisPayment)
                                                 .max(ZERO));
 
-                BigDecimal totalPenaltyPaid = roundMoney(
-                                penaltyAlreadyPaid
-                                                .add(
-                                                                penaltyPaidThisPayment));
+                // 4. MANAGEMENT FEE
+                BigDecimal managementFeePaidThisPayment = roundMoney(
+                                paymentRemaining.min(remainingManagementFeeBeforePayment));
 
-                totalPenaltyPaid = totalPenaltyPaid.min(
-                                totalPenalty);
-
-                BigDecimal remainingPenaltyAfterPayment = roundMoney(
-                                totalPenalty
-                                                .subtract(
-                                                                totalPenaltyPaid)
+                paymentRemaining = roundMoney(
+                                paymentRemaining
+                                                .subtract(managementFeePaidThisPayment)
                                                 .max(ZERO));
 
-                // ============================================================
                 // 5. PRINCIPAL
-                // ============================================================
-
                 BigDecimal principalPaidThisPayment = roundMoney(
-                                paymentRemaining.min(
-                                                currentBalance));
+                                paymentRemaining.min(currentBalance));
 
                 paymentRemaining = roundMoney(
                                 paymentRemaining
-                                                .subtract(
-                                                                principalPaidThisPayment)
+                                                .subtract(principalPaidThisPayment)
                                                 .max(ZERO));
 
-                // ============================================================
                 // 6. OVERPAYMENT
-                // ============================================================
-
                 BigDecimal overpayment = roundMoney(
                                 paymentRemaining.max(ZERO));
 
-                // ============================================================
                 // NEW PRINCIPAL BALANCE
-                // ============================================================
-
                 BigDecimal newBalance = roundMoney(
                                 currentBalance
-                                                .subtract(
-                                                                principalPaidThisPayment)
+                                                .subtract(principalPaidThisPayment)
                                                 .max(ZERO));
 
                 // ============================================================
@@ -1367,8 +1357,8 @@ public class PaymentService {
                                                 + moneyRatePercent(loan.getManagementFeeRateDecimal(),
                                                                 MONTHLY_MANAGEMENT_FEE_RATE)
                                                 + "%"
-                                                + ", monthly penalty rate=15%"
-                                                + ", daily penalty rate=0.5%");
+                                                + ", daily penalty rate=10% after 3-day grace"
+                                                + ", daily penalty rate=10% after 3-day grace");
 
                 // ============================================================
                 // EVENT
@@ -1550,12 +1540,12 @@ public class PaymentService {
                                         newPenaltyDays);
 
                         paymentWebhook.put(
-                                        "monthlyPenaltyRate",
-                                        MONTHLY_PENALTY_RATE);
+                                        "dailyPenaltyRatePercent",
+                                        DAILY_PENALTY_RATE);
 
                         paymentWebhook.put(
-                                        "dailyPenaltyRate",
-                                        FinancialPolicy.dailyRateFraction(MONTHLY_PENALTY_RATE, today));
+                                        "penaltyGraceDays",
+                                        FinancialPolicy.PENALTY_GRACE_DAYS);
 
                         paymentWebhook.put(
                                         "interestDays",

@@ -146,6 +146,7 @@ public class ScheduledJobs {
                                                                 .filter(p -> p != null)
                                                                 .filter(p -> p.getDueDate() != null)
                                                                 .filter(p -> !p.getDueDate().isAfter(accrualDate))
+                                                                 .filter(p -> p.getPaid() == null || !p.getPaid())
                                                                 .toList();
 
                                                 for (Payment installment : dueInstallments) {
@@ -168,17 +169,36 @@ public class ScheduledJobs {
                                                         }
                                                 }
 
-                                                if (loan.getStatus() == LoanStatus.OVERDUE) {
-                                                        BigDecimal dailyPenalty = outstanding
-                                                                        .multiply(FinancialPolicy.dailyRateFraction(
-                                                                                        FinancialPolicy.MONTHLY_PENALTY_RATE,
-                                                                                        accrualDate))
-                                                                        .setScale(MONEY_SCALE, MONEY_ROUNDING);
+                                                if (loan.getStatus() == LoanStatus.OVERDUE
+                                                                && outstanding.compareTo(ZERO) > 0) {
 
-                                                        if (dailyPenalty.compareTo(ZERO) > 0) {
-                                                                accountingService.postPenaltyAccrual(loan,
-                                                                                dailyPenalty);
-                                                                posted++;
+                                                        LocalDate penaltyDueDate = dueInstallments.stream()
+                                                                        .map(Payment::getDueDate)
+                                                                        .filter(java.util.Objects::nonNull)
+                                                                        .filter(d -> d.isBefore(accrualDate))
+                                                                        .min(LocalDate::compareTo)
+                                                                        .orElse(null);
+
+                                                        if (penaltyDueDate != null) {
+                                                                int daysLate = Math.max(
+                                                                                0,
+                                                                                (int) java.time.temporal.ChronoUnit.DAYS.between(
+                                                                                                penaltyDueDate,
+                                                                                                accrualDate));
+
+                                                                if (daysLate > FinancialPolicy.PENALTY_GRACE_DAYS) {
+                                                                        BigDecimal dailyPenalty = outstanding
+                                                                                        .multiply(FinancialPolicy.DAILY_PENALTY_RATE)
+                                                                                        .divide(BigDecimal.valueOf(100), 16, MONEY_ROUNDING)
+                                                                                        .setScale(MONEY_SCALE, MONEY_ROUNDING);
+
+                                                                        if (dailyPenalty.compareTo(ZERO) > 0) {
+                                                                                accountingService.postPenaltyAccrual(
+                                                                                                loan,
+                                                                                                dailyPenalty);
+                                                                                posted++;
+                                                                        }
+                                                                }
                                                         }
                                                 }
 
