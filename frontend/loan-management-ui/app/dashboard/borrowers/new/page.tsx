@@ -219,7 +219,14 @@ export default function NewBorrowerPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [nationalId, setNationalId] = useState("");
+  const [nationality, setNationality] = useState("");
+  const [placeOfBirth, setPlaceOfBirth] = useState("");
   const [address, setAddress] = useState("");
+  const [province, setProvince] = useState("");
+  const [district, setDistrict] = useState("");
+  const [sector, setSector] = useState("");
+  const [cell, setCell] = useState("");
+  const [country, setCountry] = useState("Rwanda");
   const [creditScore, setCreditScore] = useState("");
 
   const [loading, setLoading] = useState(false);
@@ -282,8 +289,31 @@ export default function NewBorrowerPage() {
       nextErrors.email = "Email address cannot exceed 150 characters.";
     }
 
-    if (address.trim().length > 255) {
+    if (!nationality.trim()) {
+      nextErrors.nationality = "Nationality is required.";
+    }
+    if (!placeOfBirth.trim()) {
+      nextErrors.placeOfBirth = "Place of birth is required.";
+    }
+    if (!address.trim()) {
+      nextErrors.address = "Physical address is required.";
+    } else if (address.trim().length > 255) {
       nextErrors.address = "Address cannot exceed 255 characters.";
+    }
+    if (!province.trim()) {
+      nextErrors.province = "Physical address province is required.";
+    }
+    if (!district.trim()) {
+      nextErrors.district = "Physical address district is required.";
+    }
+    if (!sector.trim()) {
+      nextErrors.sector = "Physical address sector is required.";
+    }
+    if (!cell.trim()) {
+      nextErrors.cell = "Physical address cell is required.";
+    }
+    if (!country.trim()) {
+      nextErrors.country = "Country is required.";
     }
 
     if (cleanCreditScore) {
@@ -299,7 +329,22 @@ export default function NewBorrowerPage() {
     setErrors(nextErrors);
 
     return Object.keys(nextErrors).length === 0;
-  }, [firstName, lastName, email, phone, nationalId, address, creditScore]);
+  }, [
+    firstName,
+    lastName,
+    email,
+    phone,
+    nationalId,
+    nationality,
+    placeOfBirth,
+    address,
+    province,
+    district,
+    sector,
+    cell,
+    country,
+    creditScore,
+  ]);
 
   /* ------------------------------------------------------------------------ */
   /* Submit                                                                   */
@@ -337,7 +382,15 @@ export default function NewBorrowerPage() {
         email: email.trim() || undefined,
         phone: normalizePhone(phone),
         nationalId: normalizeNationalId(nationalId),
-        addressLine1: address.trim() || undefined,
+        nationality: nationality.trim(),
+        placeOfBirth: placeOfBirth.trim(),
+        addressLine1: address.trim(),
+        physicalAddressProvince: province.trim(),
+        physicalAddressDistrict: district.trim(),
+        physicalAddressSector: sector.trim(),
+        physicalAddressCell: cell.trim(),
+        physicalAddressVillage: undefined,
+        country: country.trim(),
         creditScore: creditScore.trim() ? Number(creditScore) : undefined,
       });
 
@@ -729,6 +782,42 @@ export default function NewBorrowerPage() {
                 </Field>
 
                 <Field
+                  id="nationality"
+                  label="Nationality"
+                  required
+                  error={errors.nationality}
+                >
+                  <input
+                    id="nationality"
+                    type="text"
+                    value={nationality}
+                    maxLength={100}
+                    disabled={loading}
+                    onChange={(event) => setNationality(event.target.value)}
+                    placeholder="e.g. RW"
+                    className={inputClass(errors.nationality)}
+                  />
+                </Field>
+
+                <Field
+                  id="placeOfBirth"
+                  label="Place of Birth"
+                  required
+                  error={errors.placeOfBirth}
+                >
+                  <input
+                    id="placeOfBirth"
+                    type="text"
+                    value={placeOfBirth}
+                    maxLength={255}
+                    disabled={loading}
+                    onChange={(event) => setPlaceOfBirth(event.target.value)}
+                    placeholder="e.g. Kigali"
+                    className={inputClass(errors.placeOfBirth)}
+                  />
+                </Field>
+
+                <Field
                   id="creditScore"
                   label="Credit Score"
                   hint="Optional · 0–1000"
@@ -771,9 +860,7 @@ export default function NewBorrowerPage() {
                 </Field>
               </div>
             </section>
-
             <FormDivider />
-
             {/* Contact information */}
             <section>
               <SectionHeader
@@ -850,55 +937,130 @@ export default function NewBorrowerPage() {
                 </Field>
               </div>
             </section>
-
             <FormDivider />
-
             {/* Address */}
             <section>
               <SectionHeader
                 number="03"
                 title="Residential Information"
-                description="Record the borrower's primary residential address."
+                description="Capture the physical address fields required for credit-bureau reporting."
               />
 
-              <div className="mt-5">
+              <div className="mt-5 grid gap-5 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <Field
+                    id="address"
+                    label="Physical Address Line 1"
+                    required
+                    error={errors.address}
+                  >
+                    <input
+                      id="address"
+                      name="address"
+                      type="text"
+                      value={address}
+                      autoComplete="street-address"
+                      maxLength={255}
+                      disabled={loading}
+                      onChange={(event) => {
+                        setAddress(event.target.value);
+                        if (errors.address) {
+                          setErrors((current) => ({ ...current, address: "" }));
+                        }
+                      }}
+                      placeholder="Street / house / plot description"
+                      className={inputClass(errors.address)}
+                    />
+                  </Field>
+                </div>
+
                 <Field
-                  id="address"
-                  label="Address"
-                  hint="Optional"
-                  error={errors.address}
+                  id="province"
+                  label="Physical Address Province"
+                  required
+                  error={errors.province}
                 >
                   <input
-                    id="address"
-                    name="address"
+                    id="province"
                     type="text"
-                    value={address}
-                    autoComplete="street-address"
-                    maxLength={255}
+                    value={province}
                     disabled={loading}
-                    aria-invalid={Boolean(errors.address)}
-                    aria-describedby={
-                      errors.address ? "address-error" : undefined
-                    }
-                    onChange={(event) => {
-                      setAddress(event.target.value);
+                    onChange={(event) => setProvince(event.target.value)}
+                    placeholder="e.g. Kigali"
+                    className={inputClass(errors.province)}
+                  />
+                </Field>
 
-                      if (errors.address) {
-                        setErrors((current) => ({
-                          ...current,
-                          address: "",
-                        }));
-                      }
-                    }}
-                    placeholder="e.g. Kigali, Gasabo, Rwanda"
-                    className={inputClass(errors.address)}
+                <Field
+                  id="district"
+                  label="Physical Address District"
+                  required
+                  error={errors.district}
+                >
+                  <input
+                    id="district"
+                    type="text"
+                    value={district}
+                    disabled={loading}
+                    onChange={(event) => setDistrict(event.target.value)}
+                    placeholder="e.g. Gasabo"
+                    className={inputClass(errors.district)}
+                  />
+                </Field>
+
+                <Field
+                  id="sector"
+                  label="Physical Address Sector"
+                  required
+                  error={errors.sector}
+                >
+                  <input
+                    id="sector"
+                    type="text"
+                    value={sector}
+                    disabled={loading}
+                    onChange={(event) => setSector(event.target.value)}
+                    placeholder="e.g. Remera"
+                    className={inputClass(errors.sector)}
+                  />
+                </Field>
+
+                <Field
+                  id="cell"
+                  label="Physical Address Cell"
+                  required
+                  error={errors.cell}
+                >
+                  <input
+                    id="cell"
+                    type="text"
+                    value={cell}
+                    disabled={loading}
+                    onChange={(event) => setCell(event.target.value)}
+                    placeholder="e.g. Rukiri"
+                    className={inputClass(errors.cell)}
+                  />
+                </Field>
+
+                <Field
+                  id="country"
+                  label="Country"
+                  required
+                  error={errors.country}
+                >
+                  <input
+                    id="country"
+                    type="text"
+                    value={country}
+                    disabled={loading}
+                    onChange={(event) => setCountry(event.target.value)}
+                    placeholder="Rwanda"
+                    className={inputClass(errors.country)}
                   />
                 </Field>
               </div>
-            </section>
-
+            </section>{" "}
             <FormDivider />
-
             {/* Compliance note */}
             <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
               <div className="flex items-start gap-3">

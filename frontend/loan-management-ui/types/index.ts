@@ -151,12 +151,18 @@ export interface Borrower {
   spouseConsent?: boolean;
 
   nationality?: string;
+  placeOfBirth?: string;
 
   addressLine1?: string;
   addressLine2?: string;
 
   city?: string;
   stateProvince?: string;
+  physicalAddressProvince?: string;
+  physicalAddressDistrict?: string;
+  physicalAddressSector?: string;
+  physicalAddressCell?: string;
+  physicalAddressVillage?: string;
   postalCode?: string;
 
   country?: string;

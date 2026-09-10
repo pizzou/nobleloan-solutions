@@ -56,11 +56,17 @@ export default function ApplyPage() {
     spouseNationalId: "",
     spousePhone: "",
     spouseConsent: false,
+    nationality: "",
+    placeOfBirth: "",
 
     // Address
     address: "",
     city: "",
     province: "",
+    district: "",
+    sector: "",
+    cell: "",
+    country: "Rwanda",
 
     // Employment
     employmentType: "EMPLOYED",
@@ -260,6 +266,30 @@ export default function ApplyPage() {
         "The applicant must be at least 18 years old to apply for a loan.",
       );
       setSaving(false);
+      return;
+    }
+
+    const crbRequiredFields: Array<[string, string]> = [
+      ["Nationality", form.nationality],
+      ["Place of birth", form.placeOfBirth],
+      ["Physical address", form.address],
+      ["Province", form.province],
+      ["District", form.district],
+      ["Sector", form.sector],
+      ["Cell", form.cell],
+      ["Country", form.country],
+    ];
+
+    const missingCrbField = crbRequiredFields.find(
+      ([, value]) => !value.trim(),
+    );
+
+    if (missingCrbField) {
+      setError(
+        `${missingCrbField[0]} is required for the borrower profile and credit-bureau reporting.`,
+      );
+      setSaving(false);
+      setStep(1);
       return;
     }
 
@@ -780,8 +810,9 @@ export default function ApplyPage() {
                   />
                 </Field>
 
-                <Field label="Province">
+                <Field label="Province" required>
                   <select
+                    required
                     className={inp}
                     value={form.province}
                     onChange={set("province")}
@@ -800,6 +831,46 @@ export default function ApplyPage() {
                       </option>
                     ))}
                   </select>
+                </Field>
+
+                <Field label="District" required>
+                  <input
+                    required
+                    className={inp}
+                    value={form.district}
+                    onChange={set("district")}
+                    placeholder="e.g. Gasabo"
+                  />
+                </Field>
+
+                <Field label="Sector" required>
+                  <input
+                    required
+                    className={inp}
+                    value={form.sector}
+                    onChange={set("sector")}
+                    placeholder="e.g. Remera"
+                  />
+                </Field>
+
+                <Field label="Cell" required>
+                  <input
+                    required
+                    className={inp}
+                    value={form.cell}
+                    onChange={set("cell")}
+                    placeholder="e.g. Rukiri"
+                  />
+                </Field>
+
+                <Field label="Country" required>
+                  <input
+                    required
+                    className={inp}
+                    value={form.country}
+                    onChange={set("country")}
+                    placeholder="Rwanda"
+                  />
                 </Field>
               </div>
             </div>
