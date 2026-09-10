@@ -164,6 +164,7 @@ private User blacklistedBy;
     @PrePersist protected void onCreate() {
         createdAt = LocalDateTime.now(); updatedAt = LocalDateTime.now();
         if (status == null) status = BorrowerStatus.ACTIVE;
+        if (nationality == null || nationality.isBlank()) nationality = "Rwandan";
         if (kycStatus == null) kycStatus = "PENDING";
         phoneHash = com.patrick.fintech.loan_backend.security.HmacIndexer.index(phone);
         nationalIdHash = com.patrick.fintech.loan_backend.security.HmacIndexer.index(nationalId);
@@ -173,6 +174,7 @@ private User blacklistedBy;
         updatedAt = LocalDateTime.now();
         phoneHash = com.patrick.fintech.loan_backend.security.HmacIndexer.index(phone);
         nationalIdHash = com.patrick.fintech.loan_backend.security.HmacIndexer.index(nationalId);
+        if (nationality == null || nationality.isBlank()) nationality = "Rwandan";
     }
 
     public String getFullName() {

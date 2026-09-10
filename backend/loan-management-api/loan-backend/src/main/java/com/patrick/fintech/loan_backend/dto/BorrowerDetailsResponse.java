@@ -48,9 +48,31 @@ public class BorrowerDetailsResponse {
 
     private String nationality;
 
+    private String placeOfBirth;
+
     private String country;
 
     private String address;
+
+    private String addressLine1;
+
+    private String addressLine2;
+
+    private String city;
+
+    private String stateProvince;
+
+    private String physicalAddressProvince;
+
+    private String physicalAddressDistrict;
+
+    private String physicalAddressSector;
+
+    private String physicalAddressCell;
+
+    private String physicalAddressVillage;
+
+    private String postalCode;
 
     // ============================================================
     // EMPLOYMENT / FINANCIAL PROFILE

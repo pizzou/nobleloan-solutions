@@ -153,6 +153,8 @@ export interface Borrower {
   nationality?: string;
   placeOfBirth?: string;
 
+  address?: string;
+
   addressLine1?: string;
   addressLine2?: string;
 
@@ -578,9 +580,31 @@ export interface BorrowerDetails {
 
   nationality?: string | null;
 
+  placeOfBirth?: string | null;
+
   country?: string | null;
 
   address?: string | null;
+
+  addressLine1?: string | null;
+
+  addressLine2?: string | null;
+
+  city?: string | null;
+
+  stateProvince?: string | null;
+
+  physicalAddressProvince?: string | null;
+
+  physicalAddressDistrict?: string | null;
+
+  physicalAddressSector?: string | null;
+
+  physicalAddressCell?: string | null;
+
+  physicalAddressVillage?: string | null;
+
+  postalCode?: string | null;
 
   // ============================================================
   // EMPLOYMENT / FINANCIAL PROFILE

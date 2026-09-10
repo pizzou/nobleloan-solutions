@@ -467,6 +467,61 @@ public class BorrowerController {
                         borrower.setCountry(req.getCountry());
                 }
 
+                if (req.getAlternatePhone() != null) {
+                        borrower.setAlternatePhone(req.getAlternatePhone().trim());
+                }
+                if (req.getEmail() != null) {
+                        borrower.setEmail(req.getEmail().trim());
+                }
+                if (req.getPassportNumber() != null) {
+                        borrower.setPassportNumber(req.getPassportNumber().trim());
+                }
+                if (req.getTaxIdentificationNumber() != null) {
+                        borrower.setTaxIdentificationNumber(req.getTaxIdentificationNumber().trim());
+                }
+                if (req.getDateOfBirth() != null) {
+                        borrower.setDateOfBirth(LocalDate.parse(req.getDateOfBirth()));
+                }
+                if (req.getGender() != null) {
+                        borrower.setGender(req.getGender().trim());
+                }
+                if (req.getMaritalStatus() != null) {
+                        borrower.setMaritalStatus(req.getMaritalStatus().trim());
+                }
+                if (req.getAddressLine2() != null) {
+                        borrower.setAddressLine2(req.getAddressLine2().trim());
+                }
+                if (req.getCity() != null) {
+                        borrower.setCity(req.getCity().trim());
+                }
+                if (req.getStateProvince() != null) {
+                        borrower.setStateProvince(req.getStateProvince().trim());
+                }
+                if (req.getPostalCode() != null) {
+                        borrower.setPostalCode(req.getPostalCode().trim());
+                }
+                if (req.getNetWorth() != null) {
+                        borrower.setNetWorth(req.getNetWorth());
+                }
+                if (req.getMonthlyExpenses() != null) {
+                        borrower.setMonthlyExpenses(req.getMonthlyExpenses());
+                }
+                if (req.getJobTitle() != null) {
+                        borrower.setJobTitle(req.getJobTitle().trim());
+                }
+                if (req.getBankName() != null) {
+                        borrower.setBankName(req.getBankName().trim());
+                }
+                if (req.getBankAccountNumber() != null) {
+                        borrower.setBankAccountNumber(req.getBankAccountNumber().trim());
+                }
+                if (req.getBankBranch() != null) {
+                        borrower.setBankBranch(req.getBankBranch().trim());
+                }
+                if (borrower.getNationality() == null || borrower.getNationality().isBlank()) {
+                        borrower.setNationality("Rwandan");
+                }
+
                 // ========================================================
                 // UPDATE FINANCIAL INFORMATION
                 // ========================================================

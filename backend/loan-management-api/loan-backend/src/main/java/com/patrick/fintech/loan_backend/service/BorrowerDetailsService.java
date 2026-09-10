@@ -1012,6 +1012,10 @@ public class BorrowerDetailsService {
                         borrower.getNationality()
                 )
 
+                .placeOfBirth(
+                        borrower.getPlaceOfBirth()
+                )
+
                 .country(
                         borrower.getCountry()
                 )
@@ -1019,6 +1023,17 @@ public class BorrowerDetailsService {
                 .address(
                         address
                 )
+
+                .addressLine1(borrower.getAddressLine1())
+                .addressLine2(borrower.getAddressLine2())
+                .city(borrower.getCity())
+                .stateProvince(borrower.getStateProvince())
+                .physicalAddressProvince(borrower.getPhysicalAddressProvince())
+                .physicalAddressDistrict(borrower.getPhysicalAddressDistrict())
+                .physicalAddressSector(borrower.getPhysicalAddressSector())
+                .physicalAddressCell(borrower.getPhysicalAddressCell())
+                .physicalAddressVillage(borrower.getPhysicalAddressVillage())
+                .postalCode(borrower.getPostalCode())
 
                 // ------------------------------------------------
                 // EMPLOYMENT

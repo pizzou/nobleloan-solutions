@@ -218,8 +218,12 @@ export default function NewBorrowerPage() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [alternatePhone, setAlternatePhone] = useState("");
   const [nationalId, setNationalId] = useState("");
-  const [nationality, setNationality] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [gender, setGender] = useState("");
+  const [maritalStatus, setMaritalStatus] = useState("");
+  const [nationality, setNationality] = useState("Rwandan");
   const [placeOfBirth, setPlaceOfBirth] = useState("");
   const [address, setAddress] = useState("");
   const [province, setProvince] = useState("");
@@ -289,8 +293,17 @@ export default function NewBorrowerPage() {
       nextErrors.email = "Email address cannot exceed 150 characters.";
     }
 
-    if (!nationality.trim()) {
-      nextErrors.nationality = "Nationality is required.";
+    if (!alternatePhone.trim()) {
+      nextErrors.alternatePhone = "Alternate phone is required.";
+    }
+    if (!dateOfBirth) {
+      nextErrors.dateOfBirth = "Date of birth is required.";
+    }
+    if (!gender.trim()) {
+      nextErrors.gender = "Gender is required.";
+    }
+    if (!maritalStatus.trim()) {
+      nextErrors.maritalStatus = "Marital status is required.";
     }
     if (!placeOfBirth.trim()) {
       nextErrors.placeOfBirth = "Place of birth is required.";
@@ -334,8 +347,11 @@ export default function NewBorrowerPage() {
     lastName,
     email,
     phone,
+    alternatePhone,
     nationalId,
-    nationality,
+    dateOfBirth,
+    gender,
+    maritalStatus,
     placeOfBirth,
     address,
     province,
@@ -381,8 +397,12 @@ export default function NewBorrowerPage() {
         lastName: normalizeName(lastName),
         email: email.trim() || undefined,
         phone: normalizePhone(phone),
+        alternatePhone: normalizePhone(alternatePhone),
         nationalId: normalizeNationalId(nationalId),
-        nationality: nationality.trim(),
+        dateOfBirth,
+        gender: gender.trim(),
+        maritalStatus: maritalStatus.trim(),
+        nationality: nationality.trim() || "Rwandan",
         placeOfBirth: placeOfBirth.trim(),
         addressLine1: address.trim(),
         physicalAddressProvince: province.trim(),
@@ -782,6 +802,63 @@ export default function NewBorrowerPage() {
                 </Field>
 
                 <Field
+                  id="dateOfBirth"
+                  label="Date of Birth"
+                  required
+                  error={errors.dateOfBirth}
+                >
+                  <input
+                    id="dateOfBirth"
+                    type="date"
+                    value={dateOfBirth}
+                    disabled={loading}
+                    onChange={(event) => setDateOfBirth(event.target.value)}
+                    className={inputClass(errors.dateOfBirth)}
+                  />
+                </Field>
+
+                <Field
+                  id="gender"
+                  label="Gender"
+                  required
+                  error={errors.gender}
+                >
+                  <select
+                    id="gender"
+                    value={gender}
+                    disabled={loading}
+                    onChange={(event) => setGender(event.target.value)}
+                    className={inputClass(errors.gender)}
+                  >
+                    <option value="">Select gender</option>
+                    <option value="MALE">Male</option>
+                    <option value="FEMALE">Female</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                </Field>
+
+                <Field
+                  id="maritalStatus"
+                  label="Marital Status"
+                  required
+                  error={errors.maritalStatus}
+                >
+                  <select
+                    id="maritalStatus"
+                    value={maritalStatus}
+                    disabled={loading}
+                    onChange={(event) => setMaritalStatus(event.target.value)}
+                    className={inputClass(errors.maritalStatus)}
+                  >
+                    <option value="">Select status</option>
+                    <option value="SINGLE">Single</option>
+                    <option value="MARRIED">Married</option>
+                    <option value="DIVORCED">Divorced</option>
+                    <option value="WIDOWED">Widowed</option>
+                  </select>
+                </Field>
+
+                <Field
                   id="nationality"
                   label="Nationality"
                   required
@@ -794,7 +871,7 @@ export default function NewBorrowerPage() {
                     maxLength={100}
                     disabled={loading}
                     onChange={(event) => setNationality(event.target.value)}
-                    placeholder="e.g. RW"
+                    placeholder="Rwandan"
                     className={inputClass(errors.nationality)}
                   />
                 </Field>
@@ -902,6 +979,23 @@ export default function NewBorrowerPage() {
                     }}
                     placeholder="+250 788 123 456"
                     className={inputClass(errors.phone)}
+                  />
+                </Field>
+
+                <Field
+                  id="alternatePhone"
+                  label="Alternate Phone"
+                  required
+                  error={errors.alternatePhone}
+                >
+                  <input
+                    id="alternatePhone"
+                    type="tel"
+                    value={alternatePhone}
+                    disabled={loading}
+                    onChange={(event) => setAlternatePhone(event.target.value)}
+                    placeholder="+250 788 123 456"
+                    className={inputClass(errors.alternatePhone)}
                   />
                 </Field>
 
