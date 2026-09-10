@@ -3035,6 +3035,10 @@ public class BnrTemplateExportService {
         if (contains(h, "guaranteecollateralammount")
                 || contains(h, "guaranteecollateralamount"))
             return f.collateralValue;
+        if (contains(h, "borrowersprovince")
+                || contains(h, "borrowerprovince")
+                || contains(h, "physicaladdressprovince"))
+            return f.province;
         if (contains(h, "borrowersdistrict"))
             return f.district;
         if (contains(h, "borrowerssector"))
@@ -3137,6 +3141,10 @@ public class BnrTemplateExportService {
             return "Declining";
         if (contains(h, "physicalguarantee"))
             return f.collateralType;
+        if (contains(h, "borrowersprovince")
+                || contains(h, "borrowerprovince")
+                || contains(h, "physicaladdressprovince"))
+            return f.province;
         if (contains(h, "borrowersdistrict"))
             return f.district;
         if (contains(h, "borrowerssector"))
@@ -4250,6 +4258,7 @@ public class BnrTemplateExportService {
             String branchName,
             String collateralType,
             BigDecimal collateralValue,
+            String province,
             String district,
             String sector,
             String cell,
