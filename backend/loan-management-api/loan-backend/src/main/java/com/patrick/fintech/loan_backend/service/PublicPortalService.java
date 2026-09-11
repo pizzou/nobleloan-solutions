@@ -620,10 +620,32 @@ public class PublicPortalService {
 
                 if (newPenaltyDays > 0
                                 && currentBalance.compareTo(ZERO) > 0) {
-                        newPenalty = money(
-                                        FinancialPolicy.dailyPenaltyForDays(
-                                                        currentBalance,
-                                                        newPenaltyDays));
+                        LocalDate firstChargeableDate = cycleDueDate
+                                        .plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L);
+                        LocalDate asOf = today;
+                        newPenalty = money(FinancialPolicy.historicalDailyPenalty(
+                                        currentBalance,
+                                        firstChargeableDate,
+                                        asOf,
+                                        date -> {
+                                                BigDecimal reconstructed = currentBalance;
+                                                for (Payment payment : loanPayments) {
+                                                        if (payment == null || payment.getPaidDate() == null
+                                                                        || !payment.getPaidDate().isAfter(date)) {
+                                                                continue;
+                                                        }
+                                                        reconstructed = reconstructed.add(
+                                                                        safe(payment.getPrincipalComponentDecimal()));
+                                                }
+                                                return money(reconstructed);
+                                        }));
+
+                        BigDecimal qualifyingInterest = money(existingCycleInterestRemaining);
+                        BigDecimal remainingPenaltyRoom = money(FinancialPolicy.penaltyCeiling(
+                                        currentBalance, qualifyingInterest))
+                                        .subtract(penaltyAlreadyRecorded)
+                                        .max(ZERO);
+                        newPenalty = newPenalty.min(remainingPenaltyRoom);
                 }
 
                 BigDecimal totalPenalty = money(
@@ -700,19 +722,9 @@ public class PublicPortalService {
                         return ZERO;
                 }
 
-                BigDecimal principal = safe(
-                                loan.getOutstandingBalanceDecimal());
-
-                if (principal.compareTo(
-                                ZERO) <= 0) {
-                        return ZERO;
-                }
-
-                Integer duration = loan.getDurationMonths();
-
-                if (duration == null
-                                || duration <= 0) {
-
+                BigDecimal principal = safe(loan.getOutstandingBalanceDecimal());
+                int duration = loan.getDurationMonths() == null ? 0 : loan.getDurationMonths();
+                if (principal.signum() <= 0 || duration <= 0) {
                         return ZERO;
                 }
 
@@ -723,50 +735,8 @@ public class PublicPortalService {
                                 ? loan.getManagementFeeRateDecimal()
                                 : FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE;
 
-                BigDecimal monthlyRate = interestRate
-                                .add(managementRate)
-                                .divide(
-                                                ONE_HUNDRED,
-                                                16,
-                                                RoundingMode.HALF_UP);
-
-                if (monthlyRate.compareTo(
-                                ZERO) == 0) {
-
-                        return money(
-                                        principal.divide(
-                                                        BigDecimal.valueOf(
-                                                                        duration),
-                                                        16,
-                                                        RoundingMode.HALF_UP));
-                }
-
-                BigDecimal factor = BigDecimal.ONE
-                                .add(
-                                                monthlyRate)
-                                .pow(
-                                                duration,
-                                                java.math.MathContext.DECIMAL128);
-
-                BigDecimal numerator = principal
-                                .multiply(
-                                                monthlyRate)
-                                .multiply(
-                                                factor);
-
-                BigDecimal denominator = factor.subtract(
-                                BigDecimal.ONE);
-
-                if (denominator.compareTo(
-                                ZERO) == 0) {
-                        return ZERO;
-                }
-
-                return money(
-                                numerator.divide(
-                                                denominator,
-                                                16,
-                                                RoundingMode.HALF_UP));
+                return money(FinancialPolicy.contractualScheduleLine(
+                                principal, duration, interestRate, managementRate).installment());
         }
 
         // ================================================================

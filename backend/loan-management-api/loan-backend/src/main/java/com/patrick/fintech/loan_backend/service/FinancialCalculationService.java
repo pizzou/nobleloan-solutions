@@ -39,11 +39,9 @@ public class FinancialCalculationService {
             return BigDecimal.ZERO.setScale(RATE_SCALE, ROUNDING);
         }
 
-        if ("ANNUAL".equalsIgnoreCase(rateType)) {
-            /* Annual pricing is normalized to an actual 365-day basis. */
-            return normalized
-                    .divide(ONE_HUNDRED, RATE_SCALE, ROUNDING)
-                    .divide(BigDecimal.valueOf(365), RATE_SCALE, ROUNDING);
+        if (rateType != null && !"MONTHLY".equalsIgnoreCase(rateType)) {
+            throw new IllegalArgumentException(
+                    "Only MONTHLY contractual pricing is supported in production");
         }
 
         /*

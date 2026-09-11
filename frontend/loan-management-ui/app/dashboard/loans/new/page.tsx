@@ -1907,7 +1907,10 @@ export default function LoanDetailPage() {
                 label="Net Disbursed"
                 value={fc(loan.netDisbursedAmount)}
               />
-              <Field label="Total Repayable" value={fc(loan.totalRepayable)} />
+              <Field
+                label="Scheduled repayment total"
+                value={fc(loan.totalRepayable)}
+              />
               <Field label="Interest Paid" value={fc(loan.interestPaid)} />
             </div>
           </CardBody>
@@ -2046,7 +2049,7 @@ export default function LoanDetailPage() {
                 />
 
                 <Field
-                  label="Total Repayable"
+                  label="Scheduled repayment total"
                   value={fc(loan.totalRepayable)}
                 />
 

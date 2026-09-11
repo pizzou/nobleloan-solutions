@@ -95,7 +95,7 @@ public class AuthController {
         }
 
         String email = req.getEmail().trim().toLowerCase();
-        User user = userRepository.findByEmail(email).orElse(null);
+        User user = userRepository.findByEmailIgnoreCase(email).orElse(null);
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
 
         if (user != null && user.getLockedUntil() != null && user.getLockedUntil().isAfter(now)) {
@@ -132,7 +132,7 @@ public class AuthController {
             throw new RuntimeException("Invalid email or password");
         }
 
-        user = userRepository.findByEmail(email)
+        user = userRepository.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         // Successful password check — reset the failure counter and any lock.
@@ -303,7 +303,7 @@ public class AuthController {
                     .body(Map.of("success", true));
         }
 
-        User user = userRepository.findByEmail(auth.getName()).orElse(null);
+        User user = userRepository.findByEmailIgnoreCase(auth.getName()).orElse(null);
         if (user != null) {
             user.setTokenVersion((user.getTokenVersion() == null ? 0L : user.getTokenVersion()) + 1L);
             userRepository.save(user);
@@ -349,7 +349,7 @@ public class AuthController {
             ));
         }
 
-        User user = userRepository.findByEmail(auth.getName()).orElse(null);
+        User user = userRepository.findByEmailIgnoreCase(auth.getName()).orElse(null);
         if (user == null) {
             return ResponseEntity.status(401).body(Map.of(
                     "success", false,

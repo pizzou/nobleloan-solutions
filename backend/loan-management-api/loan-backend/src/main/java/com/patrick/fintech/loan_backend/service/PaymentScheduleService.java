@@ -480,162 +480,6 @@ public class PaymentScheduleService {
         }
 
         
-        private BigDecimal calculateMonthlyRate(
-                        BigDecimal rate,
-                        String rateType) {
-
-                if (rate == null) {
-                        throw new IllegalArgumentException(
-                                        "Interest rate cannot be null");
-                }
-
-                if ("MONTHLY".equalsIgnoreCase(rateType)) {
-
-                        return rate.divide(
-                                        ONE_HUNDRED,
-                                        CALCULATION_SCALE,
-                                        RoundingMode.HALF_UP);
-                }
-
-                return rate
-                                .divide(
-                                                ONE_HUNDRED,
-                                                CALCULATION_SCALE,
-                                                RoundingMode.HALF_UP)
-                                .divide(
-                                                TWELVE,
-                                                CALCULATION_SCALE,
-                                                RoundingMode.HALF_UP);
-        }
-
-        // ================================================================
-        // MONTHLY PAYMENT
-        // ================================================================
-
-        /**
-         * Calculates the contractual monthly EMI.
-         *
-         * Zero interest:
-         *
-         * P / n
-         *
-         * Normal interest:
-         *
-         * P * r
-         * ----------------
-         * 1 - (1 + r)^-n
-         *
-         * BigDecimal is used for all monetary values.
-         *
-         * Math.pow() is used only for the mathematical exponentiation
-         * required by the EMI formula.
-         */
-        private BigDecimal calculateMonthlyPayment(
-                        BigDecimal principal,
-                        BigDecimal monthlyRate,
-                        int months) {
-
-                if (principal == null) {
-                        throw new IllegalArgumentException(
-                                        "Principal cannot be null");
-                }
-
-                if (monthlyRate == null) {
-                        throw new IllegalArgumentException(
-                                        "Monthly rate cannot be null");
-                }
-
-                if (months <= 0) {
-                        throw new IllegalArgumentException(
-                                        "Number of months must be greater than zero");
-                }
-
-                // ------------------------------------------------------------
-                // ZERO INTEREST
-                // ------------------------------------------------------------
-
-                if (monthlyRate.compareTo(
-                                ZERO) == 0) {
-
-                        return money(
-                                        principal.divide(
-                                                        BigDecimal.valueOf(months),
-                                                        CALCULATION_SCALE,
-                                                        RoundingMode.HALF_UP));
-                }
-
-                // ------------------------------------------------------------
-                // EMI EXPONENT
-                // ------------------------------------------------------------
-
-                double rateDouble = monthlyRate.doubleValue();
-
-                double factorDouble = Math.pow(
-                                1.0 + rateDouble,
-                                -months);
-
-                if (Double.isNaN(
-                                factorDouble)
-                                || Double.isInfinite(
-                                                factorDouble)) {
-
-                        throw new IllegalArgumentException(
-                                        "Unable to calculate monthly installment");
-                }
-
-                BigDecimal discountFactor = BigDecimal.valueOf(
-                                factorDouble);
-
-                BigDecimal denominator = ONE.subtract(
-                                discountFactor);
-
-                if (denominator.compareTo(
-                                ZERO) == 0) {
-
-                        throw new IllegalArgumentException(
-                                        "Invalid interest calculation");
-                }
-
-                BigDecimal payment = principal
-                                .multiply(
-                                                monthlyRate)
-                                .divide(
-                                                denominator,
-                                                CALCULATION_SCALE,
-                                                RoundingMode.HALF_UP);
-
-                return money(
-                                payment);
-        }
-
-        private BigDecimal calculateScheduledInterestTotal(
-                        BigDecimal principal,
-                        BigDecimal monthlyRate,
-                        int months) {
-                BigDecimal balance = principal;
-                BigDecimal total = ZERO;
-
-                for (int i = 1; i <= months; i++) {
-                        BigDecimal interest = money(balance.multiply(monthlyRate));
-                        total = money(total.add(interest));
-
-                        BigDecimal payment;
-                        if (i == months) {
-                                payment = money(balance.add(interest));
-                        } else {
-                                payment = calculateMonthlyPayment(principal, monthlyRate, months);
-                        }
-
-                        BigDecimal principalComponent = i == months
-                                        ? balance
-                                        : money(payment.subtract(interest).max(ZERO).min(balance));
-
-                        balance = money(balance.subtract(principalComponent).max(ZERO));
-                }
-
-                return money(total);
-        }
-
         // ================================================================
         // RESOLVE SCHEDULE START DATE
         // ================================================================
@@ -675,11 +519,10 @@ public class PaymentScheduleService {
         private void validateRateType(
                         String rateType) {
 
-                if (!"ANNUAL".equalsIgnoreCase(rateType)
-                                && !"MONTHLY".equalsIgnoreCase(rateType)) {
+                if (!"MONTHLY".equalsIgnoreCase(rateType)) {
 
                         throw new IllegalArgumentException(
-                                        "Interest rate type must be MONTHLY or ANNUAL");
+                                        "Interest rate type must be MONTHLY");
                 }
         }
 

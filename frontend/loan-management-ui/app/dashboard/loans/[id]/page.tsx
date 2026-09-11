@@ -2381,7 +2381,10 @@ export default function LoanDetailPage() {
                 label="Net Disbursed"
                 value={fc(loan.netDisbursedAmount)}
               />
-              <Field label="Total Repayable" value={fc(loan.totalRepayable)} />
+              <Field
+                label="Scheduled repayment total"
+                value={fc(loan.totalRepayable)}
+              />
               <Field label="Interest Paid" value={fc(loan.interestPaid)} />
             </div>
           </CardBody>
@@ -2547,7 +2550,10 @@ export default function LoanDetailPage() {
 
             <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <Field label="Total Paid" value={fc(loan.totalPaid)} />
-              <Field label="Total Repayable" value={fc(loan.totalRepayable)} />
+              <Field
+                label="Scheduled repayment total"
+                value={fc(loan.totalRepayable)}
+              />
               <Field
                 label="Application Fee Paid"
                 value={fc(loan.applicationFeePaid)}
@@ -2703,7 +2709,7 @@ export default function LoanDetailPage() {
                 />
 
                 <Field
-                  label="Total Repayable"
+                  label="Scheduled repayment total"
                   value={fc(loan.totalRepayable)}
                 />
 

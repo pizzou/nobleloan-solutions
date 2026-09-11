@@ -3033,19 +3033,12 @@ public class LoanService {
                 validateInterestRate(rate);
                 validateRateType(rateType);
 
-                BigDecimal monthlyRatePercent = rate;
-                if ("ANNUAL".equalsIgnoreCase(rateType)) {
-                        monthlyRatePercent = rate.divide(
-                                        TWELVE,
-                                        16,
-                                        RoundingMode.HALF_UP);
+                if (!"MONTHLY".equalsIgnoreCase(rateType)) {
+                        throw new IllegalArgumentException(
+                                        "Only MONTHLY contractual pricing is supported in production");
                 }
 
-                if (!"MONTHLY".equalsIgnoreCase(rateType)
-                                && !"ANNUAL".equalsIgnoreCase(rateType)) {
-                        throw new IllegalArgumentException(
-                                        "Unsupported loan rate type: " + rateType);
-                }
+                BigDecimal monthlyRatePercent = rate;
 
                 BigDecimal balance = money(principal);
                 BigDecimal totalRecurringCharges = ZERO;
@@ -3091,24 +3084,13 @@ public class LoanService {
 
                 validateRateType(rateType);
 
-                if ("MONTHLY".equalsIgnoreCase(
-                                rateType)) {
-
-                        return rate.divide(
-                                        ONE_HUNDRED,
-                                        16,
-                                        RoundingMode.HALF_UP);
-                }
-
-                return rate
-                                .divide(
-                                                ONE_HUNDRED,
-                                                16,
-                                                RoundingMode.HALF_UP)
-                                .divide(
-                                                TWELVE,
-                                                16,
-                                                RoundingMode.HALF_UP);
+                // validateRateType() above guarantees MONTHLY. Keep this method
+                // deliberately single-mode so no annual-rate conversion can ever
+                // enter the contractual pricing path accidentally.
+                return rate.divide(
+                                ONE_HUNDRED,
+                                16,
+                                RoundingMode.HALF_UP);
         }
 
         // ================================================================
@@ -3377,11 +3359,9 @@ public class LoanService {
                                         "Interest rate type is required");
                 }
 
-                if (!"ANNUAL".equalsIgnoreCase(rateType)
-                                && !"MONTHLY".equalsIgnoreCase(rateType)) {
-
+                if (!"MONTHLY".equalsIgnoreCase(rateType)) {
                         throw new IllegalArgumentException(
-                                        "Interest rate type must be MONTHLY or ANNUAL");
+                                        "Interest rate type must be MONTHLY");
                 }
         }
 

@@ -8,6 +8,7 @@ import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.repository.BorrowerRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.security.HmacIndexer;
+import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
@@ -299,17 +300,12 @@ public class LegacyLoanImportRowService {
                                                         Locale.ROOT)
                                         .trim();
 
-                        if (!"MONTHLY".equals(
-                                        importedRateType)
-                                        && !"ANNUAL".equals(
-                                                        importedRateType)) {
-
+                        if (!"MONTHLY".equals(importedRateType)) {
                                 return fail(
                                                 rowNumber,
-                                                "interest_rate_type must be MONTHLY or ANNUAL. "
-                                                                + "Got \""
-                                                                + importedRateType
-                                                                + "\".");
+                                                "interest_rate_type must be MONTHLY in the production engine. "
+                                                                + "Annual-rate imports require an approved conversion outside this import path. Got \""
+                                                                + importedRateType + "\".");
                         }
 
                         // ========================================================
@@ -529,17 +525,10 @@ public class LegacyLoanImportRowService {
                                  * Processing fee is NOT included here because it is
                                  * a one-time fee deducted at disbursement.
                                  */
-                                BigDecimal calculationInterestRate = effectiveInterestRate;
-                                if ("ANNUAL".equals(importedRateType)) {
-                                        calculationInterestRate = effectiveInterestRate
-                                                        .divide(new BigDecimal("12"), CALCULATION_SCALE,
-                                                                        RoundingMode.HALF_UP);
-                                }
-
                                 BigDecimal[] calculated = calculateCurrentPlatformLoan(
                                                 amount,
                                                 durationMonths,
-                                                calculationInterestRate,
+                                                effectiveInterestRate,
                                                 effectiveManagementFeeRate);
 
                                 totalRepayable = money(
@@ -1352,39 +1341,30 @@ public class LegacyLoanImportRowService {
                  * For RWF 10,000,000 over 3 months this produces total recurring
                  * charges of RWF 2,000,000 and total repayable of RWF 12,000,000.
                  */
-                BigDecimal monthlyPrincipal = normalizedPrincipal
-                                .divide(BigDecimal.valueOf(months), CALCULATION_SCALE, RoundingMode.HALF_UP);
-
+                BigDecimal balance = normalizedPrincipal;
                 BigDecimal totalInterest = ZERO;
                 BigDecimal totalManagementFee = ZERO;
+                BigDecimal firstInstallment = ZERO;
 
-                for (int month = 0; month < months; month++) {
-                        BigDecimal openingPrincipal = normalizedPrincipal
-                                        .subtract(monthlyPrincipal.multiply(BigDecimal.valueOf(month)))
-                                        .max(ZERO);
+                for (int month = 1; month <= months; month++) {
+                        FinancialPolicy.ScheduleLine line = FinancialPolicy.contractualScheduleLine(
+                                        balance,
+                                        months - month + 1,
+                                        interestRate,
+                                        managementFeeRate);
 
-                        BigDecimal interest = openingPrincipal
-                                        .multiply(interestRate)
-                                        .divide(ONE_HUNDRED, CALCULATION_SCALE, RoundingMode.HALF_UP);
-
-                        BigDecimal managementFee = openingPrincipal
-                                        .multiply(managementFeeRate)
-                                        .divide(ONE_HUNDRED, CALCULATION_SCALE, RoundingMode.HALF_UP);
-
-                        totalInterest = totalInterest.add(interest);
-                        totalManagementFee = totalManagementFee.add(managementFee);
+                        if (month == 1) {
+                                firstInstallment = line.installment();
+                        }
+                        totalInterest = totalInterest.add(line.interest());
+                        totalManagementFee = totalManagementFee.add(line.managementFee());
+                        balance = line.remainingBalance();
                 }
 
                 BigDecimal totalRepayable = money(
                                 normalizedPrincipal.add(totalInterest).add(totalManagementFee));
 
-                BigDecimal averageMonthlyInstallment = money(
-                                totalRepayable.divide(
-                                                BigDecimal.valueOf(months),
-                                                CALCULATION_SCALE,
-                                                RoundingMode.HALF_UP));
-
-                return new BigDecimal[] { averageMonthlyInstallment, totalRepayable };
+                return new BigDecimal[] { money(firstInstallment), totalRepayable };
         }
 
         // ================================================================

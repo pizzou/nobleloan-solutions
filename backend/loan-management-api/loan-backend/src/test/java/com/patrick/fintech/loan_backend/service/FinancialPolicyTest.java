@@ -152,4 +152,37 @@ class FinancialPolicyTest {
                 assertEquals(new BigDecimal("250000.00"), managementFee);
                 assertEquals(new BigDecimal("500000.00"), interest.add(managementFee));
         }
+        @Test
+        void penaltyCeilingKeepsInterestPlusPenaltyWithinOutstandingPrincipal() {
+                BigDecimal ceiling = FinancialPolicy.penaltyCeiling(
+                                new BigDecimal("1000000.00"),
+                                new BigDecimal("100000.00"));
+
+                assertEquals(new BigDecimal("900000.00"), ceiling);
+                assertEquals(
+                                new BigDecimal("100000.00"),
+                                FinancialPolicy.capPenalty(
+                                                new BigDecimal("1000000.00"),
+                                                new BigDecimal("100000.00"),
+                                                new BigDecimal("800000.00"),
+                                                new BigDecimal("500000.00")));
+        }
+
+        @Test
+        void historicalPenaltyUsesThePrincipalBalanceThatExistedOnEachChargeableDay() {
+                BigDecimal current = new BigDecimal("700000.00");
+                LocalDate firstChargeable = LocalDate.of(2026, 1, 5);
+                LocalDate asOf = LocalDate.of(2026, 1, 7);
+
+                BigDecimal penalty = FinancialPolicy.historicalDailyPenalty(
+                                current,
+                                firstChargeable,
+                                asOf,
+                                date -> date.equals(LocalDate.of(2026, 1, 5))
+                                                ? new BigDecimal("1000000.00")
+                                                : new BigDecimal("700000.00"));
+
+                assertEquals(new BigDecimal("240000.00"), penalty);
+        }
+
 }

@@ -334,23 +334,41 @@ public class LendingIntelligenceService {
     public Map<String, Object> payoff(Long loanId, LocalDate asOf) {
         Loan loan = organizationLoan(loanId);
         LocalDate quoteDate = asOf == null ? LocalDate.now() : asOf;
+        if (quoteDate.isBefore(loan.getStartDate() == null ? quoteDate : loan.getStartDate())) {
+            throw new IllegalArgumentException("Payoff date cannot be before the loan start date");
+        }
+
+        List<Payment> schedule = paymentRepository.findLoanSchedule(loanId, organizationId());
         BigDecimal principal = nonNegative(loan.getOutstandingBalance());
-        BigDecimal interest = nonNegative(loan.getInterestOutstanding());
-        BigDecimal management = nonNegative(loan.getManagementFeeOutstanding());
+        BigDecimal earnedInterest = schedule.stream()
+                .filter(Objects::nonNull)
+                .filter(p -> p.getDueDate() != null && !p.getDueDate().isAfter(quoteDate))
+                .map(p -> nonNegative(p.getCycleInterestRemainingDecimal()))
+                .reduce(ZERO, BigDecimal::add);
+        BigDecimal earnedManagement = schedule.stream()
+                .filter(Objects::nonNull)
+                .filter(p -> p.getDueDate() != null && !p.getDueDate().isAfter(quoteDate))
+                .map(p -> nonNegative(p.getCycleManagementFeeRemainingDecimal()))
+                .reduce(ZERO, BigDecimal::add);
+
         BigDecimal extension = nonNegative(loan.getExtensionFeeOutstanding());
         BigDecimal penalty = nonNegative(nonNegative(loan.getPenaltiesAssessed())
                 .subtract(nonNegative(loan.getPenaltiesPaid())));
-        BigDecimal total = principal.add(interest).add(management).add(extension).add(penalty);
+        BigDecimal total = principal.add(earnedInterest).add(earnedManagement).add(extension).add(penalty);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("loanId", loanId);
         result.put("quoteDate", quoteDate);
         result.put("principal", money(principal));
-        result.put("interest", money(interest));
-        result.put("managementFee", money(management));
+        result.put("earnedInterest", money(earnedInterest));
+        result.put("earnedManagementFee", money(earnedManagement));
+        result.put("interest", money(earnedInterest));
+        result.put("managementFee", money(earnedManagement));
         result.put("extensionFee", money(extension));
         result.put("penalty", money(penalty));
         result.put("settlementAmount", money(total));
+        result.put("futureUnearnedInterestExcluded", money(nonNegative(loan.getInterestOutstanding()).subtract(earnedInterest).max(ZERO)));
+        result.put("futureUnearnedManagementFeeExcluded", money(nonNegative(loan.getManagementFeeOutstanding()).subtract(earnedManagement).max(ZERO)));
         result.put("validThrough", quoteDate.plusDays(1));
         return result;
     }
@@ -359,22 +377,70 @@ public class LendingIntelligenceService {
     public Map<String, Object> prepayment(Long loanId, BigDecimal amount) {
         Loan loan = organizationLoan(loanId);
         BigDecimal outstanding = nonNegative(loan.getOutstandingBalance());
-        BigDecimal requested = amount == null ? outstanding : amount.max(ZERO).min(outstanding);
-        BigDecimal remaining = outstanding.subtract(requested).max(ZERO);
-        BigDecimal ratio = outstanding.signum() == 0
-                ? ZERO : requested.divide(outstanding, 8, RoundingMode.HALF_UP);
-        BigDecimal indicativeInterestReduction = nonNegative(loan.getInterestOutstanding())
-                .multiply(ratio).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal requested = amount == null ? outstanding : money(amount.max(ZERO).min(outstanding));
+        BigDecimal remaining = money(outstanding.subtract(requested).max(ZERO));
+        List<Payment> unpaid = paymentRepository.findLoanSchedule(loanId, organizationId()).stream()
+                .filter(Objects::nonNull)
+                .filter(p -> !Boolean.TRUE.equals(p.getPaid()))
+                .sorted(Comparator.comparing(Payment::getDueDate, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+        int remainingInstallments = unpaid.size();
+
+        BigDecimal rate = loan.getInterestRateDecimal() == null
+                ? com.patrick.fintech.loan_backend.util.FinancialPolicy.MONTHLY_INTEREST_RATE
+                : loan.getInterestRateDecimal();
+        BigDecimal managementRate = loan.getManagementFeeRateDecimal() == null
+                ? com.patrick.fintech.loan_backend.util.FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE
+                : loan.getManagementFeeRateDecimal();
+
+        List<Map<String, Object>> revisedSchedule = new ArrayList<>();
+        BigDecimal revisedInterest = ZERO;
+        BigDecimal revisedManagement = ZERO;
+        BigDecimal balance = remaining;
+        for (int i = 1; i <= remainingInstallments; i++) {
+            var line = com.patrick.fintech.loan_backend.util.FinancialPolicy.contractualScheduleLine(
+                    balance, remainingInstallments - i + 1, rate, managementRate);
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("installment", i);
+            row.put("principal", money(line.principal()));
+            row.put("interest", money(line.interest()));
+            row.put("managementFee", money(line.managementFee()));
+            row.put("installmentAmount", money(line.installment()));
+            revisedSchedule.add(row);
+            revisedInterest = revisedInterest.add(line.interest());
+            revisedManagement = revisedManagement.add(line.managementFee());
+            balance = line.remainingBalance();
+        }
+
+        BigDecimal existingFutureScheduled = unpaid.stream()
+                .map(p -> nonNegative(p.getAmountDecimal()).subtract(nonNegative(p.getAmountPaidDecimal())).max(ZERO))
+                .reduce(ZERO, BigDecimal::add);
+        BigDecimal revisedTotal = remaining.add(revisedInterest).add(revisedManagement);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("loanId", loanId);
         result.put("currentPrincipalOutstanding", money(outstanding));
         result.put("prepaymentAmount", money(requested));
         result.put("remainingPrincipal", money(remaining));
-        result.put("indicativeInterestReduction", money(indicativeInterestReduction));
-        result.put("recalculationMode", "REDUCE_PRINCIPAL_AND_RECALCULATE_SCHEDULE");
+        result.put("remainingInstallments", remainingInstallments);
+        result.put("revisedInterest", money(revisedInterest));
+        result.put("revisedManagementFee", money(revisedManagement));
+        result.put("revisedTotalScheduledRepayable", money(revisedTotal));
+        result.put("scheduledInterestSaving", money(estimatedScheduledInterest(unpaid).subtract(revisedInterest).max(ZERO)));
+        result.put("scheduledManagementFeeSaving", money(estimatedScheduledManagement(unpaid).subtract(revisedManagement).max(ZERO)));
+        result.put("futureScheduledAmountBeforePrepayment", money(existingFutureScheduled));
+        result.put("revisedSchedule", revisedSchedule);
+        result.put("recalculationMode", "EXACT_CONTRACTUAL_SCHEDULE");
         result.put("requiresApproval", true);
         return result;
+    }
+
+    private BigDecimal estimatedScheduledInterest(List<Payment> payments) {
+        return payments.stream().map(p -> nonNegative(p.getCycleInterestRemainingDecimal())).reduce(ZERO, BigDecimal::add);
+    }
+
+    private BigDecimal estimatedScheduledManagement(List<Payment> payments) {
+        return payments.stream().map(p -> nonNegative(p.getCycleManagementFeeRemainingDecimal())).reduce(ZERO, BigDecimal::add);
     }
 
     // 11 + 13 + 14 + 15 + 22 + 24: controlled workflow records

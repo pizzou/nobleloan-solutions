@@ -172,32 +172,34 @@ public class ScheduledJobs {
                                                 if (loan.getStatus() == LoanStatus.OVERDUE
                                                                 && outstanding.compareTo(ZERO) > 0) {
 
-                                                        LocalDate penaltyDueDate = dueInstallments.stream()
+                                                        LocalDate penaltyStart = dueInstallments.stream()
                                                                         .map(Payment::getDueDate)
                                                                         .filter(java.util.Objects::nonNull)
                                                                         .filter(d -> d.isBefore(accrualDate))
                                                                         .min(LocalDate::compareTo)
+                                                                        .map(d -> d.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L))
                                                                         .orElse(null);
 
-                                                        if (penaltyDueDate != null) {
-                                                                int daysLate = Math.max(
-                                                                                0,
-                                                                                (int) java.time.temporal.ChronoUnit.DAYS.between(
-                                                                                                penaltyDueDate,
-                                                                                                accrualDate));
+                                                        if (penaltyStart != null && !penaltyStart.isAfter(accrualDate)
+                                                                        && loan.getStatus() != LoanStatus.WRITTEN_OFF) {
+                                                                BigDecimal toDate = calculateHistoricalPenalty(
+                                                                                loan, outstanding, penaltyStart, accrualDate);
+                                                                BigDecimal alreadyAssessed = money(loan.getPenaltiesAssessedDecimal());
+                                                                BigDecimal qualifyingInterest = dueInstallments.stream()
+                                                                                .map(p -> money(p.getCycleInterestRemainingDecimal()))
+                                                                                .reduce(ZERO, BigDecimal::add);
+                                                                BigDecimal room = FinancialPolicy.penaltyCeiling(
+                                                                                outstanding, qualifyingInterest)
+                                                                                .subtract(alreadyAssessed)
+                                                                                .max(ZERO);
+                                                                BigDecimal newPenalty = toDate.subtract(alreadyAssessed)
+                                                                                .max(ZERO).min(room)
+                                                                                .setScale(MONEY_SCALE, MONEY_ROUNDING);
 
-                                                                if (daysLate > FinancialPolicy.PENALTY_GRACE_DAYS) {
-                                                                        BigDecimal dailyPenalty = outstanding
-                                                                                        .multiply(FinancialPolicy.DAILY_PENALTY_RATE)
-                                                                                        .divide(BigDecimal.valueOf(100), 16, MONEY_ROUNDING)
-                                                                                        .setScale(MONEY_SCALE, MONEY_ROUNDING);
-
-                                                                        if (dailyPenalty.compareTo(ZERO) > 0) {
-                                                                                accountingService.postPenaltyAccrual(
-                                                                                                loan,
-                                                                                                dailyPenalty);
-                                                                                posted++;
-                                                                        }
+                                                                if (newPenalty.compareTo(ZERO) > 0) {
+                                                                        accountingService.postPenaltyAccrual(
+                                                                                        loan, newPenalty);
+                                                                        posted++;
                                                                 }
                                                         }
                                                 }
@@ -584,6 +586,30 @@ public class ScheduledJobs {
                                                 loan.getOrganization().getId());
         }
 
+        private BigDecimal calculateHistoricalPenalty(
+                        Loan loan,
+                        BigDecimal currentOutstanding,
+                        LocalDate firstChargeableDate,
+                        LocalDate asOf) {
+
+                List<Payment> payments = paymentRepo.findByLoanId(loan.getId());
+                return FinancialPolicy.historicalDailyPenalty(
+                                currentOutstanding,
+                                firstChargeableDate,
+                                asOf,
+                                date -> {
+                                        BigDecimal balance = currentOutstanding;
+                                        for (Payment payment : payments) {
+                                                if (payment == null || payment.getPaidDate() == null
+                                                                || !payment.getPaidDate().isAfter(date)) {
+                                                        continue;
+                                                }
+                                                balance = balance.add(money(payment.getPrincipalComponentDecimal()));
+                                        }
+                                        return money(balance);
+                                });
+        }
+
         /**
          * Normalize a monetary BigDecimal without ever converting it
          * through double.
@@ -607,10 +633,9 @@ public class ScheduledJobs {
                         return ZERO;
                 }
 
-                if ("ANNUAL".equalsIgnoreCase(rateType)) {
-                        return rate
-                                        .divide(BigDecimal.valueOf(100), 16, MONEY_ROUNDING)
-                                        .divide(BigDecimal.valueOf(365), 16, MONEY_ROUNDING);
+                if (rateType != null && !"MONTHLY".equalsIgnoreCase(rateType)) {
+                        throw new IllegalArgumentException(
+                                        "Only MONTHLY contractual rates are supported; annual rates are not accepted.");
                 }
 
                 return FinancialPolicy.dailyRateFraction(rate, LocalDate.now());

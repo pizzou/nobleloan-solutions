@@ -171,6 +171,88 @@ public final class FinancialPolicy {
          * Calculates the penalty for a newly chargeable interval.
          * Each chargeable day is assessed at 10% of the outstanding principal.
          */
+        /**
+         * Computes a cumulative penalty ceiling from the current outstanding
+         * principal and qualifying accrued contractual interest. The policy
+         * never permits interest due plus penalty to exceed principal.
+         */
+        public static BigDecimal penaltyCeiling(
+                        BigDecimal outstandingPrincipal,
+                        BigDecimal qualifyingInterest) {
+
+                BigDecimal principal = money(outstandingPrincipal);
+                BigDecimal interest = money(qualifyingInterest);
+
+                if (principal.signum() <= 0) {
+                        return money(BigDecimal.ZERO);
+                }
+
+                return money(principal.subtract(interest).max(BigDecimal.ZERO));
+        }
+
+        /**
+         * Applies the cumulative penalty ceiling to an already assessed amount
+         * plus a newly calculated amount.
+         */
+        public static BigDecimal capPenalty(
+                        BigDecimal outstandingPrincipal,
+                        BigDecimal qualifyingInterest,
+                        BigDecimal alreadyAssessedPenalty,
+                        BigDecimal newlyCalculatedPenalty) {
+
+                BigDecimal ceiling = penaltyCeiling(outstandingPrincipal, qualifyingInterest);
+                BigDecimal assessed = money(alreadyAssessedPenalty);
+                BigDecimal fresh = money(newlyCalculatedPenalty);
+                BigDecimal room = ceiling.subtract(assessed).max(BigDecimal.ZERO);
+                return money(fresh.min(room));
+        }
+
+        /**
+         * Calculates penalty day-by-day using the principal balance that existed
+         * on each historical chargeable day. This is intentionally separate from
+         * the contractual monthly schedule calculation.
+         */
+        public static BigDecimal historicalDailyPenalty(
+                        BigDecimal currentOutstandingPrincipal,
+                        LocalDate firstChargeableDate,
+                        LocalDate asOf,
+                        java.util.function.Function<LocalDate, BigDecimal> principalBalanceAtDate) {
+
+                if (currentOutstandingPrincipal == null
+                                || currentOutstandingPrincipal.signum() <= 0
+                                || firstChargeableDate == null
+                                || asOf == null
+                                || principalBalanceAtDate == null
+                                || firstChargeableDate.isAfter(asOf)) {
+                        return money(BigDecimal.ZERO);
+                }
+
+                BigDecimal total = BigDecimal.ZERO;
+                LocalDate cursor = firstChargeableDate;
+
+                while (!cursor.isAfter(asOf)) {
+                        BigDecimal balance = principalBalanceAtDate.apply(cursor);
+                        if (balance != null && balance.signum() > 0) {
+                                total = total.add(
+                                                contractualDailyPercentage(balance, DAILY_PENALTY_RATE));
+                        }
+                        cursor = cursor.plusDays(1);
+                }
+
+                return money(total);
+        }
+
+        private static BigDecimal contractualDailyPercentage(
+                        BigDecimal principal, BigDecimal ratePercent) {
+                return money(principal
+                                .multiply(ratePercent)
+                                .divide(ONE_HUNDRED, RATE_SCALE, ROUNDING));
+        }
+
+        private static BigDecimal money(BigDecimal value) {
+                return (value == null ? BigDecimal.ZERO : value).setScale(2, ROUNDING);
+        }
+
         public static BigDecimal dailyPenaltyForDays(
                         BigDecimal outstandingPrincipal,
                         int chargeableDays) {

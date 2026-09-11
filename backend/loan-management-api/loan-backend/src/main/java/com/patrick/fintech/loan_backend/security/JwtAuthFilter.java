@@ -170,7 +170,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             }
 
             com.patrick.fintech.loan_backend.model.User currentUser =
-                userRepository.findByEmail(email).orElse(null);
+                userRepository.findByEmailIgnoreCase(email).orElse(null);
 
             if (currentUser == null || currentUser.getStatus() != com.patrick.fintech.loan_backend.model.User.UserStatus.ACTIVE) {
                 SecurityContextHolder.clearContext();

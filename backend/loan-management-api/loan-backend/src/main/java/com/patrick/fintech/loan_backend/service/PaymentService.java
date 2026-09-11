@@ -50,6 +50,7 @@ public class PaymentService {
         private final WebhookService webhookService;
         private final AccountingService accountingService;
         private final PaymentEventPublisher paymentEventPublisher;
+        private final PaymentAllocationService paymentAllocationService;
 
         // ================================================================
         // PLATFORM FINANCIAL RULES
@@ -150,6 +151,11 @@ public class PaymentService {
                 }
 
                 Long organizationId = loan.getOrganization().getId();
+
+                if (loan.getStatus() == LoanStatus.WRITTEN_OFF) {
+                        throw new IllegalStateException(
+                                        "Payments against a written-off loan require an approved recovery workflow.");
+                }
 
                 // ============================================================
                 // BASIC LOAN VALIDATION
@@ -672,23 +678,34 @@ public class PaymentService {
                                 0,
                                 daysLate - FinancialPolicy.PENALTY_GRACE_DAYS);
 
-                // The scheduler normally keeps loan.penaltiesAssessed current.
-                // If payment arrives before the scheduler has posted today's
-                // penalty, calculate only the missing amount.
-                BigDecimal requiredPenaltyToDate = currentlyChargeablePenaltyDays > 0
-                                ? FinancialPolicy.dailyPenaltyForDays(
-                                                currentBalance,
-                                                currentlyChargeablePenaltyDays)
-                                : ZERO;
+                BigDecimal newlyCalculatedPenalty = ZERO;
+                int newPenaltyDays = 0;
 
-                BigDecimal newlyCalculatedPenalty = roundMoney(
-                                requiredPenaltyToDate
-                                                .subtract(loanPenaltyAssessedBeforePayment)
-                                                .max(ZERO));
+                if (loan.getStatus() != LoanStatus.WRITTEN_OFF
+                                && currentlyChargeablePenaltyDays > 0) {
 
-                int newPenaltyDays = newlyCalculatedPenalty.compareTo(ZERO) > 0
-                                ? currentlyChargeablePenaltyDays
-                                : 0;
+                        LocalDate earliestPenaltyDate = resolveEarliestPenaltyDate(loan, today);
+                        BigDecimal requiredPenaltyToDate = earliestPenaltyDate == null
+                                        ? ZERO
+                                        : calculateHistoricalPenaltyToDate(
+                                                        loan, currentBalance, earliestPenaltyDate, today);
+
+                        BigDecimal qualifyingInterest = calculateQualifyingInterestDue(loan, today);
+                        BigDecimal remainingPenaltyRoom = FinancialPolicy.penaltyCeiling(
+                                        currentBalance, qualifyingInterest)
+                                        .subtract(loanPenaltyAssessedBeforePayment)
+                                        .max(ZERO);
+
+                        newlyCalculatedPenalty = roundMoney(
+                                        requiredPenaltyToDate
+                                                        .subtract(loanPenaltyAssessedBeforePayment)
+                                                        .max(ZERO)
+                                                        .min(remainingPenaltyRoom));
+
+                        newPenaltyDays = newlyCalculatedPenalty.compareTo(ZERO) > 0
+                                        ? currentlyChargeablePenaltyDays
+                                        : 0;
+                }
 
                 // ============================================================
                 // TOTAL PENALTY
@@ -717,40 +734,27 @@ public class PaymentService {
                 // lending engine. Principal is never reduced while an older
                 // penalty/fee/contractual charge remains unpaid.
 
-                BigDecimal paymentRemaining = amount;
+                PaymentAllocationService.Allocation allocation = paymentAllocationService.allocate(
+                                amount,
+                                penaltyRemainingBeforePayment,
+                                safe(loan.getExtensionFeeOutstandingDecimal()),
+                                remainingInterestBeforePayment,
+                                remainingManagementFeeBeforePayment,
+                                currentBalance);
 
-                // 1. PENALTY
-                BigDecimal penaltyPaidThisPayment = roundMoney(
-                                paymentRemaining.min(
-                                                penaltyRemainingBeforePayment));
-
-                paymentRemaining = roundMoney(
-                                paymentRemaining
-                                                .subtract(penaltyPaidThisPayment)
-                                                .max(ZERO));
+                BigDecimal penaltyPaidThisPayment = roundMoney(allocation.penalty());
 
                 BigDecimal totalPenaltyPaid = roundMoney(
-                                penaltyAlreadyPaid
-                                                .add(penaltyPaidThisPayment))
+                                penaltyAlreadyPaid.add(penaltyPaidThisPayment))
                                 .min(totalPenalty);
 
                 BigDecimal remainingPenaltyAfterPayment = roundMoney(
-                                totalPenalty
-                                                .subtract(totalPenaltyPaid)
-                                                .max(ZERO));
+                                totalPenalty.subtract(totalPenaltyPaid).max(ZERO));
 
-                // 2. EXTENSION / RESTRUCTURING FEE
                 BigDecimal extensionFeeOutstandingBeforePayment = roundMoney(
-                                safe(loan.getExtensionFeeOutstandingDecimal()))
-                                .max(ZERO);
+                                safe(loan.getExtensionFeeOutstandingDecimal())).max(ZERO);
 
-                BigDecimal extensionFeePaidThisPayment = roundMoney(
-                                paymentRemaining.min(extensionFeeOutstandingBeforePayment));
-
-                paymentRemaining = roundMoney(
-                                paymentRemaining
-                                                .subtract(extensionFeePaidThisPayment)
-                                                .max(ZERO));
+                BigDecimal extensionFeePaidThisPayment = roundMoney(allocation.extensionFee());
 
                 BigDecimal extensionFeeOutstandingAfterPayment = roundMoney(
                                 extensionFeeOutstandingBeforePayment
@@ -761,36 +765,10 @@ public class PaymentService {
                                 safe(loan.getExtensionFeePaidDecimal())
                                                 .add(extensionFeePaidThisPayment));
 
-                // 3. INTEREST
-                BigDecimal interestPaidThisPayment = roundMoney(
-                                paymentRemaining.min(remainingInterestBeforePayment));
-
-                paymentRemaining = roundMoney(
-                                paymentRemaining
-                                                .subtract(interestPaidThisPayment)
-                                                .max(ZERO));
-
-                // 4. MANAGEMENT FEE
-                BigDecimal managementFeePaidThisPayment = roundMoney(
-                                paymentRemaining.min(remainingManagementFeeBeforePayment));
-
-                paymentRemaining = roundMoney(
-                                paymentRemaining
-                                                .subtract(managementFeePaidThisPayment)
-                                                .max(ZERO));
-
-                // 5. PRINCIPAL
-                BigDecimal principalPaidThisPayment = roundMoney(
-                                paymentRemaining.min(currentBalance));
-
-                paymentRemaining = roundMoney(
-                                paymentRemaining
-                                                .subtract(principalPaidThisPayment)
-                                                .max(ZERO));
-
-                // 6. OVERPAYMENT
-                BigDecimal overpayment = roundMoney(
-                                paymentRemaining.max(ZERO));
+                BigDecimal interestPaidThisPayment = roundMoney(allocation.interest());
+                BigDecimal managementFeePaidThisPayment = roundMoney(allocation.managementFee());
+                BigDecimal principalPaidThisPayment = roundMoney(allocation.principal());
+                BigDecimal overpayment = roundMoney(allocation.overpayment());
 
                 // NEW PRINCIPAL BALANCE
                 BigDecimal newBalance = roundMoney(
@@ -2269,6 +2247,53 @@ public class PaymentService {
         // ================================================================
         // TRANSACTION ID
         // ================================================================
+
+        private LocalDate resolveEarliestPenaltyDate(Loan loan, LocalDate asOf) {
+                return paymentRepo.findByLoanId(loan.getId()).stream()
+                                .filter(java.util.Objects::nonNull)
+                                .filter(p -> p.getDueDate() != null)
+                                .filter(p -> !Boolean.TRUE.equals(p.getPaid()))
+                                .map(Payment::getDueDate)
+                                .filter(d -> d.isBefore(asOf))
+                                .min(LocalDate::compareTo)
+                                .map(d -> d.plusDays(FinancialPolicy.PENALTY_GRACE_DAYS + 1L))
+                                .orElse(null);
+        }
+
+        private BigDecimal calculateHistoricalPenaltyToDate(
+                        Loan loan,
+                        BigDecimal currentOutstandingPrincipal,
+                        LocalDate firstChargeableDate,
+                        LocalDate asOf) {
+
+                List<Payment> payments = paymentRepo.findByLoanId(loan.getId());
+                return FinancialPolicy.historicalDailyPenalty(
+                                currentOutstandingPrincipal,
+                                firstChargeableDate,
+                                asOf,
+                                date -> {
+                                        BigDecimal historicalBalance = currentOutstandingPrincipal;
+                                        for (Payment payment : payments) {
+                                                if (payment == null || payment.getPaidDate() == null
+                                                                || !payment.getPaidDate().isAfter(date)) {
+                                                        continue;
+                                                }
+                                                historicalBalance = historicalBalance.add(
+                                                                safe(payment.getPrincipalComponentDecimal()));
+                                        }
+                                        return roundMoney(historicalBalance);
+                                });
+        }
+
+        private BigDecimal calculateQualifyingInterestDue(Loan loan, LocalDate asOf) {
+                return roundMoney(
+                                paymentRepo.findByLoanId(loan.getId()).stream()
+                                                .filter(java.util.Objects::nonNull)
+                                                .filter(p -> p.getDueDate() != null)
+                                                .filter(p -> !p.getDueDate().isAfter(asOf))
+                                                .map(p -> safe(p.getCycleInterestRemainingDecimal()))
+                                                .reduce(ZERO, BigDecimal::add));
+        }
 
         private String normalizeTransactionId(
                         String txnId) {

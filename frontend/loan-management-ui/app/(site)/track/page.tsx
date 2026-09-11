@@ -1021,7 +1021,7 @@ export default function TrackPage() {
 
                   <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
                     <div className="text-[9px] uppercase tracking-wider font-black text-gray-400">
-                      Total Repayable
+                      Scheduled repayment total
                     </div>
 
                     <div className="text-lg font-black text-gray-900 mt-2">

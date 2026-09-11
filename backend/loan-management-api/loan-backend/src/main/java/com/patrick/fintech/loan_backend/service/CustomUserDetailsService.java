@@ -38,7 +38,7 @@ public class CustomUserDetailsService implements UserDetailsService {
     public UserDetails loadUserByUsername(String email)
             throws UsernameNotFoundException {
 
-        User user = userRepository.findByEmail(email)
+        User user = userRepository.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> new UsernameNotFoundException(
                         "User not found: " + email));
 
@@ -77,7 +77,7 @@ public class CustomUserDetailsService implements UserDetailsService {
                 user.getStatus() == User.UserStatus.ACTIVE,
                 true,
                 true,
-                true,
+                !user.isLocked(),
                 grantedAuthorities
         );
     }

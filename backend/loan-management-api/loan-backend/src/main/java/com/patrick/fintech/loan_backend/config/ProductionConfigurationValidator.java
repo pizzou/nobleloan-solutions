@@ -24,6 +24,8 @@ public class ProductionConfigurationValidator {
         private String creditBureauApiKey;
         @Value("${app.credit-bureau.simulation-enabled:false}")
         private boolean creditBureauSimulation;
+        @Value("${app.credit-bureau.required-for-disbursement:true}")
+        private boolean creditBureauRequiredForDisbursement;
         @Value("${app.cors.allowed-origins:}")
         private String corsOrigins;
         @Value("${app.auth.public-registration-enabled:false}")
@@ -84,6 +86,34 @@ public class ProductionConfigurationValidator {
         @Value("${app.regulatory.provision.doubtful:0}") private String provisionDoubtful;
         @Value("${app.regulatory.provision.written-off:0}") private String provisionWrittenOff;
         @Value("${app.regulatory.provision.policy-approved:false}") private boolean provisioningPolicyApproved;
+        @Value("${PROD_GATE_PENTEST_APPROVED:false}") private boolean pentestApproved;
+        @Value("${PROD_GATE_IDOR_AUDIT_APPROVED:false}") private boolean idorAuditApproved;
+        @Value("${PROD_GATE_CORS_VERIFIED:false}") private boolean corsVerified;
+        @Value("${PROD_GATE_SECRET_MANAGER_CONFIGURED:false}") private boolean secretManagerConfigured;
+        @Value("${PROD_GATE_BNR_LICENSE_CONFIRMED:false}") private boolean bnrLicenseConfirmed;
+        @Value("${PROD_GATE_REGULATION_MAPPING_APPROVED:false}") private boolean regulationMappingApproved;
+        @Value("${PROD_GATE_LEGAL_DISCLOSURES_APPROVED:false}") private boolean legalDisclosuresApproved;
+        @Value("${PROD_GATE_PENALTY_POLICY_APPROVED:false}") private boolean penaltyPolicyApproved;
+        @Value("${PROD_GATE_DPO_REGISTERED:false}") private boolean dpoRegistered;
+        @Value("${PROD_GATE_DPO_APPOINTED:false}") private boolean dpoAppointed;
+        @Value("${PROD_GATE_RECORDS_PROCESSING_APPROVED:false}") private boolean recordsProcessingApproved;
+        @Value("${PROD_GATE_DPIA_APPROVED:false}") private boolean dpiaApproved;
+        @Value("${PROD_GATE_RETENTION_APPROVED:false}") private boolean retentionApproved;
+        @Value("${PROD_GATE_BREACH_PLAN_APPROVED:false}") private boolean breachPlanApproved;
+        @Value("${PROD_GATE_BACKUP_RESTORE_DRILL_APPROVED:false}") private boolean backupRestoreDrillApproved;
+        @Value("${PROD_GATE_POSTGRES_HA_APPROVED:false}") private boolean postgresHaApproved;
+        @Value("${PROD_GATE_UPTIME_MONITORING_APPROVED:false}") private boolean uptimeMonitoringApproved;
+        @Value("${PROD_GATE_CENTRAL_ALERTING_APPROVED:false}") private boolean centralAlertingApproved;
+        @Value("${PROD_GATE_ACCOUNTING_CLOSE_APPROVED:false}") private boolean accountingCloseApproved;
+        @Value("${PROD_GATE_COA_APPROVED:false}") private boolean coaApproved;
+        @Value("${PROD_GATE_BANK_RECON_APPROVED:false}") private boolean bankReconApproved;
+        @Value("${PROD_GATE_SUBLEDGER_RECON_APPROVED:false}") private boolean subledgerReconApproved;
+        @Value("${PROD_GATE_REVENUE_POLICY_APPROVED:false}") private boolean revenuePolicyApproved;
+        @Value("${PROD_GATE_GOLDEN_SCENARIOS_APPROVED:false}") private boolean goldenScenariosApproved;
+        @Value("${PROD_GATE_CONCURRENCY_TESTED:false}") private boolean concurrencyTested;
+        @Value("${PROD_GATE_PRODUCTION_POSTGRES_TESTED:false}") private boolean productionPostgresTested;
+        @Value("${PROD_GATE_REGULATORY_GOLDEN_APPROVED:false}") private boolean regulatoryGoldenApproved;
+
         @Value("${BOOTSTRAP_ADMIN_EMAIL:}") private String bootstrapAdminEmail;
         @Value("${BOOTSTRAP_ADMIN_PASSWORD:}") private String bootstrapAdminPassword;
         @Value("${BOOTSTRAP_ADMIN_NAME:}") private String bootstrapAdminName;
@@ -165,6 +195,10 @@ public class ProductionConfigurationValidator {
                 requireAes256Base64(encryptionKey, "APP_ENCRYPTION_KEY");
                 requireBase64AtLeast32Bytes(indexKey, "APP_INDEX_KEY");
 
+                if (!creditBureauEnabled || !creditBureauRequiredForDisbursement) {
+                        throw new IllegalStateException(
+                                        "A real credit-bureau provider must be enabled and required for disbursement in production");
+                }
                 if (creditBureauEnabled) {
                         if (creditBureauBaseUrl == null || creditBureauBaseUrl.isBlank()) {
                                 throw new IllegalStateException(
@@ -195,6 +229,46 @@ public class ProductionConfigurationValidator {
                 if (websocketOrigins == null || websocketOrigins.isBlank() || websocketOrigins.contains("*"))
                         throw new IllegalStateException(
                                         "WEBSOCKET_ALLOWED_ORIGINS must contain explicit production origins");
+
+                assertProductionEvidenceGates();
+        }
+
+
+        private void assertProductionEvidenceGates() {
+                requireApproved(pentestApproved, "PROD_GATE_PENTEST_APPROVED");
+                requireApproved(idorAuditApproved, "PROD_GATE_IDOR_AUDIT_APPROVED");
+                requireApproved(corsVerified, "PROD_GATE_CORS_VERIFIED");
+                requireApproved(secretManagerConfigured, "PROD_GATE_SECRET_MANAGER_CONFIGURED");
+                requireApproved(bnrLicenseConfirmed, "PROD_GATE_BNR_LICENSE_CONFIRMED");
+                requireApproved(regulationMappingApproved, "PROD_GATE_REGULATION_MAPPING_APPROVED");
+                requireApproved(legalDisclosuresApproved, "PROD_GATE_LEGAL_DISCLOSURES_APPROVED");
+                requireApproved(penaltyPolicyApproved, "PROD_GATE_PENALTY_POLICY_APPROVED");
+                requireApproved(dpoRegistered, "PROD_GATE_DPO_REGISTERED");
+                requireApproved(dpoAppointed, "PROD_GATE_DPO_APPOINTED");
+                requireApproved(recordsProcessingApproved, "PROD_GATE_RECORDS_PROCESSING_APPROVED");
+                requireApproved(dpiaApproved, "PROD_GATE_DPIA_APPROVED");
+                requireApproved(retentionApproved, "PROD_GATE_RETENTION_APPROVED");
+                requireApproved(breachPlanApproved, "PROD_GATE_BREACH_PLAN_APPROVED");
+                requireApproved(backupRestoreDrillApproved, "PROD_GATE_BACKUP_RESTORE_DRILL_APPROVED");
+                requireApproved(postgresHaApproved, "PROD_GATE_POSTGRES_HA_APPROVED");
+                requireApproved(uptimeMonitoringApproved, "PROD_GATE_UPTIME_MONITORING_APPROVED");
+                requireApproved(centralAlertingApproved, "PROD_GATE_CENTRAL_ALERTING_APPROVED");
+                requireApproved(accountingCloseApproved, "PROD_GATE_ACCOUNTING_CLOSE_APPROVED");
+                requireApproved(coaApproved, "PROD_GATE_COA_APPROVED");
+                requireApproved(bankReconApproved, "PROD_GATE_BANK_RECON_APPROVED");
+                requireApproved(subledgerReconApproved, "PROD_GATE_SUBLEDGER_RECON_APPROVED");
+                requireApproved(revenuePolicyApproved, "PROD_GATE_REVENUE_POLICY_APPROVED");
+                requireApproved(goldenScenariosApproved, "PROD_GATE_GOLDEN_SCENARIOS_APPROVED");
+                requireApproved(concurrencyTested, "PROD_GATE_CONCURRENCY_TESTED");
+                requireApproved(productionPostgresTested, "PROD_GATE_PRODUCTION_POSTGRES_TESTED");
+                requireApproved(regulatoryGoldenApproved, "PROD_GATE_REGULATORY_GOLDEN_APPROVED");
+        }
+
+        private void requireApproved(boolean value, String variable) {
+                if (!value) {
+                        throw new IllegalStateException(
+                                        variable + " must be true before the application may start in production");
+                }
         }
 
         private void requireAes256Base64(String value, String variable) {

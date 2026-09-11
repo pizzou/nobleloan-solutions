@@ -2,6 +2,11 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import {
+  calculateContractualSchedule,
+  percentageCharge,
+  safeRate,
+} from "../lib/loanRepaymentCalculator";
 
 type Product = {
   title: string;
@@ -67,101 +72,18 @@ function hasMaximum(
   );
 }
 
-function parseDecimal(value: number | string | undefined, scale: bigint) {
-  const text = String(value ?? "0")
-    .trim()
-    .replace(/,/g, "");
-  if (!/^\d+(?:\.\d+)?$/.test(text)) return 0n;
-  const [whole, fraction = ""] = text.split(".");
-  const digits = fraction.padEnd(Number(scale), "0").slice(0, Number(scale));
-  return BigInt(whole) * 10n ** scale + BigInt(digits || "0");
-}
-
-function halfUpDivide(numerator: bigint, denominator: bigint) {
-  if (denominator <= 0n) throw new Error("Invalid financial denominator");
-  const quotient = numerator / denominator;
-  const remainder = numerator % denominator;
-  return remainder * 2n >= denominator ? quotient + 1n : quotient;
-}
-
-function centsToNumber(cents: bigint) {
-  return Number(cents) / 100;
-}
-
-function percentageCharge(principal: number, rate: number | string) {
-  const principalCents = BigInt(Math.max(0, Math.round(principal * 100)));
-  const rateScale = 9n;
-  const rateUnits = parseDecimal(rate, rateScale);
-  const denominator = 100n * 10n ** rateScale;
-  return centsToNumber(halfUpDivide(principalCents * rateUnits, denominator));
-}
-
-/**
- * Exact client-side mirror of FinancialPolicy.contractualScheduleLine().
- * Monetary state is integer cents; rates are represented at the database's
- * nine-decimal precision. No binary floating-point participates in money math.
- */
 function calculateSchedule(
   principal: number,
   months: number,
   interestRate: number | string,
   managementRate: number | string,
 ) {
-  let balanceCents = BigInt(Math.max(0, Math.round(principal * 100)));
-  let totalInterestCents = 0n;
-  let totalManagementCents = 0n;
-  let firstInstallmentCents = 0n;
-  let lastInstallmentCents = 0n;
-
-  const rateScale = 9n;
-  const rateDenominator = 100n * 10n ** rateScale;
-  const interestRateUnits = parseDecimal(interestRate, rateScale);
-  const managementRateUnits = parseDecimal(managementRate, rateScale);
-
-  for (
-    let installmentNumber = 1;
-    installmentNumber <= months;
-    installmentNumber += 1
-  ) {
-    const remainingInstallments = months - installmentNumber + 1;
-
-    const principalComponentCents =
-      remainingInstallments === 1
-        ? balanceCents
-        : halfUpDivide(balanceCents, BigInt(remainingInstallments));
-
-    const interestCents = halfUpDivide(
-      balanceCents * interestRateUnits,
-      rateDenominator,
-    );
-    const managementCents = halfUpDivide(
-      balanceCents * managementRateUnits,
-      rateDenominator,
-    );
-
-    const installmentCents =
-      principalComponentCents + interestCents + managementCents;
-
-    totalInterestCents += interestCents;
-    totalManagementCents += managementCents;
-
-    if (installmentNumber === 1) firstInstallmentCents = installmentCents;
-    if (installmentNumber === months) lastInstallmentCents = installmentCents;
-
-    balanceCents = balanceCents - principalComponentCents;
-  }
-
-  return {
-    interest: centsToNumber(totalInterestCents),
-    management: centsToNumber(totalManagementCents),
-    total: centsToNumber(
-      BigInt(Math.max(0, Math.round(principal * 100))) +
-        totalInterestCents +
-        totalManagementCents,
-    ),
-    firstInstallment: centsToNumber(firstInstallmentCents),
-    lastInstallment: centsToNumber(lastInstallmentCents),
-  };
+  return calculateContractualSchedule(
+    principal,
+    months,
+    safeRate(interestRate, 5),
+    safeRate(managementRate, 5),
+  );
 }
 
 export default function PublicLoanCalculator({
