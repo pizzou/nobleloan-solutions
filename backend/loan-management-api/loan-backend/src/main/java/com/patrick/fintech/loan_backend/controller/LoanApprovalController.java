@@ -1,6 +1,4 @@
-
 package com.patrick.fintech.loan_backend.controller;
-
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.service.LoanApprovalService;
 import lombok.RequiredArgsConstructor;
@@ -18,33 +16,7 @@ public class LoanApprovalController {
 
     private final LoanApprovalService approvalService;
 
-    /**
-     * Get the approval chain for a loan.
-     */
-    @GetMapping
-    @PreAuthorize("""
-            hasAnyRole(
-                'ADMIN',
-                'MANAGER',
-                'LOAN_OFFICER',
-                'CREDIT_ANALYST',
-                'BUSINESS_OWNER'
-            )
-            """)
-    public ResponseEntity<?> getChain(
-            @PathVariable Long loanId) {
-
-        return ResponseEntity.ok(
-                approvalService.getApprovalChain(loanId)
-        );
-    }
-
-    /**
-     * Generic approval-chain decision endpoint.
-     *
-     * Kept as Map<String, String> for backward compatibility with
-     * existing clients using the original decide endpoint.
-     */
+   
     @PostMapping("/decide")
     @PreAuthorize("""
             hasAnyRole(
@@ -78,13 +50,7 @@ public class LoanApprovalController {
         );
     }
 
-    /**
-     * Final approval endpoint.
-     *
-     * The request intentionally uses Map<String, Object> because the
-     * frontend may send numeric JSON values as Number and
-     * businessOwnerOnly as Boolean.
-     */
+   
     @PostMapping("/approve")
     @PreAuthorize("""
             hasAnyRole(
@@ -126,12 +92,7 @@ public class LoanApprovalController {
         );
     }
 
-    /**
-     * Reject endpoint.
-     *
-     * Kept as Map<String, String> for compatibility with existing
-     * clients using the original reject request structure.
-     */
+    
     @PostMapping("/reject")
     @PreAuthorize("""
             hasAnyRole(
@@ -161,15 +122,7 @@ public class LoanApprovalController {
         );
     }
 
-    /**
-     * Parse approved amount from the approval request.
-     *
-     * Preferred frontend field:
-     *     approvedAmount
-     *
-     * Backward-compatible alias:
-     *     amount
-     */
+   
     private BigDecimal parseApprovedAmount(
             Map<String, Object> body) {
 
@@ -209,11 +162,7 @@ public class LoanApprovalController {
     }
 
     /**
-     * Parse interest rate from JSON.
-     *
-     * Accepted field names:
-     *     interestRate
-     *     newInterestRate
+     * Parse interest rate.
      */
     private Double parseInterestRate(
             Map<String, Object> body) {
@@ -231,12 +180,7 @@ public class LoanApprovalController {
     }
 
     /**
-     * Parse processing/application fee rate from JSON.
-     *
-     * Accepted field names:
-     *     applicationFeeRate
-     *     processingFeeRate
-     *     newProcessingFeeRate
+     * Parse processing/application fee rate.
      */
     private Double parseProcessingFeeRate(
             Map<String, Object> body) {
@@ -255,13 +199,13 @@ public class LoanApprovalController {
     }
 
     /**
-     * Parse the Business Owner reporting classification.
+     * Parse Business Owner reporting classification.
      *
-     * The frontend normally sends:
+     * Normal:
+     *     false
      *
-     *     businessOwnerOnly: true
-     *
-     * This method also accepts string values for backward compatibility.
+     * Business Owner only:
+     *     true
      */
     private Boolean parseBusinessOwnerOnly(
             Map<String, Object> body) {
@@ -326,13 +270,10 @@ public class LoanApprovalController {
     }
 
     /**
-     * Parse a percentage/rate value.
+     * Parse percentage/rate values.
      *
      * Valid range:
-     *     0 <= value <= 100
-     *
-     * Null means that the approval request did not provide
-     * a new value, allowing the service to retain the existing value.
+     *     0 through 100
      */
     private Double parsePercentage(
             Object value,
@@ -376,7 +317,7 @@ public class LoanApprovalController {
     }
 
     /**
-     * Returns the first non-null value from the supplied keys.
+     * Return the first value that exists for the supplied keys.
      */
     private Object firstPresent(
             Map<String, Object> body,
@@ -387,6 +328,7 @@ public class LoanApprovalController {
         }
 
         for (String key : keys) {
+
             if (key == null) {
                 continue;
             }
@@ -402,10 +344,9 @@ public class LoanApprovalController {
     }
 
     /**
-     * Returns the first non-blank textual value.
+     * Return the first non-blank value.
      *
-     * Object is intentionally used here because /approve receives
-     * Map<String, Object>.
+     * Object is intentional because /approve uses Map<String, Object>.
      */
     private String firstNonBlank(
             Object... values) {
@@ -430,3 +371,4 @@ public class LoanApprovalController {
         return null;
     }
 }
+
