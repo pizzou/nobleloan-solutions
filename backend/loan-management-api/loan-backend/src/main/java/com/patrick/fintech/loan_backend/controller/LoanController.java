@@ -234,38 +234,23 @@ public class LoanController {
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
         public ResponseEntity<ApiResponse<LoanResponse>> approveLoan(
                         @PathVariable Long id,
-                        @RequestBody(required = false) Map<String, String> body) {
+                        @RequestBody(required = false) Map<String, Object> body) {
 
                 User user = currentUserUtil.getCurrentUser();
 
                 String notes = body != null
                                 ? firstNonBlank(
-                                                body.get("notes"),
-                                                body.get("comments"))
+                                                body.get("notes") == null ? null : String.valueOf(body.get("notes")),
+                                                body.get("comments") == null ? null : String.valueOf(body.get("comments")))
                                 : null;
 
-                Double newInterestRate = null;
+                Double newInterestRate = parseDouble(body, "interestRate",
+                                "interestRate must be a valid number.");
+                Double applicationFeeRate = parseDouble(body, "applicationFeeRate",
+                                "applicationFeeRate must be a valid number.");
+                java.math.BigDecimal approvedAmount = parseMoney(body, "approvedAmount", "amount",
+                                "Approved loan amount must be a valid monetary amount.");
                 Boolean businessOwnerOnly = parseBusinessOwnerOnly(body);
-
-                if (body != null) {
-
-                        String rawRate = body.get("interestRate");
-
-                        if (rawRate != null
-                                        && !rawRate.isBlank()) {
-
-                                try {
-
-                                        newInterestRate = Double.valueOf(
-                                                        rawRate.trim());
-
-                                } catch (NumberFormatException e) {
-
-                                        throw new IllegalArgumentException(
-                                                        "interestRate must be a valid number.");
-                                }
-                        }
-                }
 
                 var decisionRecord = loanApprovalService.decide(
                                 id,
@@ -273,8 +258,8 @@ public class LoanController {
                                 "APPROVED",
                                 notes,
                                 newInterestRate,
-                                null,
-                                null,
+                                applicationFeeRate,
+                                approvedAmount,
                                 businessOwnerOnly);
 
                 /*
@@ -304,23 +289,75 @@ public class LoanController {
                                                 ResponseDtoMapper.loan(loan)));
         }
 
+        private Double parseDouble(
+                        Map<String, Object> body,
+                        String key,
+                        String errorMessage) {
+                if (body == null || body.get(key) == null) {
+                        return null;
+                }
+                String raw = String.valueOf(body.get(key)).trim();
+                if (raw.isBlank()) {
+                        return null;
+                }
+                try {
+                        return Double.valueOf(raw);
+                } catch (NumberFormatException ex) {
+                        throw new IllegalArgumentException(errorMessage);
+                }
+        }
+
+        private java.math.BigDecimal parseMoney(
+                        Map<String, Object> body,
+                        String primaryKey,
+                        String fallbackKey,
+                        String errorMessage) {
+                if (body == null) {
+                        return null;
+                }
+                Object rawObject = body.get(primaryKey);
+                if (rawObject == null) {
+                        rawObject = body.get(fallbackKey);
+                }
+                if (rawObject == null) {
+                        return null;
+                }
+                String raw = String.valueOf(rawObject).trim();
+                if (raw.isBlank()) {
+                        return null;
+                }
+                try {
+                        java.math.BigDecimal value = new java.math.BigDecimal(raw);
+                        if (value.signum() <= 0) {
+                                throw new IllegalArgumentException(
+                                                "Approved loan amount must be greater than zero.");
+                        }
+                        return value.setScale(2, java.math.RoundingMode.HALF_UP);
+                } catch (NumberFormatException ex) {
+                        throw new IllegalArgumentException(errorMessage);
+                }
+        }
+
         private Boolean parseBusinessOwnerOnly(
-                        Map<String, String> body) {
+                        Map<String, Object> body) {
 
                 if (body == null) {
                         return null;
                 }
 
-                String raw = body.get("businessOwnerOnly");
-                if (raw == null || raw.isBlank()) {
-                        raw = body.get("visibility");
+                Object rawObject = body.get("businessOwnerOnly");
+                if (rawObject == null) {
+                        rawObject = body.get("visibility");
                 }
 
-                if (raw == null || raw.isBlank()) {
+                if (rawObject == null) {
                         return null;
                 }
 
-                String value = raw.trim();
+                String value = String.valueOf(rawObject).trim();
+                if (value.isBlank()) {
+                        return null;
+                }
 
                 if ("BUSINESS_OWNER_ONLY".equalsIgnoreCase(value)) {
                         return Boolean.TRUE;

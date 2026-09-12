@@ -89,7 +89,7 @@ public class LoanApprovalController {
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
         public ResponseEntity<ApiResponse<Object>> approve(
                         @PathVariable Long loanId,
-                        @RequestBody(required = false) Map<String, String> body) {
+                        @RequestBody(required = false) Map<String, Object> body) {
 
                 User user = currentUserUtil.getCurrentUser();
 

@@ -2396,7 +2396,10 @@ public class LoanService {
                                         "Organization ID cannot be null");
                 }
 
-                Loan loan = loanRepo.findByIdForUpdate(loanId)
+                Loan loan = loanRepo.findVisibleByIdForUpdate(
+                                loanId,
+                                orgId,
+                                ReportingScopeService.includeBusinessOwnerOnly())
                                 .orElseThrow(
                                                 () -> new RuntimeException(
                                                                 "Loan not found: " + loanId));

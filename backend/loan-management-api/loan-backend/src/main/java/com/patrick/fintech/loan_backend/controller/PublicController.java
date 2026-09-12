@@ -4144,11 +4144,10 @@ public class PublicController {
                         DocumentType documentType) {
                 final BorrowerFile saved;
                 try {
-                        saved = fileService.upload(
+                        saved = fileService.upsertApplicantDocumentForNewApplication(
                                 borrowerId,
                                 file,
-                                documentType,
-                                true);
+                                documentType);
                 } catch (java.io.IOException ex) {
                         throw new IllegalStateException(
                                         "Failed to persist mandatory " + documentType.name() + " document.", ex);

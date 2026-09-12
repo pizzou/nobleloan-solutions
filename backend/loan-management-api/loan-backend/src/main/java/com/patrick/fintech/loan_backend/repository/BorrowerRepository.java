@@ -7,12 +7,14 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import jakarta.persistence.LockModeType;
 
 public interface BorrowerRepository extends JpaRepository<Borrower, Long> {
 
@@ -98,6 +100,16 @@ public interface BorrowerRepository extends JpaRepository<Borrower, Long> {
         Optional<Borrower> findByNationalIdHashAndOrganization_Id(
                         String nationalIdHash,
                         Long orgId);
+
+        /**
+         * Locks the borrower row while a repeat public application refreshes
+         * applicant-owned KYC documents. This serializes concurrent refreshes
+         * even when no document row exists yet.
+         */
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @EntityGraph(attributePaths = { "organization" })
+        @Query("SELECT b FROM Borrower b WHERE b.id = :id")
+        Optional<Borrower> findByIdForUpdate(@Param("id") Long id);
 
         /**
          * Bulk borrower lookup used by legacy-import preview to avoid one database

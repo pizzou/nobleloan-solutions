@@ -9,6 +9,7 @@ import com.patrick.fintech.loan_backend.repository.BorrowerRepository;
 import jakarta.persistence.EntityManager;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -193,6 +194,66 @@ public class BorrowerFileService {
         file.setVerifiedAt(LocalDateTime.now());
 
         return fileRepository.save(file);
+    }
+
+    /**
+     * Persist the current document submitted with a new public loan application.
+     *
+     * A repeat application from the same borrower replaces the previous
+     * applicant-owned document of the same type instead of creating a second
+     * current KYC copy. The existing row is updated in place so references to
+     * the document remain stable. Verification is reset to PENDING because the
+     * newly supplied bytes must be reviewed again. Staff-uploaded documents are
+     * never overwritten; when the only existing copy was uploaded by staff, a
+     * new applicant-owned row is created.
+     */
+    @Transactional
+    public BorrowerFile upsertApplicantDocumentForNewApplication(
+            Long borrowerId,
+            MultipartFile file,
+            DocumentType documentType) throws IOException {
+
+        if (borrowerId == null) {
+            throw new IllegalArgumentException("Borrower ID is required.");
+        }
+
+        DocumentType effectiveType = documentType != null
+                ? documentType
+                : DocumentType.OTHER;
+
+        secureFileUploadValidator.validateDocument(file, MAX_FILE_BYTES);
+
+        Borrower borrower = borrowerRepository.findByIdForUpdate(borrowerId)
+                .orElseThrow(() -> new RuntimeException("Borrower not found: " + borrowerId));
+
+        List<BorrowerFile> candidates = fileRepository
+                .findLatestApplicantDocumentForUpdate(borrowerId, effectiveType);
+
+        BorrowerFile current = candidates == null || candidates.isEmpty()
+                ? null
+                : candidates.get(0);
+
+        if (current == null) {
+            BorrowerFile created = new BorrowerFile();
+            created.setBorrower(borrower);
+            created.setUploadedByApplicant(true);
+            current = created;
+        }
+
+        current.setBorrower(borrower);
+        current.setFileName(file.getOriginalFilename());
+        current.setFileType(file.getContentType());
+        current.setFileSize(file.getSize());
+        current.setData(file.getBytes());
+        current.setDocumentType(effectiveType);
+        current.setUploadedByApplicant(true);
+        current.setVerificationStatus(VerificationStatus.PENDING);
+        current.setOfficerComment(null);
+        current.setVerifiedByName(null);
+        current.setVerifiedAt(null);
+        current.setUploadedAt(LocalDateTime.now());
+
+        return fileRepository.save(current);
     }
 
     /**
