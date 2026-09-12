@@ -1,20 +1,14 @@
 
 package com.patrick.fintech.loan_backend.controller;
 
-import com.patrick.fintech.loan_backend.dto.ApiResponse;
-import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
-import com.patrick.fintech.loan_backend.model.LoanApproval;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.service.LoanApprovalService;
-import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
+import java.math.BigDecimal;
 import java.util.Map;
 
 @RestController
@@ -22,260 +16,417 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class LoanApprovalController {
 
-        private final LoanApprovalService approvalService;
-        private final CurrentUserUtil currentUserUtil;
+    private final LoanApprovalService approvalService;
 
-        /**
-         * Returns the approval chain for the authenticated user's organization.
-         */
-        @GetMapping
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
-        public ResponseEntity<ApiResponse<Object>> getChain(
-                        @PathVariable Long loanId) {
+    /**
+     * Get the approval chain for a loan.
+     */
+    @GetMapping
+    @PreAuthorize("""
+            hasAnyRole(
+                'ADMIN',
+                'MANAGER',
+                'LOAN_OFFICER',
+                'CREDIT_ANALYST',
+                'BUSINESS_OWNER'
+            )
+            """)
+    public ResponseEntity<?> getChain(
+            @PathVariable Long loanId) {
 
-                User user = currentUserUtil.getCurrentUser();
+        return ResponseEntity.ok(
+                approvalService.getApprovalChain(loanId)
+        );
+    }
 
-                Long organizationId = user.getOrganization() != null
-                                ? user.getOrganization().getId()
-                                : null;
+    /**
+     * Generic approval-chain decision endpoint.
+     *
+     * Kept as Map<String, String> for backward compatibility with
+     * existing clients using the original decide endpoint.
+     */
+    @PostMapping("/decide")
+    @PreAuthorize("""
+            hasAnyRole(
+                'ADMIN',
+                'MANAGER',
+                'LOAN_OFFICER',
+                'BUSINESS_OWNER'
+            )
+            """)
+    public ResponseEntity<?> decide(
+            @PathVariable Long loanId,
+            @RequestBody Map<String, String> body,
+            User user) {
 
-                return ResponseEntity.ok(
-                                ApiResponse.safe(
-                                                approvalService.getChainForOrganization(
-                                                                loanId,
-                                                                organizationId)));
+        String decision = firstNonBlank(
+                body.get("decision")
+        );
+
+        String comments = firstNonBlank(
+                body.get("comments"),
+                body.get("notes")
+        );
+
+        return ResponseEntity.ok(
+                approvalService.decide(
+                        loanId,
+                        user,
+                        decision,
+                        comments
+                )
+        );
+    }
+
+    /**
+     * Final approval endpoint.
+     *
+     * The request intentionally uses Map<String, Object> because the
+     * frontend may send numeric JSON values as Number and
+     * businessOwnerOnly as Boolean.
+     */
+    @PostMapping("/approve")
+    @PreAuthorize("""
+            hasAnyRole(
+                'ADMIN',
+                'MANAGER',
+                'LOAN_OFFICER',
+                'BUSINESS_OWNER'
+            )
+            """)
+    public ResponseEntity<?> approve(
+            @PathVariable Long loanId,
+            @RequestBody Map<String, Object> body,
+            User user) {
+
+        String comments = firstNonBlank(
+                body.get("comments"),
+                body.get("notes")
+        );
+
+        Double newInterestRate = parseInterestRate(body);
+
+        Double newProcessingFeeRate = parseProcessingFeeRate(body);
+
+        BigDecimal approvedAmount = parseApprovedAmount(body);
+
+        Boolean businessOwnerOnly = parseBusinessOwnerOnly(body);
+
+        return ResponseEntity.ok(
+                approvalService.decide(
+                        loanId,
+                        user,
+                        "APPROVED",
+                        comments,
+                        newInterestRate,
+                        newProcessingFeeRate,
+                        approvedAmount,
+                        businessOwnerOnly
+                )
+        );
+    }
+
+    /**
+     * Reject endpoint.
+     *
+     * Kept as Map<String, String> for compatibility with existing
+     * clients using the original reject request structure.
+     */
+    @PostMapping("/reject")
+    @PreAuthorize("""
+            hasAnyRole(
+                'ADMIN',
+                'MANAGER',
+                'LOAN_OFFICER',
+                'BUSINESS_OWNER'
+            )
+            """)
+    public ResponseEntity<?> reject(
+            @PathVariable Long loanId,
+            @RequestBody Map<String, String> body,
+            User user) {
+
+        String comments = firstNonBlank(
+                body.get("comments"),
+                body.get("notes")
+        );
+
+        return ResponseEntity.ok(
+                approvalService.decide(
+                        loanId,
+                        user,
+                        "REJECTED",
+                        comments
+                )
+        );
+    }
+
+    /**
+     * Parse approved amount from the approval request.
+     *
+     * Preferred frontend field:
+     *     approvedAmount
+     *
+     * Backward-compatible alias:
+     *     amount
+     */
+    private BigDecimal parseApprovedAmount(
+            Map<String, Object> body) {
+
+        Object value = firstPresent(
+                body,
+                "approvedAmount",
+                "amount"
+        );
+
+        if (value == null) {
+            return null;
         }
 
-        /**
-         * Explicit approval-chain decision endpoint.
-         *
-         * This endpoint is kept for compatibility with the dashboard.
-         */
-        @PostMapping("/decide")
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
-        public ResponseEntity<ApiResponse<Object>> decide(
-                        @PathVariable Long loanId,
-                        @RequestBody(required = false) Map<String, String> body) {
-
-                User user = currentUserUtil.getCurrentUser();
-
-                String decision = body != null
-                                ? body.get("decision")
-                                : null;
-
-                String comments = body != null
-                                ? body.get("comments")
-                                : null;
-
-                LoanApproval result = approvalService.decide(
-                                loanId,
-                                user,
-                                decision,
-                                comments);
-
-                return ResponseEntity
-                                .ok(
-                                                ApiResponse.safe(
-                                                                "Decision recorded",
-                                                                result));
+        if (value instanceof BigDecimal) {
+            return (BigDecimal) value;
         }
 
-        /**
-         * Dedicated approval endpoint.
-         *
-         * This gives the dashboard a clean endpoint for approving.
-         */
-        @PostMapping("/approve")
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
-        public ResponseEntity<ApiResponse<Object>> approve(
-                        @PathVariable Long loanId,
-                        @RequestBody(required = false) Map<String, Object> body) {
-
-                User user = currentUserUtil.getCurrentUser();
-
-                String comments = body != null
-                                ? firstNonBlank(
-                                                body.get("comments"),
-                                                body.get("notes"))
-                                : null;
-
-                Double newInterestRate = parseInterestRate(body);
-                Double newProcessingFeeRate = parseProcessingFeeRate(body);
-                java.math.BigDecimal approvedAmount = parseApprovedAmount(body);
-                Boolean businessOwnerOnly = parseBusinessOwnerOnly(body);
-
-                LoanApproval result = approvalService.decide(
-                                loanId,
-                                user,
-                                "APPROVED",
-                                comments,
-                                newInterestRate,
-                                newProcessingFeeRate,
-                                approvedAmount,
-                                businessOwnerOnly);
-
-                return ResponseEntity.ok(
-                                ApiResponse.safe(
-                                                "Loan approval decision recorded",
-                                                result));
+        if (value instanceof Number) {
+            return BigDecimal.valueOf(
+                    ((Number) value).doubleValue()
+            );
         }
 
-        /**
-         * Dedicated rejection endpoint.
-         */
-        @PostMapping("/reject")
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
-        public ResponseEntity<ApiResponse<Object>> reject(
-                        @PathVariable Long loanId,
-                        @RequestBody(required = false) Map<String, String> body) {
+        String text = String.valueOf(value).trim();
 
-                User user = currentUserUtil.getCurrentUser();
-
-                String reason = body != null
-                                ? firstNonBlank(
-                                                body.get("reason"),
-                                                body.get("comments"),
-                                                body.get("notes"))
-                                : null;
-
-                if (reason == null) {
-                        reason = "Rejected by authorized approver.";
-                }
-
-                LoanApproval result = approvalService.decide(
-                                loanId,
-                                user,
-                                "REJECTED",
-                                reason);
-
-                return ResponseEntity.ok(
-                                ApiResponse.safe(
-                                                "Loan rejection recorded",
-                                                result));
+        if (text.isEmpty()) {
+            return null;
         }
 
-        private java.math.BigDecimal parseApprovedAmount(
-                        Map<String, String> body) {
+        try {
+            return new BigDecimal(text);
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException(
+                    "approvedAmount must be a valid numeric value"
+            );
+        }
+    }
 
-                if (body == null) {
-                        return null;
-                }
+    /**
+     * Parse interest rate from JSON.
+     *
+     * Accepted field names:
+     *     interestRate
+     *     newInterestRate
+     */
+    private Double parseInterestRate(
+            Map<String, Object> body) {
 
-                String raw = body.get("amount");
+        Object value = firstPresent(
+                body,
+                "interestRate",
+                "newInterestRate"
+        );
 
-                if (raw == null || raw.isBlank()) {
-                        return null;
-                }
+        return parsePercentage(
+                value,
+                "interestRate"
+        );
+    }
 
-                try {
-                        java.math.BigDecimal value = new java.math.BigDecimal(raw.trim());
-                        if (value.signum() <= 0) {
-                                throw new IllegalArgumentException("Approved loan amount must be greater than zero.");
-                        }
-                        return value.setScale(2, java.math.RoundingMode.HALF_UP);
-                } catch (NumberFormatException e) {
-                        throw new IllegalArgumentException("amount must be a valid monetary amount.");
-                }
+    /**
+     * Parse processing/application fee rate from JSON.
+     *
+     * Accepted field names:
+     *     applicationFeeRate
+     *     processingFeeRate
+     *     newProcessingFeeRate
+     */
+    private Double parseProcessingFeeRate(
+            Map<String, Object> body) {
+
+        Object value = firstPresent(
+                body,
+                "applicationFeeRate",
+                "processingFeeRate",
+                "newProcessingFeeRate"
+        );
+
+        return parsePercentage(
+                value,
+                "applicationFeeRate"
+        );
+    }
+
+    /**
+     * Parse the Business Owner reporting classification.
+     *
+     * The frontend normally sends:
+     *
+     *     businessOwnerOnly: true
+     *
+     * This method also accepts string values for backward compatibility.
+     */
+    private Boolean parseBusinessOwnerOnly(
+            Map<String, Object> body) {
+
+        Object value = firstPresent(
+                body,
+                "businessOwnerOnly"
+        );
+
+        if (value == null) {
+            return null;
         }
 
-        private Double parseInterestRate(
-                        Map<String, String> body) {
-
-                if (body == null) {
-                        return null;
-                }
-
-                String raw = body.get("interestRate");
-
-                if (raw == null
-                                || raw.isBlank()) {
-
-                        return null;
-                }
-
-                try {
-
-                        return Double.valueOf(
-                                        raw.trim());
-
-                } catch (NumberFormatException e) {
-
-                        throw new IllegalArgumentException(
-                                        "interestRate must be a valid number.");
-                }
+        if (value instanceof Boolean) {
+            return (Boolean) value;
         }
 
-        private Double parseProcessingFeeRate(
-                        Map<String, String> body) {
+        if (value instanceof Number) {
+            int numericValue = ((Number) value).intValue();
 
-                if (body == null) {
-                        return null;
-                }
+            if (numericValue == 1) {
+                return Boolean.TRUE;
+            }
 
-                String raw = body.get("applicationFeeRate");
-
-                if (raw == null || raw.isBlank()) {
-                        return null;
-                }
-
-                try {
-                        return Double.valueOf(raw.trim());
-                } catch (NumberFormatException e) {
-                        throw new IllegalArgumentException(
-                                        "applicationFeeRate must be a valid number.");
-                }
+            if (numericValue == 0) {
+                return Boolean.FALSE;
+            }
         }
 
-        private Boolean parseBusinessOwnerOnly(
-                        Map<String, String> body) {
+        String text = String.valueOf(value)
+                .trim()
+                .toUpperCase();
 
-                if (body == null) {
-                        return null;
-                }
+        if (text.isEmpty()) {
+            return null;
+        }
 
-                String raw = body.get("businessOwnerOnly");
-                if (raw == null || raw.isBlank()) {
-                        raw = body.get("visibility");
-                }
+        switch (text) {
+            case "TRUE":
+            case "YES":
+            case "Y":
+            case "1":
+            case "BUSINESS_OWNER":
+            case "BUSINESS_OWNER_ONLY":
+            case "OWNER_ONLY":
+            case "BUSINESS_OWNER_SCOPE":
+                return Boolean.TRUE;
 
-                if (raw == null || raw.isBlank()) {
-                        return null;
-                }
+            case "FALSE":
+            case "NO":
+            case "N":
+            case "0":
+            case "NORMAL":
+            case "NORMAL_SCOPE":
+                return Boolean.FALSE;
 
-                String value = raw.trim();
-
-                if ("BUSINESS_OWNER_ONLY".equalsIgnoreCase(value)) {
-                        return Boolean.TRUE;
-                }
-                if ("NORMAL".equalsIgnoreCase(value)
-                                || "NORMAL_SCOPE".equalsIgnoreCase(value)) {
-                        return Boolean.FALSE;
-                }
-                if ("true".equalsIgnoreCase(value)
-                                || "false".equalsIgnoreCase(value)) {
-                        return Boolean.valueOf(value);
-                }
-
+            default:
                 throw new IllegalArgumentException(
-                                "businessOwnerOnly must be true/false, NORMAL, or BUSINESS_OWNER_ONLY.");
+                        "businessOwnerOnly must be a boolean value"
+                );
+        }
+    }
+
+    /**
+     * Parse a percentage/rate value.
+     *
+     * Valid range:
+     *     0 <= value <= 100
+     *
+     * Null means that the approval request did not provide
+     * a new value, allowing the service to retain the existing value.
+     */
+    private Double parsePercentage(
+            Object value,
+            String fieldName) {
+
+        if (value == null) {
+            return null;
         }
 
-        private String firstNonBlank(
-                        String... values) {
+        Double result;
 
-                if (values == null) {
-                        return null;
-                }
+        if (value instanceof Number) {
+            result = ((Number) value).doubleValue();
+        } else {
+            String text = String.valueOf(value).trim();
 
-                for (String value : values) {
-
-                        if (value != null
-                                        && !value.isBlank()) {
-
-                                return value.trim();
-                        }
-                }
-
+            if (text.isEmpty()) {
                 return null;
+            }
+
+            try {
+                result = Double.valueOf(text);
+            } catch (NumberFormatException ex) {
+                throw new IllegalArgumentException(
+                        fieldName + " must be a valid numeric value"
+                );
+            }
         }
+
+        if (result.isNaN()
+                || result.isInfinite()
+                || result < 0.0
+                || result > 100.0) {
+
+            throw new IllegalArgumentException(
+                    fieldName + " must be between 0 and 100"
+            );
+        }
+
+        return result;
+    }
+
+    /**
+     * Returns the first non-null value from the supplied keys.
+     */
+    private Object firstPresent(
+            Map<String, Object> body,
+            String... keys) {
+
+        if (body == null || keys == null) {
+            return null;
+        }
+
+        for (String key : keys) {
+            if (key == null) {
+                continue;
+            }
+
+            Object value = body.get(key);
+
+            if (value != null) {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Returns the first non-blank textual value.
+     *
+     * Object is intentionally used here because /approve receives
+     * Map<String, Object>.
+     */
+    private String firstNonBlank(
+            Object... values) {
+
+        if (values == null) {
+            return null;
+        }
+
+        for (Object value : values) {
+
+            if (value == null) {
+                continue;
+            }
+
+            String text = String.valueOf(value).trim();
+
+            if (!text.isEmpty()) {
+                return text;
+            }
+        }
+
+        return null;
+    }
 }
