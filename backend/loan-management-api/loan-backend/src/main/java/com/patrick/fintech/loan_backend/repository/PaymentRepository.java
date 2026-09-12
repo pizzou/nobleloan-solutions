@@ -544,4 +544,6 @@ public interface PaymentRepository
         Optional<Payment> findByOrganization_IdAndTransactionId(
                         Long id,
                         String txnId);
+
+		List<Payment> findByLoanIdAndBusinessOwnerOnly(Long id, boolean b);
 }
