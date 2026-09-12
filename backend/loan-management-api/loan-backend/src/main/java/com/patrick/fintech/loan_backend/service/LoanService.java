@@ -249,7 +249,7 @@ public class LoanService {
 
                 String phoneHash = HmacIndexer.index(phone);
 
-                List<Loan> loans = loanRepo.findByBorrower_PhoneHash(
+                List<Loan> loans = loanRepo.findPublicBorrowerLoansByPhoneHash(
                                 phoneHash);
 
                 if (loans == null || loans.isEmpty()) {
@@ -556,9 +556,10 @@ public class LoanService {
                 BigDecimal existingMonthlyObligations = ZERO;
                 BigDecimal existingOutstandingPrincipal = ZERO;
 
-                List<Loan> borrowerLoans = loanRepo.findByBorrowerIdAndOrganizationId(
+                List<Loan> borrowerLoans = loanRepo.findVisibleByBorrowerIdAndOrganizationId(
                                 borrower.getId(),
-                                organizationId);
+                                organizationId,
+                                ReportingScopeService.includeBusinessOwnerOnly());
 
                 if (borrowerLoans != null) {
                         for (Loan existingLoan : borrowerLoans) {
@@ -1003,7 +1004,7 @@ public class LoanService {
                                 role = role.substring(5);
                         }
 
-                        if (!"ADMIN".equals(role) && !"MANAGER".equals(role)) {
+                        if (!"ADMIN".equals(role) && !"MANAGER".equals(role) && !"BUSINESS_OWNER".equals(role)) {
                                 throw new SecurityException(
                                                 "Only MANAGER or ADMIN may change the approved principal.");
                         }
@@ -1027,7 +1028,7 @@ public class LoanService {
                                 role = role.substring(5);
                         }
 
-                        if (!"ADMIN".equals(role) && !"MANAGER".equals(role)) {
+                        if (!"ADMIN".equals(role) && !"MANAGER".equals(role) && !"BUSINESS_OWNER".equals(role)) {
                                 throw new SecurityException(
                                                 "Only MANAGER or ADMIN may change the application fee rate.");
                         }
@@ -1409,8 +1410,10 @@ public class LoanService {
                                         "Disbursing officer must belong to an organization");
                 }
 
-                Loan loan = loanRepo.findByIdForUpdate(
-                                loanId)
+                Loan loan = loanRepo.findVisibleByIdForUpdate(
+                                loanId,
+                                officer.getOrganization().getId(),
+                                ReportingScopeService.includeBusinessOwnerOnly())
                                 .orElseThrow(
                                                 () -> new RuntimeException(
                                                                 "Loan not found: " + loanId));
@@ -1419,6 +1422,11 @@ public class LoanService {
                                 || loan.getOrganization().getId() == null
                                 || !loan.getOrganization().getId().equals(
                                                 officer.getOrganization().getId())) {
+                        throw new RuntimeException("Access denied.");
+                }
+
+                if (Boolean.TRUE.equals(loan.getBusinessOwnerOnly())
+                                && ReportingScopeService.currentScope() != ReportingScopeService.Scope.BUSINESS_OWNER) {
                         throw new RuntimeException("Access denied.");
                 }
 
@@ -2340,13 +2348,28 @@ public class LoanService {
                         }
                 }
 
-                return loanRepo.findByFilters(
+                return loanRepo.findVisibleByFilters(
                                 org,
                                 ls,
                                 lt,
+                                ReportingScopeService.includeBusinessOwnerOnly(),
                                 PageRequest.of(
                                                 page,
                                                 size));
+        }
+
+        public List<Loan> getLoansByBorrowerForOrg(
+                        Long borrowerId,
+                        Long orgId) {
+
+                if (borrowerId == null || orgId == null) {
+                        throw new IllegalArgumentException("Borrower ID and organization ID are required");
+                }
+
+                return loanRepo.findVisibleByBorrowerIdAndOrganizationId(
+                                borrowerId,
+                                orgId,
+                                ReportingScopeService.includeBusinessOwnerOnly());
         }
 
         // ================================================================
@@ -2405,8 +2428,11 @@ public class LoanService {
                                         "Organization ID cannot be null");
                 }
 
-                Loan loan = loanRepo.findById(
-                                loanId).orElseThrow(
+                Loan loan = loanRepo.findVisibleById(
+                                loanId,
+                                orgId,
+                                ReportingScopeService.includeBusinessOwnerOnly())
+                                .orElseThrow(
                                                 () -> new RuntimeException(
                                                                 "Loan not found: "
                                                                                 + loanId));

@@ -621,17 +621,18 @@ class FinancialReconciliationServiceTest {
 
         when(
                 journalEntryRepository
-                        .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAscIdAsc(
+                        .findVisibleByOrganizationIdAndEntryDateBetweenOrderById(
                                 org.mockito.ArgumentMatchers.eq(1L),
                                 org.mockito.ArgumentMatchers.any(LocalDate.class),
-                                org.mockito.ArgumentMatchers.eq(LocalDate.now())
+                                org.mockito.ArgumentMatchers.eq(LocalDate.now()),
+                                org.mockito.ArgumentMatchers.anyBoolean()
                         )
         ).thenReturn(
                 List.of(loanTenPayment)
         );
 
         when(
-                loanRepository.findByOrganization_Id(1L)
+                loanRepository.findVisibleByOrganizationId(1L, true)
         ).thenReturn(
                 List.of(loanOne, loanTen)
         );
@@ -808,17 +809,18 @@ class FinancialReconciliationServiceTest {
 
         when(
                 journalEntryRepository
-                        .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAscIdAsc(
+                        .findVisibleByOrganizationIdAndEntryDateBetweenOrderById(
                                 org.mockito.ArgumentMatchers.eq(1L),
                                 org.mockito.ArgumentMatchers.any(LocalDate.class),
                                 org.mockito.ArgumentMatchers.eq(
                                         LocalDate.of(2026, 8, 24)
-                                )
+                                ),
+                                org.mockito.ArgumentMatchers.anyBoolean()
                         )
         ).thenReturn(entries);
 
         when(
-                loanRepository.findByOrganization_Id(1L)
+                loanRepository.findVisibleByOrganizationId(1L, true)
         ).thenReturn(loans);
 
         loans.stream()

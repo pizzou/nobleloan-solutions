@@ -69,8 +69,8 @@ public class CollectionsController {
         if (type == CollectionAction.ActionType.WRITE_OFF) {
             boolean authorized = SecurityContextHolder.getContext().getAuthentication()
                     .getAuthorities().stream()
-                    .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_MANAGER".equals(a.getAuthority()));
-            if (!authorized) throw new AccessDeniedException("Only ADMIN or MANAGER may initiate a controlled write-off");
+                    .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ROLE_MANAGER".equals(a.getAuthority()) || "ROLE_BUSINESS_OWNER".equals(a.getAuthority()));
+            if (!authorized) throw new AccessDeniedException("Only ADMIN, MANAGER or BUSINESS_OWNER may initiate a controlled write-off");
         }
 
         String notes = (String) body.get("notes");

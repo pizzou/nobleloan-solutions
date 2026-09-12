@@ -1,5 +1,7 @@
 package com.patrick.fintech.loan_backend.controller;
 
+import com.patrick.fintech.loan_backend.service.ReportingScopeService;
+
 import com.patrick.fintech.loan_backend.service.BnrFinancialStatementService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 import lombok.RequiredArgsConstructor;
@@ -21,8 +23,6 @@ public class BnrFinancialReportController {
             bnrFinancialStatementService;
 
     private final CurrentUserUtil currentUserUtil;
-
-
     // ============================================================
     // BNR FINANCIAL STATEMENT
     // ============================================================
@@ -69,7 +69,8 @@ public class BnrFinancialReportController {
                         .buildFinancialStatement(
                                 organizationId,
                                 from,
-                                to
+                                to,
+                                ReportingScopeService.includeBusinessOwnerOnly()
                         );
 
         return ResponseEntity.ok(report);

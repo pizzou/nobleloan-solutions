@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
@@ -251,9 +252,10 @@ public class RiskScoringService {
                 // 6. EXISTING ACTIVE / OVERDUE LOANS
                 // ============================================================
 
-                List<Loan> borrowerLoans = loanRepo.findByBorrowerIdAndOrganizationId(
+                List<Loan> borrowerLoans = loanRepo.findVisibleByBorrowerIdAndOrganizationId(
                                 borrower.getId(),
-                                loan.getOrganization().getId());
+                                loan.getOrganization().getId(),
+                                ReportingScopeService.includeBusinessOwnerOnly());
 
                 if (borrowerLoans == null) {
                         borrowerLoans = List.of();

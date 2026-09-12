@@ -4,6 +4,8 @@ package com.patrick.fintech.loan_backend.repository;
 import com.patrick.fintech.loan_backend.model.JournalEntry;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 
 import java.time.LocalDate;
@@ -25,6 +27,22 @@ public interface JournalEntryRepository
     );
 
 
+    @EntityGraph(attributePaths = {"lines", "lines.account"})
+    @Query("""
+            SELECT j
+            FROM JournalEntry j
+            WHERE j.organization.id = :organizationId
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(j.businessOwnerOnly, false) = false
+              )
+            ORDER BY j.entryDate DESC, j.id DESC
+            """)
+    List<JournalEntry> findVisibleByOrganizationIdOrderByEntryDateDesc(
+            @Param("organizationId") Long organizationId,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+
     /*
      * ============================================================
      * ENTRIES BETWEEN DATES
@@ -38,6 +56,25 @@ public interface JournalEntryRepository
             LocalDate from,
             LocalDate to
     );
+
+
+    @EntityGraph(attributePaths = {"lines", "lines.account"})
+    @Query("""
+            SELECT j
+            FROM JournalEntry j
+            WHERE j.organization.id = :organizationId
+              AND j.entryDate BETWEEN :from AND :to
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(j.businessOwnerOnly, false) = false
+              )
+            ORDER BY j.entryDate ASC, j.id ASC
+            """)
+    List<JournalEntry> findVisibleByOrganizationIdAndEntryDateBetween(
+            @Param("organizationId") Long organizationId,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
 
     /*
@@ -59,6 +96,25 @@ public interface JournalEntryRepository
     );
 
 
+    @EntityGraph(attributePaths = {"lines", "lines.account"})
+    @Query("""
+            SELECT j
+            FROM JournalEntry j
+            WHERE j.organization.id = :organizationId
+              AND j.entryDate BETWEEN :from AND :to
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(j.businessOwnerOnly, false) = false
+              )
+            ORDER BY j.entryDate ASC, j.id ASC
+            """)
+    List<JournalEntry> findVisibleByOrganizationIdAndEntryDateBetweenOrderById(
+            @Param("organizationId") Long organizationId,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+
     /*
      * ============================================================
      * FIND ENTRY BY ID + ORGANIZATION
@@ -69,6 +125,22 @@ public interface JournalEntryRepository
             Long id,
             Long organizationId
     );
+
+    @EntityGraph(attributePaths = {"lines", "lines.account", "branch"})
+    @Query("""
+            SELECT j
+            FROM JournalEntry j
+            WHERE j.id = :id
+              AND j.organization.id = :organizationId
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(j.businessOwnerOnly, false) = false
+              )
+            """)
+    Optional<JournalEntry> findVisibleByIdAndOrganizationId(
+            @Param("id") Long id,
+            @Param("organizationId") Long organizationId,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
 
     /*

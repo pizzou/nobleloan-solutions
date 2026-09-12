@@ -44,7 +44,6 @@ public class ReportingService {
         private final LoanRepository loanRepository;
         private final PaymentRepository paymentRepository;
         private final DashboardService dashboardService;
-
         private static final int MONEY_SCALE = 2;
 
         private static final RoundingMode MONEY_ROUNDING = RoundingMode.HALF_UP;
@@ -81,8 +80,9 @@ public class ReportingService {
                 validateOrganizationId(organizationId);
 
                 List<Loan> loans = safeLoans(
-                                loanRepository.findByOrganization_Id(
-                                                organizationId));
+                                loanRepository.findReportingByOrganizationId(
+                                                organizationId,
+                                                ReportingScopeService.includeBusinessOwnerOnly()));
 
                 return loans.stream()
                                 .filter(Objects::nonNull)
@@ -101,11 +101,14 @@ public class ReportingService {
 
                 List<Payment> payments = safePayments(
                                 paymentRepository
-                                                .findByLoan_Organization_Id(
-                                                                organizationId));
+                                                .findVisibleByLoanOrganizationId(
+                                                                organizationId,
+                                                                ReportingScopeService.includeBusinessOwnerOnly()));
 
                 List<Loan> allLoans = safeLoans(
-                                loanRepository.findByOrganization_Id(organizationId));
+                                loanRepository.findReportingByOrganizationId(
+                                organizationId,
+                                ReportingScopeService.includeBusinessOwnerOnly()));
 
                 BigDecimal totalPaid = ZERO;
                 for (Loan loan : allLoans) {
@@ -156,7 +159,9 @@ public class ReportingService {
                 }
 
                 List<Loan> importedLoans = safeLoans(
-                                loanRepository.findHistoricalImportedLoans(organizationId));
+                                loanRepository.findVisibleHistoricalImportedLoans(
+                                                organizationId,
+                                                ReportingScopeService.includeBusinessOwnerOnly()));
                 for (Loan loan : importedLoans) {
                         if (loan == null)
                                 continue;
@@ -240,8 +245,9 @@ public class ReportingService {
                 validateOrganizationId(organizationId);
 
                 List<Loan> loans = safeLoans(
-                                loanRepository.findByOrganization_Id(
-                                                organizationId));
+                                loanRepository.findReportingByOrganizationId(
+                                                organizationId,
+                                                ReportingScopeService.includeBusinessOwnerOnly()));
 
                 StringBuilder csv = new StringBuilder(
                                 4096);
@@ -343,8 +349,9 @@ public class ReportingService {
 
                 List<Payment> payments = safePayments(
                                 paymentRepository
-                                                .findByLoan_Organization_Id(
-                                                                organizationId));
+                                                .findVisibleByLoanOrganizationId(
+                                                                organizationId,
+                                                                ReportingScopeService.includeBusinessOwnerOnly()));
 
                 StringBuilder csv = new StringBuilder(
                                 4096);
@@ -424,8 +431,9 @@ public class ReportingService {
 
                 List<Payment> payments = safePayments(
                                 paymentRepository
-                                                .findByLoan_Organization_Id(
-                                                                organizationId));
+                                                .findVisibleByLoanOrganizationId(
+                                                                organizationId,
+                                                                ReportingScopeService.includeBusinessOwnerOnly()));
 
                 List<Payment> overdue = payments.stream()
                                 .filter(Objects::nonNull)
@@ -792,8 +800,9 @@ public class ReportingService {
                                 organizationId);
 
                 List<Loan> loans = safeLoans(
-                                loanRepository.findByOrganization_Id(
-                                                organizationId));
+                                loanRepository.findReportingByOrganizationId(
+                                                organizationId,
+                                                ReportingScopeService.includeBusinessOwnerOnly()));
 
                 try (
                                 XSSFWorkbook workbook = new XSSFWorkbook()) {
@@ -968,8 +977,9 @@ public class ReportingService {
 
                 List<Payment> payments = safePayments(
                                 paymentRepository
-                                                .findByLoan_Organization_Id(
-                                                                organizationId));
+                                                .findVisibleByLoanOrganizationId(
+                                                                organizationId,
+                                                                ReportingScopeService.includeBusinessOwnerOnly()));
 
                 try (
                                 XSSFWorkbook workbook = new XSSFWorkbook()) {
@@ -1076,7 +1086,9 @@ public class ReportingService {
                         };
                         setHeader(legacySheet.createRow(0), legacyHeaders, headerStyle);
                         List<Loan> importedLoansForExcel = safeLoans(
-                                        loanRepository.findHistoricalImportedLoans(organizationId));
+                                        loanRepository.findVisibleHistoricalImportedLoans(
+                                                organizationId,
+                                                ReportingScopeService.includeBusinessOwnerOnly()));
                         int legacyRowNumber = 1;
                         for (Loan loan : importedLoansForExcel) {
                                 if (loan == null)
@@ -1141,8 +1153,9 @@ public class ReportingService {
 
                 List<Payment> payments = safePayments(
                                 paymentRepository
-                                                .findByLoan_Organization_Id(
-                                                                organizationId));
+                                                .findVisibleByLoanOrganizationId(
+                                                                organizationId,
+                                                                ReportingScopeService.includeBusinessOwnerOnly()));
 
                 List<Payment> overdue = payments.stream()
                                 .filter(Objects::nonNull)

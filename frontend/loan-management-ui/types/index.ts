@@ -277,6 +277,9 @@ export interface Loan {
   imported?: boolean;
   importBatchId?: number;
 
+  /** True when the loan is visible only inside the Business Owner scope. */
+  businessOwnerOnly?: boolean;
+
   outstandingBalance?: number;
 
   notes?: string;

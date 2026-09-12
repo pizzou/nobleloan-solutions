@@ -162,6 +162,20 @@ public class Loan {
         @Builder.Default
         private LoanStatus status = LoanStatus.PENDING;
 
+        /**
+         * Information-classification flag selected during final loan approval.
+         *
+         * FALSE (default) = normal portfolio/reporting scope.
+         * TRUE = visible only to BUSINESS_OWNER after final approval.
+         *
+         * This is a visibility/reporting boundary, not a second loan or
+         * accounting system.
+         */
+        @Column(name = "business_owner_only", nullable = false)
+        @Builder.Default
+        @JsonIgnore
+        private Boolean businessOwnerOnly = false;
+
         @Enumerated(EnumType.STRING)
         @Builder.Default
         @Column(name = "credit_quality", nullable = false, length = 20)

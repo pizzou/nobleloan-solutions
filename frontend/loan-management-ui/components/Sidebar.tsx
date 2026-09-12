@@ -233,18 +233,26 @@ export default function Sidebar() {
      ========================================================== */
 
   const isAdmin = user?.role === "ADMIN";
+  const isBusinessOwner = user?.role === "BUSINESS_OWNER";
+  const isSuperUser = isAdmin || isBusinessOwner;
 
-  const canSeeAccounting = ["ADMIN", "MANAGER", "ACCOUNTANT"].includes(
-    user?.role || "",
-  );
+  const canSeeAccounting = [
+    "ADMIN",
+    "BUSINESS_OWNER",
+    "MANAGER",
+    "ACCOUNTANT",
+  ].includes(user?.role || "");
 
   /*
    * Regulatory reporting is restricted to users who should
    * have access to financial/regulatory functions.
    */
-  const canSeeRegulatory = ["ADMIN", "MANAGER", "ACCOUNTANT"].includes(
-    user?.role || "",
-  );
+  const canSeeRegulatory = [
+    "ADMIN",
+    "BUSINESS_OWNER",
+    "MANAGER",
+    "ACCOUNTANT",
+  ].includes(user?.role || "");
 
   /* ==========================================================
      NOTIFICATIONS
@@ -562,7 +570,7 @@ export default function Sidebar() {
             {section.items
               .filter(
                 (item) =>
-                  (!item.adminOnly || isAdmin) &&
+                  (!item.adminOnly || isSuperUser) &&
                   (!item.accountingOnly || canSeeAccounting),
               )
               .map((item) => {

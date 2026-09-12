@@ -37,7 +37,6 @@ public class BnrFinancialStatementService {
         private final JournalEntryRepository journalEntryRepository;
 
         private final LoanRepository loanRepository;
-
         private static final int MONEY_SCALE = 6;
 
         private static final int REPORT_SCALE = 2;
@@ -71,6 +70,19 @@ public class BnrFinancialStatementService {
                         Long organizationId,
                         LocalDate from,
                         LocalDate to) {
+
+                return buildFinancialStatement(
+                                organizationId,
+                                from,
+                                to,
+                                ReportingScopeService.includeBusinessOwnerOnly());
+        }
+
+        public Map<String, Object> buildFinancialStatement(
+                        Long organizationId,
+                        LocalDate from,
+                        LocalDate to,
+                        boolean includeBusinessOwnerOnly) {
 
                 validateDates(
                                 organizationId,
@@ -109,10 +121,11 @@ public class BnrFinancialStatementService {
                 // ========================================================
 
                 List<JournalEntry> historicalEntries = journalEntryRepository
-                                .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAsc(
+                                .findVisibleByOrganizationIdAndEntryDateBetween(
                                                 organizationId,
                                                 ACCOUNTING_EPOCH,
-                                                to);
+                                                to,
+                                                includeBusinessOwnerOnly);
 
                 if (historicalEntries == null) {
                         historicalEntries = new ArrayList<>();
@@ -556,7 +569,8 @@ public class BnrFinancialStatementService {
                 Map<String, Object> loanPortfolio = buildLoanPortfolioStatistics(
                                 organizationId,
                                 from,
-                                to);
+                                to,
+                                includeBusinessOwnerOnly);
 
                 // ========================================================
                 // STATEMENT OF FINANCIAL POSITION
@@ -795,12 +809,14 @@ public class BnrFinancialStatementService {
         private Map<String, Object> buildLoanPortfolioStatistics(
                         Long organizationId,
                         LocalDate from,
-                        LocalDate to) {
+                        LocalDate to,
+                        boolean includeBusinessOwnerOnly) {
 
                 Map<String, Object> portfolio = new LinkedHashMap<>();
 
-                List<Loan> loans = loanRepository.findByOrganization_Id(
-                                organizationId);
+                List<Loan> loans = loanRepository.findReportingByOrganizationId(
+                                organizationId,
+                                includeBusinessOwnerOnly);
 
                 if (loans == null) {
                         loans = new ArrayList<>();

@@ -9,6 +9,7 @@ import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.service.IdempotencyService;
 import com.patrick.fintech.loan_backend.service.MtnMobileMoneyService;
 import com.patrick.fintech.loan_backend.service.PaymentService;
+import com.patrick.fintech.loan_backend.service.LoanService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +26,7 @@ import java.util.Map;
 public class PaymentController {
 
         private final PaymentService paymentService;
+        private final LoanService loanService;
         private final CurrentUserUtil currentUserUtil;
         private final IdempotencyService idempotencyService;
         private final MtnMobileMoneyService mtnMobileMoneyService;
@@ -67,6 +69,13 @@ public class PaymentController {
                         throw new RuntimeException(
                                         "User is not associated with an organization.");
                 }
+
+                // Enforce the same visibility boundary used by the loan
+                // detail/reporting APIs. System/webhook processing remains
+                // separate and does not use this controller.
+                loanService.getLoanForOrg(
+                                loanId,
+                                org.getId());
 
                 // ========================================================
                 // IDEMPOTENCY
@@ -495,6 +504,10 @@ public class PaymentController {
 
                 Long organizationId = currentUserUtil
                                 .getCurrentOrganizationId();
+
+                loanService.getLoanForOrg(
+                                loanId,
+                                organizationId);
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(

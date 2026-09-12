@@ -79,7 +79,7 @@ public class AuthController {
      * deliberately independent of TOTP/Auth­enticator enrollment so staff are
      * not forced to use an authenticator application as their only login factor.
      */
-    private static final java.util.Set<String> EMAIL_OTP_ROLES = java.util.Set.of("ADMIN", "MANAGER");
+    private static final java.util.Set<String> EMAIL_OTP_ROLES = java.util.Set.of("ADMIN", "MANAGER", "BUSINESS_OWNER");
 
     private static final int MAX_FAILED_ATTEMPTS = 5;
     private static final int LOCKOUT_MINUTES = 15;

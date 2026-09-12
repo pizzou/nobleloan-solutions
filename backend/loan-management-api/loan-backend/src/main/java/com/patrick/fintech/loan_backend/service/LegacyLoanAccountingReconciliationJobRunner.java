@@ -48,7 +48,13 @@ public class LegacyLoanAccountingReconciliationJobRunner {
             User requestedBy = job.getRequestedBy();
             Long organizationId = organization.getId();
 
-            List<Loan> importedLoans = loanRepository.findHistoricalImportedLoans(organizationId);
+            boolean includeBusinessOwnerOnly = requestedBy != null
+                    && requestedBy.getRole() != null
+                    && "BUSINESS_OWNER".equalsIgnoreCase(requestedBy.getRole().getName());
+
+            List<Loan> importedLoans = loanRepository.findVisibleHistoricalImportedLoans(
+                        organizationId,
+                        includeBusinessOwnerOnly);
             if (importedLoans == null) {
                 importedLoans = List.of();
             }
@@ -65,7 +71,7 @@ public class LegacyLoanAccountingReconciliationJobRunner {
                     FinancialReconciliationJob.PHASE_BEFORE_RECONCILIATION);
 
             FinancialReconciliationService.ReconciliationReport before =
-                    reconciliationService.reconcile(organizationId, null, LocalDate.now());
+                    reconciliationService.reconcile(organizationId, null, LocalDate.now(), includeBusinessOwnerOnly);
 
             stateService.beforeResult(
                     jobId,
@@ -88,7 +94,7 @@ public class LegacyLoanAccountingReconciliationJobRunner {
                     FinancialReconciliationJob.PHASE_FINAL_RECONCILIATION);
 
             FinancialReconciliationService.ReconciliationReport after =
-                    reconciliationService.reconcile(organizationId, null, LocalDate.now());
+                    reconciliationService.reconcile(organizationId, null, LocalDate.now(), includeBusinessOwnerOnly);
 
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("processed", importedLoans.size());

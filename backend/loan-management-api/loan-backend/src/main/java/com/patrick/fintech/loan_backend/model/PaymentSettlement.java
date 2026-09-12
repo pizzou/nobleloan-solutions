@@ -18,4 +18,9 @@ public class PaymentSettlement{
  @Column(name="matched_at") private LocalDateTime matchedAt;
  @Column(name="created_at",nullable=false) private LocalDateTime createdAt;
  @PrePersist void pre(){if(createdAt==null)createdAt=LocalDateTime.now();}
+
+    /** Reporting boundary inherited from the originating payment/loan. */
+    @jakarta.persistence.Column(name = "business_owner_only", nullable = false)
+    @lombok.Builder.Default
+    private Boolean businessOwnerOnly = false;
 }

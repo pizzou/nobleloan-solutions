@@ -66,7 +66,6 @@ public class BnrTemplateExportService {
     private final LoanRepository loanRepository;
     private final PaymentScheduleRepository paymentScheduleRepository;
     private final RegulatoryReportingService regulatoryReportingService;
-
     private static final List<String> CLASSIFICATION_SHEETS = List.of(
             "A1.3. Normal Loans",
             "A1.4. Watch",
@@ -91,10 +90,11 @@ public class BnrTemplateExportService {
         LocalDate reportDate = window[1];
 
         List<Loan> loans = safeLoans(
-                loanRepository.findPortfolioAsOfForBnrExport(
+                loanRepository.findVisiblePortfolioAsOfForBnrExport(
                         organizationId,
                         branchId,
-                        reportDate.plusDays(1).atStartOfDay()));
+                        reportDate.plusDays(1).atStartOfDay(),
+                        ReportingScopeService.includeBusinessOwnerOnly()));
 
         try (XSSFWorkbook workbook = buildBnrWorkbook();
                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
@@ -3342,9 +3342,10 @@ public class BnrTemplateExportService {
             return null;
         }
 
-        List<Loan> borrowerLoans = loanRepository.findByBorrowerIdAndOrganizationId(
+        List<Loan> borrowerLoans = loanRepository.findVisibleByBorrowerIdAndOrganizationId(
                 current.getBorrower().getId(),
-                current.getOrganization().getId());
+                current.getOrganization().getId(),
+                ReportingScopeService.includeBusinessOwnerOnly());
 
         boolean hasPrevious = false;
 
@@ -3770,19 +3771,19 @@ public class BnrTemplateExportService {
             LocalDate to) {
 
         List<Loan> portfolio = safeLoans(
-                loanRepository.findPortfolioAsOfForBnrExport(
+                loanRepository.findVisiblePortfolioAsOfForBnrExport(
                         organizationId,
                         branchId,
-                        to.plusDays(1).atStartOfDay()));
+                        to.plusDays(1).atStartOfDay(),
+                        ReportingScopeService.includeBusinessOwnerOnly()));
 
         List<Loan> loans = safeLoans(
-                loanRepository.findLoansDisbursedDuringPeriod(
+                loanRepository.findVisibleLoansDisbursedDuringPeriod(
                         organizationId,
                         branchId,
                         from.atStartOfDay(),
                         to.plusDays(1).atStartOfDay(),
-                        from,
-                        to));
+                        ReportingScopeService.includeBusinessOwnerOnly()));
 
         BigDecimal normal = ZERO;
         BigDecimal watch = ZERO;

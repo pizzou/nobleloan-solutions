@@ -220,7 +220,8 @@ public class FinancialMonitoringService {
                     String role = user.getRole().getName();
                     return role != null && ("ADMIN".equalsIgnoreCase(role)
                             || "MANAGER".equalsIgnoreCase(role)
-                            || "ACCOUNTANT".equalsIgnoreCase(role));
+                            || "ACCOUNTANT".equalsIgnoreCase(role)
+                            || "BUSINESS_OWNER".equalsIgnoreCase(role));
                 })
                 .toList();
     }

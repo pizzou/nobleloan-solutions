@@ -302,6 +302,7 @@ export const loanApi = {
     applicationFeeRate?: number,
     approvedAmount?: number,
     idempotencyKey?: string,
+    businessOwnerOnly?: boolean,
   ) =>
     post(
       `/loans/${id}/approve`,
@@ -312,6 +313,7 @@ export const loanApi = {
           applicationFeeRate != null ? String(applicationFeeRate) : undefined,
         approvedAmount:
           approvedAmount != null ? String(approvedAmount) : undefined,
+        businessOwnerOnly,
       },
       idempotencyKey
         ? { headers: { "Idempotency-Key": idempotencyKey } }

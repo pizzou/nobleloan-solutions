@@ -38,7 +38,6 @@ public class FinancialReconciliationService {
     private final LoanRepository loanRepository;
     private final PaymentRepository paymentRepository;
     private final RegulatoryReportingService regulatoryReportingService;
-
     @Transactional(readOnly = true)
     public ReconciliationReport reconcile(Long organizationId) {
         return reconcile(organizationId, null, LocalDate.now());
@@ -51,6 +50,24 @@ public class FinancialReconciliationService {
 
     @Transactional(readOnly = true)
     public ReconciliationReport reconcile(Long organizationId, LocalDate periodStart, LocalDate asOf) {
+        return reconcile(
+                organizationId,
+                periodStart,
+                asOf,
+                ReportingScopeService.includeBusinessOwnerOnly());
+    }
+
+    /**
+     * Explicit-scope reconciliation entry point used by asynchronous jobs.
+     * The scope is passed as data so an async worker never inherits a stale or
+     * missing HTTP SecurityContext.
+     */
+    @Transactional(readOnly = true)
+    public ReconciliationReport reconcile(
+            Long organizationId,
+            LocalDate periodStart,
+            LocalDate asOf,
+            boolean includeBusinessOwnerOnly) {
         requireOrganizationId(organizationId);
         if (asOf == null) {
             throw new IllegalArgumentException("As-of date is required");
@@ -61,10 +78,11 @@ public class FinancialReconciliationService {
         }
 
         List<JournalEntry> entries = journalEntryRepository
-                .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAscIdAsc(
+                .findVisibleByOrganizationIdAndEntryDateBetweenOrderById(
                         organizationId,
                         LocalDate.of(1900, 1, 1),
-                        asOf);
+                        asOf,
+                        includeBusinessOwnerOnly);
 
         if (entries == null) {
             entries = List.of();
@@ -77,7 +95,9 @@ public class FinancialReconciliationService {
             accounts = List.of();
         }
 
-        List<Loan> loans = loanRepository.findByOrganization_Id(organizationId);
+        List<Loan> loans = loanRepository.findVisibleByOrganizationId(
+                organizationId,
+                includeBusinessOwnerOnly);
         if (loans == null) {
             loans = List.of();
         }
@@ -516,10 +536,11 @@ public class FinancialReconciliationService {
         requireOrganizationId(organizationId);
 
         List<JournalEntry> entries = journalEntryRepository
-                .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAscIdAsc(
+                .findVisibleByOrganizationIdAndEntryDateBetweenOrderById(
                         organizationId,
                         LocalDate.of(1900, 1, 1),
-                        LocalDate.now());
+                        LocalDate.now(),
+                        ReportingScopeService.includeBusinessOwnerOnly());
 
         if (entries == null) {
             entries = List.of();
@@ -539,7 +560,9 @@ public class FinancialReconciliationService {
             }
         }
 
-        List<Loan> loans = loanRepository.findByOrganization_Id(organizationId);
+        List<Loan> loans = loanRepository.findVisibleByOrganizationId(
+                organizationId,
+                ReportingScopeService.includeBusinessOwnerOnly());
         if (loans == null || loans.isEmpty()) {
             return List.of();
         }

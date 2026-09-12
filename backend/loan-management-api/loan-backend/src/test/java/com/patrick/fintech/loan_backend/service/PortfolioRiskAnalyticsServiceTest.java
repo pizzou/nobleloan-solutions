@@ -26,7 +26,7 @@ class PortfolioRiskAnalyticsServiceTest {
 
     @Test
     void calculatesCumulativeParPercentagesAndAgeing() {
-        when(loanRepository.calculatePortfolioRiskMetrics(1L)).thenReturn(new Object[] {
+        when(loanRepository.calculateVisiblePortfolioRiskMetrics(1L, false)).thenReturn(new Object[] {
                 10L,
                 new BigDecimal("1000000.00"),
                 4L,
@@ -61,7 +61,7 @@ class PortfolioRiskAnalyticsServiceTest {
 
     @Test
     void returnsZeroPercentagesForEmptyOutstandingPortfolio() {
-        when(loanRepository.calculatePortfolioRiskMetrics(1L)).thenReturn(new Object[] {
+        when(loanRepository.calculateVisiblePortfolioRiskMetrics(1L, false)).thenReturn(new Object[] {
                 0L,
                 BigDecimal.ZERO,
                 0L, BigDecimal.ZERO,

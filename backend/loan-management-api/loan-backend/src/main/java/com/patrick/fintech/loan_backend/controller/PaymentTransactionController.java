@@ -32,7 +32,9 @@ public class PaymentTransactionController {
         Long organizationId = currentUserUtil.getCurrentOrganizationId();
 
         List<PaymentTransactionResponse> rows = repository
-                .findByOrganization_IdOrderByCreatedAtDesc(organizationId)
+                .findVisibleByOrganizationIdOrderByCreatedAtDesc(
+                        organizationId,
+                        com.patrick.fintech.loan_backend.service.ReportingScopeService.includeBusinessOwnerOnly())
                 .stream()
                 .filter(tx -> tx != null)
                 .map(this::toResponse)

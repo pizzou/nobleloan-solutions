@@ -134,10 +134,18 @@ public class PaymentService {
                 // LOCK LOAN
                 // ============================================================
 
-                Loan loan = loanRepo.findByIdForUpdate(loanId)
-                                .orElseThrow(
-                                                () -> new RuntimeException(
-                                                                "Loan not found: " + loanId));
+                Long recordedByOrganizationId = recordedBy != null && recordedBy.getOrganization() != null
+                                ? recordedBy.getOrganization().getId()
+                                : null;
+
+                Loan loan = recordedByOrganizationId == null
+                                ? loanRepo.findByIdForUpdate(loanId)
+                                .orElseThrow(() -> new RuntimeException("Loan not found: " + loanId))
+                                : loanRepo.findVisibleByIdForUpdate(
+                                                loanId,
+                                                recordedByOrganizationId,
+                                                ReportingScopeService.includeBusinessOwnerOnly())
+                                                .orElseThrow(() -> new RuntimeException("Loan not found: " + loanId));
 
                 validateOrganizationAccess(
                                 loan,
@@ -1813,8 +1821,10 @@ public class PaymentService {
                                         "Organization ID is required");
                 }
 
-                Loan loan = loanRepo.findById(
-                                loanId).orElseThrow(
+                Loan loan = loanRepo.findVisibleById(
+                                loanId,
+                                orgId,
+                                ReportingScopeService.includeBusinessOwnerOnly()).orElseThrow(
                                                 () -> new RuntimeException(
                                                                 "Loan not found"));
 
@@ -1828,8 +1838,9 @@ public class PaymentService {
                                         "Access denied.");
                 }
 
-                return paymentRepo.findByLoanId(
-                                loanId);
+                return paymentRepo.findByLoanIdAndReportingScope(
+                                loanId,
+                                ReportingScopeService.includeBusinessOwnerOnly());
         }
 
         // ================================================================

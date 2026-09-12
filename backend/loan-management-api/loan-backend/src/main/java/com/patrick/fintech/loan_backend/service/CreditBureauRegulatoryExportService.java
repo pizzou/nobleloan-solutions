@@ -296,7 +296,6 @@ public class CreditBureauRegulatoryExportService {
     private final PaymentRepository paymentRepository;
     private final GuarantorRepository guarantorRepository;
     private final CollateralRepository collateralRepository;
-
     /**
      * Generates the native CRB .xlsx workbook.
      *
@@ -530,21 +529,23 @@ public class CreditBureauRegulatoryExportService {
                             .atStartOfDay();
 
             loans = safeLoans(
-                    loanRepository.findLoansDisbursedDuringPeriod(
+                    loanRepository.findVisibleLoansDisbursedDuringPeriod(
                             organizationId,
                             branchId,
                             start,
-                            endExclusive
+                            endExclusive,
+                            ReportingScopeService.includeBusinessOwnerOnly()
                     )
             );
 
         } else {
 
             loans = safeLoans(
-                    loanRepository.findPortfolioAsOf(
+                    loanRepository.findVisiblePortfolioAsOf(
                             organizationId,
                             branchId,
-                            reportDate.plusDays(1).atStartOfDay()
+                            reportDate.plusDays(1).atStartOfDay(),
+                            ReportingScopeService.includeBusinessOwnerOnly()
                     )
             );
         }

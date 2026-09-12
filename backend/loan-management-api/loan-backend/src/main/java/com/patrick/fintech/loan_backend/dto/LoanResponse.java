@@ -18,6 +18,7 @@ public class LoanResponse {
     private Long createdById;
     private Long approvedById;
     private Long loanOfficerId;
+    private Boolean businessOwnerOnly;
     private Loan.LoanType loanType;
     private com.patrick.fintech.loan_backend.model.LoanStatus status;
     private Loan.CreditQuality creditQuality;

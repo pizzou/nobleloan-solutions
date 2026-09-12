@@ -24,8 +24,42 @@ public interface PaymentRepository
         @EntityGraph(attributePaths = { "loan", "organization", "recordedBy" })
         List<Payment> findByLoanId(Long loanId);
 
+        /** Payment history for a loan under an explicit reporting scope. */
+        @EntityGraph(attributePaths = { "loan", "organization", "recordedBy" })
+        @Query("""
+                SELECT p
+                FROM Payment p
+                JOIN p.loan l
+                WHERE p.loan.id = :loanId
+                  AND (
+                        :includeBusinessOwnerOnly = true
+                        OR COALESCE(l.businessOwnerOnly, false) = false
+                        OR l.status IN ('PENDING', 'UNDER_REVIEW')
+                  )
+                ORDER BY p.dueDate ASC
+                """)
+        List<Payment> findByLoanIdAndReportingScope(
+                        @Param("loanId") Long loanId,
+                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
         @EntityGraph(attributePaths = { "loan", "organization" })
         List<Payment> findByLoan_Organization_Id(Long orgId);
+
+
+        @EntityGraph(attributePaths = { "loan", "organization" })
+        @Query("""
+                SELECT p
+                FROM Payment p
+                JOIN p.loan l
+                WHERE l.organization.id = :orgId
+                  AND (
+                        :includeBusinessOwnerOnly = true
+                        OR COALESCE(l.businessOwnerOnly, false) = false
+                  )
+                """)
+        List<Payment> findVisibleByLoanOrganizationId(
+                        @Param("orgId") Long orgId,
+                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
         List<Payment> findByPaidFalseAndDueDateBefore(
                         LocalDate date);
@@ -34,6 +68,25 @@ public interface PaymentRepository
         List<Payment> findByOrganization_IdAndPaidFalseAndDueDateBefore(
                         Long orgId,
                         LocalDate date);
+
+
+        @EntityGraph(attributePaths = { "loan", "organization" })
+        @Query("""
+                SELECT p
+                FROM Payment p
+                JOIN p.loan l
+                WHERE l.organization.id = :orgId
+                  AND p.paid = false
+                  AND p.dueDate < :date
+                  AND (
+                        :includeBusinessOwnerOnly = true
+                        OR COALESCE(l.businessOwnerOnly, false) = false
+                  )
+                """)
+        List<Payment> findVisibleOverdueByOrganization(
+                        @Param("orgId") Long orgId,
+                        @Param("date") LocalDate date,
+                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
         Optional<Payment> findByPaymentReference(
                         String ref);
@@ -97,6 +150,26 @@ public interface PaymentRepository
                         @Param("loanId") Long loanId,
                         @Param("organizationId") Long organizationId);
 
+
+        @EntityGraph(attributePaths = { "loan", "organization", "recordedBy" })
+        @Query("""
+                SELECT p
+                FROM Payment p
+                JOIN p.loan l
+                WHERE p.loan.id = :loanId
+                  AND p.organization.id = :organizationId
+                  AND (
+                        :includeBusinessOwnerOnly = true
+                        OR COALESCE(l.businessOwnerOnly, false) = false
+                        OR l.status IN ('PENDING', 'UNDER_REVIEW')
+                  )
+                ORDER BY p.dueDate ASC
+                """)
+        List<Payment> findVisibleLoanSchedule(
+                        @Param("loanId") Long loanId,
+                        @Param("organizationId") Long organizationId,
+                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
         /**
          * Alternative simple schedule query.
          */
@@ -119,6 +192,23 @@ public interface PaymentRepository
         List<Payment> findByBorrowerIdAndOrganizationId(
                         @Param("borrowerId") Long borrowerId,
                         @Param("organizationId") Long organizationId);
+
+        @Query("""
+                SELECT p
+                FROM Payment p
+                JOIN p.loan l
+                WHERE l.borrower.id = :borrowerId
+                  AND l.organization.id = :organizationId
+                  AND (
+                        :includeBusinessOwnerOnly = true
+                        OR COALESCE(l.businessOwnerOnly, false) = false
+                  )
+                ORDER BY p.paidDate DESC
+                """)
+        List<Payment> findVisibleByBorrowerIdAndOrganizationId(
+                        @Param("borrowerId") Long borrowerId,
+                        @Param("organizationId") Long organizationId,
+                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
         /**
          * Only completed/paid payments for a borrower.
@@ -328,6 +418,27 @@ public interface PaymentRepository
                         @Param("from") LocalDate from,
                         @Param("to") LocalDate to);
 
+
+        @Query("""
+                        SELECT
+                            COALESCE(SUM(CASE WHEN p.paid = true THEN p.amountPaid ELSE 0 END), 0),
+                            COALESCE(SUM(CASE WHEN p.paid = true AND p.paidDate >= :from AND p.paidDate <= :to
+                                              THEN p.amountPaid ELSE 0 END), 0),
+                            SUM(CASE WHEN p.isLate = true THEN 1 ELSE 0 END)
+                        FROM Payment p
+                        JOIN p.loan l
+                        WHERE l.organization.id = :organizationId
+                          AND (
+                                :includeBusinessOwnerOnly = true
+                                OR COALESCE(l.businessOwnerOnly, false) = false
+                          )
+                        """)
+        Object[] getVisibleDashboardPaymentAggregate(
+                        @Param("organizationId") Long organizationId,
+                        @Param("from") LocalDate from,
+                        @Param("to") LocalDate to,
+                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
         /**
          * Cumulative payment components on imported loans, optionally scoped to a
          * branch.
@@ -402,6 +513,29 @@ public interface PaymentRepository
                         @Param("branchId") Long branchId,
                         @Param("from") LocalDate from,
                         @Param("to") LocalDate to);
+
+
+        @Query("""
+                        SELECT p
+                        FROM Payment p
+                        JOIN p.loan l
+                        WHERE p.organization.id = :organizationId
+                          AND (:branchId IS NULL OR l.branch.id = :branchId)
+                          AND p.paid = true
+                          AND p.paidDate >= :from
+                          AND p.paidDate <= :to
+                          AND (
+                                :includeBusinessOwnerOnly = true
+                                OR COALESCE(l.businessOwnerOnly, false) = false
+                          )
+                        ORDER BY p.paidDate ASC
+                        """)
+        List<Payment> findVisiblePaymentsDuringPeriod(
+                        @Param("organizationId") Long organizationId,
+                        @Param("branchId") Long branchId,
+                        @Param("from") LocalDate from,
+                        @Param("to") LocalDate to,
+                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
         // ============================================================
         // TRANSACTION LOOKUP

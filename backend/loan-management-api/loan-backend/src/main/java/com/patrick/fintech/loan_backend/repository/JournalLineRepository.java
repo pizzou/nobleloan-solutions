@@ -46,6 +46,24 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
             @Param("accountId") Long accountId,
             @Param("organizationId") Long organizationId);
 
+
+    @Query("""
+            SELECT l
+            FROM JournalLine l
+            JOIN l.journalEntry e
+            WHERE l.account.id = :accountId
+              AND e.organization.id = :organizationId
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(e.businessOwnerOnly, false) = false
+              )
+            ORDER BY e.entryDate ASC, e.id ASC, l.id ASC
+            """)
+    List<JournalLine> findVisibleByAccount_IdAndOrganization_Id(
+            @Param("accountId") Long accountId,
+            @Param("organizationId") Long organizationId,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
     /*
      * ============================================================
      * LEDGER
@@ -63,6 +81,24 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
     List<JournalLine> findLedgerForAccountAndOrganization(
             @Param("accountId") Long accountId,
             @Param("organizationId") Long organizationId);
+
+
+    @Query("""
+            SELECT l
+            FROM JournalLine l
+            JOIN FETCH l.journalEntry e
+            WHERE l.account.id = :accountId
+              AND e.organization.id = :organizationId
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(e.businessOwnerOnly, false) = false
+              )
+            ORDER BY e.entryDate ASC, e.id ASC, l.id ASC
+            """)
+    List<JournalLine> findVisibleLedgerForAccountAndOrganization(
+            @Param("accountId") Long accountId,
+            @Param("organizationId") Long organizationId,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
     /*
      * Backward-compatible ledger method.

@@ -1790,8 +1790,8 @@ public class PublicController {
                                 "Status");
 
                 List<Map<String, Object>> rows = paymentRepo
-                                .findByLoanId(
-                                                loan.getId())
+                                .findByLoanIdAndReportingScope(
+                                                loan.getId(), false)
                                 .stream()
                                 .sorted(
                                                 Comparator.comparing(

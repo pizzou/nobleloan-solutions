@@ -43,13 +43,14 @@ public class PortfolioRiskAnalyticsService {
     private static final BigDecimal HUNDRED = new BigDecimal("100.00");
 
     private final LoanRepository loanRepository;
-
     public PortfolioRiskAnalyticsResponse getCurrentPortfolioRisk(Long organizationId) {
         if (organizationId == null) {
             throw new IllegalArgumentException("Organization ID is required");
         }
 
-        Object[] row = loanRepository.calculatePortfolioRiskMetrics(organizationId);
+        Object[] row = loanRepository.calculateVisiblePortfolioRiskMetrics(
+                organizationId,
+                ReportingScopeService.includeBusinessOwnerOnly());
 
         if (row == null || row.length < 12) {
             throw new IllegalStateException("Portfolio risk aggregate returned an invalid result");

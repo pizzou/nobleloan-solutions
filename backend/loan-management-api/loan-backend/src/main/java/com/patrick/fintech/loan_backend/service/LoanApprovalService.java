@@ -49,6 +49,10 @@ public class LoanApprovalService {
 
                 List<String> roles = new ArrayList<>();
 
+                // The loan officer performs the operational approval/review first.
+                // The existing manager/admin controls remain in place afterwards.
+                roles.add("LOAN_OFFICER");
+
                 if (ratio <= 0.20) {
                         roles.add("MANAGER");
                 } else if (ratio <= 0.60) {
@@ -72,7 +76,7 @@ public class LoanApprovalService {
                                 roles = List.of("MANAGER");
                         } else if ("MANAGER".equals(creatorRole)) {
                                 roles = List.of("ADMIN");
-                        } else if ("ADMIN".equals(creatorRole)) {
+                        } else if ("ADMIN".equals(creatorRole) || "BUSINESS_OWNER".equals(creatorRole)) {
                                 roles = List.of("ADMIN");
                         } else {
                                 roles = List.of("MANAGER");
@@ -291,6 +295,28 @@ public class LoanApprovalService {
                         Double newApplicationFeeRate,
                         BigDecimal newApprovedAmount) {
 
+                return decide(
+                                loanId,
+                                decider,
+                                decision,
+                                comments,
+                                newInterestRate,
+                                newApplicationFeeRate,
+                                newApprovedAmount,
+                                null);
+        }
+
+        @Transactional
+        public LoanApproval decide(
+                        Long loanId,
+                        User decider,
+                        String decision,
+                        String comments,
+                        Double newInterestRate,
+                        Double newApplicationFeeRate,
+                        BigDecimal newApprovedAmount,
+                        Boolean businessOwnerOnly) {
+
                 if (decider == null) {
                         throw new IllegalArgumentException(
                                         "Authenticated user is required.");
@@ -385,9 +411,12 @@ public class LoanApprovalService {
 
                         String publicRole = normalizeRole(decider);
 
-                        if (!"MANAGER".equals(publicRole) && !"ADMIN".equals(publicRole)) {
+                        if (!"MANAGER".equals(publicRole)
+                                        && !"ADMIN".equals(publicRole)
+                                        && !"LOAN_OFFICER".equals(publicRole)
+                                        && !"BUSINESS_OWNER".equals(publicRole)) {
                                 throw new IllegalStateException(
-                                                "Only a MANAGER or ADMIN may approve a website-submitted loan.");
+                                                "Only a LOAN_OFFICER, MANAGER, ADMIN, or BUSINESS_OWNER may approve a website-submitted loan.");
                         }
 
                         if (!approved) {
@@ -435,6 +464,7 @@ public class LoanApprovalService {
                                         .orElse(null);
 
                         if (decisionRecord != null) {
+                                applyBusinessOwnerVisibility(loan, businessOwnerOnly);
                                 loanService.approveLoan(
                                                 loanId,
                                                 decider,
@@ -488,6 +518,7 @@ public class LoanApprovalService {
                                                         + (comments != null && !comments.isBlank() ? ": " + comments
                                                                         : ""));
 
+                        applyBusinessOwnerVisibility(loan, businessOwnerOnly);
                         loanService.approveLoan(
                                         loanId,
                                         decider,
@@ -524,10 +555,15 @@ public class LoanApprovalService {
                         requiredRole = requiredRole.substring(5);
                 }
 
+                boolean superRole = "ADMIN".equals(deciderRole)
+                                || "BUSINESS_OWNER".equals(deciderRole);
+
                 boolean roleMatches = requiredRole.equals(deciderRole)
-                                || "ADMIN".equals(deciderRole)
+                                || superRole
                                 || ("MANAGER_OR_ADMIN".equals(requiredRole)
-                                                && ("MANAGER".equals(deciderRole) || "ADMIN".equals(deciderRole)));
+                                                && ("MANAGER".equals(deciderRole)
+                                                                || "ADMIN".equals(deciderRole)
+                                                                || "BUSINESS_OWNER".equals(deciderRole)));
 
                 if (!roleMatches) {
 
@@ -544,19 +580,6 @@ public class LoanApprovalService {
                 if (creator != null
                                 && creator.getId() != null
                                 && creator.getId().equals(decider.getId())) {
-
-                        throw new IllegalStateException(
-                                        "You created this loan application. "
-                                                        + "Another authorized user must review it "
-                                                        + "under the maker-checker policy.");
-                }
-
-                if (creator == null
-                                && loan.getLoanOfficer() != null
-                                && loan.getLoanOfficer().getId() != null
-                                && loan.getLoanOfficer()
-                                                .getId()
-                                                .equals(decider.getId())) {
 
                         throw new IllegalStateException(
                                         "You created this loan application. "
@@ -588,6 +611,10 @@ public class LoanApprovalService {
                  * RECORD DECISION
                  * ========================================================
                  */
+                if (approved) {
+                        applyBusinessOwnerVisibility(loan, businessOwnerOnly);
+                }
+
                 step.setStatus(
                                 approved
                                                 ? "APPROVED"
@@ -661,6 +688,7 @@ public class LoanApprovalService {
                                         + updatedChain.size()
                                         + "-step maker-checker chain";
 
+                        applyBusinessOwnerVisibility(loan, businessOwnerOnly);
                         loanService.approveLoan(
                                         loanId,
                                         decider,
@@ -672,4 +700,30 @@ public class LoanApprovalService {
 
                 return step;
         }
+
+        private void applyBusinessOwnerVisibility(
+                        Loan loan,
+                        Boolean businessOwnerOnly) {
+
+                if (loan == null || businessOwnerOnly == null) {
+                        return;
+                }
+
+                boolean requested = Boolean.TRUE.equals(businessOwnerOnly);
+                boolean current = Boolean.TRUE.equals(loan.getBusinessOwnerOnly());
+
+                // Once an authorized approver classifies a loan as
+                // BUSINESS_OWNER_ONLY, a later approval step cannot silently
+                // downgrade it into the normal reporting population.
+                if (current && !requested) {
+                        throw new IllegalStateException(
+                                        "This loan is already classified BUSINESS_OWNER_ONLY and cannot be changed to NORMAL during approval.");
+                }
+
+                if (requested && !current) {
+                        loan.setBusinessOwnerOnly(true);
+                        loan.setClassifiedAt(LocalDateTime.now());
+                }
+        }
+
 }

@@ -31,7 +31,6 @@ public class DashboardService {
         private final LoanRepository loanRepository;
         private final PaymentRepository paymentRepository;
         private final BorrowerRepository borrowerRepository;
-
         private static final BigDecimal ZERO = BigDecimal.ZERO.setScale(
                         2,
                         RoundingMode.HALF_UP);
@@ -59,24 +58,11 @@ public class DashboardService {
                 // BASIC COUNTS
                 // ============================================================
 
-                long totalLoans = loanRepository.countByOrganization_Id(
-                                orgId);
-
-                long activeLoans = loanRepository.countByOrganization_IdAndStatus(
-                                orgId,
-                                LoanStatus.ACTIVE);
-
-                long pendingLoans = loanRepository.countByOrganization_IdAndStatus(
-                                orgId,
-                                LoanStatus.PENDING);
-
-                long completedLoans = loanRepository.countByOrganization_IdAndStatus(
-                                orgId,
-                                LoanStatus.PAID);
-
-                long defaultedLoans = loanRepository.countByOrganization_IdAndStatus(
-                                orgId,
-                                LoanStatus.DEFAULTED);
+                long totalLoans = 0;
+                long activeLoans = 0;
+                long pendingLoans = 0;
+                long completedLoans = 0;
+                long defaultedLoans = 0;
 
                 // ============================================================
                 // BORROWERS
@@ -95,9 +81,10 @@ public class DashboardService {
                 // ============================================================
 
                 List<Payment> overduePayments = paymentRepository
-                                .findByOrganization_IdAndPaidFalseAndDueDateBefore(
+                                .findVisibleOverdueByOrganization(
                                                 orgId,
-                                                today);
+                                                today,
+                                                ReportingScopeService.includeBusinessOwnerOnly());
 
                 if (overduePayments == null) {
                         overduePayments = List.of();
@@ -121,12 +108,27 @@ public class DashboardService {
                 // LOAD ORGANIZATION LOANS
                 // ============================================================
 
-                List<Loan> loans = loanRepository.findByOrganization_Id(
-                                orgId);
+                List<Loan> loans = loanRepository.findReportingByOrganizationId(
+                                orgId,
+                                ReportingScopeService.includeBusinessOwnerOnly());
 
                 if (loans == null) {
                         loans = List.of();
                 }
+
+                totalLoans = loans.size();
+                activeLoans = loans.stream()
+                                .filter(l -> l != null && l.getStatus() == LoanStatus.ACTIVE)
+                                .count();
+                pendingLoans = loans.stream()
+                                .filter(l -> l != null && l.getStatus() == LoanStatus.PENDING)
+                                .count();
+                completedLoans = loans.stream()
+                                .filter(l -> l != null && l.getStatus() == LoanStatus.PAID)
+                                .count();
+                defaultedLoans = loans.stream()
+                                .filter(l -> l != null && l.getStatus() == LoanStatus.DEFAULTED)
+                                .count();
 
                 // ============================================================
                 // PORTFOLIO TOTALS
@@ -232,8 +234,9 @@ public class DashboardService {
                 // PAYMENT COLLECTIONS
                 // ============================================================
 
-                List<Payment> organizationPayments = paymentRepository.findByLoan_Organization_Id(
-                                orgId);
+                List<Payment> organizationPayments = paymentRepository.findVisibleByLoanOrganizationId(
+                                orgId,
+                                ReportingScopeService.includeBusinessOwnerOnly());
 
                 if (organizationPayments == null) {
                         organizationPayments = List.of();

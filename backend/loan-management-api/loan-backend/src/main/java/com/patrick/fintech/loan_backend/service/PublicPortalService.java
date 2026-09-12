@@ -99,8 +99,8 @@ public class PublicPortalService {
                 // PAYMENT HISTORY
                 // ============================================================
 
-                List<Payment> loanPayments = paymentRepository.findByLoanId(
-                                loan.getId());
+                List<Payment> loanPayments = paymentRepository.findByLoanIdAndBusinessOwnerOnly(
+                                loan.getId(), false);
 
                 if (loanPayments == null) {
                         loanPayments = List.of();
@@ -254,9 +254,10 @@ public class PublicPortalService {
                 List<Loan> borrowerLoans = borrowerId != null
                                 && organizationId != null
                                                 ? loanRepository
-                                                                .findByBorrowerIdAndOrganizationId(
+                                                                .findVisibleByBorrowerIdAndOrganizationId(
                                                                                 borrowerId,
-                                                                                organizationId)
+                                                                                organizationId,
+                                                                                false)
                                                 : List.of();
 
                 // ============================================================

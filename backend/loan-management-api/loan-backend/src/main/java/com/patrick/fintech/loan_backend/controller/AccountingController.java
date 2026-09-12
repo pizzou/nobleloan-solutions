@@ -343,8 +343,9 @@ public class AccountingController {
                  * The accounting ledger/reporting service remains responsible
                  * for financial calculations.
                  */
-                List<JournalEntry> entries = journalRepo.findByOrganization_IdOrderByEntryDateDesc(
-                                orgId);
+                List<JournalEntry> entries = journalRepo.findVisibleByOrganizationIdOrderByEntryDateDesc(
+                                orgId,
+                                com.patrick.fintech.loan_backend.service.ReportingScopeService.includeBusinessOwnerOnly());
 
                 if (entries == null) {
                         entries = List.of();

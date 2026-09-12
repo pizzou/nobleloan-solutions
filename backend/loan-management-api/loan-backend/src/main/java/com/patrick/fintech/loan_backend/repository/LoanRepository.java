@@ -91,6 +91,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             FROM Loan l
             WHERE l.referenceNumber = :referenceNumber
               AND l.borrower.phoneHash = :phoneHash
+              AND COALESCE(l.businessOwnerOnly, false) = false
             """)
     Optional<Loan> findPublicDashboardLoan(
             @Param("referenceNumber") String referenceNumber,
@@ -105,6 +106,103 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     })
     List<Loan> findByOrganization_Id(
             Long organizationId);
+
+
+    /**
+     * Reporting/operational read boundary.
+     *
+     * Pending/under-review loans remain visible so an approval workflow can
+     * complete after the BUSINESS_OWNER_ONLY choice is made. Once a loan is
+     * finally approved, NORMAL_SCOPE excludes it.
+     */
+    @EntityGraph(attributePaths = {"borrower", "organization", "loanOfficer"})
+    @Query("""
+            SELECT l
+            FROM Loan l
+            WHERE l.organization.id = :organizationId
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
+              )
+            ORDER BY l.createdAt DESC
+            """)
+    List<Loan> findVisibleByOrganizationId(
+            @Param("organizationId") Long organizationId,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+    @EntityGraph(attributePaths = {"borrower", "organization", "loanOfficer"})
+    @Query("""
+            SELECT l
+            FROM Loan l
+            WHERE l.organization.id = :organizationId
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+              )
+            ORDER BY l.createdAt DESC
+            """)
+    List<Loan> findReportingByOrganizationId(
+            @Param("organizationId") Long organizationId,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+    @EntityGraph(attributePaths = {"borrower", "organization"})
+    @Query("""
+            SELECT l
+            FROM Loan l
+            WHERE l.id = :loanId
+              AND l.organization.id = :organizationId
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
+              )
+            """)
+    Optional<Loan> findVisibleById(
+            @Param("loanId") Long loanId,
+            @Param("organizationId") Long organizationId,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+    /**
+     * Tenant- and reporting-scope-aware pessimistic lock used by user-initiated
+     * state changes. A NORMAL_SCOPE caller cannot lock a finalized
+     * BUSINESS_OWNER_ONLY loan.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"borrower", "organization", "loanOfficer"})
+    @Query("""
+            SELECT l
+            FROM Loan l
+            WHERE l.id = :loanId
+              AND l.organization.id = :organizationId
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
+              )
+            """)
+    Optional<Loan> findVisibleByIdForUpdate(
+            @Param("loanId") Long loanId,
+            @Param("organizationId") Long organizationId,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+    @EntityGraph(attributePaths = {"borrower", "organization"})
+    @Query("""
+            SELECT l
+            FROM Loan l
+            WHERE l.borrower.id = :borrowerId
+              AND l.organization.id = :organizationId
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
+              )
+            ORDER BY l.createdAt DESC
+            """)
+    List<Loan> findVisibleByBorrowerIdAndOrganizationId(
+            @Param("borrowerId") Long borrowerId,
+            @Param("organizationId") Long organizationId,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
     /**
      * Returns historical/imported loans for accounting reconciliation.
@@ -132,6 +230,28 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             """)
     List<Loan> findHistoricalImportedLoans(
             @Param("organizationId") Long organizationId);
+
+
+    @EntityGraph(attributePaths = {"borrower", "organization"})
+    @Query("""
+            SELECT l
+            FROM Loan l
+            WHERE l.organization.id = :organizationId
+              AND (
+                  l.imported = true
+                  OR l.importBatchId IS NOT NULL
+                  OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+                  OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+              )
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+              )
+            ORDER BY l.id ASC
+            """)
+    List<Loan> findVisibleHistoricalImportedLoans(
+            @Param("organizationId") Long organizationId,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
     List<Loan> findByOrganization_IdAndImportedTrue(
             Long organizationId);
@@ -171,6 +291,23 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             List<Long> borrowerIds,
             Long organizationId);
 
+
+    @EntityGraph(attributePaths = {"borrower", "organization", "branch", "loanOfficer"})
+    @Query("""
+            SELECT l
+            FROM Loan l
+            WHERE l.borrower.id IN :borrowerIds
+              AND l.organization.id = :organizationId
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+              )
+            """)
+    List<Loan> findVisibleByBorrowerIdInAndOrganizationId(
+            @Param("borrowerIds") List<Long> borrowerIds,
+            @Param("organizationId") Long organizationId,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
     /** Only completed historical facilities are needed for BNR's
      * previous-loans-paid-on-time indicator. Avoid loading active/pending
      * borrower history into the export JVM. */
@@ -184,6 +321,25 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             List<Long> borrowerIds,
             Long organizationId,
             List<LoanStatus> statuses);
+
+
+    @EntityGraph(attributePaths = {"borrower", "organization", "branch", "loanOfficer"})
+    @Query("""
+            SELECT l
+            FROM Loan l
+            WHERE l.borrower.id IN :borrowerIds
+              AND l.organization.id = :organizationId
+              AND l.status IN :statuses
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+              )
+            """)
+    List<Loan> findVisibleByBorrowerIdInAndOrganizationIdAndStatusIn(
+            @Param("borrowerIds") List<Long> borrowerIds,
+            @Param("organizationId") Long organizationId,
+            @Param("statuses") List<LoanStatus> statuses,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
     /** BNR portfolio query without fetching the payments collection. */
     @EntityGraph(attributePaths = {
@@ -211,6 +367,32 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("branchId") Long branchId,
             @Param("asOf") LocalDateTime asOf);
 
+
+    @EntityGraph(attributePaths = {"borrower", "organization", "branch", "loanOfficer"})
+    @Query("""
+            SELECT l
+            FROM Loan l
+            WHERE l.organization.id = :orgId
+              AND (:branchId IS NULL OR l.branch.id = :branchId)
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+              )
+              AND (
+                  l.imported = true
+                  OR l.importBatchId IS NOT NULL
+                  OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+                  OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+                  OR (l.disbursedAt IS NOT NULL AND l.disbursedAt < :asOf)
+              )
+            ORDER BY l.disbursedAt ASC
+            """)
+    List<Loan> findVisiblePortfolioAsOfForBnrExport(
+            @Param("orgId") Long orgId,
+            @Param("branchId") Long branchId,
+            @Param("asOf") LocalDateTime asOf,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
     /**
      * Find loans whose status is one of the supplied statuses.
      */
@@ -219,9 +401,25 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
 
     /**
      * Find all loans by borrower's hashed phone number.
+     *
+     * Kept for backward compatibility with internal/public borrower
+     * workflows. User-facing reporting must use the scope-aware methods.
      */
     List<Loan> findByBorrower_PhoneHash(
             String phoneHash);
+
+    /**
+     * Find all loans by borrower's hashed phone number.
+     */
+    @Query("""
+            SELECT l
+            FROM Loan l
+            WHERE l.borrower.phoneHash = :phoneHash
+              AND COALESCE(l.businessOwnerOnly, false) = false
+            ORDER BY l.createdAt DESC
+            """)
+    List<Loan> findPublicBorrowerLoansByPhoneHash(
+            @Param("phoneHash") String phoneHash);
 
     // ============================================================
     // COLLECTION / OVERDUE
@@ -430,6 +628,32 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     Object[] getDashboardLoanAggregate(
             @Param("organizationId") Long organizationId);
 
+
+    @Query("""
+            SELECT
+                COUNT(l),
+                SUM(CASE WHEN l.status IN ('PENDING', 'UNDER_REVIEW') THEN 1 ELSE 0 END),
+                SUM(CASE WHEN l.status IN ('ACTIVE', 'DISBURSED', 'OVERDUE', 'RESTRUCTURED') THEN 1 ELSE 0 END),
+                SUM(CASE WHEN l.status IN ('PAID', 'CLOSED') THEN 1 ELSE 0 END),
+                SUM(CASE WHEN l.status IN ('DEFAULTED', 'WRITTEN_OFF') THEN 1 ELSE 0 END),
+                COALESCE(SUM(CASE WHEN (l.imported = false OR l.imported IS NULL) AND l.disbursedAmount IS NOT NULL
+                                   THEN l.disbursedAmount ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN l.outstandingBalance > 0 THEN l.outstandingBalance ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN l.outstandingBalance > 0 AND l.daysOverdue > 0
+                                   THEN l.outstandingBalance ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN l.outstandingBalance > 0 AND l.daysOverdue > 0 THEN 1 ELSE 0 END), 0)
+            FROM Loan l
+            WHERE l.organization.id = :organizationId
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
+              )
+            """)
+    Object[] getVisibleDashboardLoanAggregate(
+            @Param("organizationId") Long organizationId,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
     // ============================================================
     // FILTERING
     // ============================================================
@@ -450,6 +674,27 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("org") Organization org,
             @Param("status") LoanStatus status,
             @Param("type") Loan.LoanType type,
+            Pageable pageable);
+
+    @EntityGraph(attributePaths = {"borrower", "organization"})
+    @Query("""
+            SELECT l
+            FROM Loan l
+            WHERE l.organization = :org
+              AND (:status IS NULL OR l.status = :status)
+              AND (:type IS NULL OR l.loanType = :type)
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
+              )
+            ORDER BY l.createdAt DESC
+            """)
+    Page<Loan> findVisibleByFilters(
+            @Param("org") Organization org,
+            @Param("status") LoanStatus status,
+            @Param("type") Loan.LoanType type,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly,
             Pageable pageable);
 
     // ============================================================
@@ -576,6 +821,49 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     BigDecimal sumGrossDisbursedPrincipal(
             @Param("org") Organization org);
 
+    @Query("""
+            SELECT COALESCE(SUM(l.outstandingBalance), 0)
+            FROM Loan l
+            WHERE l.organization = :org
+              AND COALESCE(l.outstandingBalance, 0) > 0
+              AND l.status IN ('ACTIVE', 'DISBURSED', 'OVERDUE', 'DEFAULTED', 'RESTRUCTURED')
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+              )
+            """)
+    BigDecimal sumVisibleOutstandingBalance(
+            @Param("org") Organization org,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+    @Query("""
+            SELECT COALESCE(SUM(l.disbursedAmount), 0)
+            FROM Loan l
+            WHERE l.organization = :org
+              AND l.disbursedAmount IS NOT NULL
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+              )
+            """)
+    BigDecimal sumVisibleGrossDisbursedPrincipal(
+            @Param("org") Organization org,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+    @Query("""
+            SELECT l.loanType, COUNT(l), COALESCE(SUM(l.amount), 0)
+            FROM Loan l
+            WHERE l.organization = :org
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+              )
+            GROUP BY l.loanType
+            """)
+    List<Object[]> getVisibleLoanTypeBreakdown(
+            @Param("org") Organization org,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
     // ============================================================
     // LOAN TYPE BREAKDOWN
     // ============================================================
@@ -668,6 +956,29 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to);
 
+
+    @EntityGraph(attributePaths = {"borrower", "organization", "branch"})
+    @Query("""
+            SELECT l
+            FROM Loan l
+            WHERE l.organization.id = :orgId
+              AND (:branchId IS NULL OR l.branch.id = :branchId)
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+              )
+              AND l.disbursedAt IS NOT NULL
+              AND l.disbursedAt >= :from
+              AND l.disbursedAt < :to
+            ORDER BY l.disbursedAt ASC
+            """)
+    List<Loan> findVisibleLoansDisbursedDuringPeriod(
+            @Param("orgId") Long orgId,
+            @Param("branchId") Long branchId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
     /**
      * Compatibility overload for regulatory reporting code.
      *
@@ -748,6 +1059,32 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("branchId") Long branchId,
             @Param("asOf") LocalDateTime asOf);
 
+
+    @EntityGraph(attributePaths = {"borrower", "organization", "branch", "payments"})
+    @Query("""
+            SELECT DISTINCT l
+            FROM Loan l
+            WHERE l.organization.id = :orgId
+              AND (:branchId IS NULL OR l.branch.id = :branchId)
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+              )
+              AND (
+                  l.imported = true
+                  OR l.importBatchId IS NOT NULL
+                  OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
+                  OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
+                  OR (l.disbursedAt IS NOT NULL AND l.disbursedAt < :asOf)
+              )
+            ORDER BY l.disbursedAt ASC
+            """)
+    List<Loan> findVisiblePortfolioAsOf(
+            @Param("orgId") Long orgId,
+            @Param("branchId") Long branchId,
+            @Param("asOf") LocalDateTime asOf,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
     /**
      * Compatibility overload for regulatory reporting callers.
      */
@@ -790,6 +1127,28 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to);
 
+
+    @EntityGraph(attributePaths = {"borrower", "organization", "branch", "payments"})
+    @Query("""
+            SELECT DISTINCT l
+            FROM Loan l
+            WHERE l.organization.id = :orgId
+              AND (:branchId IS NULL OR l.branch.id = :branchId)
+              AND (:from IS NULL OR l.createdAt >= :from)
+              AND (:to IS NULL OR l.createdAt < :to)
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+              )
+            ORDER BY l.createdAt DESC
+            """)
+    List<Loan> findVisibleForRegulatoryReport(
+            @Param("orgId") Long orgId,
+            @Param("branchId") Long branchId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
     /**
      * Find loans created during a period.
      */
@@ -807,6 +1166,27 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("branchId") Long branchId,
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to);
+
+
+    @Query("""
+            SELECT l
+            FROM Loan l
+            WHERE l.organization.id = :orgId
+              AND (:branchId IS NULL OR l.branch.id = :branchId)
+              AND l.createdAt >= :from
+              AND l.createdAt < :to
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+              )
+            ORDER BY l.createdAt ASC
+            """)
+    List<Loan> findVisibleLoansCreatedDuringPeriod(
+            @Param("orgId") Long orgId,
+            @Param("branchId") Long branchId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
     // ============================================================
     // PORTFOLIO RISK / PAR ANALYTICS
@@ -868,6 +1248,33 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             """)
     Object[] calculatePortfolioRiskMetrics(
             @Param("organizationId") Long organizationId);
+
+    @Query("""
+            SELECT
+                COUNT(l),
+                COALESCE(SUM(l.outstandingBalance), 0),
+                SUM(CASE WHEN l.daysOverdue >= 1 THEN 1 ELSE 0 END),
+                COALESCE(SUM(CASE WHEN l.daysOverdue >= 1 THEN l.outstandingBalance ELSE 0 END), 0),
+                SUM(CASE WHEN l.daysOverdue >= 7 THEN 1 ELSE 0 END),
+                COALESCE(SUM(CASE WHEN l.daysOverdue >= 7 THEN l.outstandingBalance ELSE 0 END), 0),
+                SUM(CASE WHEN l.daysOverdue >= 30 THEN 1 ELSE 0 END),
+                COALESCE(SUM(CASE WHEN l.daysOverdue >= 30 THEN l.outstandingBalance ELSE 0 END), 0),
+                SUM(CASE WHEN l.daysOverdue >= 60 THEN 1 ELSE 0 END),
+                COALESCE(SUM(CASE WHEN l.daysOverdue >= 60 THEN l.outstandingBalance ELSE 0 END), 0),
+                SUM(CASE WHEN l.daysOverdue >= 90 THEN 1 ELSE 0 END),
+                COALESCE(SUM(CASE WHEN l.daysOverdue >= 90 THEN l.outstandingBalance ELSE 0 END), 0)
+            FROM Loan l
+            WHERE l.organization.id = :organizationId
+              AND COALESCE(l.outstandingBalance, 0) > 0
+              AND l.status IN ('ACTIVE', 'DISBURSED', 'OVERDUE', 'DEFAULTED', 'RESTRUCTURED')
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+              )
+            """)
+    Object[] calculateVisiblePortfolioRiskMetrics(
+            @Param("organizationId") Long organizationId,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
     // ============================================================
     // EXISTS

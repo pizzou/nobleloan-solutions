@@ -12,6 +12,7 @@ import com.patrick.fintech.loan_backend.repository.ChartOfAccountRepository;
 import com.patrick.fintech.loan_backend.repository.JournalEntryRepository;
 import com.patrick.fintech.loan_backend.repository.JournalLineRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
+import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 
 import lombok.RequiredArgsConstructor;
@@ -44,8 +45,8 @@ public class AccountingService {
         private final JournalEntryRepository journalRepo;
         private final JournalLineRepository lineRepo;
         private final LoanRepository loanRepo;
+        private final PaymentRepository paymentRepo;
         private final AccountingPeriodService accountingPeriodService;
-
         // ============================================================
         // MONEY CONFIGURATION
         // ============================================================
@@ -635,6 +636,11 @@ public class AccountingService {
 
                 String normalizedSourceId = sourceId.trim();
 
+                boolean businessOwnerOnly = resolveBusinessOwnerOnly(
+                                org.getId(),
+                                normalizedSourceType,
+                                normalizedSourceId);
+
                 if (!"REVERSAL".equals(
                                 normalizedSourceType)) {
 
@@ -646,6 +652,14 @@ public class AccountingService {
                                         .orElse(null);
 
                         if (existing != null) {
+
+                                boolean existingScope = Boolean.TRUE.equals(existing.getBusinessOwnerOnly());
+                                if (existingScope != businessOwnerOnly) {
+                                        throw new IllegalStateException(
+                                                        "Accounting event " + normalizedSourceType + ":"
+                                                                        + normalizedSourceId
+                                                                        + " already exists in a different reporting scope.");
+                                }
 
                                 log.warn(
                                                 "Accounting event already posted. " +
@@ -750,6 +764,7 @@ public class AccountingService {
                                 .createdBy(
                                                 "SYSTEM")
                                 .reversed(false)
+                                .businessOwnerOnly(businessOwnerOnly)
                                 .build();
 
                 entry = journalRepo.save(
@@ -765,6 +780,115 @@ public class AccountingService {
                 }
 
                 return entry;
+        }
+
+        /**
+         * Resolves the visibility classification of an accounting event from
+         * its originating loan. All loan-generated journal entries therefore
+         * carry the same reporting boundary without requiring every posting
+         * call-site to pass a second accounting object.
+         */
+        private boolean resolveBusinessOwnerOnly(
+                        Long organizationId,
+                        String sourceType,
+                        String sourceId) {
+
+                if (organizationId == null || sourceType == null || sourceId == null) {
+                        return false;
+                }
+
+                String type = sourceType.trim().toUpperCase(java.util.Locale.ROOT);
+                String id = sourceId.trim();
+
+                java.util.Set<String> loanTypes = java.util.Set.of(
+                                "LOAN_DISBURSEMENT",
+                                "LOAN_EXTENSION_FEE",
+                                "PENALTY_ACCRUAL",
+                                "CONTRACTUAL_MONTHLY_INTEREST_ACCRUAL",
+                                "CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL",
+                                "LEGACY_LOAN_OPENING",
+                                "LEGACY_LOAN_RECONCILIATION",
+                                "WRITE_OFF");
+
+                java.util.Set<String> paymentTypes = java.util.Set.of(
+                                "PAYMENT_RECEIVED",
+                                "REFUND_PAYMENT",
+                                "OVERPAYMENT_REFUND_PAYABLE",
+                                "LOAN_EXTENSION_FEE_COLLECTION",
+                                "SCHEDULED_INTEREST_ACCRUAL",
+                                "SCHEDULED_MANAGEMENT_FEE_ACCRUAL");
+
+                try {
+                        if (loanTypes.contains(type)) {
+                                Long loanId = extractLeadingLong(id);
+                                if (loanId != null) {
+                                        return loanRepo.findById(loanId)
+                                                        .filter(l -> l.getOrganization() != null
+                                                                        && organizationId.equals(l.getOrganization().getId()))
+                                                        .map(l -> Boolean.TRUE.equals(l.getBusinessOwnerOnly()))
+                                                        .orElse(false);
+                                }
+                        }
+
+                        if (paymentTypes.contains(type)) {
+                                Long paymentId = extractPaymentId(id);
+                                if (paymentId != null) {
+                                        return paymentRepo.findById(paymentId)
+                                                        .filter(p -> p.getLoan() != null
+                                                                        && p.getLoan().getOrganization() != null
+                                                                        && organizationId.equals(p.getLoan().getOrganization().getId()))
+                                                        .map(p -> Boolean.TRUE.equals(p.getLoan().getBusinessOwnerOnly()))
+                                                        .orElse(false);
+                                }
+                        }
+                } catch (RuntimeException ex) {
+                        throw new IllegalStateException(
+                                        "Unable to determine the reporting scope for accounting event "
+                                                        + type + ":" + id,
+                                        ex);
+                }
+
+                if (loanTypes.contains(type) || paymentTypes.contains(type)) {
+                        throw new IllegalStateException(
+                                        "Unable to determine the originating loan for accounting event "
+                                                        + type + ":" + id);
+                }
+
+                return false;
+        }
+
+        private Long extractPaymentId(String sourceId) {
+                String value = sourceId;
+                if (value.startsWith("PAYMENT-")) {
+                        value = value.substring("PAYMENT-".length());
+                }
+                return extractLeadingLong(value);
+        }
+
+        private Long extractLeadingLong(String sourceId) {
+                if (sourceId == null || sourceId.isBlank()) {
+                        return null;
+                }
+
+                String value = sourceId.trim();
+                if (value.startsWith("LOAN:")) {
+                        value = value.substring("LOAN:".length());
+                }
+
+                int end = 0;
+                while (end < value.length() && Character.isDigit(value.charAt(end))) {
+                        end++;
+                }
+
+                if (end == 0) {
+                        return null;
+                }
+
+                try {
+                        return Long.valueOf(value.substring(0, end));
+                } catch (NumberFormatException ex) {
+                        return null;
+                }
         }
 
         // ============================================================
@@ -3250,18 +3374,28 @@ public class AccountingService {
         // ============================================================
 
         public BigDecimal loanLossReserveBalanceForReporting(Organization org) {
-                return loanLossReserveBalance(org);
+                return loanLossReserveBalance(
+                                org,
+                                ReportingScopeService.includeBusinessOwnerOnly());
         }
 
         private BigDecimal loanLossReserveBalance(Organization org) {
+                return loanLossReserveBalance(org, true);
+        }
+
+        private BigDecimal loanLossReserveBalance(
+                        Organization org,
+                        boolean includeBusinessOwnerOnly) {
                 requireOrganization(org);
                 ChartOfAccount reserve = coaRepo.findByOrganization_IdAndCode(org.getId(), "1200")
                                 .orElse(null);
                 if (reserve == null)
                         return ZERO;
 
-                List<JournalLine> lines = lineRepo.findByAccount_IdAndOrganization_Id(
-                                reserve.getId(), org.getId());
+                List<JournalLine> lines = lineRepo.findVisibleByAccount_IdAndOrganization_Id(
+                                reserve.getId(),
+                                org.getId(),
+                                includeBusinessOwnerOnly);
                 if (lines == null || lines.isEmpty())
                         return ZERO;
 
@@ -3464,9 +3598,10 @@ public class AccountingService {
                 }
 
                 JournalEntry original = journalRepo
-                                .findByIdAndOrganization_Id(
+                                .findVisibleByIdAndOrganizationId(
                                                 entryId,
-                                                orgId)
+                                                orgId,
+                                                ReportingScopeService.includeBusinessOwnerOnly())
                                 .orElseThrow(
                                                 () -> new IllegalArgumentException(
                                                                 "Journal entry not found: "
@@ -3695,6 +3830,8 @@ public class AccountingService {
                                                                                 ? reversedBy.trim()
                                                                                 : "SYSTEM")
                                 .reversed(false)
+                                .businessOwnerOnly(
+                                                Boolean.TRUE.equals(original.getBusinessOwnerOnly()))
                                 .build();
 
                 reversal = journalRepo.save(
@@ -3737,7 +3874,10 @@ public class AccountingService {
 
                 validateAccountOwnership(acc.getOrganization(), acc);
 
-                List<JournalLine> lines = lineRepo.findLedgerForAccountAndOrganization(accountId, orgId);
+                List<JournalLine> lines = lineRepo.findVisibleLedgerForAccountAndOrganization(
+                                accountId,
+                                orgId,
+                                ReportingScopeService.includeBusinessOwnerOnly());
                 List<Map<String, Object>> rows = new ArrayList<>();
                 BigDecimal running = ZERO;
 
@@ -4141,7 +4281,10 @@ public class AccountingService {
                                 .orElseThrow(() -> new IllegalStateException(
                                                 "Cash and Bank account 1000 is not configured"));
 
-                List<JournalLine> cashLines = lineRepo.findByAccount_IdAndOrganization_Id(cash.getId(), orgId);
+                List<JournalLine> cashLines = lineRepo.findVisibleByAccount_IdAndOrganization_Id(
+                                cash.getId(),
+                                orgId,
+                                ReportingScopeService.includeBusinessOwnerOnly());
 
                 BigDecimal openingCash = ZERO;
                 BigDecimal operatingInflows = ZERO;
@@ -4316,7 +4459,11 @@ public class AccountingService {
 
                 LocalDate start = from == null ? LocalDate.of(1900, 1, 1) : from;
                 List<JournalEntry> entries = journalRepo
-                                .findByOrganization_IdAndEntryDateBetweenOrderByEntryDateAsc(orgId, start, to);
+                                .findVisibleByOrganizationIdAndEntryDateBetween(
+                                                orgId,
+                                                start,
+                                                to,
+                                                ReportingScopeService.includeBusinessOwnerOnly());
                 return entries == null ? List.of() : entries;
         }
 
@@ -4347,7 +4494,10 @@ public class AccountingService {
         }
 
         private BigDecimal cashBalanceAsOf(ChartOfAccount cash, Long orgId, LocalDate asOf) {
-                List<JournalLine> lines = lineRepo.findByAccount_IdAndOrganization_Id(cash.getId(), orgId);
+                List<JournalLine> lines = lineRepo.findVisibleByAccount_IdAndOrganization_Id(
+                                cash.getId(),
+                                orgId,
+                                ReportingScopeService.includeBusinessOwnerOnly());
                 BigDecimal balance = ZERO;
                 if (lines != null) {
                         for (JournalLine line : lines) {

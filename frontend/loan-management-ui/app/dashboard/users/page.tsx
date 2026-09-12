@@ -34,7 +34,13 @@ const ROLE_BADGE: Record<string, string> = {
   ACCOUNTANT: "bg-orange-100 text-orange-700",
 };
 
-const ROLES = ["ADMIN", "MANAGER", "LOAN_OFFICER", "ACCOUNTANT"];
+const ROLES = [
+  "ADMIN",
+  "BUSINESS_OWNER",
+  "MANAGER",
+  "LOAN_OFFICER",
+  "ACCOUNTANT",
+];
 
 function inputCls(err?: string) {
   return (

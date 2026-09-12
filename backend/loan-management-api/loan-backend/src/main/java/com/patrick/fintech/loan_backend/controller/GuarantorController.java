@@ -6,6 +6,7 @@ import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.repository.GuarantorRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.service.AuditService;
+import com.patrick.fintech.loan_backend.service.LoanService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -22,6 +23,7 @@ public class GuarantorController {
 
     private final GuarantorRepository guarantorRepo;
     private final LoanRepository loanRepo;
+    private final LoanService loanService;
     private final CurrentUserUtil currentUserUtil;
     private final AuditService auditService;
 
@@ -80,13 +82,9 @@ public class GuarantorController {
                 || user.getOrganization().getId() == null) {
             throw new RuntimeException("Access denied");
         }
-        Loan loan = loanRepo.findById(loanId)
-                .orElseThrow(() -> new RuntimeException("Loan not found"));
-        if (loan.getOrganization() == null || loan.getOrganization().getId() == null
-                || !loan.getOrganization().getId().equals(user.getOrganization().getId())) {
-            throw new RuntimeException("Access denied");
-        }
-        return loan;
+        return loanService.getLoanForOrg(
+                loanId,
+                user.getOrganization().getId());
     }
 
     private String str(Map<String, Object> b, String k) {

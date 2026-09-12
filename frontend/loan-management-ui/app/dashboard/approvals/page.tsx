@@ -19,6 +19,7 @@ type ApprovalDraft = {
   interestRate: string;
   applicationFeeRate: string;
   notes: string;
+  businessOwnerOnly: boolean;
 };
 
 export default function ApprovalsPage() {
@@ -36,9 +37,10 @@ export default function ApprovalsPage() {
     interestRate: "5",
     applicationFeeRate: "2",
     notes: "",
+    businessOwnerOnly: false,
   });
 
-  const isManagerOrAdmin = user?.role === "MANAGER" || user?.role === "ADMIN";
+  const isManagerOrAdmin = ["MANAGER", "ADMIN", "BUSINESS_OWNER"].includes(user?.role || "");
 
   const getMsg = (err: unknown) =>
     err instanceof Error ? err.message : "Something went wrong";
@@ -65,6 +67,7 @@ export default function ApprovalsPage() {
       applicationFeeRate:
         loan.applicationFeeRate != null ? String(loan.applicationFeeRate) : "2",
       notes: "",
+      businessOwnerOnly: Boolean(loan.businessOwnerOnly),
     });
   };
 
@@ -131,6 +134,7 @@ export default function ApprovalsPage() {
         draft.notes.trim() || undefined,
         applicationFeeRate,
         approvedAmount,
+        draft.businessOwnerOnly,
       );
 
       setApprovalId(null);
@@ -418,6 +422,42 @@ export default function ApprovalsPage() {
                 <strong>No daily accrual:</strong> interest and management fees
                 are contractual monthly charges. The application fee is deducted
                 once when disbursement is triggered.
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Reporting visibility</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Choose whether this approved loan belongs to the normal reporting population or is restricted to the Business Owner scope. This classification controls portfolio, accounting, financial, general, BNR and CRB reporting.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">Approval control</span>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <label className={`cursor-pointer rounded-xl border p-3 ${!draft.businessOwnerOnly ? "border-slate-900 bg-white" : "border-slate-200 bg-white"}`}>
+                    <input
+                      type="radio"
+                      name="reportingVisibility"
+                      className="sr-only"
+                      checked={!draft.businessOwnerOnly}
+                      onChange={() => setDraft((d) => ({ ...d, businessOwnerOnly: false }))}
+                    />
+                    <span className="text-sm font-semibold text-slate-900">Normal reporting</span>
+                    <span className="mt-1 block text-xs text-slate-500">Included in the ordinary portfolio and reporting scope.</span>
+                  </label>
+                  <label className={`cursor-pointer rounded-xl border p-3 ${draft.businessOwnerOnly ? "border-slate-900 bg-white" : "border-slate-200 bg-white"}`}>
+                    <input
+                      type="radio"
+                      name="reportingVisibility"
+                      className="sr-only"
+                      checked={draft.businessOwnerOnly}
+                      onChange={() => setDraft((d) => ({ ...d, businessOwnerOnly: true }))}
+                    />
+                    <span className="text-sm font-semibold text-slate-900">Business Owner only</span>
+                    <span className="mt-1 block text-xs text-slate-500">Excluded from normal users' financial population and visible in the Business Owner scope.</span>
+                  </label>
+                </div>
               </div>
 
               <textarea

@@ -19,11 +19,11 @@ import java.util.Set;
  * Loads the authoritative application role from the database and converts it
  * into Spring Security authorities.
  *
- * ADMIN is the platform administrator.  It therefore receives ROLE_ADMIN plus
- * the application staff authorities so method-security expressions such as
- * hasAnyRole('ADMIN','ACCOUNTANT') remain true for an administrator.  This is
- * intentionally centralized here rather than requiring every controller to
- * repeat ADMIN in every @PreAuthorize expression.
+ * ADMIN and BUSINESS_OWNER are super-authority roles. They receive all
+ * application staff authorities so existing endpoint-level method security
+ * cannot accidentally deny either top-level role. Reporting visibility is
+ * still resolved separately: BUSINESS_OWNER gets the full reporting scope,
+ * while ordinary staff remain in NORMAL_SCOPE.
  */
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
@@ -56,7 +56,9 @@ public class CustomUserDetailsService implements UserDetailsService {
         // ADMIN is the top-level application administrator.  Grant every
         // defined staff authority so existing endpoint-specific method
         // security cannot accidentally deny an administrator.
-        if ("ADMIN".equals(roleName) || "INSTITUTION_ADMIN".equals(roleName)) {
+        if ("ADMIN".equals(roleName)
+                || "INSTITUTION_ADMIN".equals(roleName)
+                || "BUSINESS_OWNER".equals(roleName)) {
             for (RoleName role : RoleName.values()) {
                 authorities.add("ROLE_" + role.name());
             }

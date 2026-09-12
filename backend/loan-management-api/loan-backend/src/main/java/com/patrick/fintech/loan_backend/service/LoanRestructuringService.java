@@ -1173,7 +1173,10 @@ public class LoanRestructuringService {
                         throw new IllegalArgumentException("Organization ID is required");
                 }
 
-                Loan loan = loanRepo.findByIdForUpdate(loanId)
+                Loan loan = loanRepo.findVisibleByIdForUpdate(
+                                loanId,
+                                orgId,
+                                ReportingScopeService.includeBusinessOwnerOnly())
                                 .orElseThrow(() -> new RuntimeException("Loan not found: " + loanId));
 
                 if (loan.getOrganization() == null || loan.getOrganization().getId() == null) {

@@ -102,6 +102,7 @@ public class LoanApprovalController {
                 Double newInterestRate = parseInterestRate(body);
                 Double newProcessingFeeRate = parseProcessingFeeRate(body);
                 java.math.BigDecimal approvedAmount = parseApprovedAmount(body);
+                Boolean businessOwnerOnly = parseBusinessOwnerOnly(body);
 
                 LoanApproval result = approvalService.decide(
                                 loanId,
@@ -110,7 +111,8 @@ public class LoanApprovalController {
                                 comments,
                                 newInterestRate,
                                 newProcessingFeeRate,
-                                approvedAmount);
+                                approvedAmount,
+                                businessOwnerOnly);
 
                 return ResponseEntity.ok(
                                 ApiResponse.safe(
@@ -222,6 +224,40 @@ public class LoanApprovalController {
                         throw new IllegalArgumentException(
                                         "applicationFeeRate must be a valid number.");
                 }
+        }
+
+        private Boolean parseBusinessOwnerOnly(
+                        Map<String, String> body) {
+
+                if (body == null) {
+                        return null;
+                }
+
+                String raw = body.get("businessOwnerOnly");
+                if (raw == null || raw.isBlank()) {
+                        raw = body.get("visibility");
+                }
+
+                if (raw == null || raw.isBlank()) {
+                        return null;
+                }
+
+                String value = raw.trim();
+
+                if ("BUSINESS_OWNER_ONLY".equalsIgnoreCase(value)) {
+                        return Boolean.TRUE;
+                }
+                if ("NORMAL".equalsIgnoreCase(value)
+                                || "NORMAL_SCOPE".equalsIgnoreCase(value)) {
+                        return Boolean.FALSE;
+                }
+                if ("true".equalsIgnoreCase(value)
+                                || "false".equalsIgnoreCase(value)) {
+                        return Boolean.valueOf(value);
+                }
+
+                throw new IllegalArgumentException(
+                                "businessOwnerOnly must be true/false, NORMAL, or BUSINESS_OWNER_ONLY.");
         }
 
         private String firstNonBlank(

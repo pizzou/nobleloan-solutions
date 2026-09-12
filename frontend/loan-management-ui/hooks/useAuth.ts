@@ -11,6 +11,7 @@ interface AuthCtx {
   logout: () => void;
   loading: boolean;
   isAdmin: boolean;
+  isBusinessOwner: boolean;
   isOfficer: boolean;
   currency: string;
   locale: string;
@@ -24,6 +25,7 @@ export const AuthContext = createContext<AuthCtx>({
   logout: () => {},
   loading: true,
   isAdmin: false,
+  isBusinessOwner: false,
   isOfficer: false,
   currency: "USD",
   locale: "en-US",
@@ -89,9 +91,14 @@ export function useAuthState() {
     login,
     logout,
     isAdmin: user?.role === "ADMIN",
-    isOfficer: ["ADMIN", "LOAN_OFFICER", "CREDIT_ANALYST", "MANAGER"].includes(
-      user?.role || "",
-    ),
+    isBusinessOwner: user?.role === "BUSINESS_OWNER",
+    isOfficer: [
+      "ADMIN",
+      "BUSINESS_OWNER",
+      "LOAN_OFFICER",
+      "CREDIT_ANALYST",
+      "MANAGER",
+    ].includes(user?.role || ""),
     currency: user?.currency || "USD",
     locale: user?.locale || "en-US",
     mustChangePassword: Boolean(user?.mustChangePassword),

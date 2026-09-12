@@ -34,7 +34,10 @@ public class DataPrivacyController {
         personal.put("address",b.getAddressLine1()+" "+b.getCity()+" "+b.getCountry());
         personal.put("employer",b.getEmployerName()); personal.put("kycStatus",b.getKycStatus());
         out.put("personalData",personal);
-        out.put("loans",loanRepo.findByBorrowerIdAndOrganizationId(id,orgId).stream().map(l->Map.of(
+        out.put("loans",loanRepo.findVisibleByBorrowerIdAndOrganizationId(
+            id,
+            orgId,
+            false).stream().map(l->Map.of(
             "reference",l.getReferenceNumber(),"status",l.getStatus(),"amount",l.getAmount()!=null?l.getAmount():0)).toList());
         out.put("kycChecks",kycRepo.findByBorrower_Id(id).stream().map(k->Map.of(
             "checkType",k.getCheckType(),"result",k.getResult(),"createdAt",String.valueOf(k.getCreatedAt()))).toList());
@@ -47,7 +50,7 @@ public class DataPrivacyController {
         Long orgId=currentUserUtil.getCurrentOrganizationId();
         Borrower b=borrowerRepo.findById(id).orElseThrow(()->new RuntimeException("Not found"));
         if(!b.getOrganization().getId().equals(orgId)) throw new RuntimeException("Access denied");
-        long active=loanRepo.findByBorrowerIdAndOrganizationId(id,orgId).stream()
+        long active=loanRepo.findVisibleByBorrowerIdAndOrganizationId(id,orgId, com.patrick.fintech.loan_backend.service.ReportingScopeService.includeBusinessOwnerOnly()).stream()
             .filter(l->l.getStatus()==LoanStatus.ACTIVE||l.getStatus()==LoanStatus.OVERDUE).count();
         if(active>0) return ResponseEntity.badRequest().body(ApiResponse.ok(
             "Erasure blocked: "+active+" active loan(s) — data retained for regulatory compliance",

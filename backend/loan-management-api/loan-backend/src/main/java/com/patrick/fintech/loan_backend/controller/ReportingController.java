@@ -1,5 +1,7 @@
 package com.patrick.fintech.loan_backend.controller;
 
+import com.patrick.fintech.loan_backend.service.ReportingScopeService;
+
 import com.patrick.fintech.loan_backend.model.JournalEntry;
 import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.repository.JournalEntryRepository;
@@ -38,7 +40,6 @@ public class ReportingController {
         private final AccountingService accountingService;
         private final CurrentUserUtil currentUserUtil;
         private final JournalEntryRepository journalEntryRepository;
-
         private static final MediaType EXCEL_MEDIA_TYPE = MediaType.parseMediaType(
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 
@@ -326,8 +327,9 @@ public class ReportingController {
                 validateOrganization(orgId);
 
                 List<JournalEntry> entries = journalEntryRepository
-                                .findByOrganization_IdOrderByEntryDateDesc(
-                                                orgId);
+                                .findVisibleByOrganizationIdOrderByEntryDateDesc(
+                                                orgId,
+                                                ReportingScopeService.includeBusinessOwnerOnly());
 
                 return ResponseEntity.ok(entries.stream().map(ResponseDtoMapper::safe).toList());
         }
@@ -360,8 +362,9 @@ public class ReportingController {
                  * filtered safely in memory.
                  */
                 List<JournalEntry> allEntries = journalEntryRepository
-                                .findByOrganization_IdOrderByEntryDateDesc(
-                                                orgId);
+                                .findVisibleByOrganizationIdOrderByEntryDateDesc(
+                                                orgId,
+                                                ReportingScopeService.includeBusinessOwnerOnly());
 
                 List<JournalEntry> filtered = allEntries.stream()
                                 .filter(entry -> entry != null
@@ -651,8 +654,9 @@ public class ReportingController {
                  * financial statements into actual accounting entries.
                  */
                 List<JournalEntry> journal = journalEntryRepository
-                                .findByOrganization_IdOrderByEntryDateDesc(
-                                                organizationId)
+                                .findVisibleByOrganizationIdOrderByEntryDateDesc(
+                                                organizationId,
+                                                ReportingScopeService.includeBusinessOwnerOnly())
                                 .stream()
                                 .filter(entry -> entry != null
                                                 && entry.getEntryDate() != null

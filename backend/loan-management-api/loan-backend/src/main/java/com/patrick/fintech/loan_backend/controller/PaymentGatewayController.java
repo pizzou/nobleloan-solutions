@@ -7,6 +7,7 @@ import com.patrick.fintech.loan_backend.dto.PaymentGatewayResponse;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.service.AirtelMobileMoneyService;
+import com.patrick.fintech.loan_backend.service.LoanService;
 import com.patrick.fintech.loan_backend.service.FlutterwaveService;
 import com.patrick.fintech.loan_backend.service.MtnMobileMoneyService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
@@ -35,6 +36,7 @@ public class PaymentGatewayController {
     private final AirtelMobileMoneyService airtelMoneyService;
 
     private final LoanRepository loanRepo;
+    private final LoanService loanService;
 
     private final CurrentUserUtil currentUserUtil;
 
@@ -46,27 +48,9 @@ public class PaymentGatewayController {
         var user =
                 currentUserUtil.getCurrentUser();
 
-        Loan loan =
-                loanRepo.findById(loanId)
-                        .orElseThrow(
-                                () -> new RuntimeException(
-                                        "Loan not found"
-                                )
-                        );
-
-        if (loan.getOrganization() == null ||
-                user.getOrganization() == null ||
-                !loan.getOrganization()
-                        .getId()
-                        .equals(
-                                user.getOrganization()
-                                        .getId()
-                        )) {
-
-            throw new RuntimeException(
-                    "Access denied"
-            );
-        }
+        Loan loan = loanService.getLoanForOrg(
+                loanId,
+                user.getOrganization().getId());
 
         validateAmount(
                 request.getAmount()

@@ -203,11 +203,10 @@ public class LoanController {
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
-                                                ResponseDtoMapper.loans(loanService
-                                                                .getLoanRepository()
-                                                                .findByBorrowerIdAndOrganizationId(
-                                                                                borrowerId,
-                                                                                organizationId))));
+                                                ResponseDtoMapper.loans(
+                                                loanService.getLoansByBorrowerForOrg(
+                                                                borrowerId,
+                                                                organizationId))));
         }
 
         // ================================================================
@@ -232,7 +231,7 @@ public class LoanController {
         }
 
         @PostMapping("/{id}/approve")
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
         public ResponseEntity<ApiResponse<LoanResponse>> approveLoan(
                         @PathVariable Long id,
                         @RequestBody(required = false) Map<String, String> body) {
@@ -246,6 +245,7 @@ public class LoanController {
                                 : null;
 
                 Double newInterestRate = null;
+                Boolean businessOwnerOnly = parseBusinessOwnerOnly(body);
 
                 if (body != null) {
 
@@ -267,12 +267,32 @@ public class LoanController {
                         }
                 }
 
-                loanApprovalService.decide(
+                var decisionRecord = loanApprovalService.decide(
                                 id,
                                 user,
                                 "APPROVED",
                                 notes,
-                                newInterestRate);
+                                newInterestRate,
+                                null,
+                                null,
+                                businessOwnerOnly);
+
+                /*
+                 * A BUSINESS_OWNER_ONLY loan becomes hidden from NORMAL_SCOPE
+                 * immediately after final approval. Do not perform a second
+                 * unrestricted lookup and do not use exception handling as a
+                 * control-flow mechanism. The approval record already carries
+                 * the authoritative loan classification.
+                 */
+                if (decisionRecord != null
+                                && decisionRecord.getLoan() != null
+                                && Boolean.TRUE.equals(decisionRecord.getLoan().getBusinessOwnerOnly())
+                                && !com.patrick.fintech.loan_backend.service.ReportingScopeService.includeBusinessOwnerOnly()) {
+                        return ResponseEntity.ok(
+                                        ApiResponse.ok(
+                                                        "Loan approval decision recorded",
+                                                        null));
+                }
 
                 Loan loan = loanService.getLoanForOrg(
                                 id,
@@ -282,6 +302,40 @@ public class LoanController {
                                 ApiResponse.ok(
                                                 "Loan approval decision recorded",
                                                 ResponseDtoMapper.loan(loan)));
+        }
+
+        private Boolean parseBusinessOwnerOnly(
+                        Map<String, String> body) {
+
+                if (body == null) {
+                        return null;
+                }
+
+                String raw = body.get("businessOwnerOnly");
+                if (raw == null || raw.isBlank()) {
+                        raw = body.get("visibility");
+                }
+
+                if (raw == null || raw.isBlank()) {
+                        return null;
+                }
+
+                String value = raw.trim();
+
+                if ("BUSINESS_OWNER_ONLY".equalsIgnoreCase(value)) {
+                        return Boolean.TRUE;
+                }
+                if ("NORMAL".equalsIgnoreCase(value)
+                                || "NORMAL_SCOPE".equalsIgnoreCase(value)) {
+                        return Boolean.FALSE;
+                }
+                if ("true".equalsIgnoreCase(value)
+                                || "false".equalsIgnoreCase(value)) {
+                        return Boolean.valueOf(value);
+                }
+
+                throw new IllegalArgumentException(
+                                "businessOwnerOnly must be true/false, NORMAL, or BUSINESS_OWNER_ONLY.");
         }
 
         private String firstNonBlank(

@@ -150,9 +150,8 @@ public class UserController {
         boolean isAdmin =
                 caller != null
                         && caller.getRole() != null
-                        && "ADMIN".equalsIgnoreCase(
-                        caller.getRole().getName()
-                );
+                        && ("ADMIN".equalsIgnoreCase(caller.getRole().getName())
+                        || "BUSINESS_OWNER".equalsIgnoreCase(caller.getRole().getName()));
 
         if (!isSelf && !isAdmin) {
             throw new AccessDeniedException(

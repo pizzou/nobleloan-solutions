@@ -71,6 +71,17 @@ public class JournalEntry {
     @Builder.Default
     private Boolean reversed = false;
 
+    /**
+     * Reporting visibility inherited from the originating loan.
+     *
+     * FALSE = NORMAL_SCOPE.
+     * TRUE = BUSINESS_OWNER_SCOPE only.
+     */
+    @Column(name = "business_owner_only", nullable = false)
+    @Builder.Default
+    @JsonIgnore
+    private Boolean businessOwnerOnly = false;
+
     @OneToMany(
         mappedBy = "journalEntry",
         cascade = CascadeType.ALL,

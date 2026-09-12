@@ -631,8 +631,10 @@ public class LendingIntelligenceService {
     public Map<String, Object> customer360(Long borrowerId) {
         Borrower borrower = organizationBorrower(borrowerId);
         Long orgId = organizationId();
-        List<Loan> loans = loanRepository.findByBorrowerIdAndOrganizationId(borrowerId, orgId);
-        List<Payment> payments = paymentRepository.findByBorrowerIdAndOrganizationId(borrowerId, orgId);
+        List<Loan> loans = loanRepository.findVisibleByBorrowerIdAndOrganizationId(
+                borrowerId, orgId, ReportingScopeService.includeBusinessOwnerOnly());
+        List<Payment> payments = paymentRepository.findVisibleByBorrowerIdAndOrganizationId(
+                borrowerId, orgId, ReportingScopeService.includeBusinessOwnerOnly());
         List<LendingFeatureRecord> records = recordRepository
                 .findByOrganization_IdAndBorrower_IdOrderByCreatedAtDesc(orgId, borrowerId);
 
@@ -805,16 +807,19 @@ public class LendingIntelligenceService {
     }
 
     private List<Loan> organizationLoans() {
-        return loanRepository.findByOrganization_Id(organizationId());
+        return loanRepository.findVisibleByOrganizationId(
+                organizationId(),
+                ReportingScopeService.includeBusinessOwnerOnly());
     }
 
     private Loan organizationLoan(Long loanId) {
         if (loanId == null) {
             throw new IllegalArgumentException("Loan ID is required");
         }
-        return loanRepository.findById(loanId)
-                .filter(loan -> loan.getOrganization() != null
-                        && organizationId().equals(loan.getOrganization().getId()))
+        return loanRepository.findVisibleById(
+                loanId,
+                organizationId(),
+                ReportingScopeService.includeBusinessOwnerOnly())
                 .orElseThrow(() -> new NoSuchElementException("Loan not found"));
     }
 

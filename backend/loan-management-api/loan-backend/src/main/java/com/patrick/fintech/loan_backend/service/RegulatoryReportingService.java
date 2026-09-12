@@ -65,7 +65,6 @@ public class RegulatoryReportingService {
         private final BnrFinancialStatementService bnrFinancialStatementService;
 
         private final AccountingService accountingService;
-
         private static final BigDecimal ZERO = BigDecimal.ZERO;
 
         private static BigDecimal moneyDecimal(BigDecimal value) {
@@ -241,11 +240,11 @@ public class RegulatoryReportingService {
 
                 LocalDateTime asOfDateTime = exclusiveEndOfDay(asOf);
 
-                return loanRepository.findPortfolioAsOf(
+                return loanRepository.findVisiblePortfolioAsOf(
                                 organizationId,
                                 branchId,
                                 asOfDateTime,
-                                asOf);
+                                ReportingScopeService.includeBusinessOwnerOnly());
         }
 
         // ============================================================
@@ -277,13 +276,12 @@ public class RegulatoryReportingService {
 
                 LocalDateTime toDateTime = exclusiveEndOfDay(to);
 
-                return loanRepository.findLoansDisbursedDuringPeriod(
+                return loanRepository.findVisibleLoansDisbursedDuringPeriod(
                                 organizationId,
                                 branchId,
                                 fromDateTime,
                                 toDateTime,
-                                from,
-                                to);
+                                ReportingScopeService.includeBusinessOwnerOnly());
         }
 
         private List<Payment> fetchPayments(
@@ -307,11 +305,12 @@ public class RegulatoryReportingService {
                                         "'to' cannot be before 'from'.");
                 }
 
-                return paymentRepository.findPaymentsDuringPeriod(
+                return paymentRepository.findVisiblePaymentsDuringPeriod(
                                 organizationId,
                                 branchId,
                                 from,
-                                to);
+                                to,
+                                ReportingScopeService.includeBusinessOwnerOnly());
         }
 
         public BnrSummaryReport buildBnrSummary(
@@ -679,6 +678,13 @@ public class RegulatoryReportingService {
                         loan.getOrganization().getId(),
                         loan.getWrittenOffAt(),
                         periodEnd.plusDays(1).atStartOfDay())) {
+
+                if (!ReportingScopeService.includeBusinessOwnerOnly()
+                                && payment != null
+                                && payment.getLoan() != null
+                                && Boolean.TRUE.equals(payment.getLoan().getBusinessOwnerOnly())) {
+                        continue;
+                }
 
                 recoveriesAfterWriteOff = add(
                                 recoveriesAfterWriteOff,

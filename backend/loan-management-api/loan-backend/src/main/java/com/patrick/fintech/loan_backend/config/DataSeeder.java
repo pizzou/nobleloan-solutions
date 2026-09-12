@@ -78,6 +78,10 @@ public class DataSeeder implements CommandLineRunner {
                                 "MANAGER",
                                 "Branch/portfolio management");
 
+                ensureRole(
+                                "BUSINESS_OWNER",
+                                "Business owner — full financial and business-performance visibility");
+
                 List<Organization> organizations = orgRepo.findAll();
 
                 if (organizations.isEmpty()) {

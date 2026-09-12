@@ -4,6 +4,7 @@ import com.patrick.fintech.loan_backend.dto.ApiResponse;
 import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.ESignatureRequest;
 import com.patrick.fintech.loan_backend.service.ESignatureService;
+import com.patrick.fintech.loan_backend.service.LoanService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -20,12 +21,17 @@ import java.util.Map;
 public class ESignatureController {
 
     private final ESignatureService esignatureService;
+    private final LoanService loanService;
     private final CurrentUserUtil currentUserUtil;
 
     @PostMapping("/initiate")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> initiate(
             @PathVariable Long loanId, @RequestBody(required = false) Map<String, String> body) {
+        loanService.getLoanForOrg(
+                loanId,
+                currentUserUtil.getCurrentOrganizationId());
+
         String docType = body != null ? body.getOrDefault("documentType", "LOAN_AGREEMENT") : "LOAN_AGREEMENT";
         ESignatureRequest req = esignatureService.initiate(loanId, docType, currentUserUtil.getCurrentUser().getName());
         // signingToken is deliberately the only borrower-facing identifier — never
@@ -39,6 +45,10 @@ public class ESignatureController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<Object>> history(@PathVariable Long loanId) {
+        loanService.getLoanForOrg(
+                loanId,
+                currentUserUtil.getCurrentOrganizationId());
+
         return ResponseEntity.ok(ApiResponse.safe(
                 esignatureService.history(
                         loanId,
