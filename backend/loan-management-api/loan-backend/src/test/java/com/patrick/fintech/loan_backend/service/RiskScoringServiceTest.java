@@ -1,13 +1,14 @@
-
 package com.patrick.fintech.loan_backend.service;
-
 import com.patrick.fintech.loan_backend.model.Borrower;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.LoanStatus;
 import com.patrick.fintech.loan_backend.model.Organization;
+import com.patrick.fintech.loan_backend.repository.CreditBureauCheckRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -22,10 +23,13 @@ import static org.mockito.Mockito.when;
 class RiskScoringServiceTest {
 
     @Mock
-    LoanRepository loanRepository;
+    private LoanRepository loanRepository;
+
+    @Mock
+    private CreditBureauCheckRepository creditBureauCheckRepository;
 
     @InjectMocks
-    RiskScoringService riskScoringService;
+    private RiskScoringService riskScoringService;
 
     @Test
     void score_shouldReturnLowRisk_forExcellentBorrower() {
@@ -49,8 +53,15 @@ class RiskScoringServiceTest {
         loan.setBorrower(borrower);
         loan.setOrganization(org);
 
-        when(loanRepository.findByBorrowerIdAndOrganizationId(1L, 1L))
+        when(loanRepository.findVisibleByBorrowerIdAndOrganizationId(
+                1L,
+                1L,
+                true))
                 .thenReturn(List.of());
+
+        when(creditBureauCheckRepository
+                .findFirstByBorrower_IdOrderByCreatedAtDesc(1L))
+                .thenReturn(null);
 
         RiskScoringService.RiskResult result =
                 riskScoringService.score(loan);
@@ -77,20 +88,23 @@ class RiskScoringServiceTest {
         borrower.setEmploymentType("UNEMPLOYED");
         borrower.setMonthlyIncome(BigDecimal.ZERO);
 
-        Loan loan = new Loan();
-        loan.setId(1L);
-        loan.setAmount(BigDecimal.valueOf(50_000));
-        loan.setLoanType(Loan.LoanType.EMERGENCY);
+       Loan loan = new Loan();
+loan.setId(1L);
+loan.setAmount(BigDecimal.valueOf(50_000));
+loan.setLoanType(Loan.LoanType.EMERGENCY);
+loan.setDebtToIncomeRatio(BigDecimal.valueOf(80));
+loan.setBorrower(borrower);
+loan.setOrganization(org);
 
-    
-        loan.setCollateralValue((BigDecimal) null);
-
-        loan.setDebtToIncomeRatio(BigDecimal.valueOf(80));
-        loan.setBorrower(borrower);
-        loan.setOrganization(org);
-
-        when(loanRepository.findByBorrowerIdAndOrganizationId(1L, 1L))
+        when(loanRepository.findVisibleByBorrowerIdAndOrganizationId(
+                1L,
+                1L,
+                true))
                 .thenReturn(List.of());
+
+        when(creditBureauCheckRepository
+                .findFirstByBorrower_IdOrderByCreatedAtDesc(1L))
+                .thenReturn(null);
 
         RiskScoringService.RiskResult result =
                 riskScoringService.score(loan);
@@ -128,13 +142,23 @@ class RiskScoringServiceTest {
         loan.setBorrower(borrower);
         loan.setOrganization(org);
 
-        when(loanRepository.findByBorrowerIdAndOrganizationId(1L, 1L))
+        when(loanRepository.findVisibleByBorrowerIdAndOrganizationId(
+                1L,
+                1L,
+                true))
                 .thenReturn(List.of(existing1, existing2));
+
+        when(creditBureauCheckRepository
+                .findFirstByBorrower_IdOrderByCreatedAtDesc(1L))
+                .thenReturn(null);
 
         RiskScoringService.RiskResult withExisting =
                 riskScoringService.score(loan);
 
-        when(loanRepository.findByBorrowerIdAndOrganizationId(1L, 1L))
+        when(loanRepository.findVisibleByBorrowerIdAndOrganizationId(
+                1L,
+                1L,
+                true))
                 .thenReturn(List.of());
 
         RiskScoringService.RiskResult withoutExisting =
@@ -144,3 +168,4 @@ class RiskScoringServiceTest {
                 .isLessThanOrEqualTo(withoutExisting.getScore());
     }
 }
+
