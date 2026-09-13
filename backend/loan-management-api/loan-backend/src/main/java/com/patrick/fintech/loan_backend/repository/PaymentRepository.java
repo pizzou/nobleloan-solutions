@@ -545,5 +545,4 @@ public interface PaymentRepository
                         Long id,
                         String txnId);
 
-		List<Payment> findByLoanIdAndBusinessOwnerOnly(Long id, boolean b);
 }

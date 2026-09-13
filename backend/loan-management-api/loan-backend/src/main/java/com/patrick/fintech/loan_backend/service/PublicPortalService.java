@@ -99,8 +99,10 @@ public class PublicPortalService {
                 // PAYMENT HISTORY
                 // ============================================================
 
-                List<Payment> loanPayments = paymentRepository.findByLoanIdAndBusinessOwnerOnly(
-                                loan.getId(), false);
+                List<Payment> loanPayments =
+                                paymentRepository.findByLoanIdAndReportingScope(
+                                                loan.getId(),
+                                                false);
 
                 if (loanPayments == null) {
                         loanPayments = List.of();
