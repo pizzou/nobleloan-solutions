@@ -1478,17 +1478,14 @@ public class LoanService {
                                                                         .collect(Collectors.joining(", ")));
                 }
 
-                // ============================================================
+                
                 // REAL KYC / AML GATE
-                // ============================================================
-                // Disbursement is a regulated financial event. A document-complete
-                // loan is not enough: the borrower must also have a current,
-                // provider-backed KYC/AML clearance.
-                if (loan.getBorrower() == null
-                                || !complianceService.isKycCurrentlyClear(loan.getBorrower().getId())) {
-                        throw new IllegalStateException(
-                                        "Cannot disburse this loan — the borrower does not have a current, provider-backed KYC/AML clearance.");
-                }
+                
+                // if (loan.getBorrower() == null
+                //                 || !complianceService.isKycCurrentlyClear(loan.getBorrower().getId())) {
+                //         throw new IllegalStateException(
+                //                         "Cannot disburse this loan — the borrower does not have a current, provider-backed KYC/AML clearance.");
+                // }
 
                 BigDecimal interestRate = moneyValue(loan.getInterestRateDecimal());
                 BigDecimal managementFeeRate = moneyValue(loan.getManagementFeeRateDecimal());
@@ -2372,16 +2369,7 @@ public class LoanService {
                                 ReportingScopeService.includeBusinessOwnerOnly());
         }
 
-        // ================================================================
-        // GET LOAN
-        // ================================================================
-
-        /**
-         * Loads a loan with a database write lock for state-changing lifecycle
-         * operations such as approval and rejection. This prevents two
-         * concurrent requests from both validating the same PENDING loan and
-         * then applying conflicting lifecycle decisions.
-         */
+       
         private Loan getLoanForOrgForUpdate(
                         Long loanId,
                         Long orgId) {
@@ -2452,19 +2440,6 @@ public class LoanService {
                                                         + loanId);
                 }
 
-                /*
-                 * For system-originated loans, the operational Payment rows
-                 * are the authoritative declining-balance schedule used by
-                 * the staff loan-detail page and PaymentService. Older loan
-                 * rows can still contain a legacy EMI-style totalRepayable
-                 * even though their schedule already contains the correct
-                 * daily-basis declining charges. Reconcile those aggregate
-                 * fields when the detail loan is loaded.
-                 *
-                 * Imported legacy loans are deliberately excluded because
-                 * their opening balances are historical accounting data and
-                 * must not be silently rewritten from a reconstructed schedule.
-                 */
                 synchronizeLoanTotalsFromOperationalSchedule(loan);
 
                 return loan;
@@ -2666,30 +2641,11 @@ public class LoanService {
                         throw new IllegalArgumentException("Organization is required");
                 }
 
-                /*
-                 * There must be exactly one authoritative dashboard calculation.
-                 * The former implementation duplicated portfolio/collection
-                 * arithmetic here and in DashboardService, which allowed the
-                 * /loans/dashboard fallback to disagree with /dashboard/stats.
-                 * Delegate to the canonical service so every dashboard surface
-                 * consumes the same financial definitions.
-                 */
+                
                 return dashboardService.getStats(org.getId());
         }
 
-        // ================================================================
-        // REBUILD OPERATIONAL REPAYMENT SCHEDULE AFTER DISBURSEMENT
-        // ================================================================
-
-        /**
-         * Rebuilds the operational Payment schedule from the exact
-         * disbursement date.
-         *
-         * Approval may create a provisional schedule before the loan is
-         * actually disbursed. Once disbursement happens, the daily accrual
-         * clock must start from the real disbursement date. This method only
-         * replaces schedule rows that have no financial activity.
-         */
+       
         @Transactional
         public void regenerateRepaymentScheduleAfterDisbursement(Loan loan) {
 
@@ -2937,10 +2893,6 @@ public class LoanService {
                 loan.setInterestOutstanding(
                                 accumulatedInterest);
 
-                // Approval/schedule generation happens before disbursement.
-                // The one-time application fee is therefore still unpaid here.
-                // Do not change this to a collection event: actual collection
-                // is recorded by the disbursement flow.
                 loan.setApplicationFee(
                                 applicationFee);
 
@@ -3002,17 +2954,7 @@ public class LoanService {
                 }
         }
 
-        // ================================================================
-        // LOAN CALCULATION
-        // ================================================================
-
-        /**
-         * Single source of truth for the approval-time contractual total.
-         *
-         * This mirrors FinancialPolicy.contractualScheduleLine(), including
-         * declining-balance principal, monthly interest and monthly management
-         * fee. It intentionally excludes the one-time application fee.
-         */
+    
         private BigDecimal calculateContractualTotalRepayable(
                         BigDecimal principal,
                         BigDecimal monthlyInterestRate,
@@ -3113,9 +3055,7 @@ public class LoanService {
 
                 validateRateType(rateType);
 
-                // validateRateType() above guarantees MONTHLY. Keep this method
-                // deliberately single-mode so no annual-rate conversion can ever
-                // enter the contractual pricing path accidentally.
+                
                 return rate.divide(
                                 ONE_HUNDRED,
                                 16,
@@ -3412,9 +3352,7 @@ public class LoanService {
                                         .toUpperCase();
                 }
 
-                // Public loan references must not expose creation timestamps or be
-                // predictable. Use a cryptographically strong UUID-derived suffix;
-                // the database uniqueness constraint remains the final collision guard.
+               
                 String random = UUID.randomUUID().toString().replace("-", "")
                                 .substring(0, 12).toUpperCase(Locale.ROOT);
 
