@@ -231,7 +231,7 @@ public class LoanController {
         }
 
         @PostMapping("/{id}/approve")
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','BUSINESS_OWNER')")
         public ResponseEntity<ApiResponse<LoanResponse>> approveLoan(
                         @PathVariable Long id,
                         @RequestBody(required = false) Map<String, Object> body) {

@@ -1077,6 +1077,7 @@ export default function LoanDetailPage() {
     interestRate: "",
     applicationFeeRate: "",
     approvedAmount: "",
+    businessOwnerOnly: false,
   });
 
   const [stSaving, setStSaving] = useState(false);
@@ -1619,6 +1620,7 @@ export default function LoanDetailPage() {
           ? String(loan.applicationFeeRate)
           : "2",
       approvedAmount: loan?.amount != null ? String(loan.amount) : "",
+      businessOwnerOnly: Boolean(loan?.businessOwnerOnly),
     });
     setStOpen(true);
   };
@@ -1641,7 +1643,7 @@ export default function LoanDetailPage() {
 
     try {
       let url = "";
-      let body: Record<string, string> = {};
+      let body: Record<string, unknown> = {};
       let label = "Loan status update";
 
       if (stForm.status === "APPROVED") {
@@ -1683,6 +1685,7 @@ export default function LoanDetailPage() {
           interestRate: String(interestRate),
           applicationFeeRate: String(applicationFeeRate),
           approvedAmount: String(approvedAmount),
+          businessOwnerOnly: stForm.businessOwnerOnly,
         };
         label = `Loan approval — ${loan?.referenceNumber ?? loanId}`;
       } else if (stForm.status === "REJECTED") {
@@ -1737,6 +1740,7 @@ export default function LoanDetailPage() {
               Number(stForm.applicationFeeRate),
               Number(stForm.approvedAmount),
               idempotencyKey,
+              stForm.businessOwnerOnly,
             );
           } else if (stForm.status === "REJECTED") {
             await loanApi.reject(
@@ -3634,6 +3638,80 @@ export default function LoanDetailPage() {
                       rate. The backend enforces this role restriction."
                     </p>
                   </FormGroup>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="mb-3">
+                    <p className="text-sm font-semibold text-slate-900">
+                      Reporting visibility
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Choose where this loan will appear after final approval.
+                      Normal reporting is available to ordinary authorized
+                      users. Business Owner only keeps the loan out of normal
+                      portfolio, accounting, financial, general, BNR and CRB
+                      reporting and makes it available only in the Business
+                      Owner scope.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <label
+                      className={`cursor-pointer rounded-xl border p-3 transition ${
+                        !stForm.businessOwnerOnly
+                          ? "border-slate-900 bg-slate-50"
+                          : "border-slate-200 bg-white hover:border-slate-300"
+                      } ${loan.businessOwnerOnly ? "cursor-not-allowed opacity-60" : ""}`}
+                    >
+                      <input
+                        type="radio"
+                        name="loanReportingVisibility"
+                        className="sr-only"
+                        checked={!stForm.businessOwnerOnly}
+                        disabled={Boolean(loan.businessOwnerOnly)}
+                        onChange={() =>
+                          setStForm((f) => ({ ...f, businessOwnerOnly: false }))
+                        }
+                      />
+                      <span className="text-sm font-semibold text-slate-900">
+                        Normal
+                      </span>
+                      <span className="mt-1 block text-xs leading-5 text-slate-500">
+                        Included in the normal operational and regulatory
+                        reporting scope.
+                      </span>
+                    </label>
+                    <label
+                      className={`cursor-pointer rounded-xl border p-3 transition ${
+                        stForm.businessOwnerOnly
+                          ? "border-slate-900 bg-slate-50"
+                          : "border-slate-200 bg-white hover:border-slate-300"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="loanReportingVisibility"
+                        className="sr-only"
+                        checked={stForm.businessOwnerOnly}
+                        onChange={() =>
+                          setStForm((f) => ({ ...f, businessOwnerOnly: true }))
+                        }
+                      />
+                      <span className="text-sm font-semibold text-slate-900">
+                        Business Owner only
+                      </span>
+                      <span className="mt-1 block text-xs leading-5 text-slate-500">
+                        Confidential classification. Visible in the Business
+                        Owner scope only after approval.
+                      </span>
+                    </label>
+                  </div>
+                  {loan.businessOwnerOnly && (
+                    <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium leading-5 text-amber-900">
+                      This loan is already classified as Business Owner only.
+                      The classification cannot be downgraded to Normal during
+                      approval.
+                    </p>
+                  )}
                 </div>
 
                 <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-xs leading-5 text-blue-900">
