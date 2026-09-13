@@ -1763,8 +1763,14 @@ export default function LoanDetailPage() {
           setStOpen(false);
           await load();
           await loadDocReq();
-        } catch (error) {
-          if (isRetryableRequestError(error)) {
+        } catch (error: any) {
+          // A reachable server returning 4xx/5xx is NOT an offline condition.
+          // In particular, approval must never be presented as “saved on the
+          // device” after the server has rejected or failed the transaction.
+          // Only a transport-level failure with no HTTP response is eligible
+          // for the durable offline queue.
+          const transportFailure = !error?.response;
+          if (transportFailure && isRetryableRequestError(error)) {
             await queueMutation();
           } else {
             throw error;

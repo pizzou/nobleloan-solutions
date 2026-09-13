@@ -62,13 +62,27 @@ public class AuditPersistenceService {
     // instead
     // each is annotated separately and both delegate to the private, non-async
     // doPersist().
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    /**
+     * Persist in the caller's transaction when one exists. This is critical for
+     * financial mutations such as loan approval: REQUIRES_NEW would suspend the
+     * approval transaction while the audit transaction inserts an audit row that
+     * references the same organization. PostgreSQL must then acquire a KEY SHARE
+     * lock on organizations, while the suspended approval transaction may already
+     * hold a conflicting row lock, producing a statement-timeout/deadlock pattern.
+     * REQUIRED keeps the audit insert atomic with the business mutation and avoids
+     * that cross-transaction lock inversion.
+     *
+     * For asynchronous authentication audits there is normally no caller
+     * transaction, so REQUIRED simply creates a normal transaction for the audit
+     * write.
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
     public void persist(Long orgId, Long actorId, String action, String entityType, String entityId,
             String description, String before, String after, String ip, String ua) {
         doPersist(orgId, actorId, action, entityType, entityId, description, before, after, ip, ua, null);
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional(propagation = Propagation.REQUIRED)
     public void persist(Long orgId, Long actorId, String action, String entityType, String entityId,
             String description, String before, String after, String ip, String ua,
             String moduleOverride) {
