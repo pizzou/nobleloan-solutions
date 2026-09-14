@@ -46,22 +46,57 @@ class FinalFinancialPolicyInvariantTest {
     void penaltyIsZeroForThreeGraceDaysThenTenPercentPerMonthProratedDaily() {
         BigDecimal outstanding = new BigDecimal("1000000.00");
 
+        LocalDate firstChargeableDate = LocalDate.of(2026, 1, 5);
+
         assertEquals(
                 new BigDecimal("0.00"),
-                FinancialPolicy.dailyPenalty(outstanding, 0));
+                FinancialPolicy.dailyPenalty(
+                        outstanding,
+                        0,
+                        FinancialPolicy.MONTHLY_PENALTY_RATE,
+                        firstChargeableDate));
+
         assertEquals(
                 new BigDecimal("0.00"),
-                FinancialPolicy.dailyPenalty(outstanding, 3));
-        LocalDate chargeDate = LocalDate.of(2026, 1, 5);
+                FinancialPolicy.dailyPenalty(
+                        outstanding,
+                        3,
+                        FinancialPolicy.MONTHLY_PENALTY_RATE,
+                        firstChargeableDate));
+
+        // January has 31 calendar days.
+        // 10% monthly / 31 = 0.322580645...% per chargeable day.
+        //
+        // Day 4 = RWF 1,000,000 × 10% / 31 = RWF 3,225.81
         assertEquals(
                 new BigDecimal("3225.81"),
-                FinancialPolicy.dailyPenalty(outstanding, 4, FinancialPolicy.MONTHLY_PENALTY_RATE, chargeDate));
+                FinancialPolicy.dailyPenalty(
+                        outstanding,
+                        4,
+                        FinancialPolicy.MONTHLY_PENALTY_RATE,
+                        firstChargeableDate));
+
+        // Two chargeable days:
+        // 2 × 3,225.806451... = 6,451.612903...
+        // HALF_UP = 6,451.61
         assertEquals(
-                new BigDecimal("6451.62"),
-                FinancialPolicy.dailyPenalty(outstanding, 5, FinancialPolicy.MONTHLY_PENALTY_RATE, chargeDate));
+                new BigDecimal("6451.61"),
+                FinancialPolicy.dailyPenalty(
+                        outstanding,
+                        5,
+                        FinancialPolicy.MONTHLY_PENALTY_RATE,
+                        firstChargeableDate));
+
+        // Three chargeable days:
+        // 3 × 3,225.806451... = 9,677.419354...
+        // HALF_UP = 9,677.42
         assertEquals(
                 new BigDecimal("9677.42"),
-                FinancialPolicy.dailyPenalty(outstanding, 6, FinancialPolicy.MONTHLY_PENALTY_RATE, chargeDate));
+                FinancialPolicy.dailyPenalty(
+                        outstanding,
+                        6,
+                        FinancialPolicy.MONTHLY_PENALTY_RATE,
+                        firstChargeableDate));
     }
 
     @Test
