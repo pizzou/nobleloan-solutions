@@ -13,9 +13,17 @@ warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 err()  { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 # Check required tools
-for cmd in docker docker-compose; do
-    command -v $cmd &>/dev/null || err "$cmd not found. Please install it first."
-done
+command -v docker &>/dev/null || err "docker not found. Please install Docker Engine first."
+if docker compose version &>/dev/null; then
+    COMPOSE=(docker compose)
+elif command -v docker-compose &>/dev/null; then
+    COMPOSE=(docker-compose)
+else
+    err "Docker Compose is not installed. Install the Docker Compose plugin first."
+fi
+
+command -v curl &>/dev/null || err "curl not found. Please install it first."
+command -v openssl &>/dev/null || err "openssl not found. Please install it first."
 
 # Check .env exists
 [ -f ".env" ] || err ".env not found. Copy .env.example to .env and fill in values."
@@ -34,41 +42,49 @@ if [ ! -f "docker/nginx/ssl/cert.pem" ]; then
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
         -keyout docker/nginx/ssl/key.pem \
         -out  docker/nginx/ssl/cert.pem \
-        -subj "/C=KE/ST=Nairobi/L=Nairobi/O=LoanSaaS/CN=localhost" 2>/dev/null
+        -subj "/C=RW/ST=Kigali/L=Kigali/O=LoanSaaS/CN=localhost" 2>/dev/null
     log "Self-signed cert generated. Use ssl-init.sh for production Let's Encrypt cert."
 fi
 
 log "Pulling latest images..."
-docker-compose pull postgres nginx 2>/dev/null || true
+"${COMPOSE[@]}" pull postgres nginx 2>/dev/null || true
 
 log "Building application images..."
-docker-compose build --no-cache
+"${COMPOSE[@]}" build --no-cache
 
 log "Starting database..."
-docker-compose up -d postgres
+"${COMPOSE[@]}" up -d postgres
 log "Waiting for PostgreSQL to be ready..."
-until docker-compose exec -T postgres pg_isready -U loansaas -d loansaas_nobleloansolutions 2>/dev/null; do
+until "${COMPOSE[@]}" exec -T postgres pg_isready -U loansaas -d loansaas_nobleloansolutions 2>/dev/null; do
     echo -n "."; sleep 2
 done
 echo ""
 log "PostgreSQL is ready!"
 
 log "Starting backend (Flyway migrations will run automatically)..."
-docker-compose up -d backend
+"${COMPOSE[@]}" up -d backend
 log "Waiting for backend health check..."
-max_wait=120; waited=0
-until curl -sf http://localhost:8080/actuator/health 2>/dev/null | grep -q '"status":"UP"'; do
+max_wait=300; waited=0
+while true; do
+    status=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' loansaas-backend 2>/dev/null || true)
+    if [ "$status" = "healthy" ]; then
+        break
+    fi
+    if [ "$status" = "unhealthy" ] || [ "$status" = "exited" ]; then
+        "${COMPOSE[@]}" logs --tail=100 backend || true
+        err "Backend failed health check (status: ${status})"
+    fi
     echo -n "."; sleep 3; waited=$((waited+3))
-    [ $waited -ge $max_wait ] && err "Backend failed to start in ${max_wait}s"
+    [ $waited -ge $max_wait ] && "${COMPOSE[@]}" logs --tail=100 backend && err "Backend failed to become healthy in ${max_wait}s"
 done
 echo ""
 log "Backend is healthy!"
 
 log "Starting frontend..."
-docker-compose up -d frontend
+"${COMPOSE[@]}" up -d frontend
 
 log "Starting Nginx..."
-docker-compose up -d nginx
+"${COMPOSE[@]}" up -d nginx
 
 log ""
 log "======================================================="
@@ -77,5 +93,5 @@ log "======================================================="
 log "  App:     https://localhost  (or your domain)"
 log "  API:     https://localhost/api"
 log "  Swagger: https://localhost/swagger-ui.html"
-log "  Logs:    docker-compose logs -f backend"
+log "  Logs:    ${COMPOSE[@]} logs -f backend"
 log "======================================================="

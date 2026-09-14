@@ -15,7 +15,8 @@ class FinancialPolicyTest {
                 assertEquals(new BigDecimal("5.00"), FinancialPolicy.MONTHLY_INTEREST_RATE);
                 assertEquals(new BigDecimal("5.00"), FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE);
                 assertEquals(new BigDecimal("2.00"), FinancialPolicy.APPLICATION_FEE_RATE);
-                assertEquals(new BigDecimal("10.00"), FinancialPolicy.DAILY_PENALTY_RATE);
+                assertEquals(new BigDecimal("10.00"), FinancialPolicy.MONTHLY_PENALTY_RATE);
+                assertEquals(FinancialPolicy.MONTHLY_PENALTY_RATE, FinancialPolicy.DAILY_PENALTY_RATE);
                 assertEquals(3, FinancialPolicy.PENALTY_GRACE_DAYS);
                 assertEquals(new BigDecimal("10.00"), FinancialPolicy.EXTENSION_FEE_RATE);
         }
@@ -115,7 +116,7 @@ class FinancialPolicyTest {
         }
 
         @Test
-        void penaltyHasThreeDayGraceAndThenChargesTenPercentPerDay() {
+        void penaltyHasThreeDayGraceAndThenChargesTenPercentPerMonthProratedDaily() {
                 BigDecimal principal = new BigDecimal("1000000.00");
 
                 assertEquals(
@@ -182,7 +183,7 @@ class FinancialPolicyTest {
                                                 ? new BigDecimal("1000000.00")
                                                 : new BigDecimal("700000.00"));
 
-                assertEquals(new BigDecimal("240000.00"), penalty);
+                assertEquals(new BigDecimal("7741.94"), penalty);
         }
 
 }

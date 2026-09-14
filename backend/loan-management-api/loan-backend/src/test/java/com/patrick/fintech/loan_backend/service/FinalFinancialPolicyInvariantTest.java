@@ -4,6 +4,7 @@ import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -42,7 +43,7 @@ class FinalFinancialPolicyInvariantTest {
     }
 
     @Test
-    void penaltyIsZeroForThreeGraceDaysThenTenPercentPerDay() {
+    void penaltyIsZeroForThreeGraceDaysThenTenPercentPerMonthProratedDaily() {
         BigDecimal outstanding = new BigDecimal("1000000.00");
 
         assertEquals(
@@ -51,15 +52,16 @@ class FinalFinancialPolicyInvariantTest {
         assertEquals(
                 new BigDecimal("0.00"),
                 FinancialPolicy.dailyPenalty(outstanding, 3));
+        LocalDate chargeDate = LocalDate.of(2026, 1, 5);
         assertEquals(
-                new BigDecimal("100000.00"),
-                FinancialPolicy.dailyPenalty(outstanding, 4));
+                new BigDecimal("3225.81"),
+                FinancialPolicy.dailyPenalty(outstanding, 4, FinancialPolicy.MONTHLY_PENALTY_RATE, chargeDate));
         assertEquals(
-                new BigDecimal("200000.00"),
-                FinancialPolicy.dailyPenalty(outstanding, 5));
+                new BigDecimal("6451.62"),
+                FinancialPolicy.dailyPenalty(outstanding, 5, FinancialPolicy.MONTHLY_PENALTY_RATE, chargeDate));
         assertEquals(
-                new BigDecimal("300000.00"),
-                FinancialPolicy.dailyPenalty(outstanding, 6));
+                new BigDecimal("9677.42"),
+                FinancialPolicy.dailyPenalty(outstanding, 6, FinancialPolicy.MONTHLY_PENALTY_RATE, chargeDate));
     }
 
     @Test

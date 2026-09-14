@@ -508,6 +508,10 @@ public class LoanService {
                                 ? moneyValue(product.getManagementFeePercentDecimal())
                                 : MONTHLY_MANAGEMENT_FEE_RATE;
 
+                BigDecimal penaltyRate = product != null
+                                ? moneyValue(product.getPenaltyPercentDecimal())
+                                : FinancialPolicy.MONTHLY_PENALTY_RATE;
+
                 BigDecimal totalMonthlyRate = money(
                                 interestRate.add(managementFeeRate));
 
@@ -515,6 +519,7 @@ public class LoanService {
 
                 validateInterestRate(interestRate);
                 validateInterestRate(managementFeeRate);
+                validateInterestRate(penaltyRate);
                 validateInterestRate(totalMonthlyRate);
 
                 // ============================================================
@@ -691,6 +696,7 @@ public class LoanService {
                                 .interestRate(interestRate)
                                 .managementFeeRate(
                                                 managementFeeRate)
+                                .penaltyRate(penaltyRate)
                                 .applicationFeeRate(
                                                 applicationFeeRate)
                                 .interestRateType(rateType)
@@ -968,6 +974,7 @@ public class LoanService {
                 BigDecimal interestRate = moneyValue(loan.getInterestRateDecimal());
                 BigDecimal managementFeeRate = moneyValue(loan.getManagementFeeRateDecimal());
                 BigDecimal applicationFeeRate = moneyValue(loan.getApplicationFeeRateDecimal());
+                BigDecimal penaltyRate = loan.getPenaltyRateDecimal();
 
                 LoanProduct activeProduct = loanProductRepo
                                 .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
@@ -984,15 +991,15 @@ public class LoanService {
                 if (applicationFeeRate.compareTo(ZERO) < 0 && activeProduct != null) {
                         applicationFeeRate = moneyValue(activeProduct.getApplicationFeePercentDecimal());
                 }
+                if (penaltyRate.compareTo(ZERO) < 0 && activeProduct != null) {
+                        penaltyRate = moneyValue(activeProduct.getPenaltyPercentDecimal());
+                }
 
                 if (newInterestRate != null) {
                         BigDecimal requestedRate = bd(newInterestRate);
                         validateInterestRate(requestedRate);
                         interestRate = requestedRate;
                 }
-
-                // Noble Loan policy: management fee is fixed at 5% monthly.
-                managementFeeRate = MONTHLY_MANAGEMENT_FEE_RATE;
 
                 if (newApprovedAmount != null) {
                         String role = approvedBy.getRole() != null
@@ -1049,10 +1056,12 @@ public class LoanService {
 
                 validateInterestRate(interestRate);
                 validateInterestRate(managementFeeRate);
+                validateInterestRate(penaltyRate);
                 validateInterestRate(totalMonthlyRate);
 
                 loan.setInterestRate(interestRate);
                 loan.setManagementFeeRate(managementFeeRate);
+                loan.setPenaltyRate(penaltyRate);
                 loan.setApplicationFeeRate(applicationFeeRate);
                 loan.setInterestRateType("MONTHLY");
 
@@ -1490,10 +1499,12 @@ public class LoanService {
                 BigDecimal interestRate = moneyValue(loan.getInterestRateDecimal());
                 BigDecimal managementFeeRate = moneyValue(loan.getManagementFeeRateDecimal());
                 BigDecimal applicationFeeRate = moneyValue(loan.getApplicationFeeRateDecimal());
+                BigDecimal penaltyRate = loan.getPenaltyRateDecimal();
 
                 if (interestRate.compareTo(ZERO) <= 0
                                 || managementFeeRate.compareTo(ZERO) < 0
-                                || applicationFeeRate.compareTo(ZERO) < 0) {
+                                || applicationFeeRate.compareTo(ZERO) < 0
+                                || penaltyRate.compareTo(ZERO) < 0) {
 
                         LoanProduct product = loanProductRepo
                                         .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
@@ -1511,14 +1522,19 @@ public class LoanService {
                         if (applicationFeeRate.compareTo(ZERO) < 0) {
                                 applicationFeeRate = moneyValue(product.getApplicationFeePercentDecimal());
                         }
+                        if (penaltyRate.compareTo(ZERO) < 0) {
+                                penaltyRate = moneyValue(product.getPenaltyPercentDecimal());
+                        }
                 }
 
                 validateInterestRate(interestRate);
                 validateInterestRate(managementFeeRate);
+                validateInterestRate(penaltyRate);
                 validateInterestRate(money(interestRate.add(managementFeeRate)));
 
                 loan.setInterestRate(interestRate);
                 loan.setManagementFeeRate(managementFeeRate);
+                loan.setPenaltyRate(penaltyRate);
                 loan.setApplicationFeeRate(applicationFeeRate);
                 loan.setInterestRateType("MONTHLY");
 

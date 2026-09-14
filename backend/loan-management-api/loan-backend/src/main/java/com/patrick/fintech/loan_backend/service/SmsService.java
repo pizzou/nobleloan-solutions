@@ -64,7 +64,7 @@ public class SmsService {
 
         private static final BigDecimal APPLICATION_FEE_RATE = new BigDecimal("2.00");
 
-        private static final BigDecimal DAILY_PENALTY_RATE = new BigDecimal("10.00");
+        private static final BigDecimal MONTHLY_PENALTY_RATE = new BigDecimal("10.00");
 
         // ================================================================
         // LOAN APPROVED
@@ -272,8 +272,8 @@ public class SmsService {
 
                                                 "REMINDER: Payment of %s %s is due %s "
                                                                 + "for loan %s. "
-                                                                + "Overdue penalty is 10%% per day after a 3-day grace period, "
-                                                                + "calculated daily. "
+                                                                + "Overdue penalty is %s%% per month after a 3-day grace period, "
+                                                                + "prorated daily. "
                                                                 + "Please pay on time. -%s",
 
                                                 value(
@@ -289,6 +289,10 @@ public class SmsService {
                                                                 loan != null
                                                                                 ? loan.getReferenceNumber()
                                                                                 : null),
+
+                                                loan != null && loan.getPenaltyRateDecimal() != null
+                                                                ? loan.getPenaltyRateDecimal().stripTrailingZeros().toPlainString()
+                                                                : MONTHLY_PENALTY_RATE.stripTrailingZeros().toPlainString(),
 
                                                 orgName(loan)));
         }
@@ -374,8 +378,7 @@ public class SmsService {
 
                                                 "URGENT: Loan %s is %d day(s) overdue. "
                                                                 + "Outstanding principal: %s %s. "
-                                                                + "Penalty: 10%% per day after a 3-day grace period, calculated "
-                                                                + "daily on overdue exposure. "
+                                                                + "Penalty: %s%% per month after a 3-day grace period, prorated daily on overdue exposure.  "
                                                                 + "Please contact us immediately. -%s",
 
                                                 value(
@@ -391,6 +394,10 @@ public class SmsService {
 
                                                 formatMoney(
                                                                 outstandingBalance),
+
+                                                loan != null && loan.getPenaltyRateDecimal() != null
+                                                                ? loan.getPenaltyRateDecimal().stripTrailingZeros().toPlainString()
+                                                                : MONTHLY_PENALTY_RATE.stripTrailingZeros().toPlainString(),
 
                                                 orgName(loan)));
         }

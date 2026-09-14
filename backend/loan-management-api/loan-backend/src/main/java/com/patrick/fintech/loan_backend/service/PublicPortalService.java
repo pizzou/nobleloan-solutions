@@ -630,6 +630,7 @@ public class PublicPortalService {
                                         currentBalance,
                                         firstChargeableDate,
                                         asOf,
+                                        loan.getPenaltyRateDecimal(),
                                         date -> {
                                                 BigDecimal reconstructed = currentBalance;
                                                 for (Payment payment : loanPayments) {
@@ -705,7 +706,7 @@ public class PublicPortalService {
                                 remainingManagementFee,
                                 daysLate,
                                 newPenaltyDays,
-                                FinancialPolicy.DAILY_PENALTY_RATE,
+                                loan.getPenaltyRateDecimal(),
                                 FinancialPolicy.PENALTY_GRACE_DAYS,
                                 totalPenalty,
                                 unpaidPenalty,

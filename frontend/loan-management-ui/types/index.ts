@@ -259,6 +259,8 @@ export interface Loan {
   managementFee?: number;
   managementFeeRate?: number;
   managementFeePaid?: number;
+  /** Contractual overdue penalty rate, expressed per month; prorated daily after grace. */
+  penaltyRate?: number;
   extensionFeeAssessed?: number;
   extensionFeePaid?: number;
   extensionFeeOutstanding?: number;

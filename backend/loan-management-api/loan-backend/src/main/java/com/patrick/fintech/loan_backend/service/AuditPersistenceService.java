@@ -23,14 +23,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Does the slow part of writing an audit entry — User-Agent parsing and a
- * best-effort IP geolocation lookup — off the request thread. Kept as a
- * separate bean (rather than a method on AuditService) so that Spring's
- * 
- * @Async proxy actually applies: an @Async method only runs asynchronously
- *        when it's invoked *through the proxy*, i.e. called from another bean —
- *        calling it on `this` from within the same class silently runs it
- *        inline.
+ * Persists audit entries in a dedicated service so transaction boundaries remain
+ * explicit. Request metadata is captured by AuditService; optional geolocation is
+ * resolved before the database transaction starts so external network latency
+ * can never hold the audit-chain advisory lock. Kept as a separate bean so that
+ * Spring transaction/async proxies apply correctly.
  */
 @Service
 @RequiredArgsConstructor
@@ -79,19 +76,21 @@ public class AuditPersistenceService {
     @Transactional(propagation = Propagation.REQUIRED)
     public void persist(Long orgId, Long actorId, String action, String entityType, String entityId,
             String description, String before, String after, String ip, String ua) {
-        doPersist(orgId, actorId, action, entityType, entityId, description, before, after, ip, ua, null);
+        String location = geolocationEnabled ? geolocate(ip) : null;
+        doPersist(orgId, actorId, action, entityType, entityId, description, before, after, ip, ua, null, location);
     }
 
     @Transactional(propagation = Propagation.REQUIRED)
     public void persist(Long orgId, Long actorId, String action, String entityType, String entityId,
             String description, String before, String after, String ip, String ua,
             String moduleOverride) {
-        doPersist(orgId, actorId, action, entityType, entityId, description, before, after, ip, ua, moduleOverride);
+        String location = geolocationEnabled ? geolocate(ip) : null;
+        doPersist(orgId, actorId, action, entityType, entityId, description, before, after, ip, ua, moduleOverride, location);
     }
 
     private void doPersist(Long orgId, Long actorId, String action, String entityType, String entityId,
             String description, String before, String after, String ip, String ua,
-            String moduleOverride) {
+            String moduleOverride, String location) {
         try {
             // Serialize hash-chain writers. Without this database lock, two concurrent
             // async audit writers can read the same previous hash and create a fork in
@@ -107,15 +106,22 @@ public class AuditPersistenceService {
             // those became detached the moment that request finished, and saving a new
             // entity referencing a detached one can silently drop the association instead
             // of throwing, which is exactly what caused some entries to show no user.
-            Organization org = orgId != null ? orgRepo.findById(orgId).orElse(null) : null;
-            User actor = actorId != null ? userRepo.findById(actorId).orElse(null) : null;
+            // Use lightweight JPA references. This avoids unnecessary SELECTs and,
+            // more importantly, avoids loading/dirty-checking the organization row
+            // while the audit transaction is holding the chain lock. PostgreSQL still
+            // enforces the FK on INSERT, as it should.
+            Organization org = orgId != null
+                    ? entityManager.getReference(Organization.class, orgId)
+                    : null;
+            User actor = actorId != null
+                    ? entityManager.getReference(User.class, actorId)
+                    : null;
 
             String previousHash = auditLogRepo.findTopByOrderByIdDesc()
                     .map(AuditLog::getEntryHash).orElse("GENESIS");
 
             String os = parseOs(ua);
             String browser = parseBrowser(ua);
-            String location = geolocationEnabled ? geolocate(ip) : null;
             String module = (moduleOverride != null && !moduleOverride.isBlank())
                     ? moduleOverride
                     : deriveModule(entityType);

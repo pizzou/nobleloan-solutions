@@ -597,6 +597,7 @@ public class ScheduledJobs {
                                 currentOutstanding,
                                 firstChargeableDate,
                                 asOf,
+                                loan.getPenaltyRateDecimal(),
                                 date -> {
                                         BigDecimal balance = currentOutstanding;
                                         for (Payment payment : payments) {

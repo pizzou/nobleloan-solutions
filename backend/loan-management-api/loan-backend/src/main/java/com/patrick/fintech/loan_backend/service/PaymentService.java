@@ -75,11 +75,11 @@ public class PaymentService {
         private static final BigDecimal APPLICATION_FEE_RATE = FinancialPolicy.APPLICATION_FEE_RATE;
 
         /**
-         * Daily late-payment penalty: 10% of outstanding principal per chargeable day after a 3-day grace period.
-         *
-         * 10% per chargeable day after a 3-day grace period.
+         * Default contractual overdue penalty rate: 10% per month, prorated
+         * by actual calendar days after the three-day grace period.
+         * Existing loans use their snapshotted Loan.penaltyRate.
          */
-        private static final BigDecimal DAILY_PENALTY_RATE = FinancialPolicy.DAILY_PENALTY_RATE;
+        private static final BigDecimal MONTHLY_PENALTY_RATE = FinancialPolicy.MONTHLY_PENALTY_RATE;
 
         /**
          * Monthly penalty is accrued against the actual calendar days in each month.
@@ -1343,7 +1343,9 @@ public class PaymentService {
                                                 + moneyRatePercent(loan.getManagementFeeRateDecimal(),
                                                                 MONTHLY_MANAGEMENT_FEE_RATE)
                                                 + "%"
-                                                + ", daily penalty rate=10% after 3-day grace");
+                                                + ", monthly penalty rate="
+                                                + loan.getPenaltyRateDecimal()
+                                                + "% prorated daily after 3-day grace");
 
                 // ============================================================
                 // EVENT
@@ -1525,8 +1527,8 @@ public class PaymentService {
                                         newPenaltyDays);
 
                         paymentWebhook.put(
-                                        "dailyPenaltyRatePercent",
-                                        DAILY_PENALTY_RATE);
+                                        "monthlyPenaltyRatePercent",
+                                        loan.getPenaltyRateDecimal());
 
                         paymentWebhook.put(
                                         "penaltyGraceDays",
@@ -2282,6 +2284,7 @@ public class PaymentService {
                                 currentOutstandingPrincipal,
                                 firstChargeableDate,
                                 asOf,
+                                loan.getPenaltyRateDecimal(),
                                 date -> {
                                         BigDecimal historicalBalance = currentOutstandingPrincipal;
                                         for (Payment payment : payments) {

@@ -11,19 +11,21 @@ public final class FinancialPolicy {
         public static final BigDecimal MONTHLY_MANAGEMENT_FEE_RATE = new BigDecimal("5.00");
         public static final BigDecimal APPLICATION_FEE_RATE = new BigDecimal("2.00");
         /**
-         * Overdue penalty is 10% of the outstanding principal per chargeable day.
+         * Overdue penalty is 10% PER MONTH of outstanding principal, prorated
+         * by the actual number of calendar days in each month.
          * The first three calendar days after the contractual due date are a
          * penalty-free grace period.
          */
-        public static final BigDecimal DAILY_PENALTY_RATE = new BigDecimal("10.00");
-        public static final int PENALTY_GRACE_DAYS = 3;
+        public static final BigDecimal MONTHLY_PENALTY_RATE = new BigDecimal("10.00");
 
         /**
-         * @deprecated Kept only for binary/source compatibility with older callers.
-         * New penalty calculations must use DAILY_PENALTY_RATE directly.
+         * Legacy source-compatibility alias. The value is a MONTHLY percentage,
+         * not a daily percentage. New code should use MONTHLY_PENALTY_RATE.
          */
         @Deprecated
-        public static final BigDecimal MONTHLY_PENALTY_RATE = DAILY_PENALTY_RATE;
+        public static final BigDecimal DAILY_PENALTY_RATE = MONTHLY_PENALTY_RATE;
+        public static final int PENALTY_GRACE_DAYS = 3;
+
         public static final BigDecimal EXTENSION_FEE_RATE = new BigDecimal("10.00");
 
         private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
@@ -143,34 +145,63 @@ public final class FinancialPolicy {
         }
 
         /**
-         * Calculates overdue penalty using the final policy:
-         * - 3 calendar-day grace period after the due date;
-         * - from day 4 onward, 10% of the outstanding principal per day;
-         * - penalty is never charged on the grace days.
+         * Calculates overdue penalty using the contractual policy: 3 calendar-day
+         * grace period, then the monthly penalty rate prorated by calendar day.
+         * This overload uses the platform default of 10% per month.
          */
         public static BigDecimal dailyPenalty(
                         BigDecimal outstandingPrincipal,
                         int daysLate) {
-
-                if (outstandingPrincipal == null
-                                || outstandingPrincipal.signum() <= 0
-                                || daysLate <= PENALTY_GRACE_DAYS) {
-                        return BigDecimal.ZERO.setScale(2, ROUNDING);
-                }
-
-                int chargeableDays = daysLate - PENALTY_GRACE_DAYS;
-
-                return outstandingPrincipal
-                                .multiply(DAILY_PENALTY_RATE)
-                                .divide(ONE_HUNDRED, RATE_SCALE, ROUNDING)
-                                .multiply(BigDecimal.valueOf(chargeableDays))
-                                .setScale(2, ROUNDING);
+                return dailyPenalty(outstandingPrincipal, daysLate, MONTHLY_PENALTY_RATE, LocalDate.now());
         }
 
         /**
-         * Calculates the penalty for a newly chargeable interval.
-         * Each chargeable day is assessed at 10% of the outstanding principal.
+         * Calculates cumulative penalty from the due date using the supplied
+         * monthly percentage. Day 1-3 are grace days; day 4 is the first
+         * chargeable day. The day rate uses the actual calendar length of each
+         * month.
          */
+        public static BigDecimal dailyPenalty(
+                        BigDecimal outstandingPrincipal,
+                        int daysLate,
+                        BigDecimal monthlyPenaltyRatePercent) {
+                return dailyPenalty(outstandingPrincipal, daysLate, monthlyPenaltyRatePercent, LocalDate.now());
+        }
+
+        /**
+         * Same calculation as above, with an explicit date so February/30-day/
+         * 31-day month calculations are deterministic and testable.
+         */
+        public static BigDecimal dailyPenalty(
+                        BigDecimal outstandingPrincipal,
+                        int daysLate,
+                        BigDecimal monthlyPenaltyRatePercent,
+                        LocalDate firstChargeableDate) {
+
+                if (outstandingPrincipal == null
+                                || outstandingPrincipal.signum() <= 0
+                                || monthlyPenaltyRatePercent == null
+                                || monthlyPenaltyRatePercent.signum() <= 0
+                                || daysLate <= PENALTY_GRACE_DAYS) {
+                        return money(BigDecimal.ZERO);
+                }
+
+                int chargeableDays = daysLate - PENALTY_GRACE_DAYS;
+                LocalDate start = firstChargeableDate != null
+                                ? firstChargeableDate
+                                : LocalDate.now();
+
+                BigDecimal total = BigDecimal.ZERO;
+                for (int i = 0; i < chargeableDays; i++) {
+                        LocalDate chargeDate = start.plusDays(i);
+                        total = total.add(
+                                        outstandingPrincipal.multiply(
+                                                        dailyRateFraction(monthlyPenaltyRatePercent, chargeDate)));
+                }
+
+                return money(total);
+        }
+
         /**
          * Computes a cumulative penalty ceiling from the current outstanding
          * principal and qualifying accrued contractual interest. The policy
@@ -217,11 +248,32 @@ public final class FinancialPolicy {
                         LocalDate firstChargeableDate,
                         LocalDate asOf,
                         java.util.function.Function<LocalDate, BigDecimal> principalBalanceAtDate) {
+                return historicalDailyPenalty(
+                                currentOutstandingPrincipal,
+                                firstChargeableDate,
+                                asOf,
+                                MONTHLY_PENALTY_RATE,
+                                principalBalanceAtDate);
+        }
+
+        /**
+         * Calculates penalty day-by-day using the principal balance that existed
+         * on each historical chargeable day. The monthly rate is prorated using
+         * the actual calendar length of each charge date's month.
+         */
+        public static BigDecimal historicalDailyPenalty(
+                        BigDecimal currentOutstandingPrincipal,
+                        LocalDate firstChargeableDate,
+                        LocalDate asOf,
+                        BigDecimal monthlyPenaltyRatePercent,
+                        java.util.function.Function<LocalDate, BigDecimal> principalBalanceAtDate) {
 
                 if (currentOutstandingPrincipal == null
                                 || currentOutstandingPrincipal.signum() <= 0
                                 || firstChargeableDate == null
                                 || asOf == null
+                                || monthlyPenaltyRatePercent == null
+                                || monthlyPenaltyRatePercent.signum() <= 0
                                 || principalBalanceAtDate == null
                                 || firstChargeableDate.isAfter(asOf)) {
                         return money(BigDecimal.ZERO);
@@ -234,7 +286,8 @@ public final class FinancialPolicy {
                         BigDecimal balance = principalBalanceAtDate.apply(cursor);
                         if (balance != null && balance.signum() > 0) {
                                 total = total.add(
-                                                contractualDailyPercentage(balance, DAILY_PENALTY_RATE));
+                                                balance.multiply(
+                                                                dailyRateFraction(monthlyPenaltyRatePercent, cursor)));
                         }
                         cursor = cursor.plusDays(1);
                 }
@@ -256,18 +309,42 @@ public final class FinancialPolicy {
         public static BigDecimal dailyPenaltyForDays(
                         BigDecimal outstandingPrincipal,
                         int chargeableDays) {
+                return dailyPenaltyForDays(
+                                outstandingPrincipal,
+                                chargeableDays,
+                                MONTHLY_PENALTY_RATE,
+                                LocalDate.now());
+        }
+
+        /**
+         * Calculates a chargeable-day penalty using the monthly rate prorated
+         * against the actual calendar month of each charge date.
+         */
+        public static BigDecimal dailyPenaltyForDays(
+                        BigDecimal outstandingPrincipal,
+                        int chargeableDays,
+                        BigDecimal monthlyPenaltyRatePercent,
+                        LocalDate firstChargeableDate) {
 
                 if (outstandingPrincipal == null
                                 || outstandingPrincipal.signum() <= 0
-                                || chargeableDays <= 0) {
-                        return BigDecimal.ZERO.setScale(2, ROUNDING);
+                                || chargeableDays <= 0
+                                || monthlyPenaltyRatePercent == null
+                                || monthlyPenaltyRatePercent.signum() <= 0) {
+                        return money(BigDecimal.ZERO);
                 }
 
-                return outstandingPrincipal
-                                .multiply(DAILY_PENALTY_RATE)
-                                .divide(ONE_HUNDRED, RATE_SCALE, ROUNDING)
-                                .multiply(BigDecimal.valueOf(chargeableDays))
-                                .setScale(2, ROUNDING);
+                LocalDate start = firstChargeableDate != null
+                                ? firstChargeableDate
+                                : LocalDate.now();
+                BigDecimal total = BigDecimal.ZERO;
+                for (int i = 0; i < chargeableDays; i++) {
+                        LocalDate date = start.plusDays(i);
+                        total = total.add(
+                                        outstandingPrincipal.multiply(
+                                                        dailyRateFraction(monthlyPenaltyRatePercent, date)));
+                }
+                return money(total);
         }
 
         public static ScheduleLine contractualScheduleLine(

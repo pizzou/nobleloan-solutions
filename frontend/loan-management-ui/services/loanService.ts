@@ -45,7 +45,7 @@ export const approveLoan = (
   approvedAmount?: number,
   businessOwnerOnly?: boolean,
 ): Promise<Loan> =>
-  post(`/loans/${id}/approve`, {
+  post(`/loans/${id}/approval-chain/approve`, {
     interestRate: interestRate != null ? String(interestRate) : undefined,
     applicationFeeRate:
       applicationFeeRate != null ? String(applicationFeeRate) : undefined,
@@ -54,6 +54,6 @@ export const approveLoan = (
     notes,
   }) as Promise<Loan>;
 export const rejectLoan = (id: number, reason: string): Promise<Loan> =>
-  post(`/loans/${id}/reject`, { reason }) as Promise<Loan>;
+  post(`/loans/${id}/approval-chain/reject`, { reason }) as Promise<Loan>;
 export const getLoanRiskScore = (id: number): Promise<RiskScore> =>
   get(`/loans/${id}/risk`) as Promise<RiskScore>;

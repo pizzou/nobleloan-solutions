@@ -323,6 +323,17 @@ public class Loan {
         // PENALTIES
         // ================================================================
 
+        /**
+         * Contractual overdue penalty rate, expressed as a MONTHLY percentage.
+         * The daily charge is this monthly rate prorated by the actual calendar
+         * days in the charge date's month. This is snapshotted on the loan so a
+         * later loan-product change cannot rewrite an existing contract.
+         */
+        @Column(name = "penalty_rate", precision = 19, scale = 9, nullable = false)
+        @Builder.Default
+        @JsonProperty("penaltyRate")
+        private BigDecimal penaltyRate = new BigDecimal("10.00");
+
         @Column(name = "penalties_assessed", precision = 19, scale = 2, nullable = false)
         @Builder.Default
         @JsonProperty("penaltiesAssessed")
@@ -573,6 +584,14 @@ public class Loan {
                 if (applicationFeeRate == null) {
                         applicationFeeRate = DEFAULT_APPLICATION_FEE_RATE;
                 }
+
+                if (penaltyRate == null) {
+                        penaltyRate = new BigDecimal("10.00");
+                }
+
+                penaltyRate = penaltyRate.setScale(
+                                9,
+                                RoundingMode.HALF_UP);
 
                 applicationFeeRate = applicationFeeRate.setScale(
                                 9,
@@ -1093,6 +1112,12 @@ public class Loan {
         // ================================================================
 
         @JsonIgnore
+        public BigDecimal getPenaltyRateDecimal() {
+                return penaltyRate == null
+                                ? new BigDecimal("10.00")
+                                : penaltyRate.setScale(9, RoundingMode.HALF_UP);
+        }
+
         public BigDecimal getApplicationFeeRateDecimal() {
                 return applicationFeeRate == null
                                 ? MoneyMath.ZERO
