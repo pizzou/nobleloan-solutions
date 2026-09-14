@@ -196,6 +196,16 @@ class FinancialPolicyTest {
                         FinancialPolicy.MONTHLY_PENALTY_RATE,
                         firstChargeableDate));
 
+        /*
+         * January has 31 calendar days.
+         *
+         * Monthly penalty = 10%
+         * Daily fraction = 10% / 31
+         *
+         * One chargeable day:
+         * 1,000,000 × 0.10 / 31 = 3,225.806451...
+         * HALF_UP = 3,225.81
+         */
         assertEquals(
                 new BigDecimal("3225.81"),
                 FinancialPolicy.dailyPenalty(
@@ -204,6 +214,11 @@ class FinancialPolicyTest {
                         FinancialPolicy.MONTHLY_PENALTY_RATE,
                         firstChargeableDate));
 
+        /*
+         * Three chargeable days:
+         * 3 × 3,225.806451... = 9,677.419354...
+         * HALF_UP = 9,677.42
+         */
         assertEquals(
                 new BigDecimal("9677.42"),
                 FinancialPolicy.dailyPenalty(
@@ -276,25 +291,58 @@ class FinancialPolicyTest {
 
     @Test
     void historicalPenaltyUsesThePrincipalBalanceThatExistedOnEachChargeableDay() {
-        BigDecimal current =
-                new BigDecimal("700000.00");
-
         LocalDate firstChargeable =
                 LocalDate.of(2026, 1, 5);
 
         LocalDate asOf =
                 LocalDate.of(2026, 1, 7);
 
+        /*
+         * Historical principal:
+         *
+         * Jan 5 -> RWF 1,000,000
+         * Jan 6 -> RWF   700,000
+         * Jan 7 -> RWF   700,000
+         *
+         * The Function-based API allows the production calculation to
+         * determine the principal that existed on each individual
+         * chargeable date.
+         */
         BigDecimal penalty =
                 FinancialPolicy.historicalDailyPenalty(
-                        current,
+                        new BigDecimal("700000.00"),
                         firstChargeable,
                         asOf,
                         FinancialPolicy.MONTHLY_PENALTY_RATE,
-                        new BigDecimal("1000000.00"));
+                        date -> {
+                            if (date.equals(LocalDate.of(2026, 1, 5))) {
+                                return new BigDecimal("1000000.00");
+                            }
 
+                            if (date.equals(LocalDate.of(2026, 1, 6))
+                                    || date.equals(LocalDate.of(2026, 1, 7))) {
+                                return new BigDecimal("700000.00");
+                            }
+
+                            return new BigDecimal("700000.00");
+                        });
+
+        /*
+         * Jan 5:
+         * 1,000,000 × 10% / 31 = 3,225.806451...
+         *
+         * Jan 6:
+         *   700,000 × 10% / 31 = 2,258.064516...
+         *
+         * Jan 7:
+         *   700,000 × 10% / 31 = 2,258.064516...
+         *
+         * Total = 7,741.935483...
+         * HALF_UP = 7,741.94
+         */
         assertEquals(
                 new BigDecimal("7741.94"),
                 penalty);
     }
 }
+
