@@ -1,22 +1,4 @@
--- ============================================================================
--- V103 - AUTHORITATIVE LOAN-BASED REPORTING CONFIDENTIALITY
--- ============================================================================
---
--- V102 introduced business_owner_only on journal_entries and backfilled the
--- flag where the originating loan could be identified.  A copied flag is not
--- sufficient as a financial security boundary because a historical or
--- incorrectly classified journal entry could still have FALSE while its
--- originating loan is BUSINESS_OWNER_ONLY.
---
--- This migration creates one database-side resolver used by reporting and
--- accounting read queries.  A journal entry is confidential when either:
---   1. its own business_owner_only flag is TRUE (handled by the caller), or
---   2. its originating loan is BUSINESS_OWNER_ONLY.
---
--- The resolver below implements (2), including payment-originated journals
--- and reversals.  Manual/general journals that cannot be tied to a loan are
--- intentionally treated as normal accounting records.
--- ============================================================================
+
 
 CREATE OR REPLACE FUNCTION public.loan_journal_is_business_owner_only(
     p_organization_id BIGINT,
