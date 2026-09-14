@@ -34,7 +34,15 @@ public interface JournalEntryRepository
             WHERE j.organization.id = :organizationId
               AND (
                     :includeBusinessOwnerOnly = true
-                    OR COALESCE(j.businessOwnerOnly, false) = false
+                    OR (
+                        COALESCE(j.businessOwnerOnly, false) = false
+                        AND FUNCTION('loan_journal_is_business_owner_only',
+                            j.organization.id,
+                            j.sourceType,
+                            j.sourceId,
+                            j.reference
+                        ) = false
+                    )
               )
             ORDER BY j.entryDate DESC, j.id DESC
             """)
@@ -66,7 +74,15 @@ public interface JournalEntryRepository
               AND j.entryDate BETWEEN :from AND :to
               AND (
                     :includeBusinessOwnerOnly = true
-                    OR COALESCE(j.businessOwnerOnly, false) = false
+                    OR (
+                        COALESCE(j.businessOwnerOnly, false) = false
+                        AND FUNCTION('loan_journal_is_business_owner_only',
+                            j.organization.id,
+                            j.sourceType,
+                            j.sourceId,
+                            j.reference
+                        ) = false
+                    )
               )
             ORDER BY j.entryDate ASC, j.id ASC
             """)
@@ -104,7 +120,15 @@ public interface JournalEntryRepository
               AND j.entryDate BETWEEN :from AND :to
               AND (
                     :includeBusinessOwnerOnly = true
-                    OR COALESCE(j.businessOwnerOnly, false) = false
+                    OR (
+                        COALESCE(j.businessOwnerOnly, false) = false
+                        AND FUNCTION('loan_journal_is_business_owner_only',
+                            j.organization.id,
+                            j.sourceType,
+                            j.sourceId,
+                            j.reference
+                        ) = false
+                    )
               )
             ORDER BY j.entryDate ASC, j.id ASC
             """)
@@ -134,7 +158,15 @@ public interface JournalEntryRepository
               AND j.organization.id = :organizationId
               AND (
                     :includeBusinessOwnerOnly = true
-                    OR COALESCE(j.businessOwnerOnly, false) = false
+                    OR (
+                        COALESCE(j.businessOwnerOnly, false) = false
+                        AND FUNCTION('loan_journal_is_business_owner_only',
+                            j.organization.id,
+                            j.sourceType,
+                            j.sourceId,
+                            j.reference
+                        ) = false
+                    )
               )
             """)
     Optional<JournalEntry> findVisibleByIdAndOrganizationId(

@@ -55,7 +55,15 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
               AND e.organization.id = :organizationId
               AND (
                     :includeBusinessOwnerOnly = true
-                    OR COALESCE(e.businessOwnerOnly, false) = false
+                    OR (
+                        COALESCE(e.businessOwnerOnly, false) = false
+                        AND FUNCTION('loan_journal_is_business_owner_only',
+                            e.organization.id,
+                            e.sourceType,
+                            e.sourceId,
+                            e.reference
+                        ) = false
+                    )
               )
             ORDER BY e.entryDate ASC, e.id ASC, l.id ASC
             """)
@@ -91,7 +99,15 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
               AND e.organization.id = :organizationId
               AND (
                     :includeBusinessOwnerOnly = true
-                    OR COALESCE(e.businessOwnerOnly, false) = false
+                    OR (
+                        COALESCE(e.businessOwnerOnly, false) = false
+                        AND FUNCTION('loan_journal_is_business_owner_only',
+                            e.organization.id,
+                            e.sourceType,
+                            e.sourceId,
+                            e.reference
+                        ) = false
+                    )
               )
             ORDER BY e.entryDate ASC, e.id ASC, l.id ASC
             """)
@@ -324,6 +340,18 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
             WHERE je.organization_id = :organizationId
               AND je.reversed = false
               AND je.entry_date BETWEEN :historicalFrom AND :toDate
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR (
+                        COALESCE(je.business_owner_only, false) = false
+                        AND NOT public.loan_journal_is_business_owner_only(
+                            je.organization_id,
+                            je.source_type,
+                            je.source_id,
+                            je.reference
+                        )
+                    )
+              )
             GROUP BY jl.account_id
             ORDER BY jl.account_id
             """, nativeQuery = true)
@@ -331,7 +359,8 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
             @Param("organizationId") Long organizationId,
             @Param("historicalFrom") java.time.LocalDate historicalFrom,
             @Param("fromDate") java.time.LocalDate fromDate,
-            @Param("toDate") java.time.LocalDate toDate);
+            @Param("toDate") java.time.LocalDate toDate,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
     /**
      * Finds the first active journal entry whose lines violate the same

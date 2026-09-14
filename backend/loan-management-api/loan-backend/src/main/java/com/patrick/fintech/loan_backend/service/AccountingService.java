@@ -3079,9 +3079,10 @@ public class AccountingService {
                         return ZERO;
                 }
 
-                List<JournalLine> lines = lineRepo.findByAccount_IdAndOrganization_Id(
+                List<JournalLine> lines = lineRepo.findVisibleByAccount_IdAndOrganization_Id(
                                 refundAccount.getId(),
-                                org.getId());
+                                org.getId(),
+                                ReportingScopeService.includeBusinessOwnerOnly());
 
                 if (lines == null
                                 || lines.isEmpty()) {
