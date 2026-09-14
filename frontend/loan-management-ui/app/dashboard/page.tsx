@@ -179,6 +179,27 @@ export default function DashboardPage() {
 
   useEffect(() => {
     void loadDashboard();
+
+    /*
+     * The dashboard can remain mounted while the operator navigates to a
+     * loan-detail page and disburses a loan. Next.js client navigation does
+     * not necessarily remount this page, so a one-time useEffect is not
+     * sufficient to refresh financial KPIs. Refresh whenever the dashboard
+     * becomes visible/focused, using the server-authoritative endpoint.
+     */
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadDashboard(true);
+      }
+    };
+
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [loadDashboard]);
 
   /* ==========================================================

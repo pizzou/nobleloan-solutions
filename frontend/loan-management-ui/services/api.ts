@@ -352,7 +352,7 @@ export const loanApi = {
         : undefined,
     ),
 
-  dashboard: () => get("/loans/dashboard"),
+  dashboard: () => get(`/loans/dashboard?_ts=${Date.now()}`),
 
   schedule: (id: number) => get(`/loans/${id}/schedule`),
 

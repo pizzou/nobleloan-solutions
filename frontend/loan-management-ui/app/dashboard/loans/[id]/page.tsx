@@ -1709,73 +1709,80 @@ export default function LoanDetailPage() {
         throw new Error("Select a status first");
       }
 
-      const queueMutation = async () => {
-        await queueAction({
-          url,
-          method: "POST",
-          body,
-          headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": idempotencyKey,
-          },
-          label,
-        });
+      /*
+       * Approval, rejection, status transitions and especially disbursement
+       * are server-authoritative financial mutations. They MUST NOT be
+       * represented as locally saved work when the device is offline.
+       *
+       * Payments have their own controlled offline workflow above. A loan
+       * disbursement, however, moves real money and must receive a live server
+       * confirmation before the operator is told that it succeeded.
+       */
+      if (!online) {
+        throw new Error(
+          stForm.status === "DISBURSED"
+            ? "Loan disbursement requires a live server connection. The disbursement was not submitted."
+            : "This loan status change requires a live server connection. The change was not submitted.",
+        );
+      }
+
+      try {
+        if (stForm.status === "APPROVED") {
+          await loanApi.approve(
+            loanId,
+            stForm.internalNotes,
+            Number(stForm.interestRate),
+            Number(stForm.applicationFeeRate),
+            Number(stForm.approvedAmount),
+            idempotencyKey,
+            stForm.businessOwnerOnly,
+          );
+        } else if (stForm.status === "REJECTED") {
+          await loanApi.reject(loanId, stForm.rejectionReason, idempotencyKey);
+        } else if (stForm.status === "DISBURSED") {
+          await loanApi.disburse(loanId, "BANK_TRANSFER", idempotencyKey);
+        } else {
+          await loanApi.updateStatus(
+            loanId,
+            stForm.status,
+            stForm.internalNotes,
+            idempotencyKey,
+          );
+        }
 
         setMsg({
           type: "success",
-          text: "This action has been securely saved on the device and will synchronize automatically when the Noble Loan server is available.",
+          text:
+            stForm.status === "DISBURSED"
+              ? `Loan ${loan?.referenceNumber ?? loanId} was disbursed successfully on the server.`
+              : "Status updated successfully!",
         });
         setStOpen(false);
-      };
 
-      if (!online) {
-        await queueMutation();
-      } else {
-        try {
-          if (stForm.status === "APPROVED") {
-            await loanApi.approve(
-              loanId,
-              stForm.internalNotes,
-              Number(stForm.interestRate),
-              Number(stForm.applicationFeeRate),
-              Number(stForm.approvedAmount),
-              idempotencyKey,
-              stForm.businessOwnerOnly,
-            );
-          } else if (stForm.status === "REJECTED") {
-            await loanApi.reject(
-              loanId,
-              stForm.rejectionReason,
-              idempotencyKey,
-            );
-          } else if (stForm.status === "DISBURSED") {
-            await loanApi.disburse(loanId, "BANK_TRANSFER", idempotencyKey);
-          } else {
-            await loanApi.updateStatus(
-              loanId,
-              stForm.status,
-              stForm.internalNotes,
-              idempotencyKey,
-            );
-          }
-
-          setMsg({ type: "success", text: "Status updated!" });
-          setStOpen(false);
-          await load();
-          await loadDocReq();
-        } catch (error: any) {
-          // A reachable server returning 4xx/5xx is NOT an offline condition.
-          // In particular, approval must never be presented as “saved on the
-          // device” after the server has rejected or failed the transaction.
-          // Only a transport-level failure with no HTTP response is eligible
-          // for the durable offline queue.
-          const transportFailure = !error?.response;
-          if (transportFailure && isRetryableRequestError(error)) {
-            await queueMutation();
-          } else {
-            throw error;
-          }
+        /*
+         * Reload the authoritative loan state immediately. The backend
+         * persists disbursedAmount/disbursedAt/status before returning, so
+         * the detail screen must never rely on its previous local state.
+         */
+        await load();
+        await loadDocReq();
+      } catch (error: any) {
+        /*
+         * A financial mutation is never silently moved to the offline
+         * queue. If the server cannot confirm it, report that fact to the
+         * operator. This prevents a false "saved on device" confirmation
+         * for a disbursement that may not have happened.
+         */
+        const transportFailure = !error?.response;
+        if (transportFailure && isRetryableRequestError(error)) {
+          throw new Error(
+            stForm.status === "DISBURSED"
+              ? "The Noble Loan server could not confirm the disbursement. No offline disbursement was created; please verify the server connection and retry."
+              : "The Noble Loan server could not confirm this loan status change. No offline status change was created; please verify the server connection and retry.",
+          );
         }
+
+        throw error;
       }
     } catch (err: any) {
       setMsg({
