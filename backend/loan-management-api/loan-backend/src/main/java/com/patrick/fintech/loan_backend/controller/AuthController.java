@@ -87,7 +87,6 @@ public class AuthController {
     private static final int OTP_EXPIRY_MINUTES = 5;
 
     @PostMapping("/login")
-    @Transactional
     public ResponseEntity<Map<String, Object>> login(@RequestBody LoginRequest req) {
         if (req == null || req.getEmail() == null || req.getEmail().isBlank()
                 || req.getPassword() == null || req.getPassword().isBlank()) {
@@ -100,7 +99,7 @@ public class AuthController {
 
         if (user != null && user.getLockedUntil() != null && user.getLockedUntil().isAfter(now)) {
             long minutesLeft = java.time.Duration.between(now, user.getLockedUntil()).toMinutes() + 1;
-            auditService.log(user.getOrganization(), user, "LOGIN_BLOCKED_ACCOUNT_LOCKED", "AUTH",
+            auditService.logAuthenticationAsync(user.getOrganization(), user, "LOGIN_BLOCKED_ACCOUNT_LOCKED", "AUTH",
                     String.valueOf(user.getId()), "Login attempt rejected — account locked", null, null,
                     "Authentication");
             throw new RuntimeException(
@@ -117,14 +116,14 @@ public class AuthController {
                 if (attempts >= MAX_FAILED_ATTEMPTS) {
                     user.setLockedUntil(java.time.LocalDateTime.now().plusMinutes(LOCKOUT_MINUTES));
                     userRepository.save(user);
-                    auditService.log(user.getOrganization(), user, "ACCOUNT_LOCKED", "AUTH",
+                    auditService.logAuthenticationAsync(user.getOrganization(), user, "ACCOUNT_LOCKED", "AUTH",
                             String.valueOf(user.getId()), "Account locked after " + attempts + " failed login attempts",
                             null, null, "Authentication");
                     throw new RuntimeException(
                             "Too many failed attempts. Account locked for " + LOCKOUT_MINUTES + " minutes.");
                 }
                 userRepository.save(user);
-                auditService.log(user.getOrganization(), user, "LOGIN_FAILED", "AUTH",
+                auditService.logAuthenticationAsync(user.getOrganization(), user, "LOGIN_FAILED", "AUTH",
                         String.valueOf(user.getId()),
                         "Failed login attempt (" + attempts + "/" + MAX_FAILED_ATTEMPTS + ")",
                         null, null, "Authentication");
@@ -229,44 +228,48 @@ public class AuthController {
     }
 
     private void verifyLoginOtp(User user, String submittedOtp, java.time.LocalDateTime now) {
-        // Serialize OTP consumption so two concurrent requests cannot both redeem
-        // the same one-time code.
-        user = userRepository.findByIdForUpdate(user.getId())
+        if (user == null || user.getId() == null) {
+            throw new RuntimeException("User account not found");
+        }
+
+        // The login endpoint intentionally has no surrounding HTTP transaction.
+        // Read the current OTP state, verify the secret in memory, then consume it
+        // with one conditional UPDATE. The UPDATE is atomic at the database level,
+        // so two concurrent requests cannot both redeem the same OTP and no long
+        // request transaction is held while authentication/audit work completes.
+        User current = userRepository.findById(user.getId())
                 .orElseThrow(() -> new RuntimeException("User account not found"));
 
-        if (user.getLoginOtpHash() == null || user.getLoginOtpExpiresAt() == null
-                || user.getLoginOtpExpiresAt().isBefore(now)) {
+        if (current.getLoginOtpHash() == null || current.getLoginOtpExpiresAt() == null
+                || !current.getLoginOtpExpiresAt().isAfter(now)) {
             throw new RuntimeException("Your verification code has expired. Please sign in again to get a new one.");
         }
 
-        int otpAttempts = user.getLoginOtpAttempts() == null ? 0 : user.getLoginOtpAttempts();
+        int otpAttempts = current.getLoginOtpAttempts() == null ? 0 : current.getLoginOtpAttempts();
         if (otpAttempts >= MAX_OTP_ATTEMPTS) {
-            user.setLoginOtpHash(null);
-            user.setLoginOtpExpiresAt(null);
-            user.setLoginOtpAttempts(0);
-            userRepository.save(user);
+            userRepository.clearLoginOtp(current.getId());
             throw new RuntimeException("Too many incorrect codes. Please sign in again to get a new one.");
         }
 
-        if (!passwordEncoder.matches(submittedOtp.trim(), user.getLoginOtpHash())) {
-            user.setLoginOtpAttempts(otpAttempts + 1);
-            userRepository.save(user);
-            auditService.log(user.getOrganization(), user, "LOGIN_OTP_FAILED", "AUTH",
-                    String.valueOf(user.getId()),
-                    "Incorrect login verification code (" + (otpAttempts + 1) + "/" + MAX_OTP_ATTEMPTS + ")",
+        if (!passwordEncoder.matches(submittedOtp.trim(), current.getLoginOtpHash())) {
+            userRepository.incrementLoginOtpAttempts(
+                    current.getId(), current.getLoginOtpHash(), now, MAX_OTP_ATTEMPTS);
+            auditService.logAuthenticationAsync(current.getOrganization(), current, "LOGIN_OTP_FAILED", "AUTH",
+                    String.valueOf(current.getId()),
+                    "Incorrect login verification code (" + Math.min(otpAttempts + 1, MAX_OTP_ATTEMPTS)
+                            + "/" + MAX_OTP_ATTEMPTS + ")",
                     null, null, "Authentication");
             throw new RuntimeException("Incorrect verification code.");
         }
 
-        // Consume the OTP immediately so it is single-use.
-        user.setLoginOtpHash(null);
-        user.setLoginOtpExpiresAt(null);
-        user.setLoginOtpAttempts(0);
-        user.setLastLoginAt(java.time.LocalDateTime.now());
-        userRepository.save(user);
+        int consumed = userRepository.consumeLoginOtp(
+                current.getId(), current.getLoginOtpHash(), now, java.time.LocalDateTime.now());
+        if (consumed != 1) {
+            throw new RuntimeException("This verification code has already been used. Please sign in again to get a new one.");
+        }
 
-        auditService.log(user.getOrganization(), user, "LOGIN_OTP_VERIFIED", "AUTH",
-                String.valueOf(user.getId()), "Login verification code accepted",
+        auditService.logAuthenticationAsync(current.getOrganization(), current, "LOGIN_OTP_VERIFIED", "AUTH",
+                String.valueOf(current.getId()), "Login verification code accepted",
                 null, null, "Authentication");
     }
 
@@ -280,7 +283,7 @@ public class AuthController {
     }
 
     private ResponseEntity<Map<String, Object>> successfulLogin(User user) {
-        auditService.log(user.getOrganization(), user, "LOGIN_SUCCESS", "AUTH",
+        auditService.logAuthenticationAsync(user.getOrganization(), user, "LOGIN_SUCCESS", "AUTH",
                 String.valueOf(user.getId()), user.getName() + " signed in", null, null, "Authentication");
 
         Map<String, Object> body = safe(user);
