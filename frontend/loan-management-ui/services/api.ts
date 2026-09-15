@@ -270,6 +270,13 @@ export const authApi = {
       otp,
     }),
 
+  sendLoginOtp: (challengeToken: string) =>
+    post("/auth/send-login-otp", {}, {
+      headers: {
+        "X-OTP-Challenge": challengeToken,
+      },
+    }),
+
   register: (data: unknown) => post("/auth/register", data),
 
   me: () => get("/auth/me"),

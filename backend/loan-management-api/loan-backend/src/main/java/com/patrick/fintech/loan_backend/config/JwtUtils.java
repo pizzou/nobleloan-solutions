@@ -62,6 +62,31 @@ public class JwtUtils {
                 .compact();
     }
 
+    /**
+     * Short-lived capability used only after the password has been accepted.
+     * It allows the browser to request delivery of the already-created login OTP
+     * without granting an authenticated application session.
+     */
+    public String generateOtpChallengeToken(String email) {
+        return Jwts.builder()
+                .subject(email)
+                .claim("purpose", "login-otp-delivery")
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 2 * 60 * 1000))
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    public boolean isOtpChallengeToken(String token) {
+        try {
+            Object purpose = Jwts.parser().verifyWith(getSigningKey()).build()
+                    .parseSignedClaims(token).getPayload().get("purpose");
+            return "login-otp-delivery".equals(purpose);
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+
     public boolean isSetupToken(String token) {
         try {
             Object purpose = Jwts.parser().verifyWith(getSigningKey()).build()
