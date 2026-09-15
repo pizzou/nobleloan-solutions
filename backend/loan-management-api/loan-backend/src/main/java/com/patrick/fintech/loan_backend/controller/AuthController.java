@@ -184,88 +184,47 @@ public class AuthController {
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
 
         if (submittedOtp == null || submittedOtp.isBlank()) {
-            // IMPORTANT: password login only prepares the second-factor challenge.
-            // It does not generate or send the email yet. The browser must first
-            // receive this response and render the verification screen.
+            boolean activeOtp = user.getLoginOtpHash() != null
+                    && user.getLoginOtpExpiresAt() != null
+                    && user.getLoginOtpExpiresAt().isAfter(now);
+
+            if (!activeOtp) {
+                String code = String.format("%06d", OTP_RANDOM.nextInt(1_000_000));
+                user.setLoginOtpHash(passwordEncoder.encode(code));
+                user.setLoginOtpExpiresAt(now.plusMinutes(OTP_EXPIRY_MINUTES));
+                user.setLoginOtpAttempts(0);
+                user.setLastLoginAt(null);
+                userRepository.save(user);
+
+                // MailService.sendLoginOtp() is @Async, so the HTTP request
+                // does not wait for the external email provider.
+                mailService.sendLoginOtp(user, code);
+
+                // Do not block login on the audit-chain database lock.
+                auditService.logAuthenticationAsync(
+                        user.getOrganization(),
+                        user,
+                        "LOGIN_OTP_SENT",
+                        "AUTH",
+                        String.valueOf(user.getId()),
+                        "Login OTP issued and sent to registered email address",
+                        null,
+                        null,
+                        "Authentication");
+            }
 
             return ResponseEntity.ok(Map.of(
                     "otpRequired", true,
                     "otpDelivery", "EMAIL",
-                    "otpChallengeToken", jwtUtils.generateOtpChallengeToken(user.getEmail()),
                     "email", user.getEmail(),
-                    "message", "Your verification screen is ready. A 6-digit verification code will be sent now. It expires in "
-                            + OTP_EXPIRY_MINUTES + " minutes."));
+                    "message", activeOtp
+                            ? "A verification code has already been sent to your email. Enter that code to continue."
+                            : "A single 6-digit verification code has been sent to your email address. It expires in "
+                                    + OTP_EXPIRY_MINUTES + " minutes."));
         }
 
         verifyLoginOtp(user, submittedOtp, now);
         return successfulLogin(user);
-    }
-
-    /**
-     * Delivers the OTP only after the browser has successfully received the
-     * password-login response and rendered the verification step.
-     *
-     * This endpoint intentionally accepts a short-lived delivery capability
-     * rather than an authenticated session: the user has passed the password
-     * check but has not completed the second factor yet.
-     */
-    @PostMapping("/send-login-otp")
-    public ResponseEntity<Map<String, Object>> sendLoginOtp(
-            @RequestHeader(value = "X-OTP-Challenge", required = false) String challengeToken) {
-
-        if (challengeToken == null || challengeToken.isBlank()
-                || !jwtUtils.isOtpChallengeToken(challengeToken)) {
-            return ResponseEntity.status(401).body(Map.of(
-                    "success", false,
-                    "message", "The verification session is invalid or has expired. Please sign in again."));
-        }
-
-        final String email;
-        try {
-            email = jwtUtils.getEmailFromToken(challengeToken);
-        } catch (Exception ex) {
-            return ResponseEntity.status(401).body(Map.of(
-                    "success", false,
-                    "message", "The verification session is invalid or has expired. Please sign in again."));
-        }
-
-        User user = userRepository.findByEmailIgnoreCase(email).orElse(null);
-        if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
-            return ResponseEntity.status(401).body(Map.of(
-                    "success", false,
-                    "message", "The verification session is invalid. Please sign in again."));
-        }
-
-        java.time.LocalDateTime now = java.time.LocalDateTime.now();
-
-        // Generate the OTP only now, after the browser has received the login
-        // response and mounted the verification screen. This is the critical
-        // delivery boundary: a timeout on /auth/login cannot trigger an email.
-        String code = String.format("%06d", OTP_RANDOM.nextInt(1_000_000));
-        user.setLoginOtpHash(passwordEncoder.encode(code));
-        user.setLoginOtpExpiresAt(now.plusMinutes(OTP_EXPIRY_MINUTES));
-        user.setLoginOtpAttempts(0);
-        user.setLastLoginAt(null);
-        userRepository.save(user);
-
-        mailService.sendLoginOtp(user, code);
-
-        auditService.logAuthenticationAsync(
-                user.getOrganization(),
-                user,
-                "LOGIN_OTP_DELIVERY_REQUESTED",
-                "AUTH",
-                String.valueOf(user.getId()),
-                "Login OTP delivery requested after verification screen became ready",
-                null,
-                null,
-                "Authentication");
-
-        return ResponseEntity.ok(Map.of(
-                "success", true,
-                "otpDelivery", "EMAIL",
-                "message", "A 6-digit verification code has been sent to your email address. It expires in "
-                        + OTP_EXPIRY_MINUTES + " minutes."));
     }
 
     private void verifyLoginOtp(User user, String submittedOtp, java.time.LocalDateTime now) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { authApi } from "@/services/api";
 import { AuthContext, useAuthState } from "@/hooks/useAuth";
@@ -28,58 +28,12 @@ function LoginInner() {
   const [otp, setOtp] = useState("");
   const [otpRequired, setOtpRequired] = useState(false);
   const [otpMessage, setOtpMessage] = useState("");
-  const [otpChallengeToken, setOtpChallengeToken] = useState<string | null>(
-    null,
-  );
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const { login } = useAuthState();
   const router = useRouter();
-
-  /* ============================================================
-     OTP DELIVERY
-     ============================================================
-
-     The email is deliberately sent only after React has rendered the
-     verification state. If /auth/login times out, this effect never runs,
-     so no OTP email is dispatched for that failed login attempt.
-     ============================================================ */
-
-  useEffect(() => {
-    if (!otpRequired || !otpChallengeToken) return;
-
-    let cancelled = false;
-
-    const deliverOtp = async () => {
-      try {
-        const res: any = await authApi.sendLoginOtp(otpChallengeToken);
-        if (!cancelled) {
-          setOtpMessage(
-            res?.message ||
-              "A 6-digit verification code has been sent to your email address.",
-          );
-        }
-      } catch (err: any) {
-        if (!cancelled) {
-          setError(
-            err?.message ||
-              "The verification screen is ready, but the email could not be sent. Please sign in again.",
-          );
-          setOtpMessage(
-            "We could not send the verification code. Please sign in again to request a new code.",
-          );
-        }
-      }
-    };
-
-    void deliverOtp();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [otpRequired, otpChallengeToken]);
 
   /* ============================================================
      LOGIN
@@ -127,11 +81,10 @@ function LoginInner() {
          -------------------------------------------------------- */
 
       if (res?.otpRequired) {
-        setOtpChallengeToken(res?.otpChallengeToken ?? null);
         setOtpRequired(true);
 
         setOtpMessage(
-          "Verification screen ready. Sending your verification code…",
+          res.message || "We sent a 6-digit verification code to your email.",
         );
 
         setLoading(false);
@@ -170,7 +123,6 @@ function LoginInner() {
   const handleBackToLogin = () => {
     setMfaRequired(false);
     setOtpRequired(false);
-    setOtpChallengeToken(null);
 
     setMfaCode("");
     setOtp("");
