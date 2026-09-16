@@ -62,6 +62,37 @@ public class JwtUtils {
                 .compact();
     }
 
+
+    /**
+     * Creates a short-lived, purpose-restricted challenge issued only after
+     * the password has been successfully authenticated. It is not a session
+     * token and must only be presented to /api/auth/send-login-otp.
+     */
+    public String generateLoginOtpChallengeToken(User user) {
+        if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
+            throw new IllegalArgumentException("User is required to issue an OTP challenge");
+        }
+        long tokenVersion = user.getTokenVersion() == null ? 0L : user.getTokenVersion();
+        return Jwts.builder()
+                .subject(user.getEmail())
+                .claim("purpose", "login-otp")
+                .claim("tokenVersion", tokenVersion)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 5 * 60 * 1000L))
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    public boolean isLoginOtpChallengeToken(String token) {
+        try {
+            Object purpose = Jwts.parser().verifyWith(getSigningKey()).build()
+                    .parseSignedClaims(token).getPayload().get("purpose");
+            return "login-otp".equals(purpose);
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+
     public boolean isSetupToken(String token) {
         try {
             Object purpose = Jwts.parser().verifyWith(getSigningKey()).build()

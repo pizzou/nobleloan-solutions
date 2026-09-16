@@ -262,12 +262,24 @@ export function isRetryableRequestError(error: unknown): boolean {
 export const authApi = {
   csrf: () => get("/auth/csrf"),
 
-  login: (email: string, password: string, mfaCode?: string, otp?: string) =>
+  login: (
+    email: string,
+    password: string,
+    mfaCode?: string,
+    otp?: string,
+    otpChallengeToken?: string,
+  ) =>
     post("/auth/login", {
       email,
       password,
       mfaCode,
       otp,
+      otpChallengeToken,
+    }),
+
+  sendLoginOtp: (otpChallengeToken: string) =>
+    post("/auth/send-login-otp", {
+      otpChallengeToken,
     }),
 
   register: (data: unknown) => post("/auth/register", data),

@@ -9,5 +9,6 @@ public class LoginRequest {
     private String password;
     private String mfaCode;
     private String otp;
+    private String otpChallengeToken;
 
 }

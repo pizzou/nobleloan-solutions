@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authApi } from "@/services/api";
 import { AuthContext, useAuthState } from "@/hooks/useAuth";
@@ -28,12 +28,50 @@ function LoginInner() {
   const [otp, setOtp] = useState("");
   const [otpRequired, setOtpRequired] = useState(false);
   const [otpMessage, setOtpMessage] = useState("");
+  const [otpChallengeToken, setOtpChallengeToken] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const { login } = useAuthState();
   const router = useRouter();
+
+  /*
+   * The OTP email is deliberately requested only after React has rendered
+   * the verification state. The initial password-login request never sends
+   * an OTP email, so a timeout or failed navigation cannot trigger delivery.
+   */
+  useEffect(() => {
+    if (!otpRequired || !otpChallengeToken) return;
+
+    let cancelled = false;
+    const deliverOtp = async () => {
+      try {
+        const result: any = await authApi.sendLoginOtp(otpChallengeToken);
+        if (!cancelled) {
+          setOtpMessage(
+            result?.message ||
+              "We sent a 6-digit verification code to your email.",
+          );
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setOtpMessage("");
+          setError(
+            err?.message ||
+              "We could not send the verification code. Please return to login and try again.",
+          );
+          setOtpRequired(false);
+          setOtpChallengeToken("");
+        }
+      }
+    };
+
+    void deliverOtp();
+    return () => {
+      cancelled = true;
+    };
+  }, [otpRequired, otpChallengeToken]);
 
   /* ============================================================
      LOGIN
