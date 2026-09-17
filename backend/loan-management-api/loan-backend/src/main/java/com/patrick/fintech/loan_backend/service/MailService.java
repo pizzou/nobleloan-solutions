@@ -54,7 +54,7 @@ public class MailService {
         this.restTemplate = new RestTemplate(factory);
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendApplicationReceived(Loan loan) {
         if (!mailEnabled) {
             log.info("[EMAIL] Application received: {}",
@@ -87,7 +87,7 @@ public class MailService {
         );
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendLoanUpdateComment(Loan loan, String message) {
         if (!mailEnabled) {
             log.info("[EMAIL] Loan update comment: {}",
@@ -133,7 +133,7 @@ public class MailService {
      * The Brevo API must therefore never be allowed to hold the login
      * HTTP request open.
      */
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendLoginOtp(User user, String code) {
         if (user == null) {
             log.warn("[EMAIL] Login OTP delivery skipped: user is null");
@@ -180,7 +180,7 @@ public class MailService {
         );
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendLoanApproved(Loan loan) {
         if (!mailEnabled) {
             log.info("[EMAIL] Loan approved: {}",
@@ -258,7 +258,7 @@ public class MailService {
         );
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendLoanRejected(Loan loan) {
         if (!mailEnabled) {
             log.info("[EMAIL] Loan rejected: {}",
@@ -291,7 +291,7 @@ public class MailService {
         );
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendPaymentConfirmation(Loan loan, Double amount) {
         if (!mailEnabled) {
             log.info("[EMAIL] Payment confirmed: {} -> {}",
@@ -326,7 +326,7 @@ public class MailService {
         );
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendLoanDisbursed(Loan loan, String method) {
         if (!mailEnabled) {
             log.info("[EMAIL] Loan disbursed: {}",
@@ -361,7 +361,7 @@ public class MailService {
         );
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendPaymentDueReminder(Loan loan) {
         if (!mailEnabled) {
             log.info("[EMAIL] Payment reminder: {}",
@@ -392,7 +392,7 @@ public class MailService {
         );
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendLoanRestructured(Loan loan, String reason) {
         if (!mailEnabled) {
             log.info("[EMAIL] Loan restructured: {}",
@@ -430,7 +430,7 @@ public class MailService {
         );
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendLoanWrittenOff(Loan loan, String reason) {
         if (!mailEnabled) {
             log.info("[EMAIL] Loan written off: {}",
@@ -464,7 +464,7 @@ public class MailService {
         );
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendMoratoriumGranted(
             Loan loan,
             int pauseMonths,
@@ -516,7 +516,7 @@ public class MailService {
                 : "our team";
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendPasswordResetEmail(User user, String resetLink) {
         if (!mailEnabled) {
             log.info(
@@ -552,7 +552,7 @@ public class MailService {
     /**
      * Sent alongside SMS when available.
      */
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendESignatureRequest(
             Borrower borrower,
             String orgName,
@@ -593,7 +593,7 @@ public class MailService {
         );
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendNewUserCredentials(
             User user,
             String tempPassword,
@@ -655,7 +655,7 @@ public class MailService {
         );
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendBorrowerWelcome(Borrower borrower) {
         if (!mailEnabled) {
             log.info(
@@ -688,7 +688,7 @@ public class MailService {
      * Sent alongside SMS when available, and as the primary channel when
      * the borrower has no phone on file.
      */
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendESignatureRequest(
             Borrower borrower,
             String orgName,
@@ -736,7 +736,7 @@ public class MailService {
         );
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendDocumentVerified(
             Borrower borrower,
             String documentType
@@ -770,7 +770,7 @@ public class MailService {
         );
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendDocumentRejected(
             Borrower borrower,
             String documentType,
@@ -809,7 +809,7 @@ public class MailService {
         );
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendDocumentReplacementRequested(
             Borrower borrower,
             String documentType,
@@ -849,7 +849,7 @@ public class MailService {
         );
     }
 
-    @Async
+    @Async("mailAsyncExecutor")
     public void sendOverdueReminder(
             Loan loan,
             Integer daysOverdue

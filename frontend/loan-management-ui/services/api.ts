@@ -96,7 +96,8 @@ API.interceptors.request.use(async (config) => {
     url.includes("/auth/register") ||
     url.includes("/auth/forgot-password") ||
     url.includes("/auth/reset-password") ||
-    url.includes("/auth/logout")
+    url.includes("/auth/logout") ||
+    url.includes("/auth/send-login-otp")
   ) {
     return config;
   }
@@ -277,10 +278,23 @@ export const authApi = {
       otpChallengeToken,
     }),
 
-  sendLoginOtp: (otpChallengeToken: string) =>
-    post("/auth/send-login-otp", {
-      otpChallengeToken,
-    }),
+  sendLoginOtp: (otpChallengeToken: string) => {
+    const token = otpChallengeToken?.trim();
+
+    if (!token) {
+      return Promise.reject(
+        new Error(
+          "OTP verification challenge is missing. Please sign in again.",
+        ),
+      );
+    }
+
+    return post(
+      "/auth/send-login-otp",
+      { otpChallengeToken: token },
+      { timeout: 15000 },
+    );
+  },
 
   register: (data: unknown) => post("/auth/register", data),
 

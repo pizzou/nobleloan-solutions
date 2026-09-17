@@ -89,6 +89,7 @@ function LoginInner() {
         password,
         mfaRequired ? mfaCode : undefined,
         otpRequired ? otp : undefined,
+        otpRequired ? otpChallengeToken : undefined,
       );
 
       /* --------------------------------------------------------
@@ -119,7 +120,24 @@ function LoginInner() {
          -------------------------------------------------------- */
 
       if (res?.otpRequired) {
+        const challengeToken =
+          typeof res?.otpChallengeToken === "string"
+            ? res.otpChallengeToken.trim()
+            : "";
+
+        if (!challengeToken) {
+          setError(
+            "The server requested email verification but did not return a verification challenge. Please try signing in again.",
+          );
+          setOtpRequired(false);
+          setOtpChallengeToken("");
+          setLoading(false);
+          return;
+        }
+
+        setOtpChallengeToken(challengeToken);
         setOtpRequired(true);
+        setOtp("");
 
         setOtpMessage(
           res.message || "We sent a 6-digit verification code to your email.",
@@ -164,6 +182,7 @@ function LoginInner() {
 
     setMfaCode("");
     setOtp("");
+    setOtpChallengeToken("");
 
     setError("");
     setOtpMessage("");

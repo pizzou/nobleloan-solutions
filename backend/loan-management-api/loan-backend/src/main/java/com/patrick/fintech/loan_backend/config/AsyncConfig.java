@@ -39,4 +39,26 @@ public class AsyncConfig {
 
                 return executor;
         }
+
+        /**
+         * Dedicated executor for external email delivery.
+         *
+         * Login OTP delivery must never wait behind legacy-import, reconciliation,
+         * or audit tasks. A small bounded pool is sufficient because each task is
+         * an outbound HTTPS request and MailService has its own network timeout.
+         */
+        @Bean(name = "mailAsyncExecutor")
+        public Executor mailAsyncExecutor() {
+                ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+                executor.setCorePoolSize(1);
+                executor.setMaxPoolSize(2);
+                executor.setQueueCapacity(50);
+                executor.setThreadNamePrefix("loansaas-mail-");
+                executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+                executor.setWaitForTasksToCompleteOnShutdown(true);
+                executor.setAwaitTerminationSeconds(20);
+                executor.setAllowCoreThreadTimeOut(false);
+                executor.initialize();
+                return executor;
+        }
 }
