@@ -71,14 +71,7 @@ public class AuthController {
         return ResponseEntity.ok(safe(created));
     }
 
-    /**
-     * Staff roles that must complete a second factor at every login.
-     *
-     * ADMIN and MANAGER use a server-generated, short-lived OTP delivered to
-     * BOTH the registered email address and registered mobile number. This is
-     * deliberately independent of TOTP/Auth­enticator enrollment so staff are
-     * not forced to use an authenticator application as their only login factor.
-     */
+   
     private static final java.util.Set<String> EMAIL_OTP_ROLES = java.util.Set.of("ADMIN", "MANAGER", "BUSINESS_OWNER");
 
     private static final int MAX_FAILED_ATTEMPTS = 5;
@@ -143,12 +136,18 @@ public class AuthController {
 
         boolean emailOtpRequired = isEmailOtpRole(user);
 
-        /*
-         * ADMIN and MANAGER: one email OTP is the login second factor.
-         * This branch intentionally runs BEFORE the existing TOTP branch so an
-         * authenticator app is not required for these roles.
-         */
+       
         if (emailOtpRequired) {
+            if (req.getOtp() == null || req.getOtp().isBlank()) {
+                String challengeToken = jwtUtils.generateLoginOtpChallengeToken(user);
+                return ResponseEntity.ok(Map.of(
+                        "otpRequired", true,
+                        "otpDelivery", "EMAIL",
+                        "otpChallengeToken", challengeToken,
+                        "email", user.getEmail(),
+                        "message", "Verification is required. The verification screen will request your email code."));
+            }
+            validateLoginOtpChallenge(user, req.getOtpChallengeToken());
             return handleEmailOtp(user, req.getOtp());
         }
 
@@ -166,7 +165,18 @@ public class AuthController {
                 throw new RuntimeException("Invalid MFA code");
             }
         } else {
-            // Existing email OTP fallback for non-ADMIN/non-MANAGER users.
+            // Existing email OTP fallback for other users also uses the same
+            // post-verification challenge flow.
+            if (req.getOtp() == null || req.getOtp().isBlank()) {
+                String challengeToken = jwtUtils.generateLoginOtpChallengeToken(user);
+                return ResponseEntity.ok(Map.of(
+                        "otpRequired", true,
+                        "otpDelivery", "EMAIL",
+                        "otpChallengeToken", challengeToken,
+                        "email", user.getEmail(),
+                        "message", "Verification is required. The verification screen will request your email code."));
+            }
+            validateLoginOtpChallenge(user, req.getOtpChallengeToken());
             return handleEmailOtp(user, req.getOtp());
         }
 
@@ -180,10 +190,27 @@ public class AuthController {
     }
 
    
-    private ResponseEntity<Map<String, Object>> handleEmailOtp(User user, String submittedOtp) {
-        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+    @PostMapping("/send-login-otp")
+    public ResponseEntity<Map<String, Object>> sendLoginOtp(@RequestBody LoginRequest req) {
+        if (req == null || req.getOtpChallengeToken() == null || req.getOtpChallengeToken().isBlank()) {
+            throw new RuntimeException("OTP challenge is required. Please sign in again.");
+        }
 
-        if (submittedOtp == null || submittedOtp.isBlank()) {
+        String email;
+        try {
+            if (!jwtUtils.isLoginOtpChallengeToken(req.getOtpChallengeToken())) {
+                throw new RuntimeException("Invalid or expired OTP challenge. Please sign in again.");
+            }
+            email = jwtUtils.getEmailFromToken(req.getOtpChallengeToken());
+            long tokenVersion = jwtUtils.getTokenVersion(req.getOtpChallengeToken());
+            User user = userRepository.findByEmailIgnoreCase(email)
+                    .orElseThrow(() -> new RuntimeException("User account not found"));
+            long currentVersion = user.getTokenVersion() == null ? 0L : user.getTokenVersion();
+            if (tokenVersion != currentVersion || !isEmailOtpRole(user)) {
+                throw new RuntimeException("Invalid or expired OTP challenge. Please sign in again.");
+            }
+
+            java.time.LocalDateTime now = java.time.LocalDateTime.now();
             boolean activeOtp = user.getLoginOtpHash() != null
                     && user.getLoginOtpExpiresAt() != null
                     && user.getLoginOtpExpiresAt().isAfter(now);
@@ -195,48 +222,58 @@ public class AuthController {
                 user.setLoginOtpAttempts(0);
                 user.setLastLoginAt(null);
                 userRepository.save(user);
-
-                // MailService.sendLoginOtp() is @Async, so the HTTP request
-                // does not wait for the external email provider.
                 mailService.sendLoginOtp(user, code);
-
-                // Do not block login on the audit-chain database lock.
                 auditService.logAuthenticationAsync(
-                        user.getOrganization(),
-                        user,
-                        "LOGIN_OTP_SENT",
-                        "AUTH",
+                        user.getOrganization(), user, "LOGIN_OTP_SENT", "AUTH",
                         String.valueOf(user.getId()),
-                        "Login OTP issued and sent to registered email address",
-                        null,
-                        null,
-                        "Authentication");
+                        "Login OTP issued after verification screen was reached",
+                        null, null, "Authentication");
             }
 
             return ResponseEntity.ok(Map.of(
+                    "success", true,
                     "otpRequired", true,
-                    "otpDelivery", "EMAIL",
                     "email", user.getEmail(),
                     "message", activeOtp
                             ? "A verification code has already been sent to your email. Enter that code to continue."
                             : "A single 6-digit verification code has been sent to your email address. It expires in "
                                     + OTP_EXPIRY_MINUTES + " minutes."));
+        } catch (RuntimeException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new RuntimeException("Invalid or expired OTP challenge. Please sign in again.");
+        }
+    }
+
+    private void validateLoginOtpChallenge(User user, String challengeToken) {
+        if (challengeToken == null || challengeToken.isBlank()
+                || !jwtUtils.isLoginOtpChallengeToken(challengeToken)) {
+            throw new RuntimeException("Invalid or expired OTP challenge. Please sign in again.");
+        }
+        String email = jwtUtils.getEmailFromToken(challengeToken);
+        long tokenVersion = jwtUtils.getTokenVersion(challengeToken);
+        long currentVersion = user.getTokenVersion() == null ? 0L : user.getTokenVersion();
+        if (!user.getEmail().equalsIgnoreCase(email) || tokenVersion != currentVersion) {
+            throw new RuntimeException("Invalid or expired OTP challenge. Please sign in again.");
+        }
+    }
+
+    private ResponseEntity<Map<String, Object>> handleEmailOtp(User user, String submittedOtp) {
+        if (submittedOtp == null || submittedOtp.isBlank()) {
+            throw new RuntimeException("Verification code is required.");
         }
 
-        verifyLoginOtp(user, submittedOtp, now);
+        verifyLoginOtp(user, submittedOtp, java.time.LocalDateTime.now());
         return successfulLogin(user);
     }
+
 
     private void verifyLoginOtp(User user, String submittedOtp, java.time.LocalDateTime now) {
         if (user == null || user.getId() == null) {
             throw new RuntimeException("User account not found");
         }
 
-        // The login endpoint intentionally has no surrounding HTTP transaction.
-        // Read the current OTP state, verify the secret in memory, then consume it
-        // with one conditional UPDATE. The UPDATE is atomic at the database level,
-        // so two concurrent requests cannot both redeem the same OTP and no long
-        // request transaction is held while authentication/audit work completes.
+      
         User current = userRepository.findById(user.getId())
                 .orElseThrow(() -> new RuntimeException("User account not found"));
 

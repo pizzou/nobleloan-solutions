@@ -151,6 +151,7 @@ public class SecurityConfig {
                 // Authentication
                 .requestMatchers(
                     "/api/auth/login",
+                    "/api/auth/send-login-otp",
                     "/api/auth/register",
                     "/api/auth/logout",
                     "/api/auth/forgot-password",
