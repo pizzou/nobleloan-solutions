@@ -109,4 +109,3 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @EntityGraph(attributePaths = {"role", "organization", "branch"})
     List<User> findByOrganization_Id(Long organizationId);
 }
-
