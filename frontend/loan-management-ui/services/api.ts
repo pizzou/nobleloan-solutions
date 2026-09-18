@@ -96,8 +96,7 @@ API.interceptors.request.use(async (config) => {
     url.includes("/auth/register") ||
     url.includes("/auth/forgot-password") ||
     url.includes("/auth/reset-password") ||
-    url.includes("/auth/logout") ||
-    url.includes("/auth/send-login-otp")
+    url.includes("/auth/logout")
   ) {
     return config;
   }
@@ -263,38 +262,13 @@ export function isRetryableRequestError(error: unknown): boolean {
 export const authApi = {
   csrf: () => get("/auth/csrf"),
 
-  login: (
-    email: string,
-    password: string,
-    mfaCode?: string,
-    otp?: string,
-    otpChallengeToken?: string,
-  ) =>
+  login: (email: string, password: string, mfaCode?: string, otp?: string) =>
     post("/auth/login", {
       email,
       password,
       mfaCode,
       otp,
-      otpChallengeToken,
     }),
-
-  sendLoginOtp: (otpChallengeToken: string) => {
-    const token = otpChallengeToken?.trim();
-
-    if (!token) {
-      return Promise.reject(
-        new Error(
-          "OTP verification challenge is missing. Please sign in again.",
-        ),
-      );
-    }
-
-    return post(
-      "/auth/send-login-otp",
-      { otpChallengeToken: token },
-      { timeout: 15000 },
-    );
-  },
 
   register: (data: unknown) => post("/auth/register", data),
 
