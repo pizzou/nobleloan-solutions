@@ -5,12 +5,17 @@ import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.User;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -18,7 +23,20 @@ import java.util.Map;
 @Slf4j
 public class MailService {
 
-    private static final String BREVO_URL = "https://api.brevo.com/v3/smtp/email";
+    private static final String BREVO_URL =
+            "https://api.brevo.com/v3/smtp/email";
+
+    /**
+     * Display name shown to recipients in their email client.
+     *
+     * Example:
+     *
+     * Noble Loan Solution <pmpumuropizzou@gmail.com>
+     *
+     * This is intentionally separate from the actual sender email address.
+     */
+    private static final String DEFAULT_SENDER_NAME =
+            "Noble Loan Solution";
 
     /**
      * Keep external email calls outside the HTTP request thread.
@@ -35,19 +53,23 @@ public class MailService {
     @Value("${app.mail.from:}")
     private String from;
 
+    /**
+     * Optional deployment configuration:
+     *
+     * MAIL_FROM_NAME=Noble Loan Solution
+     *
+     * If it is not configured, DEFAULT_SENDER_NAME is used.
+     */
+    @Value("${app.mail.from-name:Noble Loan Solution}")
+    private String fromName;
+
     @Value("${app.mail.brevo-api-key:}")
     private String brevoApiKey;
 
     public MailService() {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        SimpleClientHttpRequestFactory factory =
+                new SimpleClientHttpRequestFactory();
 
-        /*
-         * Brevo is an external dependency. Never allow an external mail
-         * provider to block a worker indefinitely.
-         *
-         * 5 seconds to establish the connection and 10 seconds to receive
-         * the response are sufficient for transactional email delivery.
-         */
         factory.setConnectTimeout(5_000);
         factory.setReadTimeout(10_000);
 
@@ -57,46 +79,62 @@ public class MailService {
     @Async("mailAsyncExecutor")
     public void sendApplicationReceived(Loan loan) {
         if (!mailEnabled) {
-            log.info("[EMAIL] Application received: {}",
-                    loan != null ? loan.getReferenceNumber() : "unknown");
+            log.info(
+                    "[EMAIL] Application received: {}",
+                    loan != null ? loan.getReferenceNumber() : "unknown"
+            );
             return;
         }
 
         if (loan == null || loan.getBorrower() == null) {
-            log.warn("[EMAIL] Application-received email skipped: loan/borrower is null");
+            log.warn(
+                    "[EMAIL] Application-received email skipped: " +
+                            "loan/borrower is null"
+            );
             return;
         }
 
         String to = loan.getBorrower().getEmail();
 
         if (to == null || to.isBlank()) {
-            log.warn("[EMAIL] Application-received email skipped: borrower email is missing");
+            log.warn(
+                    "[EMAIL] Application-received email skipped: " +
+                            "borrower email is missing"
+            );
             return;
         }
 
         send(
                 to,
                 "Loan Application Received",
-                "<p>Dear " + safe(loan.getBorrower().getFullName()) + ",</p>" +
+                "<p>Dear " +
+                        safe(loan.getBorrower().getFullName()) +
+                        ",</p>" +
                         "<p>We have successfully received your loan application.</p>" +
                         "<p><strong>Reference Number:</strong> " +
-                        safe(loan.getReferenceNumber()) + "</p>" +
+                        safe(loan.getReferenceNumber()) +
+                        "</p>" +
                         "<p><strong>Current Status:</strong> Submitted</p>" +
                         "<p>You can track your application from your borrower dashboard.</p>" +
-                        "<p>Thank you.<br/>Loan Management System</p>"
+                        "<p>Thank you.<br/>Noble Loan Solution</p>"
         );
     }
 
     @Async("mailAsyncExecutor")
     public void sendLoanUpdateComment(Loan loan, String message) {
         if (!mailEnabled) {
-            log.info("[EMAIL] Loan update comment: {}",
-                    loan != null ? loan.getReferenceNumber() : "unknown");
+            log.info(
+                    "[EMAIL] Loan update comment: {}",
+                    loan != null ? loan.getReferenceNumber() : "unknown"
+            );
             return;
         }
 
         if (loan == null || loan.getBorrower() == null) {
-            log.warn("[EMAIL] Loan update email skipped: loan/borrower is null");
+            log.warn(
+                    "[EMAIL] Loan update email skipped: " +
+                            "loan/borrower is null"
+            );
             return;
         }
 
@@ -108,59 +146,58 @@ public class MailService {
 
         send(
                 to,
-                "New Update on Your Application — " + safe(loan.getReferenceNumber()),
+                "New Update on Your Application — " +
+                        safe(loan.getReferenceNumber()),
                 "<h2>New Message From Your Loan Officer</h2>" +
-                        "<p>There's a new update on your loan application <strong>" +
-                        safe(loan.getReferenceNumber()) + "</strong>:</p>" +
-                        "<blockquote style=\"border-left:3px solid #0D9488;margin:12px 0;padding:8px 16px;color:#374151;background:#f9fafb;\">" +
+                        "<p>There's a new update on your loan application " +
+                        "<strong>" +
+                        safe(loan.getReferenceNumber()) +
+                        "</strong>:</p>" +
+                        "<blockquote style=\"" +
+                        "border-left:3px solid #0D9488;" +
+                        "margin:12px 0;" +
+                        "padding:8px 16px;" +
+                        "color:#374151;" +
+                        "background:#f9fafb;\">" +
                         safe(message) +
                         "</blockquote>" +
-                        "<p>You can view the full details and respond from your application tracking page.</p>"
+                        "<p>You can view the full details and respond " +
+                        "from your application tracking page.</p>"
         );
     }
 
-    /**
-     * Login OTP email.
-     *
-     * This MUST remain asynchronous.
-     *
-     * The authentication request should:
-     *   1. authenticate the password,
-     *   2. create/store the OTP challenge,
-     *   3. return otpRequired=true,
-     *   4. let this method deliver the email independently.
-     *
-     * The Brevo API must therefore never be allowed to hold the login
-     * HTTP request open.
-     */
     @Async("mailAsyncExecutor")
     public void sendLoginOtp(User user, String code) {
         if (user == null) {
-            log.warn("[EMAIL] Login OTP delivery skipped: user is null");
+            log.warn(
+                    "[EMAIL] Login OTP delivery skipped: user is null"
+            );
             return;
         }
 
         String email = user.getEmail();
 
         if (email == null || email.isBlank()) {
-            log.warn("[EMAIL] Login OTP delivery skipped: user email is missing");
+            log.warn(
+                    "[EMAIL] Login OTP delivery skipped: " +
+                            "user email is missing"
+            );
             return;
         }
 
         if (code == null || code.isBlank()) {
-            log.warn("[EMAIL] Login OTP delivery skipped for {}: OTP code is missing",
-                    email);
+            log.warn(
+                    "[EMAIL] Login OTP delivery skipped for {}: " +
+                            "OTP code is missing",
+                    email
+            );
             return;
         }
 
         if (!mailEnabled) {
-            /*
-             * Deliberately do NOT log the OTP itself.
-             * This prevents OTP disclosure through production logs.
-             */
             log.warn(
-                    "[EMAIL] Login OTP delivery is disabled for {}; "
-                            + "set MAIL_ENABLED=true in the deployment environment.",
+                    "[EMAIL] Login OTP delivery is disabled for {}; " +
+                            "set MAIL_ENABLED=true in the deployment environment.",
                     email
             );
             return;
@@ -171,20 +208,27 @@ public class MailService {
                 "Your sign-in code",
                 "<h2>Sign-in Verification Code</h2>" +
                         "<p>Use this code to finish signing in:</p>" +
-                        "<p style=\"font-size:28px;font-weight:bold;letter-spacing:6px;color:#0D6B3E;\">" +
+                        "<p style=\"" +
+                        "font-size:28px;" +
+                        "font-weight:bold;" +
+                        "letter-spacing:6px;" +
+                        "color:#0D6B3E;\">" +
                         safe(code) +
                         "</p>" +
-                        "<p>This code expires in 5 minutes. If you didn't try to sign in, " +
-                        "you can ignore this email — your account is still safe, but consider " +
-                        "changing your password if it happens again.</p>"
+                        "<p>This code expires in 5 minutes. " +
+                        "If you didn't try to sign in, you can ignore " +
+                        "this email — your account is still safe, but " +
+                        "consider changing your password if it happens again.</p>"
         );
     }
 
     @Async("mailAsyncExecutor")
     public void sendLoanApproved(Loan loan) {
         if (!mailEnabled) {
-            log.info("[EMAIL] Loan approved: {}",
-                    loan != null ? loan.getReferenceNumber() : "unknown");
+            log.info(
+                    "[EMAIL] Loan approved: {}",
+                    loan != null ? loan.getReferenceNumber() : "unknown"
+            );
             return;
         }
 
@@ -198,71 +242,91 @@ public class MailService {
             return;
         }
 
-        java.math.BigDecimal requested =
+        BigDecimal requested =
                 loan.getRequestedAmountDecimal() != null
                         ? loan.getRequestedAmountDecimal()
                         : loan.getAmountDecimal();
 
-        java.math.BigDecimal approved = loan.getAmountDecimal();
+        BigDecimal approved = loan.getAmountDecimal();
 
-        java.math.BigDecimal applicationFee =
+        BigDecimal applicationFee =
                 loan.getApplicationFeeDecimal() != null
                         ? loan.getApplicationFeeDecimal()
-                        : java.math.BigDecimal.ZERO;
+                        : BigDecimal.ZERO;
 
         if (requested == null) {
-            requested = java.math.BigDecimal.ZERO;
+            requested = BigDecimal.ZERO;
         }
 
         if (approved == null) {
-            approved = java.math.BigDecimal.ZERO;
+            approved = BigDecimal.ZERO;
         }
 
-        java.math.BigDecimal net =
-                approved.subtract(applicationFee).max(java.math.BigDecimal.ZERO);
+        BigDecimal net =
+                approved
+                        .subtract(applicationFee)
+                        .max(BigDecimal.ZERO);
 
-        java.math.BigDecimal interestRate = loan.getInterestRateDecimal();
-        java.math.BigDecimal managementRate = loan.getManagementFeeRateDecimal();
-        java.math.BigDecimal applicationRate = loan.getApplicationFeeRateDecimal();
+        BigDecimal interestRate =
+                loan.getInterestRateDecimal();
+
+        BigDecimal managementRate =
+                loan.getManagementFeeRateDecimal();
+
+        BigDecimal applicationRate =
+                loan.getApplicationFeeRateDecimal();
 
         send(
                 to,
-                "Your Loan Has Been Approved — " + safe(loan.getReferenceNumber()),
+                "Your Loan Has Been Approved — " +
+                        safe(loan.getReferenceNumber()),
                 "<h2>Loan Approved</h2>" +
                         "<p>Your loan application <strong>" +
                         safe(loan.getReferenceNumber()) +
                         "</strong> has been reviewed and approved.</p>" +
                         "<p>Requested amount: <strong>" +
-                        safe(loan.getCurrency()) + " " + requested +
+                        safe(loan.getCurrency()) +
+                        " " +
+                        requested +
                         "</strong></p>" +
                         "<p>Approved principal: <strong>" +
-                        safe(loan.getCurrency()) + " " + approved +
+                        safe(loan.getCurrency()) +
+                        " " +
+                        approved +
                         "</strong></p>" +
                         "<p>One-time application fee (" +
                         safe(String.valueOf(applicationRate)) +
                         "%): <strong>" +
-                        safe(loan.getCurrency()) + " " + applicationFee +
+                        safe(loan.getCurrency()) +
+                        " " +
+                        applicationFee +
                         "</strong></p>" +
                         "<p>Net amount to be disbursed: <strong>" +
-                        safe(loan.getCurrency()) + " " + net +
+                        safe(loan.getCurrency()) +
+                        " " +
+                        net +
                         "</strong></p>" +
                         "<p>Contractual interest: <strong>" +
                         safe(String.valueOf(interestRate)) +
-                        "% monthly</strong>. Management fee: <strong>" +
+                        "% monthly</strong>. " +
+                        "Management fee: <strong>" +
                         safe(String.valueOf(managementRate)) +
                         "% monthly</strong>.</p>" +
-                        "<p>There is no daily interest accrual. Your repayment schedule " +
-                        "is based on the approved contractual monthly terms.</p>" +
-                        "<p>You will receive the funds after the disbursement step. " +
-                        "Please review your repayment schedule.</p>"
+                        "<p>There is no daily interest accrual. " +
+                        "Your repayment schedule is based on the approved " +
+                        "contractual monthly terms.</p>" +
+                        "<p>You will receive the funds after the disbursement " +
+                        "step. Please review your repayment schedule.</p>"
         );
     }
 
     @Async("mailAsyncExecutor")
     public void sendLoanRejected(Loan loan) {
         if (!mailEnabled) {
-            log.info("[EMAIL] Loan rejected: {}",
-                    loan != null ? loan.getReferenceNumber() : "unknown");
+            log.info(
+                    "[EMAIL] Loan rejected: {}",
+                    loan != null ? loan.getReferenceNumber() : "unknown"
+            );
             return;
         }
 
@@ -278,25 +342,34 @@ public class MailService {
 
         send(
                 to,
-                "Update on Your Loan Application — " + safe(loan.getReferenceNumber()),
+                "Update on Your Loan Application — " +
+                        safe(loan.getReferenceNumber()),
                 "<h2>Application Update</h2>" +
-                        "<p>We regret to inform you that your loan application <strong>" +
+                        "<p>We regret to inform you that your loan application " +
+                        "<strong>" +
                         safe(loan.getReferenceNumber()) +
                         "</strong> was not approved at this time.</p>" +
                         "<p>Reason: " +
-                        safe(loan.getRejectionReason() != null
-                                ? loan.getRejectionReason()
-                                : "See your loan officer") +
+                        safe(
+                                loan.getRejectionReason() != null
+                                        ? loan.getRejectionReason()
+                                        : "See your loan officer"
+                        ) +
                         "</p>"
         );
     }
 
     @Async("mailAsyncExecutor")
-    public void sendPaymentConfirmation(Loan loan, Double amount) {
+    public void sendPaymentConfirmation(
+            Loan loan,
+            Double amount
+    ) {
         if (!mailEnabled) {
-            log.info("[EMAIL] Payment confirmed: {} -> {}",
+            log.info(
+                    "[EMAIL] Payment confirmed: {} -> {}",
                     loan != null ? loan.getReferenceNumber() : "unknown",
-                    amount);
+                    amount
+            );
             return;
         }
 
@@ -312,25 +385,34 @@ public class MailService {
 
         send(
                 to,
-                "Payment Received — " + safe(loan.getReferenceNumber()),
+                "Payment Received — " +
+                        safe(loan.getReferenceNumber()),
                 "<h2>Payment Confirmed</h2>" +
                         "<p>We have received your payment of <strong>" +
-                        safe(loan.getCurrency()) + " " + amount +
+                        safe(loan.getCurrency()) +
+                        " " +
+                        amount +
                         "</strong> on loan <strong>" +
                         safe(loan.getReferenceNumber()) +
                         "</strong>.</p>" +
                         "<p>Outstanding balance: <strong>" +
-                        safe(loan.getCurrency()) + " " +
+                        safe(loan.getCurrency()) +
+                        " " +
                         loan.getOutstandingBalance() +
                         "</strong></p>"
         );
     }
 
     @Async("mailAsyncExecutor")
-    public void sendLoanDisbursed(Loan loan, String method) {
+    public void sendLoanDisbursed(
+            Loan loan,
+            String method
+    ) {
         if (!mailEnabled) {
-            log.info("[EMAIL] Loan disbursed: {}",
-                    loan != null ? loan.getReferenceNumber() : "unknown");
+            log.info(
+                    "[EMAIL] Loan disbursed: {}",
+                    loan != null ? loan.getReferenceNumber() : "unknown"
+            );
             return;
         }
 
@@ -346,26 +428,33 @@ public class MailService {
 
         send(
                 to,
-                "Funds Disbursed — " + safe(loan.getReferenceNumber()),
+                "Funds Disbursed — " +
+                        safe(loan.getReferenceNumber()),
                 "<h2>Funds Sent Successfully</h2>" +
                         "<p>Your loan <strong>" +
                         safe(loan.getReferenceNumber()) +
                         "</strong> has been disbursed.</p>" +
                         "<p>Amount: <strong>" +
-                        safe(loan.getCurrency()) + " " +
+                        safe(loan.getCurrency()) +
+                        " " +
                         loan.getDisbursedAmount() +
-                        "</strong> via " + safe(method) + "</p>" +
+                        "</strong> via " +
+                        safe(method) +
+                        "</p>" +
                         "<p>Your first payment is due on <strong>" +
                         loan.getNextDueDate() +
-                        "</strong>. You can track your loan from your borrower dashboard.</p>"
+                        "</strong>. You can track your loan from your " +
+                        "borrower dashboard.</p>"
         );
     }
 
     @Async("mailAsyncExecutor")
     public void sendPaymentDueReminder(Loan loan) {
         if (!mailEnabled) {
-            log.info("[EMAIL] Payment reminder: {}",
-                    loan != null ? loan.getReferenceNumber() : "unknown");
+            log.info(
+                    "[EMAIL] Payment reminder: {}",
+                    loan != null ? loan.getReferenceNumber() : "unknown"
+            );
             return;
         }
 
@@ -381,22 +470,29 @@ public class MailService {
 
         send(
                 to,
-                "Payment Due Reminder — " + safe(loan.getReferenceNumber()),
+                "Payment Due Reminder — " +
+                        safe(loan.getReferenceNumber()),
                 "<h2>Payment Reminder</h2>" +
                         "<p>Your next payment on loan <strong>" +
                         safe(loan.getReferenceNumber()) +
                         "</strong> is due on <strong>" +
                         loan.getNextDueDate() +
                         "</strong>.</p>" +
-                        "<p>Please ensure your account has sufficient funds to avoid penalties.</p>"
+                        "<p>Please ensure your account has sufficient funds " +
+                        "to avoid penalties.</p>"
         );
     }
 
     @Async("mailAsyncExecutor")
-    public void sendLoanRestructured(Loan loan, String reason) {
+    public void sendLoanRestructured(
+            Loan loan,
+            String reason
+    ) {
         if (!mailEnabled) {
-            log.info("[EMAIL] Loan restructured: {}",
-                    loan != null ? loan.getReferenceNumber() : "unknown");
+            log.info(
+                    "[EMAIL] Loan restructured: {}",
+                    loan != null ? loan.getReferenceNumber() : "unknown"
+            );
             return;
         }
 
@@ -412,7 +508,8 @@ public class MailService {
 
         send(
                 to,
-                "Your Loan Terms Have Changed — " + safe(loan.getReferenceNumber()),
+                "Your Loan Terms Have Changed — " +
+                        safe(loan.getReferenceNumber()),
                 "<h2>Loan Restructured</h2>" +
                         "<p>The terms on your loan <strong>" +
                         safe(loan.getReferenceNumber()) +
@@ -422,19 +519,28 @@ public class MailService {
                         " months</strong> at <strong>" +
                         loan.getInterestRate() +
                         "%</strong></p>" +
-                        (reason != null && !reason.isBlank()
-                                ? "<p>Reason: " + safe(reason) + "</p>"
-                                : "") +
-                        "<p>Your repayment schedule has been recalculated — please review it " +
-                        "from your borrower dashboard.</p>"
+                        (
+                                reason != null && !reason.isBlank()
+                                        ? "<p>Reason: " +
+                                        safe(reason) +
+                                        "</p>"
+                                        : ""
+                        ) +
+                        "<p>Your repayment schedule has been recalculated — " +
+                        "please review it from your borrower dashboard.</p>"
         );
     }
 
     @Async("mailAsyncExecutor")
-    public void sendLoanWrittenOff(Loan loan, String reason) {
+    public void sendLoanWrittenOff(
+            Loan loan,
+            String reason
+    ) {
         if (!mailEnabled) {
-            log.info("[EMAIL] Loan written off: {}",
-                    loan != null ? loan.getReferenceNumber() : "unknown");
+            log.info(
+                    "[EMAIL] Loan written off: {}",
+                    loan != null ? loan.getReferenceNumber() : "unknown"
+            );
             return;
         }
 
@@ -450,17 +556,23 @@ public class MailService {
 
         send(
                 to,
-                "Update on Your Loan — " + safe(loan.getReferenceNumber()),
+                "Update on Your Loan — " +
+                        safe(loan.getReferenceNumber()),
                 "<h2>Account Status Update</h2>" +
                         "<p>Your loan <strong>" +
                         safe(loan.getReferenceNumber()) +
                         "</strong> has been written off by " +
                         safe(org(loan)) +
                         ".</p>" +
-                        (reason != null && !reason.isBlank()
-                                ? "<p>Reason: " + safe(reason) + "</p>"
-                                : "") +
-                        "<p>Please contact us if you have questions about what this means for your account.</p>"
+                        (
+                                reason != null && !reason.isBlank()
+                                        ? "<p>Reason: " +
+                                        safe(reason) +
+                                        "</p>"
+                                        : ""
+                        ) +
+                        "<p>Please contact us if you have questions " +
+                        "about what this means for your account.</p>"
         );
     }
 
@@ -471,8 +583,10 @@ public class MailService {
             String reason
     ) {
         if (!mailEnabled) {
-            log.info("[EMAIL] Moratorium granted: {}",
-                    loan != null ? loan.getReferenceNumber() : "unknown");
+            log.info(
+                    "[EMAIL] Moratorium granted: {}",
+                    loan != null ? loan.getReferenceNumber() : "unknown"
+            );
             return;
         }
 
@@ -488,16 +602,21 @@ public class MailService {
 
         send(
                 to,
-                "Payment Pause Approved — " + safe(loan.getReferenceNumber()),
+                "Payment Pause Approved — " +
+                        safe(loan.getReferenceNumber()),
                 "<h2>Payment Moratorium Granted</h2>" +
                         "<p>Your upcoming payments on loan <strong>" +
                         safe(loan.getReferenceNumber()) +
                         "</strong> have been paused for <strong>" +
                         pauseMonths +
                         " month(s)</strong>.</p>" +
-                        (reason != null && !reason.isBlank()
-                                ? "<p>Reason: " + safe(reason) + "</p>"
-                                : "") +
+                        (
+                                reason != null && !reason.isBlank()
+                                        ? "<p>Reason: " +
+                                        safe(reason) +
+                                        "</p>"
+                                        : ""
+                        ) +
                         "<p>Your next due date is now <strong>" +
                         loan.getNextDueDate() +
                         "</strong>. No action is needed from you during the pause.</p>"
@@ -517,7 +636,10 @@ public class MailService {
     }
 
     @Async("mailAsyncExecutor")
-    public void sendPasswordResetEmail(User user, String resetLink) {
+    public void sendPasswordResetEmail(
+            User user,
+            String resetLink
+    ) {
         if (!mailEnabled) {
             log.info(
                     "[EMAIL] Password reset notification requested for {} " +
@@ -527,7 +649,9 @@ public class MailService {
             return;
         }
 
-        if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
+        if (user == null ||
+                user.getEmail() == null ||
+                user.getEmail().isBlank()) {
             return;
         }
 
@@ -536,16 +660,26 @@ public class MailService {
                 "Reset Your LoanSaaS Pro Password",
                 "<h2>Password Reset Request</h2>" +
                         "<p>Hi " +
-                        safe(user.getName() != null ? user.getName() : "") +
+                        safe(
+                                user.getName() != null
+                                        ? user.getName()
+                                        : ""
+                        ) +
                         ",</p>" +
                         "<p>Click the link below to reset your password. " +
                         "This link expires in 1 hour.</p>" +
                         "<p><a href=\"" +
                         safeAttribute(resetLink) +
-                        "\" style=\"background:#0D9488;color:#fff;padding:12px 24px;" +
-                        "border-radius:8px;text-decoration:none;font-weight:bold;\">" +
+                        "\" style=\"" +
+                        "background:#0D9488;" +
+                        "color:#fff;" +
+                        "padding:12px 24px;" +
+                        "border-radius:8px;" +
+                        "text-decoration:none;" +
+                        "font-weight:bold;\">" +
                         "Reset Password</a></p>" +
-                        "<p>If you did not request a password reset, please ignore this email.</p>"
+                        "<p>If you did not request a password reset, " +
+                        "please ignore this email.</p>"
         );
     }
 
@@ -577,19 +711,28 @@ public class MailService {
                 borrower.getEmail(),
                 "Your Loan Agreement Is Ready to Sign",
                 "<h2>Loan Agreement Ready for Signature</h2>" +
-                        "<p>Dear " + safe(borrower.getFullName()) + ",</p>" +
-                        "<p>" + safe(orgName) +
+                        "<p>Dear " +
+                        safe(borrower.getFullName()) +
+                        ",</p>" +
+                        "<p>" +
+                        safe(orgName) +
                         " has sent your loan agreement for e-signature. " +
                         "Click below to review and sign it.</p>" +
                         "<p><a href=\"" +
                         safeAttribute(signLink) +
-                        "\" style=\"background:#0D9488;color:#fff;padding:12px 24px;" +
-                        "border-radius:8px;text-decoration:none;font-weight:bold;\">" +
+                        "\" style=\"" +
+                        "background:#0D9488;" +
+                        "color:#fff;" +
+                        "padding:12px 24px;" +
+                        "border-radius:8px;" +
+                        "text-decoration:none;" +
+                        "font-weight:bold;\">" +
                         "Review &amp; Sign</a></p>" +
-                        "<p>We've also texted a verification code to your phone — " +
-                        "you'll need to enter it on that page to complete your signature.</p>" +
-                        "<p>This link expires in 7 days. If you weren't expecting this, " +
-                        "please contact your loan officer.</p>"
+                        "<p>We've also texted a verification code to your " +
+                        "phone — you'll need to enter it on that page to " +
+                        "complete your signature.</p>" +
+                        "<p>This link expires in 7 days. If you weren't " +
+                        "expecting this, please contact your loan officer.</p>"
         );
     }
 
@@ -608,13 +751,16 @@ public class MailService {
             return;
         }
 
-        if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
+        if (user == null ||
+                user.getEmail() == null ||
+                user.getEmail().isBlank()) {
             return;
         }
 
         String organizationText =
                 user.getOrganization() != null
-                        ? " at " + safe(user.getOrganization().getName())
+                        ? " at " +
+                        safe(user.getOrganization().getName())
                         : "";
 
         String roleText =
@@ -629,7 +775,11 @@ public class MailService {
                 "Your LoanSaaS Pro Account Has Been Created",
                 "<h2>Welcome to LoanSaaS Pro</h2>" +
                         "<p>Hi " +
-                        safe(user.getName() != null ? user.getName() : "") +
+                        safe(
+                                user.getName() != null
+                                        ? user.getName()
+                                        : ""
+                        ) +
                         ",</p>" +
                         "<p>An administrator" +
                         organizationText +
@@ -639,19 +789,29 @@ public class MailService {
                         "<p><strong>Email:</strong> " +
                         safe(user.getEmail()) +
                         "<br/>" +
-                        "<strong>Temporary password:</strong> <code " +
-                        "style=\"background:#f3f4f6;padding:2px 8px;border-radius:8px;" +
+                        "<strong>Temporary password:</strong> " +
+                        "<code style=\"" +
+                        "background:#f3f4f6;" +
+                        "padding:2px 8px;" +
+                        "border-radius:8px;" +
                         "font-size:15px;\">" +
                         safe(tempPassword) +
                         "</code></p>" +
                         "<p><a href=\"" +
                         safeAttribute(loginLink) +
-                        "\" style=\"background:#0D9488;color:#fff;padding:12px 24px;" +
-                        "border-radius:8px;text-decoration:none;font-weight:bold;\">" +
+                        "\" style=\"" +
+                        "background:#0D9488;" +
+                        "color:#fff;" +
+                        "padding:12px 24px;" +
+                        "border-radius:8px;" +
+                        "text-decoration:none;" +
+                        "font-weight:bold;\">" +
                         "Sign In</a></p>" +
-                        "<p>You'll be asked to set your own password the first time you " +
-                        "sign in — the temporary one above will stop working once you do.</p>" +
-                        "<p>If you weren't expecting this account, please contact your administrator.</p>"
+                        "<p>You'll be asked to set your own password " +
+                        "the first time you sign in — the temporary one " +
+                        "above will stop working once you do.</p>" +
+                        "<p>If you weren't expecting this account, " +
+                        "please contact your administrator.</p>"
         );
     }
 
@@ -679,8 +839,9 @@ public class MailService {
                         safe(borrower.getFullName()) +
                         ",</p>" +
                         "<p>A borrower profile has been created for you. " +
-                        "Our team will reach out if we need any further information from you.</p>" +
-                        "<p>Thank you.<br/>Loan Management System</p>"
+                        "Our team will reach out if we need any further " +
+                        "information from you.</p>" +
+                        "<p>Thank you.<br/>Noble Loan Solution</p>"
         );
     }
 
@@ -723,16 +884,26 @@ public class MailService {
                         "Click below to review and sign it.</p>" +
                         "<p><a href=\"" +
                         safeAttribute(signLink) +
-                        "\" style=\"background:#0D9488;color:#fff;padding:12px 24px;" +
-                        "border-radius:8px;text-decoration:none;font-weight:bold;\">" +
+                        "\" style=\"" +
+                        "background:#0D9488;" +
+                        "color:#fff;" +
+                        "padding:12px 24px;" +
+                        "border-radius:8px;" +
+                        "text-decoration:none;" +
+                        "font-weight:bold;\">" +
                         "Review &amp; Sign</a></p>" +
-                        "<p>Enter this verification code on that page to complete your " +
-                        "signature (also sent by SMS, if we have a valid number on file):</p>" +
-                        "<p style=\"font-size:28px;font-weight:bold;letter-spacing:6px;color:#0D6B3E;\">" +
+                        "<p>Enter this verification code on that page " +
+                        "to complete your signature (also sent by SMS, " +
+                        "if we have a valid number on file):</p>" +
+                        "<p style=\"" +
+                        "font-size:28px;" +
+                        "font-weight:bold;" +
+                        "letter-spacing:6px;" +
+                        "color:#0D6B3E;\">" +
                         safe(otp) +
                         "</p>" +
-                        "<p>This link expires in 7 days. If you weren't expecting this, " +
-                        "please contact your loan officer.</p>"
+                        "<p>This link expires in 7 days. If you weren't " +
+                        "expecting this, please contact your loan officer.</p>"
         );
     }
 
@@ -758,15 +929,18 @@ public class MailService {
 
         send(
                 borrower.getEmail(),
-                "Document Verified: " + humanizeDocType(documentType),
+                "Document Verified: " +
+                        humanizeDocType(documentType),
                 "<h2>Document Verified</h2>" +
                         "<p>Dear " +
                         safe(borrower.getFullName()) +
                         ",</p>" +
                         "<p>Your <strong>" +
                         safe(humanizeDocType(documentType)) +
-                        "</strong> has been verified. No further action is needed for this document.</p>" +
-                        "<p>You can check your overall application status from your borrower dashboard.</p>"
+                        "</strong> has been verified. No further action " +
+                        "is needed for this document.</p>" +
+                        "<p>You can check your overall application status " +
+                        "from your borrower dashboard.</p>"
         );
     }
 
@@ -793,7 +967,9 @@ public class MailService {
 
         send(
                 borrower.getEmail(),
-                "Action Needed: " + humanizeDocType(documentType) + " Rejected",
+                "Action Needed: " +
+                        humanizeDocType(documentType) +
+                        " Rejected",
                 "<h2>Document Rejected</h2>" +
                         "<p>Dear " +
                         safe(borrower.getFullName()) +
@@ -801,11 +977,14 @@ public class MailService {
                         "<p>Your <strong>" +
                         safe(humanizeDocType(documentType)) +
                         "</strong> could not be accepted." +
-                        (reason != null && !reason.isBlank()
-                                ? " Reason: " + safe(reason)
-                                : "") +
+                        (
+                                reason != null && !reason.isBlank()
+                                        ? " Reason: " + safe(reason)
+                                        : ""
+                        ) +
                         "</p>" +
-                        "<p>Please upload a corrected document from your application tracking page.</p>"
+                        "<p>Please upload a corrected document from your " +
+                        "application tracking page.</p>"
         );
     }
 
@@ -832,7 +1011,8 @@ public class MailService {
 
         send(
                 borrower.getEmail(),
-                "Please Re-upload: " + humanizeDocType(documentType),
+                "Please Re-upload: " +
+                        humanizeDocType(documentType),
                 "<h2>Replacement Document Requested</h2>" +
                         "<p>Dear " +
                         safe(borrower.getFullName()) +
@@ -840,12 +1020,14 @@ public class MailService {
                         "<p>We need a new copy of your <strong>" +
                         safe(humanizeDocType(documentType)) +
                         "</strong>." +
-                        (note != null && !note.isBlank()
-                                ? " " + safe(note)
-                                : "") +
+                        (
+                                note != null && !note.isBlank()
+                                        ? " " + safe(note)
+                                        : ""
+                        ) +
                         "</p>" +
-                        "<p>Please upload it from your application tracking page as soon as possible " +
-                        "to avoid delays.</p>"
+                        "<p>Please upload it from your application tracking " +
+                        "page as soon as possible to avoid delays.</p>"
         );
     }
 
@@ -883,11 +1065,13 @@ public class MailService {
                         ",</p>" +
                         "<p>Your loan <strong>" +
                         safe(loan.getReferenceNumber()) +
-                        "</strong> is currently marked as <strong>OVERDUE</strong> by <strong>" +
+                        "</strong> is currently marked as " +
+                        "<strong>OVERDUE</strong> by <strong>" +
                         daysOverdue +
                         "</strong> days.</p>" +
-                        "<p>Please settle your outstanding balance immediately to avoid further " +
-                        "penalization, legal escalation, or collection queue assignment.</p>"
+                        "<p>Please settle your outstanding balance " +
+                        "immediately to avoid further penalization, " +
+                        "legal escalation, or collection queue assignment.</p>"
         );
     }
 
@@ -896,17 +1080,22 @@ public class MailService {
             return "document";
         }
 
-        String[] parts = type.toLowerCase().split("_");
-        StringBuilder sb = new StringBuilder();
+        String[] parts =
+                type.toLowerCase().split("_");
+
+        StringBuilder sb =
+                new StringBuilder();
 
         for (String part : parts) {
             if (part == null || part.isBlank()) {
                 continue;
             }
 
-            sb.append(Character.toUpperCase(part.charAt(0)))
-                    .append(part.substring(1))
-                    .append(' ');
+            sb.append(
+                    Character.toUpperCase(part.charAt(0))
+            )
+            .append(part.substring(1))
+            .append(' ');
         }
 
         return sb.toString().trim();
@@ -914,6 +1103,15 @@ public class MailService {
 
     /**
      * Sends through Brevo HTTP API.
+     *
+     * The sender contains BOTH:
+     *
+     *   email = actual authenticated sender mailbox
+     *   name  = display name shown to the recipient
+     *
+     * Result:
+     *
+     *   Noble Loan Solution <pmpumuropizzou@gmail.com>
      *
      * This method is intentionally private and is called from @Async public
      * methods. Therefore Brevo network latency does not block the login HTTP
@@ -925,23 +1123,32 @@ public class MailService {
             String html
     ) {
         if (to == null || to.isBlank()) {
-            log.warn("[EMAIL] Email send skipped: recipient is blank");
+            log.warn(
+                    "[EMAIL] Email send skipped: recipient is blank"
+            );
             return;
         }
 
         if (subject == null || subject.isBlank()) {
-            log.warn("[EMAIL] Email send skipped for {}: subject is blank", to);
+            log.warn(
+                    "[EMAIL] Email send skipped for {}: subject is blank",
+                    to
+            );
             return;
         }
 
         if (html == null) {
-            log.warn("[EMAIL] Email send skipped for {}: body is null", to);
+            log.warn(
+                    "[EMAIL] Email send skipped for {}: body is null",
+                    to
+            );
             return;
         }
 
         if (brevoApiKey == null || brevoApiKey.isBlank()) {
             log.error(
-                    "[EMAIL] Email send skipped for {}: BREVO_API_KEY is not configured",
+                    "[EMAIL] Email send skipped for {}: " +
+                            "BREVO_API_KEY is not configured",
                     to
             );
             return;
@@ -949,41 +1156,103 @@ public class MailService {
 
         if (from == null || from.isBlank()) {
             log.error(
-                    "[EMAIL] Email send skipped for {}: MAIL_FROM is not configured",
+                    "[EMAIL] Email send skipped for {}: " +
+                            "MAIL_FROM is not configured",
                     to
             );
             return;
         }
 
+        String senderName =
+                fromName == null || fromName.isBlank()
+                        ? DEFAULT_SENDER_NAME
+                        : fromName.trim();
+
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setAccept(List.of(MediaType.APPLICATION_JSON));
-            headers.set("api-key", brevoApiKey);
+            HttpHeaders headers =
+                    new HttpHeaders();
 
-            Map<String, Object> payload = Map.of(
-                    "sender", Map.of("email", from),
-                    "to", List.of(Map.of("email", to)),
-                    "subject", subject,
-                    "htmlContent", html
+            headers.setContentType(
+                    MediaType.APPLICATION_JSON
             );
 
-            ResponseEntity<String> response = restTemplate.exchange(
-                    BREVO_URL,
-                    HttpMethod.POST,
-                    new HttpEntity<>(payload, headers),
-                    String.class
+            headers.setAccept(
+                    List.of(MediaType.APPLICATION_JSON)
             );
+
+            headers.set(
+                    "api-key",
+                    brevoApiKey
+            );
+
+            /*
+             * IMPORTANT:
+             *
+             * Previously:
+             *
+             * "sender", Map.of("email", from)
+             *
+             * That allowed the email client to display the mailbox
+             * identity as the sender name.
+             *
+             * Now:
+             *
+             * "sender", {
+             *     "email": "pmpumuropizzou@gmail.com",
+             *     "name": "Noble Loan Solution"
+             * }
+             *
+             * Brevo will use "Noble Loan Solution" as the display name.
+             */
+            Map<String, Object> sender =
+                    Map.of(
+                            "email",
+                            from.trim(),
+                            "name",
+                            senderName
+                    );
+
+            Map<String, Object> payload =
+                    Map.of(
+                            "sender",
+                            sender,
+                            "to",
+                            List.of(
+                                    Map.of(
+                                            "email",
+                                            to.trim()
+                                    )
+                            ),
+                            "subject",
+                            subject,
+                            "htmlContent",
+                            html
+                    );
+
+            ResponseEntity<String> response =
+                    restTemplate.exchange(
+                            BREVO_URL,
+                            HttpMethod.POST,
+                            new HttpEntity<>(
+                                    payload,
+                                    headers
+                            ),
+                            String.class
+                    );
 
             if (response.getStatusCode().is2xxSuccessful()) {
                 log.info(
-                        "[EMAIL] Email accepted by Brevo for {}: {}",
+                        "[EMAIL] Email accepted by Brevo for {}: {} " +
+                                "(sender={} <{}>)",
                         to,
-                        subject
+                        subject,
+                        senderName,
+                        from
                 );
             } else {
                 log.error(
-                        "[EMAIL] Brevo rejected email for {}. HTTP status: {}. Subject: {}",
+                        "[EMAIL] Brevo rejected email for {}. " +
+                                "HTTP status: {}. Subject: {}",
                         to,
                         response.getStatusCode().value(),
                         subject
@@ -991,14 +1260,9 @@ public class MailService {
             }
 
         } catch (Exception e) {
-            /*
-             * Never propagate an external email-provider failure back into
-             * authentication, loan approval, disbursement, payment, etc.
-             *
-             * The transactional operation must remain authoritative.
-             */
             log.error(
-                    "[EMAIL] Email delivery failed for {}. Subject: {}. Error: {}",
+                    "[EMAIL] Email delivery failed for {}. " +
+                            "Subject: {}. Error: {}",
                     to,
                     subject,
                     e.getMessage()
@@ -1006,16 +1270,12 @@ public class MailService {
         }
     }
 
-    /**
-     * Prevent null values from appearing as the literal string "null".
-     */
     private String safe(Object value) {
-        return value == null ? "" : String.valueOf(value);
+        return value == null
+                ? ""
+                : String.valueOf(value);
     }
 
-    /**
-     * Minimal HTML attribute escaping for URLs placed inside href attributes.
-     */
     private String safeAttribute(String value) {
         if (value == null) {
             return "";
