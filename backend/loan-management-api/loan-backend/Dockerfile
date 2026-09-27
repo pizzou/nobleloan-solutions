@@ -1,65 +1,47 @@
 # ============================================================
-# FINOS / LOANSAAS PRO - PRODUCTION BACKEND IMAGE
-# AOS RWANDA DEPLOYMENT
+# LOANSAAS PRO - PRODUCTION DOCKER IMAGE
 # ============================================================
 
 # ------------------------------------------------------------
 # BUILD STAGE
 # ------------------------------------------------------------
 
-FROM maven:3.9.9-eclipse-temurin-21 AS builder
+FROM maven:3.9.6-eclipse-temurin-21 AS builder
 
 WORKDIR /app
 
-# Copy Maven descriptor first for Docker layer caching
 COPY pom.xml .
 
-# Download dependencies
-RUN mvn -B dependency:go-offline
+RUN mvn dependency:go-offline -q
 
-# Copy application source
 COPY src ./src
 
-# Build and test the application
-RUN mvn -B clean verify
+RUN mvn clean verify -q
 
 
 # ------------------------------------------------------------
 # RUNTIME STAGE
 # ------------------------------------------------------------
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:21-jre-alpine
 
 WORKDIR /app
 
 # ------------------------------------------------------------
-# NON-ROOT APPLICATION USER
+# NON-ROOT USER
 # ------------------------------------------------------------
 
-RUN groupadd --system loansaas \
-    && useradd --system \
-       --gid loansaas \
-       --home-dir /app \
-       --no-create-home \
-       loansaas
+RUN addgroup -S loansaas \
+    && adduser -S loansaas -G loansaas
 
-# Application/log directories
-RUN mkdir -p /app/logs \
-    && chown -R loansaas:loansaas /app
+RUN mkdir -p /var/log/loansaas \
+    && chown -R loansaas:loansaas /var/log/loansaas
 
-# ------------------------------------------------------------
-# APPLICATION JAR
-# ------------------------------------------------------------
-
-COPY --from=builder /app/target/*.jar /app/app.jar
+COPY --from=builder /app/target/*.jar app.jar
 
 RUN chown loansaas:loansaas /app/app.jar
 
 USER loansaas
-
-# ------------------------------------------------------------
-# SERVER PORT
-# ------------------------------------------------------------
 
 EXPOSE 8080
 
@@ -70,18 +52,23 @@ EXPOSE 8080
 #
 # IMPORTANT:
 #
-# Do not use the aggregate /actuator/health endpoint here if
-# financial reconciliation contributes to its status.
+# Do NOT use /actuator/health here.
 #
-# Reconciliation failures must be monitored separately and
-# must not automatically make the application container
-# appear unavailable.
+# The aggregate health endpoint includes financial
+# reconciliation health. A reconciliation failure must
+# generate an alert but MUST NOT make the entire application
+# unavailable.
+#
+# Liveness answers:
+#
+# "Is the JVM/application process alive?"
 #
 # Readiness answers:
 #
-# "Can this instance receive application traffic?"
+# "Can this instance receive traffic?"
 #
-# ------------------------------------------------------------
+# Financial reconciliation is monitored separately.
+#
 
 HEALTHCHECK \
     --interval=30s \
@@ -93,19 +80,13 @@ HEALTHCHECK \
 
 
 # ------------------------------------------------------------
-# JVM CONFIGURATION
+# JVM
 # ------------------------------------------------------------
 
-ENTRYPOINT [
-    "java",
-    "-XX:+UseContainerSupport",
-    "-XX:MaxRAMPercentage=75.0",
-    "-XX:InitialRAMPercentage=25.0",
-    "-XX:+UseG1GC",
-    "-XX:+ExitOnOutOfMemoryError",
-    "-Djava.security.egd=file:/dev/urandom",
-    "-jar",
-    "/app/app.jar"
-]
-
-STOPSIGNAL SIGTERM
+ENTRYPOINT ["java", \
+  "-XX:+UseContainerSupport", \
+  "-XX:MaxRAMPercentage=75.0", \
+  "-XX:+UseG1GC", \
+  "-Djava.security.egd=file:/dev/./urandom", \
+  "-jar", \
+  "app.jar"]
