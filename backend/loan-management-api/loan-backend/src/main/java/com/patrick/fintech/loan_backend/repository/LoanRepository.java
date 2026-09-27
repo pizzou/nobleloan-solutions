@@ -163,11 +163,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("organizationId") Long organizationId,
             @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
-    /**
-     * Tenant- and reporting-scope-aware pessimistic lock used by user-initiated
-     * state changes. A NORMAL_SCOPE caller cannot lock a finalized
-     * BUSINESS_OWNER_ONLY loan.
-     */
+   
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @EntityGraph(attributePaths = {"borrower", "organization", "loanOfficer"})
     @Query("""
@@ -716,53 +712,37 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             Pageable pageable);
 
     @EntityGraph(attributePaths = {"borrower", "organization"})
-    @Query("""
-            SELECT l
-            FROM Loan l
-            WHERE l.organization = :org
-              AND (:status IS NULL OR l.status = :status)
-              AND (:type IS NULL OR l.loanType = :type)
-              AND (
-                    :search IS NULL
-                    OR LOWER(COALESCE(l.referenceNumber, '')) LIKE LOWER(CONCAT('%', :search, '%'))
-                    OR LOWER(COALESCE(l.borrower.firstName, '')) LIKE LOWER(CONCAT('%', :search, '%'))
-                    OR LOWER(COALESCE(l.borrower.lastName, '')) LIKE LOWER(CONCAT('%', :search, '%'))
-                    OR LOWER(CONCAT(
-                            COALESCE(l.borrower.firstName, ''),
-                            ' ',
-                            COALESCE(l.borrower.lastName, '')
-                    )) LIKE LOWER(CONCAT('%', :search, '%'))
-              )
-              AND (
-                    :includeBusinessOwnerOnly = true
-                    OR COALESCE(l.businessOwnerOnly, false) = false
-                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
-              )
-            ORDER BY l.createdAt DESC
-            """,
-            countQuery = """
-            SELECT COUNT(l)
-            FROM Loan l
-            WHERE l.organization = :org
-              AND (:status IS NULL OR l.status = :status)
-              AND (:type IS NULL OR l.loanType = :type)
-              AND (
-                    :search IS NULL
-                    OR LOWER(COALESCE(l.referenceNumber, '')) LIKE LOWER(CONCAT('%', :search, '%'))
-                    OR LOWER(COALESCE(l.borrower.firstName, '')) LIKE LOWER(CONCAT('%', :search, '%'))
-                    OR LOWER(COALESCE(l.borrower.lastName, '')) LIKE LOWER(CONCAT('%', :search, '%'))
-                    OR LOWER(CONCAT(
-                            COALESCE(l.borrower.firstName, ''),
-                            ' ',
-                            COALESCE(l.borrower.lastName, '')
-                    )) LIKE LOWER(CONCAT('%', :search, '%'))
-              )
-              AND (
-                    :includeBusinessOwnerOnly = true
-                    OR COALESCE(l.businessOwnerOnly, false) = false
-                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
-              )
-            """)
+    @Query(value =
+            "SELECT l " +
+            "FROM Loan l " +
+            "WHERE l.organization = :org " +
+            "AND (:status IS NULL OR l.status = :status) " +
+            "AND (:type IS NULL OR l.loanType = :type) " +
+            "AND (:search IS NULL " +
+            "OR LOWER(COALESCE(l.referenceNumber, '')) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "OR LOWER(COALESCE(l.borrower.firstName, '')) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "OR LOWER(COALESCE(l.borrower.lastName, '')) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "OR LOWER(CONCAT(COALESCE(l.borrower.firstName, ''), ' ', " +
+            "COALESCE(l.borrower.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))) " +
+            "AND (:includeBusinessOwnerOnly = true " +
+            "OR COALESCE(l.businessOwnerOnly, false) = false " +
+            "OR l.status IN ('PENDING', 'UNDER_REVIEW')) " +
+            "ORDER BY l.createdAt DESC",
+            countQuery =
+            "SELECT COUNT(l) " +
+            "FROM Loan l " +
+            "WHERE l.organization = :org " +
+            "AND (:status IS NULL OR l.status = :status) " +
+            "AND (:type IS NULL OR l.loanType = :type) " +
+            "AND (:search IS NULL " +
+            "OR LOWER(COALESCE(l.referenceNumber, '')) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "OR LOWER(COALESCE(l.borrower.firstName, '')) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "OR LOWER(COALESCE(l.borrower.lastName, '')) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "OR LOWER(CONCAT(COALESCE(l.borrower.firstName, ''), ' ', " +
+            "COALESCE(l.borrower.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))) " +
+            "AND (:includeBusinessOwnerOnly = true " +
+            "OR COALESCE(l.businessOwnerOnly, false) = false " +
+            "OR l.status IN ('PENDING', 'UNDER_REVIEW'))")
     Page<Loan> findVisibleByFilters(
             @Param("org") Organization org,
             @Param("status") LoanStatus status,
