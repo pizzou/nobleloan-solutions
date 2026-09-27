@@ -676,6 +676,45 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("type") Loan.LoanType type,
             Pageable pageable);
 
+    /**
+     * Fast/default portfolio page. Kept separate from the optional-filter query
+     * so an unfiltered portfolio request never depends on nullable enum/string
+     * parameters during Hibernate count-query generation.
+     */
+    @EntityGraph(attributePaths = {
+            "borrower",
+            "organization",
+            "branch",
+            "createdBy",
+            "approvedBy",
+            "loanOfficer"
+    })
+    @Query(value = """
+            SELECT l
+            FROM Loan l
+            WHERE l.organization = :org
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
+              )
+            ORDER BY l.createdAt DESC
+            """,
+            countQuery = """
+            SELECT COUNT(l)
+            FROM Loan l
+            WHERE l.organization = :org
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
+              )
+            """)
+    Page<Loan> findVisiblePortfolio(
+            @Param("org") Organization org,
+            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly,
+            Pageable pageable);
+
     @EntityGraph(attributePaths = {"borrower", "organization"})
     @Query("""
             SELECT l
@@ -700,6 +739,29 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
                     OR l.status IN ('PENDING', 'UNDER_REVIEW')
               )
             ORDER BY l.createdAt DESC
+            """,
+            countQuery = """
+            SELECT COUNT(l)
+            FROM Loan l
+            WHERE l.organization = :org
+              AND (:status IS NULL OR l.status = :status)
+              AND (:type IS NULL OR l.loanType = :type)
+              AND (
+                    :search IS NULL
+                    OR LOWER(COALESCE(l.referenceNumber, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+                    OR LOWER(COALESCE(l.borrower.firstName, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+                    OR LOWER(COALESCE(l.borrower.lastName, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+                    OR LOWER(CONCAT(
+                            COALESCE(l.borrower.firstName, ''),
+                            ' ',
+                            COALESCE(l.borrower.lastName, '')
+                    )) LIKE LOWER(CONCAT('%', :search, '%'))
+              )
+              AND (
+                    :includeBusinessOwnerOnly = true
+                    OR COALESCE(l.businessOwnerOnly, false) = false
+                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
+              )
             """)
     Page<Loan> findVisibleByFilters(
             @Param("org") Organization org,

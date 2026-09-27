@@ -2393,15 +2393,27 @@ public class LoanService {
                         normalizedSearch = null;
                 }
 
+                boolean includeBusinessOwnerOnly = ReportingScopeService.includeBusinessOwnerOnly();
+                PageRequest pageable = PageRequest.of(page, size);
+
+                // Use the dedicated unfiltered query for the normal portfolio load.
+                // This avoids Hibernate generating a complex count query containing
+                // nullable enum/string predicates when the request is simply
+                // /api/loans?page=0&size=25.
+                if (ls == null && lt == null && normalizedSearch == null) {
+                        return loanRepo.findVisiblePortfolio(
+                                        org,
+                                        includeBusinessOwnerOnly,
+                                        pageable);
+                }
+
                 return loanRepo.findVisibleByFilters(
                                 org,
                                 ls,
                                 lt,
-                                ReportingScopeService.includeBusinessOwnerOnly(),
+                                includeBusinessOwnerOnly,
                                 normalizedSearch,
-                                PageRequest.of(
-                                                page,
-                                                size));
+                                pageable);
         }
 
         public List<Loan> getLoansByBorrowerForOrg(
