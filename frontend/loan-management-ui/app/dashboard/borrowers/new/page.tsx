@@ -35,29 +35,14 @@ const NAME_PATTERN = /^[A-Za-zÀ-ÿ' -]+$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * Rwanda phone validation.
- *
- * Accepts common forms such as:
- * +250788123456
- * +250 788 123 456
- * 0788123456
- * 0788 123 456
+ * Rwanda borrower phone validation. Registration accepts ONLY the
+ * national 10-digit format beginning with 0. Provider integrations
+ * may normalize this value later when they require +250.
  */
-const RWANDA_PHONE_PATTERN =
-  /^(?:\+250\s?7\d{2}\s?\d{3}\s?\d{3}|07\d{2}\s?\d{3}\s?\d{3})$/;
+const RWANDA_PHONE_PATTERN = /^0\d{9}$/;
 
 function normalizePhone(value: string): string {
-  const cleaned = value.replace(/[^\d+]/g, "");
-
-  if (cleaned.startsWith("+250")) {
-    return `+250${cleaned.slice(4)}`;
-  }
-
-  if (cleaned.startsWith("0")) {
-    return cleaned;
-  }
-
-  return cleaned;
+  return value.replace(/\D/g, "").slice(0, 10);
 }
 
 function normalizeNationalId(value: string): string {
@@ -284,7 +269,7 @@ export default function NewBorrowerPage() {
       nextErrors.phone = "Phone number is required.";
     } else if (!RWANDA_PHONE_PATTERN.test(phone.trim())) {
       nextErrors.phone =
-        "Enter a valid Rwanda phone number, for example +250 788 123 456.";
+        "Enter exactly 10 digits starting with 0, for example 0788 123 456.";
     }
 
     if (cleanEmail && !EMAIL_PATTERN.test(cleanEmail)) {
@@ -295,6 +280,9 @@ export default function NewBorrowerPage() {
 
     if (!alternatePhone.trim()) {
       nextErrors.alternatePhone = "Alternate phone is required.";
+    } else if (!RWANDA_PHONE_PATTERN.test(alternatePhone.trim())) {
+      nextErrors.alternatePhone =
+        "Enter exactly 10 digits starting with 0, for example 0788 123 456.";
     }
     if (!dateOfBirth) {
       nextErrors.dateOfBirth = "Date of birth is required.";
@@ -961,12 +949,14 @@ export default function NewBorrowerPage() {
                     value={phone}
                     inputMode="tel"
                     autoComplete="tel"
-                    maxLength={20}
+                    maxLength={10}
                     disabled={loading}
                     aria-invalid={Boolean(errors.phone)}
                     aria-describedby={errors.phone ? "phone-error" : undefined}
                     onChange={(event) => {
-                      const value = event.target.value;
+                      const value = event.target.value
+                        .replace(/\D/g, "")
+                        .slice(0, 10);
 
                       setPhone(value);
 
@@ -977,7 +967,7 @@ export default function NewBorrowerPage() {
                         }));
                       }
                     }}
-                    placeholder="+250 788 123 456"
+                    placeholder="0788 123 456"
                     className={inputClass(errors.phone)}
                   />
                 </Field>
@@ -993,8 +983,12 @@ export default function NewBorrowerPage() {
                     type="tel"
                     value={alternatePhone}
                     disabled={loading}
-                    onChange={(event) => setAlternatePhone(event.target.value)}
-                    placeholder="+250 788 123 456"
+                    onChange={(event) =>
+                      setAlternatePhone(
+                        event.target.value.replace(/\D/g, "").slice(0, 10),
+                      )
+                    }
+                    placeholder="0788 123 456"
                     className={inputClass(errors.alternatePhone)}
                   />
                 </Field>

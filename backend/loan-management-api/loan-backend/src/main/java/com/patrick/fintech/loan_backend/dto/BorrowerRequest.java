@@ -13,8 +13,17 @@ public class BorrowerRequest {
     @NotBlank private String firstName;
     @NotBlank private String lastName;
     @Email   private String email;
+    @NotBlank(message = "Phone number is required")
+    @Pattern(
+        regexp = "^0\\d{9}$",
+        message = "Phone number must contain exactly 10 digits and start with 0"
+    )
     private String phone;
-    @NotBlank
+    @NotBlank(message = "Alternate phone number is required")
+    @Pattern(
+        regexp = "^0\\d{9}$",
+        message = "Alternate phone number must contain exactly 10 digits and start with 0"
+    )
     private String alternatePhone;
        @NotBlank(message = "National ID is required")
 @Pattern(

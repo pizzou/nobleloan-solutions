@@ -113,7 +113,9 @@ public class LoanController {
 
                         @RequestParam(required = false) String status,
 
-                        @RequestParam(required = false) String type) {
+                        @RequestParam(required = false) String type,
+
+                        @RequestParam(required = false) String search) {
 
                 Organization organization = currentUserUtil
                                 .getCurrentUser()
@@ -126,7 +128,8 @@ public class LoanController {
                                                                 page,
                                                                 size,
                                                                 status,
-                                                                type))));
+                                                                type,
+                                                                search))));
         }
 
         // ================================================================

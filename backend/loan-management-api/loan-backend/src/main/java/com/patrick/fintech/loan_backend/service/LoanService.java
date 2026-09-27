@@ -2303,12 +2303,31 @@ public class LoanService {
         // GET LOANS
         // ================================================================
 
+        /**
+         * Backward-compatible loan listing overload retained for existing callers.
+         */
         public Page<Loan> getLoans(
                         Organization org,
                         int page,
                         int size,
                         String status,
                         String type) {
+
+                return getLoans(org, page, size, status, type, null);
+        }
+
+        /**
+         * Lists loans using the existing reporting visibility scope and optional
+         * borrower/reference search. Search is executed in the database so it
+         * works across all pages rather than only the currently loaded page.
+         */
+        public Page<Loan> getLoans(
+                        Organization org,
+                        int page,
+                        int size,
+                        String status,
+                        String type,
+                        String search) {
 
                 if (org == null
                                 || org.getId() == null) {
@@ -2361,11 +2380,25 @@ public class LoanService {
                         }
                 }
 
+                String normalizedSearch = search == null
+                                ? null
+                                : search.trim();
+
+                if (normalizedSearch != null && normalizedSearch.length() > 100) {
+                        throw new IllegalArgumentException(
+                                        "Loan search text must not exceed 100 characters");
+                }
+
+                if (normalizedSearch != null && normalizedSearch.isEmpty()) {
+                        normalizedSearch = null;
+                }
+
                 return loanRepo.findVisibleByFilters(
                                 org,
                                 ls,
                                 lt,
                                 ReportingScopeService.includeBusinessOwnerOnly(),
+                                normalizedSearch,
                                 PageRequest.of(
                                                 page,
                                                 size));

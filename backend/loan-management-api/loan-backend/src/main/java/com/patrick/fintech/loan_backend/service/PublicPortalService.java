@@ -60,23 +60,30 @@ public class PublicPortalService {
                                         "Reference number is required");
                 }
 
-                if (request.getPhone() == null
-                                || request.getPhone().isBlank()) {
-
+                if (!isRwandaNationalPhone(request.getPhone())) {
                         throw new IllegalArgumentException(
-                                        "Phone number is required");
+                                        "Phone number must contain exactly 10 digits and start with 0 (for example 0788123456).");
                 }
 
-                String phoneHash = HmacIndexer.index(
-                                request.getPhone().trim());
+                String normalizedPhone = request.getPhone().trim();
+                String phoneHash = HmacIndexer.index(normalizedPhone);
 
                 Loan loan = loanRepository
                                 .findPublicDashboardLoan(
                                                 request.getReference().trim(),
                                                 phoneHash)
-                                .orElseThrow(
-                                                () -> new RuntimeException(
-                                                                "Application not found"));
+                                .orElseGet(() -> {
+                                        // Compatibility for borrowers created before the
+                                        // national 10-digit registration rule was enforced.
+                                        String legacyHash = HmacIndexer.index(
+                                                        "+250" + normalizedPhone.substring(1));
+                                        return loanRepository
+                                                        .findPublicDashboardLoan(
+                                                                        request.getReference().trim(),
+                                                                        legacyHash)
+                                                        .orElseThrow(() -> new RuntimeException(
+                                                                        "Application not found"));
+                                });
 
                 // ============================================================
                 // BASIC DATES
@@ -842,4 +849,9 @@ public class PublicPortalService {
                                 2,
                                 RoundingMode.HALF_UP);
         }
+
+        private boolean isRwandaNationalPhone(String phone) {
+                return phone != null && phone.trim().matches("^0\\d{9}$");
+        }
+
 }

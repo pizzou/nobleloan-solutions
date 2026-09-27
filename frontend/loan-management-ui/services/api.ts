@@ -310,11 +310,12 @@ export const authApi = {
  */
 
 export const loanApi = {
-  list: (page = 0, size = 20, status = "", type = "") =>
+  list: (page = 0, size = 20, status = "", type = "", search = "") =>
     get(
       `/loans?page=${page}&size=${size}` +
         `${status ? `&status=${encodeURIComponent(status)}` : ""}` +
-        `${type ? `&type=${encodeURIComponent(type)}` : ""}`,
+        `${type ? `&type=${encodeURIComponent(type)}` : ""}` +
+        `${search.trim() ? `&search=${encodeURIComponent(search.trim())}` : ""}`,
     ),
 
   get: (id: number) => get(`/loans/${id}`),

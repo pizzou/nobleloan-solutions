@@ -603,20 +603,31 @@ export default function LoanListPage() {
 
   const [query, setQuery] = useState("");
 
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(query.trim());
+      setPage(0);
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
   /* ==========================================================
      LOAD PORTFOLIO
      ========================================================== */
 
   const loadPortfolio = useCallback(async () => {
-    const cacheKey = `/loans/list?page=${page}&size=${PAGE_SIZE}&status=${status}&type=${type}`;
+    const cacheKey = `/loans/list?page=${page}&size=${PAGE_SIZE}&status=${status}&type=${type}&search=${encodeURIComponent(debouncedQuery)}`;
 
     setError(null);
 
     try {
       const [listResponse, dashboardResponse] = await Promise.all([
-        loanApi.list(page, PAGE_SIZE, status, type),
+        loanApi.list(page, PAGE_SIZE, status, type, debouncedQuery),
 
-        page === 0 && !status && !type
+        page === 0 && !status && !type && !debouncedQuery
           ? loanApi.dashboard()
           : Promise.resolve(null),
       ]);
@@ -695,7 +706,7 @@ export default function LoanListPage() {
         setError("Unable to load the loan portfolio.");
       }
     }
-  }, [page, status, type, online]);
+  }, [page, status, type, debouncedQuery, online]);
 
   /* ==========================================================
      INITIAL / FILTER LOAD

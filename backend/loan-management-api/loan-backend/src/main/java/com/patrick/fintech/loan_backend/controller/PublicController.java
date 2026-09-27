@@ -2612,12 +2612,17 @@ public class PublicController {
 
                 String phone = str(body.get("phone"));
 
-                if (phone == null
-                                || phone.isBlank()
-                                || phone.trim().length() > 40) {
+                if (!isRwandaNationalPhone(phone)) {
+                        throw new IllegalArgumentException(
+                                        "Phone number must contain exactly 10 digits and start with 0 (for example 0788123456).");
+                }
 
-                        throw new RuntimeException(
-                                        "Phone number is required");
+                phone = phone.trim();
+
+                String spousePhone = str(body.get("spousePhone"));
+                if (spousePhone != null && !isRwandaNationalPhone(spousePhone)) {
+                        throw new IllegalArgumentException(
+                                        "Spouse phone number must contain exactly 10 digits and start with 0 (for example 0788123456).");
                 }
 
                 String firstName = str(
@@ -2867,9 +2872,7 @@ public class PublicController {
                                                                 "spouseNationalId")));
 
                 borrower.setSpousePhone(
-                                str(
-                                                body.get(
-                                                                "spousePhone")));
+                                spousePhone);
 
                 borrower.setSpouseConsent(
                                 body.get(
@@ -3760,12 +3763,12 @@ public class PublicController {
                                         "Application reference number is required.");
                 }
 
-                if (phone == null
-                                || phone.isBlank()) {
-
-                        throw new RuntimeException(
-                                        "Phone number is required.");
+                if (!isRwandaNationalPhone(phone)) {
+                        throw new IllegalArgumentException(
+                                        "Phone number must contain exactly 10 digits and start with 0 (for example 0788123456).");
                 }
+
+                phone = phone.trim();
 
                 Loan loan = loanRepo
                                 .findByReferenceNumber(
@@ -3784,14 +3787,25 @@ public class PublicController {
                                         "This application has no borrower associated with it.");
                 }
 
-                String suppliedHash = HmacIndexer.index(
-                                phone.trim());
+                String normalizedPhone = phone.trim();
+                String suppliedHash = HmacIndexer.index(normalizedPhone);
 
                 String storedHash = borrower.getPhoneHash();
 
+                // New borrower registrations use the national 10-digit format.
+                // Keep a compatibility check for legacy borrowers that were stored
+                // before this rule was enforced as +250XXXXXXXXX. The user-facing
+                // input still accepts ONLY the 10-digit national format.
+                String legacyInternationalHash = null;
+                if (normalizedPhone.startsWith("0") && normalizedPhone.length() == 10) {
+                        legacyInternationalHash = HmacIndexer.index(
+                                        "+250" + normalizedPhone.substring(1));
+                }
+
                 if (storedHash == null
-                                || !storedHash.equals(
-                                                suppliedHash)) {
+                                || (!storedHash.equals(suppliedHash)
+                                                && (legacyInternationalHash == null
+                                                                || !storedHash.equals(legacyInternationalHash)))) {
 
                         throw new RuntimeException(
                                         "We couldn't find an application with that reference number and phone number.");
@@ -4156,6 +4170,10 @@ public class PublicController {
                         throw new IllegalStateException(
                                         "Failed to persist mandatory " + documentType.name() + " document.");
                 }
+        }
+
+        private boolean isRwandaNationalPhone(String phone) {
+                return phone != null && phone.trim().matches("^0\\d{9}$");
         }
 
         private String str(

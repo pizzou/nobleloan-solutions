@@ -156,6 +156,8 @@ const PAY_METHODS: {
   },
 ];
 
+const RWANDA_PHONE_REGEX = /^0\d{9}$/;
+
 const statusLabel = (status?: string) => {
   if (!status) return "Unknown";
 
@@ -254,6 +256,14 @@ export default function TrackPage() {
 
     const ref = reference.trim();
     const ph = phone.trim();
+
+    if (!RWANDA_PHONE_REGEX.test(ph)) {
+      setError(
+        "Enter exactly 10 digits starting with 0, for example 0788123456.",
+      );
+      setLoading(false);
+      return;
+    }
 
     try {
       const status = (await publicApi.trackApplication(
@@ -767,13 +777,18 @@ export default function TrackPage() {
                 <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-2">
                   Phone Number
                 </label>
+                <p className="text-[11px] text-gray-500 mb-2">
+                  10 digits starting with 0
+                </p>
 
                 <input
                   required
                   type="tel"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="Phone used on application"
+                  onChange={(e) =>
+                    setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))
+                  }
+                  placeholder="0788 123 456"
                   className="w-full h-12 px-4 border border-gray-200 rounded-xl bg-gray-50 text-sm font-semibold focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600/20 focus:border-emerald-600 transition"
                 />
               </div>

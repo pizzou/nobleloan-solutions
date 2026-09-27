@@ -1,37 +1,51 @@
-version: "3.9"
-
-# ================================================================
-# Single-tenant deployment — Noble Loan Solutions Ltd.
+# ============================================================
+# FINOS / LOANSAAS PRO
+# SINGLE-TENANT PRODUCTION DEPLOYMENT
+# AOS RWANDA
 #
-# This deployment runs ONE backend process, ONE database, and ONE
-# frontend, all dedicated to Noble Loan Solutions Ltd. There is no
-# tenant picker, no shared infrastructure with any other institution,
-# and no other organization's data ever exists in this stack. The
-# domain(s) in CORS_ORIGINS below and in docker/nginx/conf.d/loansaas.conf
-# should be this bank's domain only.
+# Institution:
+#   Noble Loan Solutions Ltd.
 #
-# To stand up a deployment for a different institution, copy this repo,
-# change SEED_ORG / NEXT_PUBLIC_TENANT_SLUG, the DB name, and the domain —
-# do not add a second org into this same stack.
-# ================================================================
+# Architecture:
+#
+#   Internet
+#       |
+#       v
+#   Nginx :80/:443
+#       |
+#       +----> frontend :3000
+#       |
+#       +----> backend :8080
+#                    |
+#                    v
+#               PostgreSQL :5432
+#
+# PostgreSQL is NOT exposed publicly.
+# Backend and frontend are only reachable through the
+# internal Docker network.
+# ============================================================
 
 services:
-  # ================================================================
-  # PostgreSQL — single database for this institution
-  # ================================================================
+  # ==========================================================
+  # POSTGRESQL
+  # ==========================================================
+
   postgres:
     image: postgres:16-alpine
+
     container_name: loansaas-postgres
+
     restart: unless-stopped
+
     environment:
       POSTGRES_DB: loansaas_nobleloansolutions
       POSTGRES_USER: loansaas
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       PGDATA: /var/lib/postgresql/data/pgdata
+
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "127.0.0.1:5432:5432"
+
     healthcheck:
       test:
         ["CMD-SHELL", "pg_isready -U loansaas -d loansaas_nobleloansolutions"]
@@ -39,59 +53,120 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+
     networks:
       - loansaas-network
-    deploy:
-      resources:
-        limits:
-          memory: 1G
 
-  # ================================================================
-  # Backend — Noble Loan Solutions Ltd (the only backend in this stack)
-  # ================================================================
+  # ==========================================================
+  # SPRING BOOT BACKEND
+  # ==========================================================
+
   backend:
     build:
       context: ./backend/loan-management-api/loan-backend
       dockerfile: Dockerfile
+
     container_name: loansaas-backend
+
     restart: unless-stopped
+
     depends_on:
       postgres:
         condition: service_healthy
+
     environment:
+      # ------------------------------------------------------
+      # SPRING
+      # ------------------------------------------------------
+
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILE:-default}
+
+      # ------------------------------------------------------
+      # DATABASE
+      # ------------------------------------------------------
+
       DB_URL: jdbc:postgresql://postgres:5432/loansaas_nobleloansolutions
       DB_USERNAME: loansaas
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       DB_NAME: loansaas_nobleloansolutions
+
+      # ------------------------------------------------------
+      # SINGLE TENANT
+      # ------------------------------------------------------
+
       SEED_ORG: nobleloansolutions
-      # PRODUCTION GO-LIVE: set these three to skip demo-data seeding entirely and get one real
-      # organization + one real admin account instead (see DataSeeder.bootstrapProductionOrg).
-      # Leaving BOOTSTRAP_ADMIN_EMAIL blank means this deploys with published demo credentials
-      # Never leave BOOTSTRAP_ADMIN_EMAIL/PASSWORD blank for a production launch.
-      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
-      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
-      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-}
-      BOOTSTRAP_ADMIN_PHONE: ${BOOTSTRAP_ADMIN_PHONE:-}
-      BOOTSTRAP_ORG_NAME: ${BOOTSTRAP_ORG_NAME:-}
-      BOOTSTRAP_ORG_COUNTRY: ${BOOTSTRAP_ORG_COUNTRY:-}
-      BOOTSTRAP_ORG_CURRENCY: ${BOOTSTRAP_ORG_CURRENCY:-}
-      BOOTSTRAP_ORG_TIMEZONE: ${BOOTSTRAP_ORG_TIMEZONE:-}
-      BOOTSTRAP_ORG_LOCALE: ${BOOTSTRAP_ORG_LOCALE:-}
+
+      # ------------------------------------------------------
+      # PRODUCTION ADMIN
+      # ------------------------------------------------------
+
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:?BOOTSTRAP_ADMIN_EMAIL is required}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?BOOTSTRAP_ADMIN_PASSWORD is required}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:?BOOTSTRAP_ADMIN_NAME is required}
+      BOOTSTRAP_ADMIN_PHONE: ${BOOTSTRAP_ADMIN_PHONE:?BOOTSTRAP_ADMIN_PHONE is required}
+
+      BOOTSTRAP_ORG_NAME: ${BOOTSTRAP_ORG_NAME:?BOOTSTRAP_ORG_NAME is required}
+      BOOTSTRAP_ORG_COUNTRY: ${BOOTSTRAP_ORG_COUNTRY:-RW}
+      BOOTSTRAP_ORG_CURRENCY: ${BOOTSTRAP_ORG_CURRENCY:-RWF}
+      BOOTSTRAP_ORG_TIMEZONE: ${BOOTSTRAP_ORG_TIMEZONE:-Africa/Kigali}
+      BOOTSTRAP_ORG_LOCALE: ${BOOTSTRAP_ORG_LOCALE:-en_RW}
+
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
+
+      # ------------------------------------------------------
+      # AUTHENTICATION
+      # ------------------------------------------------------
+
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-900000}
+
+      AUTH_COOKIE_SAME_SITE: ${AUTH_COOKIE_SAME_SITE:-Lax}
+
+      # ------------------------------------------------------
+      # CORS
+      # ------------------------------------------------------
+
       CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
+
+      # ------------------------------------------------------
+      # APPLICATION ENCRYPTION
+      # ------------------------------------------------------
+
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?APP_ENCRYPTION_KEY is required}
+
+      APP_INDEX_KEY: ${APP_INDEX_KEY:?APP_INDEX_KEY is required}
+
+      # ------------------------------------------------------
+      # LOGGING
+      # ------------------------------------------------------
+
+      LOG_FILE: /var/log/loansaas/nobleloansolutions.log
+
+      # ------------------------------------------------------
+      # EMAIL
+      # ------------------------------------------------------
+
       MAIL_ENABLED: ${MAIL_ENABLED:-false}
       MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
       MAIL_PORT: ${MAIL_PORT:-587}
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-noreply@nobleloansolutions.rw}
+
+      # ------------------------------------------------------
+      # FLUTTERWAVE
+      # ------------------------------------------------------
+
       FLUTTERWAVE_ENABLED: ${FLUTTERWAVE_ENABLED:-false}
       FLUTTERWAVE_SECRET_KEY: ${FLUTTERWAVE_SECRET_KEY:-}
       FLUTTERWAVE_PUBLIC_KEY: ${FLUTTERWAVE_PUBLIC_KEY:-}
       FLUTTERWAVE_WEBHOOK_SECRET: ${FLUTTERWAVE_WEBHOOK_SECRET:-}
+
+      # ------------------------------------------------------
+      # MTN MOBILE MONEY
+      # ------------------------------------------------------
+
       MTN_MOMO_ENABLED: ${MTN_MOMO_ENABLED:-false}
       MTN_MOMO_SANDBOX: ${MTN_MOMO_SANDBOX:-false}
       MTN_MOMO_BASE_URL: ${MTN_MOMO_BASE_URL:-}
@@ -100,6 +175,11 @@ services:
       MTN_MOMO_API_KEY: ${MTN_MOMO_API_KEY:-}
       MTN_MOMO_CALLBACK_URL: ${MTN_MOMO_CALLBACK_URL:-}
       MTN_MOMO_WEBHOOK_SECRET: ${MTN_MOMO_WEBHOOK_SECRET:-}
+
+      # ------------------------------------------------------
+      # AIRTEL MONEY
+      # ------------------------------------------------------
+
       AIRTEL_MONEY_ENABLED: ${AIRTEL_MONEY_ENABLED:-false}
       AIRTEL_MONEY_BASE_URL: ${AIRTEL_MONEY_BASE_URL:-}
       AIRTEL_MONEY_CLIENT_ID: ${AIRTEL_MONEY_CLIENT_ID:-}
@@ -107,138 +187,189 @@ services:
       AIRTEL_MONEY_API_KEY: ${AIRTEL_MONEY_API_KEY:-}
       AIRTEL_MONEY_CALLBACK_URL: ${AIRTEL_MONEY_CALLBACK_URL:-}
       AIRTEL_MONEY_WEBHOOK_SECRET: ${AIRTEL_MONEY_WEBHOOK_SECRET:-}
+
+      # ------------------------------------------------------
+      # CREDIT BUREAU
+      # ------------------------------------------------------
+
       CREDIT_BUREAU_ENABLED: ${CREDIT_BUREAU_ENABLED:-false}
       CREDIT_BUREAU_BASE_URL: ${CREDIT_BUREAU_BASE_URL:-}
       CREDIT_BUREAU_API_KEY: ${CREDIT_BUREAU_API_KEY:-}
       CREDIT_BUREAU_REQUIRED_FOR_DISBURSEMENT: ${CREDIT_BUREAU_REQUIRED_FOR_DISBURSEMENT:-false}
+
+      # ------------------------------------------------------
+      # COMPLIANCE PROVIDER
+      # ------------------------------------------------------
+
       COMPLIANCE_EXTERNAL_PROVIDER_ENABLED: ${COMPLIANCE_EXTERNAL_PROVIDER_ENABLED:-false}
       COMPLIANCE_PROVIDER: ${COMPLIANCE_PROVIDER:-}
       COMPLIANCE_BASE_URL: ${COMPLIANCE_BASE_URL:-}
       COMPLIANCE_API_KEY: ${COMPLIANCE_API_KEY:-}
       COMPLIANCE_WEBHOOK_SECRET: ${COMPLIANCE_WEBHOOK_SECRET:-}
+
+      # ------------------------------------------------------
+      # PROVISIONING
+      # ------------------------------------------------------
+
       PROVISIONING_POLICY_APPROVED: ${PROVISIONING_POLICY_APPROVED:-false}
+
       PROVISION_RATE_CURRENT: ${PROVISION_RATE_CURRENT:-0}
       PROVISION_RATE_WATCH: ${PROVISION_RATE_WATCH:-0}
       PROVISION_RATE_SUBSTANDARD: ${PROVISION_RATE_SUBSTANDARD:-0}
       PROVISION_RATE_DOUBTFUL: ${PROVISION_RATE_DOUBTFUL:-0}
       PROVISION_RATE_WRITTEN_OFF: ${PROVISION_RATE_WRITTEN_OFF:-0}
-      AUTH_COOKIE_SAME_SITE: ${AUTH_COOKIE_SAME_SITE:-Lax}
-      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?APP_ENCRYPTION_KEY is required}
-      APP_INDEX_KEY: ${APP_INDEX_KEY:?APP_INDEX_KEY is required}
+
+      # ------------------------------------------------------
+      # FX
+      # ------------------------------------------------------
+
       OXR_APP_ID: ${OXR_APP_ID:-}
+
+      # ------------------------------------------------------
+      # FINANCIAL RECONCILIATION
+      # ------------------------------------------------------
+
       FINANCIAL_RECONCILIATION_LOCK_DURATION_MS: ${FINANCIAL_RECONCILIATION_LOCK_DURATION_MS:-900000}
-      LOG_FILE: /var/log/loansaas/nobleloansolutions.log
+
     volumes:
       - backend_logs:/var/log/loansaas
+
     networks:
       - loansaas-network
+
     healthcheck:
       test:
         [
           "CMD",
           "wget",
           "-qO-",
-          "http://localhost:8080/actuator/health/liveness",
+          "http://127.0.0.1:8080/actuator/health/readiness",
         ]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 90s
-    deploy:
-      resources:
-        limits:
-          memory: 1536M
-        reservations:
-          memory: 768M
 
-  # ================================================================
-  # Next.js Frontend — serves the bank's public site at the root URL
-  # and the staff dashboard at /dashboard. No tenant picker.
-  # ================================================================
+  # ==========================================================
+  # NEXT.JS FRONTEND
+  # ==========================================================
+
   frontend:
     build:
       context: ./frontend/loan-management-ui
       dockerfile: Dockerfile
+
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
-        BACKEND_API_URL: ${BACKEND_API_URL:-http://backend:8080/api}
+
     container_name: loansaas-frontend
+
     restart: unless-stopped
+
     depends_on:
       backend:
         condition: service_healthy
+
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
-      BACKEND_API_URL: ${BACKEND_API_URL:-http://backend:8080/api}
-      NEXT_PUBLIC_TENANT_SLUG: nobleloansolutions
       NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
+      NEXT_PUBLIC_TENANT_SLUG: nobleloansolutions
+
+      # Internal server-side backend address.
+      # This is NOT exposed to the browser.
+      BACKEND_API_URL: http://backend:8080/api
+
     networks:
       - loansaas-network
+
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 512M
 
-  # ================================================================
-  # Nginx — single domain, single upstream, SSL termination
-  # ================================================================
+  # ==========================================================
+  # NGINX
+  # ==========================================================
+
   nginx:
-    image: nginx:1.25-alpine
+    image: nginx:1.27-alpine
+
     container_name: loansaas-nginx
+
     restart: unless-stopped
+
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_healthy
+
+      frontend:
+        condition: service_healthy
+
     ports:
       - "80:80"
       - "443:443"
+
     volumes:
+      # Nginx configuration
       - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+
+      # Optional manually managed certificates
       - ./docker/nginx/ssl:/etc/nginx/ssl:ro
-      - nginx_logs:/var/log/nginx
+
+      # Let's Encrypt webroot
       - certbot_www:/var/www/certbot:ro
+
+      # Let's Encrypt certificates
       - certbot_certs:/etc/letsencrypt:ro
+
+      # Nginx logs
+      - nginx_logs:/var/log/nginx
+
     networks:
       - loansaas-network
-    deploy:
-      resources:
-        limits:
-          memory: 128M
 
-  # ================================================================
-  # Certbot for Let's Encrypt SSL (optional)
-  # ================================================================
+  # ==========================================================
+  # CERTBOT
+  # ==========================================================
+
   certbot:
-    image: certbot/certbot:latest
+    image: certbot/certbot:v5.1.0
+
     container_name: loansaas-certbot
+
     volumes:
       - certbot_www:/var/www/certbot
       - certbot_certs:/etc/letsencrypt
-    command: echo "Certbot ready — run deploy/scripts/ssl-init.sh to obtain certificate"
+
     profiles:
       - ssl
+
+# ============================================================
+# PERSISTENT STORAGE
+# ============================================================
 
 volumes:
   postgres_data:
     driver: local
+
   backend_logs:
     driver: local
+
   nginx_logs:
     driver: local
+
   certbot_www:
     driver: local
+
   certbot_certs:
     driver: local
+
+# ============================================================
+# INTERNAL NETWORK
+# ============================================================
 
 networks:
   loansaas-network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.28.0.0/16

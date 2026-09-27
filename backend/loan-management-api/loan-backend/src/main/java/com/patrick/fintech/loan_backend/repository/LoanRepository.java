@@ -684,6 +684,17 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
               AND (:status IS NULL OR l.status = :status)
               AND (:type IS NULL OR l.loanType = :type)
               AND (
+                    :search IS NULL
+                    OR LOWER(COALESCE(l.referenceNumber, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+                    OR LOWER(COALESCE(l.borrower.firstName, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+                    OR LOWER(COALESCE(l.borrower.lastName, '')) LIKE LOWER(CONCAT('%', :search, '%'))
+                    OR LOWER(CONCAT(
+                            COALESCE(l.borrower.firstName, ''),
+                            ' ',
+                            COALESCE(l.borrower.lastName, '')
+                    )) LIKE LOWER(CONCAT('%', :search, '%'))
+              )
+              AND (
                     :includeBusinessOwnerOnly = true
                     OR COALESCE(l.businessOwnerOnly, false) = false
                     OR l.status IN ('PENDING', 'UNDER_REVIEW')
@@ -695,6 +706,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("status") LoanStatus status,
             @Param("type") Loan.LoanType type,
             @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly,
+            @Param("search") String search,
             Pageable pageable);
 
     // ============================================================

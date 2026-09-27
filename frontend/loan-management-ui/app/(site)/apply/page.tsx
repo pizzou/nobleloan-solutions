@@ -155,7 +155,7 @@ export default function ApplyPage() {
   // PHONE VALIDATION
   // ============================================================
 
-  const PHONE_REGEX = /^\+\d{10,15}$/;
+  const PHONE_REGEX = /^0\d{9}$/;
 
   const isPhoneValid = (value: string) => {
     return PHONE_REGEX.test(value);
@@ -164,9 +164,7 @@ export default function ApplyPage() {
   const setPhone =
     (k: "phone" | "spousePhone") =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      let value = e.target.value.replace(/[^\d+]/g, "");
-
-      value = (value.startsWith("+") ? "+" : "") + value.replace(/\+/g, "");
+      const value = e.target.value.replace(/\D/g, "").slice(0, 10);
 
       setForm((f) => ({
         ...f,
@@ -608,22 +606,21 @@ export default function ApplyPage() {
                   hint={
                     form.phone && !isPhoneValid(form.phone)
                       ? undefined
-                      : "Include country code, e.g. +2507XXXXXXXX"
+                      : "Enter 10 digits starting with 0, e.g. 0788123456"
                   }
                 >
                   <input
                     required
                     inputMode="tel"
                     className={inp}
-                    placeholder="+250 7XX XXX XXX"
+                    placeholder="0788 123 456"
                     value={form.phone}
                     onChange={setPhone("phone")}
                   />
 
                   {form.phone && !isPhoneValid(form.phone) && (
                     <p className="text-xs mt-1 text-red-600 font-semibold">
-                      Enter a valid number with country code, digits only (e.g.
-                      +2507XXXXXXXX)
+                      Enter exactly 10 digits starting with 0 (e.g. 0788123456)
                     </p>
                   )}
                 </Field>
@@ -778,14 +775,14 @@ export default function ApplyPage() {
                       <input
                         inputMode="tel"
                         className={inp}
-                        placeholder="+250 7XX XXX XXX"
+                        placeholder="0788 123 456"
                         value={form.spousePhone}
                         onChange={setPhone("spousePhone")}
                       />
 
                       {form.spousePhone && !isPhoneValid(form.spousePhone) && (
                         <p className="text-xs mt-1 text-red-600 font-semibold">
-                          Enter a valid number with country code
+                          Enter exactly 10 digits starting with 0
                         </p>
                       )}
                     </Field>
