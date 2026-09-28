@@ -36,7 +36,7 @@ import java.util.Map;
 @RequestMapping("/api/accounting")
 @RequiredArgsConstructor
 @Slf4j
-@PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT')")
+@PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','BUSINESS_OWNER')")
 public class AccountingController {
 
         private final AccountingService accountingService;

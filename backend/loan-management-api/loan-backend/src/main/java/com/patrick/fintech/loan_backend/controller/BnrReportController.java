@@ -44,7 +44,7 @@ import java.math.BigDecimal;
 @RestController
 @RequestMapping("/api/regulatory/bnr")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('ADMIN','MANAGER','AUDITOR')")
+@PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','AUDITOR','BUSINESS_OWNER')")
 public class BnrReportController {
 
         private final RegulatoryReportingService reportingService;

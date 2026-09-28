@@ -17,6 +17,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -183,19 +185,19 @@ public class BorrowerDetailsService {
         int writtenOffLoans = 0;
 
 
-        double totalBorrowed = 0.0;
+        BigDecimal totalBorrowed = BigDecimal.ZERO;
 
-        double totalDisbursed = 0.0;
+        BigDecimal totalDisbursed = BigDecimal.ZERO;
 
-        double totalOutstanding = 0.0;
+        BigDecimal totalOutstanding = BigDecimal.ZERO;
 
-        double totalPrincipalPaid = 0.0;
+        BigDecimal totalPrincipalPaid = BigDecimal.ZERO;
 
-        double totalInterestPaid = 0.0;
+        BigDecimal totalInterestPaid = BigDecimal.ZERO;
 
-        double totalFeesPaid = 0.0;
+        BigDecimal totalFeesPaid = BigDecimal.ZERO;
 
-        double totalPaid = 0.0;
+        BigDecimal totalPaid = BigDecimal.ZERO;
 
 
         int currentDaysPastDue = 0;
@@ -268,37 +270,28 @@ public class BorrowerDetailsService {
             // LOAN AMOUNTS
             // ----------------------------------------------------
 
-            double loanAmount =
-                    number(
-                            loan.getAmount()
-                    );
+            BigDecimal loanAmount =
+                    money(loan.getAmountDecimal());
 
 
-            double disbursedAmount =
-                    number(
-                            loan.getDisbursedAmount()
-                    );
+            BigDecimal disbursedAmount =
+                    money(loan.getDisbursedAmountDecimal());
 
 
-            double outstandingBalance =
-                    Math.max(
-                            0.0,
-                            number(
-                                    loan.getOutstandingBalance()
-                            )
-                    );
+            BigDecimal outstandingBalance =
+                    money(loan.getOutstandingBalanceDecimal()).max(BigDecimal.ZERO);
 
 
-            totalBorrowed +=
-                    loanAmount;
+            totalBorrowed =
+                    totalBorrowed.add(loanAmount);
 
 
-            totalDisbursed +=
-                    disbursedAmount;
+            totalDisbursed =
+                    totalDisbursed.add(disbursedAmount);
 
 
-            totalOutstanding +=
-                    outstandingBalance;
+            totalOutstanding =
+                    totalOutstanding.add(outstandingBalance);
 
 
             // ----------------------------------------------------
@@ -397,13 +390,13 @@ public class BorrowerDetailsService {
             }
 
 
-            double loanPrincipalPaid = 0.0;
+            BigDecimal loanPrincipalPaid = BigDecimal.ZERO;
 
-            double loanInterestPaid = 0.0;
+            BigDecimal loanInterestPaid = BigDecimal.ZERO;
 
-            double loanFeesPaid = 0.0;
+            BigDecimal loanFeesPaid = BigDecimal.ZERO;
 
-            double loanTotalPaid = 0.0;
+            BigDecimal loanTotalPaid = BigDecimal.ZERO;
 
 
             LocalDate lastPaymentDate =
@@ -433,32 +426,20 @@ public class BorrowerDetailsService {
                         );
 
 
-                double principal =
-                        number(
-                                payment
-                                        .getPrincipalComponent()
-                        );
+                BigDecimal principal =
+                        money(payment.getPrincipalComponentDecimal());
 
 
-                double interest =
-                        number(
-                                payment
-                                        .getInterestComponent()
-                        );
+                BigDecimal interest =
+                        money(payment.getInterestComponentDecimal());
 
 
-                double penalty =
-                        number(
-                                payment
-                                        .getPenalty()
-                        );
+                BigDecimal penalty =
+                        money(payment.getPenaltyDecimal());
 
 
-                double amountPaid =
-                        number(
-                                payment
-                                        .getAmountPaid()
-                        );
+                BigDecimal amountPaid =
+                        money(payment.getAmountPaidDecimal());
 
 
                 /*
@@ -466,7 +447,7 @@ public class BorrowerDetailsService {
                  * fee component. Therefore fees are kept at zero
                  * instead of inventing a getter that may not exist.
                  */
-                double fees = 0.0;
+                BigDecimal fees = BigDecimal.ZERO;
 
 
                 if (completed) {
@@ -474,44 +455,44 @@ public class BorrowerDetailsService {
                     successfulPayments++;
 
 
-                    loanPrincipalPaid +=
-                            principal;
+                    loanPrincipalPaid =
+                            loanPrincipalPaid.add(principal);
 
 
-                    loanInterestPaid +=
-                            interest;
+                    loanInterestPaid =
+                            loanInterestPaid.add(interest);
 
 
-                    loanFeesPaid +=
-                            fees;
+                    loanFeesPaid =
+                            loanFeesPaid.add(fees);
 
 
-                    double effectiveAmount =
-                            amountPaid > 0
+                    BigDecimal effectiveAmount =
+                            amountPaid.signum() > 0
                                     ? amountPaid
                                     : principal
-                                    + interest
-                                    + penalty;
+                                    .add(interest)
+                                    .add(penalty);
 
 
-                    loanTotalPaid +=
-                            effectiveAmount;
+                    loanTotalPaid =
+                            loanTotalPaid.add(effectiveAmount);
 
 
-                    totalPrincipalPaid +=
-                            principal;
+                    totalPrincipalPaid =
+                            totalPrincipalPaid.add(principal);
 
 
-                    totalInterestPaid +=
-                            interest;
+                    totalInterestPaid =
+                            totalInterestPaid.add(interest);
 
 
-                    totalFeesPaid +=
-                            fees;
+                    totalFeesPaid =
+                            totalFeesPaid.add(fees);
 
 
-                    totalPaid +=
-                            effectiveAmount;
+                    totalPaid =
+                            totalPaid.add(effectiveAmount);
                 }
 
 
@@ -627,13 +608,13 @@ public class BorrowerDetailsService {
                                 .totalPaid(
                                         completed
                                                 ? (
-                                                    amountPaid > 0
+                                                    amountPaid.signum() > 0
                                                         ? amountPaid
                                                         : principal
-                                                        + interest
-                                                        + penalty
+                                                        .add(interest)
+                                                        .add(penalty)
                                                 )
-                                                : 0.0
+                                                : BigDecimal.ZERO
                                 )
 
                                 .dueDate(
@@ -1499,7 +1480,7 @@ public class BorrowerDetailsService {
             int missedPayments,
             boolean hasDefaultHistory,
             boolean hasMultipleActiveLoans,
-            double outstanding
+            BigDecimal outstanding
     ) {
 
         int riskPoints = 0;
@@ -1958,6 +1939,24 @@ public class BorrowerDetailsService {
 
             return null;
         }
+    }
+
+
+    // ============================================================
+    // MONEY
+    // ============================================================
+
+    private BigDecimal money(Number value) {
+        if (value == null) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+
+        if (value instanceof BigDecimal decimal) {
+            return decimal.setScale(2, RoundingMode.HALF_UP);
+        }
+
+        return BigDecimal.valueOf(value.doubleValue())
+                .setScale(2, RoundingMode.HALF_UP);
     }
 
 

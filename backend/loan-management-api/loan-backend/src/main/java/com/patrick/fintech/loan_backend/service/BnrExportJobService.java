@@ -57,7 +57,15 @@ public class BnrExportJobService {
         }
 
         String jobId = UUID.randomUUID().toString();
-        Job job = new Job(jobId, organizationId, branchId, period, from, to);
+        boolean includeBusinessOwnerOnly = ReportingScopeService.includeBusinessOwnerOnly();
+        Job job = new Job(
+                jobId,
+                organizationId,
+                branchId,
+                period,
+                from,
+                to,
+                includeBusinessOwnerOnly);
         jobs.put(jobId, job);
         return job;
     }
@@ -94,12 +102,20 @@ public class BnrExportJobService {
                 throw new IllegalStateException("Invalid BNR export path.");
             }
 
-            byte[] bytes = exportService.export(
-                    job.organizationId,
-                    job.branchId,
-                    job.period,
-                    job.from,
-                    job.to);
+            byte[] bytes;
+            ReportingScopeService.Scope exportScope = job.includeBusinessOwnerOnly
+                    ? ReportingScopeService.Scope.BUSINESS_OWNER
+                    : ReportingScopeService.Scope.NORMAL;
+
+            try (ReportingScopeService.ScopeContext ignored =
+                    ReportingScopeService.useScope(exportScope)) {
+                bytes = exportService.export(
+                        job.organizationId,
+                        job.branchId,
+                        job.period,
+                        job.from,
+                        job.to);
+            }
 
             if (bytes == null || bytes.length == 0) {
                 throw new IllegalStateException("BNR export produced an empty workbook.");
@@ -199,6 +215,7 @@ public class BnrExportJobService {
         private final RegulatoryReportingService.ReportPeriod period;
         private final LocalDate from;
         private final LocalDate to;
+        private final boolean includeBusinessOwnerOnly;
         private final Instant createdAt = Instant.now();
         private volatile Status status = Status.QUEUED;
         private volatile Instant startedAt;
@@ -209,13 +226,15 @@ public class BnrExportJobService {
 
         private Job(String id, Long organizationId, Long branchId,
                     RegulatoryReportingService.ReportPeriod period,
-                    LocalDate from, LocalDate to) {
+                    LocalDate from, LocalDate to,
+                    boolean includeBusinessOwnerOnly) {
             this.id = id;
             this.organizationId = organizationId;
             this.branchId = branchId;
             this.period = period;
             this.from = from;
             this.to = to;
+            this.includeBusinessOwnerOnly = includeBusinessOwnerOnly;
         }
 
         public String getId() { return id; }
@@ -224,6 +243,7 @@ public class BnrExportJobService {
         public RegulatoryReportingService.ReportPeriod getPeriod() { return period; }
         public LocalDate getFrom() { return from; }
         public LocalDate getTo() { return to; }
+        public boolean isIncludeBusinessOwnerOnly() { return includeBusinessOwnerOnly; }
         public Instant getCreatedAt() { return createdAt; }
         public Status getStatus() { return status; }
         public Instant getStartedAt() { return startedAt; }

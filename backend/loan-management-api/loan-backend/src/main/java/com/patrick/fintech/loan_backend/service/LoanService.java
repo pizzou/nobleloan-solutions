@@ -28,6 +28,7 @@ import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Async;
@@ -77,6 +78,9 @@ public class LoanService {
         private final ComplianceService complianceService;
         private final PaymentScheduleService paymentScheduleService;
         private final DashboardService dashboardService;
+
+        @Value("${app.environment:development}")
+        private String applicationEnvironment;
 
         private static final int MAX_LOAN_DURATION_MONTHS = 6;
 
@@ -1487,14 +1491,15 @@ public class LoanService {
                                                                         .collect(Collectors.joining(", ")));
                 }
 
-                
-                // REAL KYC / AML GATE
-                
-                // if (loan.getBorrower() == null
-                //                 || !complianceService.isKycCurrentlyClear(loan.getBorrower().getId())) {
-                //         throw new IllegalStateException(
-                //                         "Cannot disburse this loan — the borrower does not have a current, provider-backed KYC/AML clearance.");
-                // }
+                // Production disbursement must be backed by a current, provider-backed
+                // KYC/AML clearance. ProductionConfigurationValidator already fails
+                // closed when an external compliance provider is not configured.
+                if (isProductionEnvironment()
+                                && (loan.getBorrower() == null
+                                                || !complianceService.isKycCurrentlyClear(loan.getBorrower().getId()))) {
+                        throw new IllegalStateException(
+                                        "Cannot disburse this loan — the borrower does not have a current, provider-backed KYC/AML clearance.");
+                }
 
                 BigDecimal interestRate = moneyValue(loan.getInterestRateDecimal());
                 BigDecimal managementFeeRate = moneyValue(loan.getManagementFeeRateDecimal());
@@ -1529,6 +1534,7 @@ public class LoanService {
 
                 validateInterestRate(interestRate);
                 validateInterestRate(managementFeeRate);
+                validateInterestRate(applicationFeeRate);
                 validateInterestRate(penaltyRate);
                 validateInterestRate(money(interestRate.add(managementFeeRate)));
 
@@ -3154,6 +3160,12 @@ public class LoanService {
         // ================================================================
         // INTEREST RATE VALIDATION
         // ================================================================
+
+        private boolean isProductionEnvironment() {
+                return applicationEnvironment != null
+                                && ("production".equalsIgnoreCase(applicationEnvironment.trim())
+                                                || "prod".equalsIgnoreCase(applicationEnvironment.trim()));
+        }
 
         private void validateInterestRate(
                         BigDecimal rate) {

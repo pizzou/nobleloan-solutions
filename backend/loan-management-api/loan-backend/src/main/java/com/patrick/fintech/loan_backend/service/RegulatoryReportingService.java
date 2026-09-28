@@ -1118,6 +1118,11 @@ public class RegulatoryReportingService {
                 // BNR SUMMARY
                 // ========================================================
 
+                BigDecimal existingProvision = moneyDecimal(
+                                accountingService.loanLossReserveBalanceForReporting(organization));
+                BigDecimal provisionShortfall = moneyDecimal(
+                                requiredProvision.subtract(existingProvision).max(ZERO));
+
                 return BnrSummaryReport.builder()
 
                                 .organizationId(
@@ -1354,16 +1359,16 @@ public class RegulatoryReportingService {
                                                 writtenOffAmount)
 
                                 .recoveriesAfterWriteOff(
-                                                recoveriesAfterWriteOff.doubleValue())
+                                                recoveriesAfterWriteOff)
 
                                 .requiredProvision(
-                                                requiredProvision.doubleValue())
+                                                requiredProvision)
 
                                 .existingProvision(
-                                                accountingService.loanLossReserveBalanceForReporting(organization).doubleValue())
+                                                existingProvision)
 
                                 .provisionShortfall(
-                                                Math.max(0.0, requiredProvision.doubleValue() - accountingService.loanLossReserveBalanceForReporting(organization).doubleValue()))
+                                                provisionShortfall)
 
                                 .totalBorrowers(
                                                 borrowerIds.size())

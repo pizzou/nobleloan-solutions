@@ -33,7 +33,7 @@ import java.util.concurrent.TimeUnit;
 @RequestMapping("/api/reports")
 @RequiredArgsConstructor
 @Slf4j
-@PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT')")
+@PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','BUSINESS_OWNER')")
 public class ReportingController {
 
         private final ReportingService reportingService;

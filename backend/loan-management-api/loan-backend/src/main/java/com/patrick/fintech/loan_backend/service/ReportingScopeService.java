@@ -31,7 +31,20 @@ public class ReportingScopeService {
         // Utility-style Spring bean; scope resolution is request-context based.
     }
 
+    private static final ThreadLocal<Scope> EXPLICIT_SCOPE = new ThreadLocal<>();
+
+    /**
+     * Resolve the reporting scope for the current thread. Explicit scope takes
+     * precedence over SecurityContext so user-triggered async jobs cannot fall
+     * back to the background/system BUSINESS_OWNER scope when the request
+     * authentication is no longer present on the worker thread.
+     */
     public static Scope currentScope() {
+        Scope explicitScope = EXPLICIT_SCOPE.get();
+        if (explicitScope != null) {
+            return explicitScope;
+        }
+
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
         if (authentication == null
@@ -51,6 +64,45 @@ public class ReportingScopeService {
 
     public static boolean includeBusinessOwnerOnly() {
         return currentScope() == Scope.BUSINESS_OWNER;
+    }
+
+    /**
+     * Temporarily force a reporting scope for the current thread. The previous
+     * scope is restored when the returned context is closed. This is intended
+     * for async/background execution that still belongs to a specific user
+     * request.
+     */
+    public static ScopeContext useScope(Scope scope) {
+        if (scope == null) {
+            throw new IllegalArgumentException("Reporting scope is required.");
+        }
+
+        Scope previous = EXPLICIT_SCOPE.get();
+        EXPLICIT_SCOPE.set(scope);
+        return new ScopeContext(previous);
+    }
+
+    public static final class ScopeContext implements AutoCloseable {
+        private final Scope previous;
+        private boolean closed;
+
+        private ScopeContext(Scope previous) {
+            this.previous = previous;
+        }
+
+        @Override
+        public void close() {
+            if (closed) {
+                return;
+            }
+
+            closed = true;
+            if (previous == null) {
+                EXPLICIT_SCOPE.remove();
+            } else {
+                EXPLICIT_SCOPE.set(previous);
+            }
+        }
     }
 
     /**

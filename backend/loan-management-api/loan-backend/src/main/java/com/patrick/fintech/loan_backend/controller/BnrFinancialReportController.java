@@ -16,7 +16,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/bnr/financial-reports")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('ADMIN','MANAGER','AUDITOR')")
+@PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','AUDITOR','BUSINESS_OWNER')")
 public class BnrFinancialReportController {
 
     private final BnrFinancialStatementService
