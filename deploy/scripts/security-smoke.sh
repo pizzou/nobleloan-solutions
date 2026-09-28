@@ -3,7 +3,7 @@
 set -euo pipefail
 
 BASE_URL="${BASE_URL:?BASE_URL is required}"
-ORIGIN="${ORIGIN:?ORIGIN is required, e.g. https://nobleloan-solutions.vercel.app}"
+ORIGIN="${ORIGIN:?ORIGIN is required, e.g. https://nobleloansolutions.rw}"
 TENANT_SLUG="${TENANT_SLUG:-nobleloansolutions}"
 FAILED=0
 

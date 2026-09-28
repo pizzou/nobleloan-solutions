@@ -1,0 +1,15 @@
+# Never send local build/developer artifacts into the production image build context.
+.git
+.gitignore
+target
+*.log
+*.pid
+.env
+.env.*
+*.pem
+*.key
+backups
+logs
+.idea
+.vscode
+.DS_Store

@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import jakarta.annotation.PostConstruct;
 
+import java.net.URI;
 import java.util.Base64;
 
 @Component
@@ -12,6 +13,8 @@ public class ProductionConfigurationValidator {
         private String environment;
         @Value("${app.jwt.secret:}")
         private String jwtSecret;
+        @Value("${spring.datasource.password:}")
+        private String dbPassword;
         @Value("${APP_ENCRYPTION_KEY:}")
         private String encryptionKey;
         @Value("${APP_INDEX_KEY:}")
@@ -80,6 +83,24 @@ public class ProductionConfigurationValidator {
         private String atUsername;
         @Value("${app.sms.africas-talking.sender-id:}")
         private String atSenderId;
+        @Value("${airtel.money.enabled:false}")
+        private boolean airtelEnabled;
+        @Value("${airtel.money.base-url:}")
+        private String airtelBaseUrl;
+        @Value("${airtel.money.client-id:}")
+        private String airtelClientId;
+        @Value("${airtel.money.client-secret:}")
+        private String airtelClientSecret;
+        @Value("${airtel.money.callback-url:}")
+        private String airtelCallbackUrl;
+        @Value("${airtel.money.webhook-secret:}")
+        private String airtelWebhookSecret;
+        @Value("${flutterwave.enabled:false}")
+        private boolean flutterwaveEnabled;
+        @Value("${flutterwave.secret-key:}")
+        private String flutterwaveSecretKey;
+        @Value("${flutterwave.webhook-secret:}")
+        private String flutterwaveWebhookSecret;
         @Value("${app.regulatory.provision.current:0}") private String provisionCurrent;
         @Value("${app.regulatory.provision.watch:0}") private String provisionWatch;
         @Value("${app.regulatory.provision.substandard:0}") private String provisionSubstandard;
@@ -123,16 +144,25 @@ public class ProductionConfigurationValidator {
         @Value("${BOOTSTRAP_ORG_CURRENCY:}") private String bootstrapOrgCurrency;
         @Value("${BOOTSTRAP_ORG_TIMEZONE:}") private String bootstrapOrgTimezone;
         @Value("${BOOTSTRAP_ORG_LOCALE:}") private String bootstrapOrgLocale;
+        @Value("${BOOTSTRAP_ORG_SLUG:nobleloansolutions}") private String bootstrapOrgSlug;
+        @Value("${BOOTSTRAP_ORG_PUBLIC_DOMAIN:}") private String bootstrapOrgPublicDomain;
+        @Value("${BOOTSTRAP_ORG_WEBSITE:}") private String bootstrapOrgWebsite;
+        @Value("${BOOTSTRAP_ORG_CONTACT_EMAIL:}") private String bootstrapOrgContactEmail;
+        @Value("${BOOTSTRAP_ORG_CONTACT_PHONE:}") private String bootstrapOrgContactPhone;
+        @Value("${BOOTSTRAP_ORG_ADDRESS:}") private String bootstrapOrgAddress;
+        @Value("${BOOTSTRAP_ORG_REGISTRATION_NUMBER:}") private String bootstrapOrgRegistrationNumber;
 
         @PostConstruct
         public void validate() {
                 if (!isProd())
                         return;
-                if (jwtSecret == null || jwtSecret.length() < 32 || isWeak(jwtSecret))
+                if (jwtSecret == null || jwtSecret.length() < 32 || isWeak(jwtSecret) || isPlaceholder(jwtSecret))
                         throw new IllegalStateException(
-                                        "JWT_SECRET must be a strong secret of at least 32 characters in production");
+                                        "JWT_SECRET must be a strong non-placeholder secret of at least 32 characters in production");
 
-                requireNonBlank(bootstrapAdminEmail, "BOOTSTRAP_ADMIN_EMAIL");
+                requireSecret(dbPassword, "DB_PASSWORD", 16);
+
+                requireEmail(bootstrapAdminEmail, "BOOTSTRAP_ADMIN_EMAIL");
                 requireStrongBootstrapPassword(bootstrapAdminPassword);
                 requireNonBlank(bootstrapAdminName, "BOOTSTRAP_ADMIN_NAME");
                 requireNonBlank(bootstrapAdminPhone, "BOOTSTRAP_ADMIN_PHONE");
@@ -141,6 +171,13 @@ public class ProductionConfigurationValidator {
                 requireNonBlank(bootstrapOrgCurrency, "BOOTSTRAP_ORG_CURRENCY");
                 requireNonBlank(bootstrapOrgTimezone, "BOOTSTRAP_ORG_TIMEZONE");
                 requireNonBlank(bootstrapOrgLocale, "BOOTSTRAP_ORG_LOCALE");
+                requireNonBlank(bootstrapOrgSlug, "BOOTSTRAP_ORG_SLUG");
+                requireHostname(bootstrapOrgPublicDomain, "BOOTSTRAP_ORG_PUBLIC_DOMAIN");
+                requireHttpsUrl(bootstrapOrgWebsite, "BOOTSTRAP_ORG_WEBSITE");
+                requireEmail(bootstrapOrgContactEmail, "BOOTSTRAP_ORG_CONTACT_EMAIL");
+                requirePhone(bootstrapOrgContactPhone, "BOOTSTRAP_ORG_CONTACT_PHONE");
+                requireNonBlank(bootstrapOrgAddress, "BOOTSTRAP_ORG_ADDRESS");
+                requireNonPlaceholder(bootstrapOrgRegistrationNumber, "BOOTSTRAP_ORG_REGISTRATION_NUMBER");
 
                 if (!"Lax".equalsIgnoreCase(authCookieSameSite) && !"Strict".equalsIgnoreCase(authCookieSameSite)) {
                         throw new IllegalStateException("AUTH_COOKIE_SAME_SITE must be Lax or Strict in production. Use the same-origin Next.js /api proxy rather than cross-site browser cookies.");
@@ -151,17 +188,26 @@ public class ProductionConfigurationValidator {
                 }
 
                 if (mtnEnabled) {
-                        if (mtnSandbox) {
-                                throw new IllegalStateException("MTN_MOMO_SANDBOX must be false when MTN Mobile Money is enabled in production");
-                        }
-                        if (mtnWebhookSecret == null || mtnWebhookSecret.isBlank()) {
-                                throw new IllegalStateException("MTN_MOMO_WEBHOOK_SECRET is required when MTN Mobile Money is enabled in production");
-                        }
+                        throw new IllegalStateException(
+                                        "MTN_MOMO_ENABLED cannot be true in production until the real MTN merchant integration is implemented and certified; the current service intentionally exposes only sandbox behavior.");
                 }
 
-                if (!mailEnabled || brevoApiKey == null || brevoApiKey.isBlank()
-                                || mailFrom == null || mailFrom.isBlank()) {
-                        throw new IllegalStateException("MAIL_ENABLED=true, BREVO_API_KEY and MAIL_FROM are required in production");
+                if (!mailEnabled || isPlaceholder(brevoApiKey)) {
+                        throw new IllegalStateException("MAIL_ENABLED=true and a real BREVO_API_KEY are required in production");
+                }
+                requireEmail(mailFrom, "MAIL_FROM");
+
+                if (flutterwaveEnabled) {
+                        requireNonPlaceholder(flutterwaveSecretKey, "FLUTTERWAVE_SECRET_KEY");
+                        requireNonPlaceholder(flutterwaveWebhookSecret, "FLUTTERWAVE_WEBHOOK_SECRET");
+                }
+
+                if (airtelEnabled) {
+                        requireHttpsUrl(airtelBaseUrl, "AIRTEL_MONEY_BASE_URL");
+                        requireNonPlaceholder(airtelClientId, "AIRTEL_MONEY_CLIENT_ID");
+                        requireNonPlaceholder(airtelClientSecret, "AIRTEL_MONEY_CLIENT_SECRET");
+                        requireHttpsUrl(airtelCallbackUrl, "AIRTEL_MONEY_CALLBACK_URL");
+                        requireNonPlaceholder(airtelWebhookSecret, "AIRTEL_MONEY_WEBHOOK_SECRET");
                 }
 
                 boolean twilioConfigured = twilioAccountSid != null && !twilioAccountSid.isBlank()
@@ -186,11 +232,9 @@ public class ProductionConfigurationValidator {
                 if (!externalComplianceEnabled) {
                         throw new IllegalStateException("COMPLIANCE_EXTERNAL_PROVIDER_ENABLED must be true in production; provider-backed KYC/AML is a mandatory disbursement control");
                 }
-                if (complianceProvider == null || complianceProvider.isBlank()
-                                || complianceBaseUrl == null || complianceBaseUrl.isBlank()
-                                || complianceApiKey == null || complianceApiKey.isBlank()) {
-                        throw new IllegalStateException("COMPLIANCE_PROVIDER, COMPLIANCE_BASE_URL and COMPLIANCE_API_KEY are required in production");
-                }
+                requireNonPlaceholder(complianceProvider, "COMPLIANCE_PROVIDER");
+                requireHttpsUrl(complianceBaseUrl, "COMPLIANCE_BASE_URL");
+                requireNonPlaceholder(complianceApiKey, "COMPLIANCE_API_KEY");
 
                 requireAes256Base64(encryptionKey, "APP_ENCRYPTION_KEY");
                 requireBase64AtLeast32Bytes(indexKey, "APP_INDEX_KEY");
@@ -200,14 +244,8 @@ public class ProductionConfigurationValidator {
                                         "A real credit-bureau provider must be enabled and required for disbursement in production");
                 }
                 if (creditBureauEnabled) {
-                        if (creditBureauBaseUrl == null || creditBureauBaseUrl.isBlank()) {
-                                throw new IllegalStateException(
-                                                "CREDIT_BUREAU_BASE_URL is required when credit-bureau integration is enabled");
-                        }
-                        if (creditBureauApiKey == null || creditBureauApiKey.isBlank()) {
-                                throw new IllegalStateException(
-                                                "CREDIT_BUREAU_API_KEY is required when credit-bureau integration is enabled");
-                        }
+                        requireHttpsUrl(creditBureauBaseUrl, "CREDIT_BUREAU_BASE_URL");
+                        requireNonPlaceholder(creditBureauApiKey, "CREDIT_BUREAU_API_KEY");
                         if (creditBureauSimulation) {
                                 throw new IllegalStateException(
                                                 "Credit-bureau simulation must remain disabled in production");
@@ -318,6 +356,77 @@ public class ProductionConfigurationValidator {
                 }
         }
 
+        private void requireNonPlaceholder(String value, String variable) {
+                requireNonBlank(value, variable);
+                if (isPlaceholder(value)) {
+                        throw new IllegalStateException(variable + " contains a placeholder value; configure the real production value");
+                }
+        }
+
+        private void requireSecret(String value, String variable, int minimumLength) {
+                requireNonBlank(value, variable);
+                if (value.length() < minimumLength || isPlaceholder(value) || isWeak(value)) {
+                        throw new IllegalStateException(variable + " must be a strong non-placeholder secret of at least " + minimumLength + " characters in production");
+                }
+        }
+
+        private void requireEmail(String value, String variable) {
+                requireNonPlaceholder(value, variable);
+                if (!value.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) {
+                        throw new IllegalStateException(variable + " must be a valid email address in production");
+                }
+        }
+
+        private void requirePhone(String value, String variable) {
+                requireNonPlaceholder(value, variable);
+                long digits = value.chars().filter(Character::isDigit).count();
+                if (digits < 8) {
+                        throw new IllegalStateException(variable + " must contain a valid telephone number in production");
+                }
+        }
+
+        private void requireHttpsUrl(String value, String variable) {
+                requireNonPlaceholder(value, variable);
+                try {
+                        URI uri = URI.create(value.trim());
+                        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || uri.getHost().isBlank()) {
+                                throw new IllegalStateException(variable + " must be a valid HTTPS URL in production");
+                        }
+                } catch (IllegalArgumentException e) {
+                        throw new IllegalStateException(variable + " must be a valid HTTPS URL in production", e);
+                }
+        }
+
+        private void requireHostname(String value, String variable) {
+                requireNonPlaceholder(value, variable);
+                String host = value.trim();
+                if (!host.matches("^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
+                                || host.contains("..")
+                                || host.equalsIgnoreCase("localhost")
+                                || host.endsWith(".localhost")) {
+                        throw new IllegalStateException(variable + " must be a real DNS hostname in production");
+                }
+        }
+
+        private boolean isPlaceholder(String value) {
+                if (value == null) {
+                        return true;
+                }
+                String x = value.trim().toLowerCase(java.util.Locale.ROOT);
+                return x.isBlank()
+                                || x.contains("replace_with")
+                                || x.contains("replace-me")
+                                || x.contains("your_")
+                                || x.contains("your-")
+                                || x.contains("example.com")
+                                || x.contains("example.invalid")
+                                || x.contains("change_me")
+                                || x.contains("change-me")
+                                || x.contains("xxxxxxxx")
+                                || x.equals("sandbox")
+                                || x.equals("demo");
+        }
+
         private void requireStrongBootstrapPassword(String value) {
                 requireNonBlank(value, "BOOTSTRAP_ADMIN_PASSWORD");
                 if (value.length() < 14 || isWeak(value)) {
@@ -331,7 +440,7 @@ public class ProductionConfigurationValidator {
         }
 
         private boolean isWeak(String s) {
-                String x = s.toLowerCase();
+                String x = s.toLowerCase(java.util.Locale.ROOT);
                 return x.contains("change-me") || x.contains("secret") || x.contains("password")
                                 || x.matches("(.)\\1{15,}");
         }

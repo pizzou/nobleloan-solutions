@@ -94,7 +94,9 @@ services:
       # SINGLE TENANT
       # ------------------------------------------------------
 
-      SEED_ORG: nobleloansolutions
+      SEED_ORG: ${BOOTSTRAP_ORG_SLUG:-nobleloansolutions}
+      BOOTSTRAP_ORG_SLUG: ${BOOTSTRAP_ORG_SLUG:-nobleloansolutions}
+      BOOTSTRAP_ORG_PUBLIC_DOMAIN: ${BOOTSTRAP_ORG_PUBLIC_DOMAIN:-nobleloansolutions.rw}
 
       # ------------------------------------------------------
       # PRODUCTION ADMIN
@@ -109,7 +111,12 @@ services:
       BOOTSTRAP_ORG_COUNTRY: ${BOOTSTRAP_ORG_COUNTRY:-RW}
       BOOTSTRAP_ORG_CURRENCY: ${BOOTSTRAP_ORG_CURRENCY:-RWF}
       BOOTSTRAP_ORG_TIMEZONE: ${BOOTSTRAP_ORG_TIMEZONE:-Africa/Kigali}
-      BOOTSTRAP_ORG_LOCALE: ${BOOTSTRAP_ORG_LOCALE:-en_RW}
+      BOOTSTRAP_ORG_LOCALE: ${BOOTSTRAP_ORG_LOCALE:-en-RW}
+      BOOTSTRAP_ORG_WEBSITE: ${BOOTSTRAP_ORG_WEBSITE:?BOOTSTRAP_ORG_WEBSITE is required}
+      BOOTSTRAP_ORG_CONTACT_EMAIL: ${BOOTSTRAP_ORG_CONTACT_EMAIL:?BOOTSTRAP_ORG_CONTACT_EMAIL is required}
+      BOOTSTRAP_ORG_CONTACT_PHONE: ${BOOTSTRAP_ORG_CONTACT_PHONE:?BOOTSTRAP_ORG_CONTACT_PHONE is required}
+      BOOTSTRAP_ORG_ADDRESS: ${BOOTSTRAP_ORG_ADDRESS:?BOOTSTRAP_ORG_ADDRESS is required}
+      BOOTSTRAP_ORG_REGISTRATION_NUMBER: ${BOOTSTRAP_ORG_REGISTRATION_NUMBER:?BOOTSTRAP_ORG_REGISTRATION_NUMBER is required}
 
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
 
@@ -128,6 +135,10 @@ services:
       # ------------------------------------------------------
 
       CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
+      WEBSOCKET_ALLOWED_ORIGINS: ${WEBSOCKET_ALLOWED_ORIGINS:?WEBSOCKET_ALLOWED_ORIGINS is required}
+      FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL is required}
+      PUBLIC_TENANT_SLUG: ${PUBLIC_TENANT_SLUG:-nobleloansolutions}
+      PUBLIC_REGISTRATION_ENABLED: ${PUBLIC_REGISTRATION_ENABLED:-false}
 
       # ------------------------------------------------------
       # APPLICATION ENCRYPTION
@@ -152,7 +163,9 @@ services:
       MAIL_PORT: ${MAIL_PORT:-587}
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
-      MAIL_FROM: ${MAIL_FROM:-noreply@nobleloansolutions.rw}
+      MAIL_FROM: ${MAIL_FROM:?MAIL_FROM is required}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Noble Loan Solution}
+      BREVO_API_KEY: ${BREVO_API_KEY:?BREVO_API_KEY is required}
 
       # ------------------------------------------------------
       # FLUTTERWAVE
@@ -195,7 +208,8 @@ services:
       CREDIT_BUREAU_ENABLED: ${CREDIT_BUREAU_ENABLED:-false}
       CREDIT_BUREAU_BASE_URL: ${CREDIT_BUREAU_BASE_URL:-}
       CREDIT_BUREAU_API_KEY: ${CREDIT_BUREAU_API_KEY:-}
-      CREDIT_BUREAU_REQUIRED_FOR_DISBURSEMENT: ${CREDIT_BUREAU_REQUIRED_FOR_DISBURSEMENT:-false}
+      CREDIT_BUREAU_REQUIRED_FOR_DISBURSEMENT: ${CREDIT_BUREAU_REQUIRED_FOR_DISBURSEMENT:-true}
+      CREDIT_BUREAU_PROVIDER: ${CREDIT_BUREAU_PROVIDER:-TransUnion}
 
       # ------------------------------------------------------
       # COMPLIANCE PROVIDER
@@ -226,10 +240,58 @@ services:
       OXR_APP_ID: ${OXR_APP_ID:-}
 
       # ------------------------------------------------------
+      # SMS (at least one complete production provider)
+      # ------------------------------------------------------
+
+      SMS_ENABLED: ${SMS_ENABLED:?SMS_ENABLED is required}
+      AT_API_KEY: ${AT_API_KEY:-}
+      AT_USERNAME: ${AT_USERNAME:-}
+      AT_SENDER_ID: ${AT_SENDER_ID:-}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+
+      # ------------------------------------------------------
+      # PRODUCTION EVIDENCE GATES
+      # ------------------------------------------------------
+
+      PROD_GATE_PENTEST_APPROVED: ${PROD_GATE_PENTEST_APPROVED:-false}
+      PROD_GATE_IDOR_AUDIT_APPROVED: ${PROD_GATE_IDOR_AUDIT_APPROVED:-false}
+      PROD_GATE_CORS_VERIFIED: ${PROD_GATE_CORS_VERIFIED:-false}
+      PROD_GATE_SECRET_MANAGER_CONFIGURED: ${PROD_GATE_SECRET_MANAGER_CONFIGURED:-false}
+      PROD_GATE_BNR_LICENSE_CONFIRMED: ${PROD_GATE_BNR_LICENSE_CONFIRMED:-false}
+      PROD_GATE_REGULATION_MAPPING_APPROVED: ${PROD_GATE_REGULATION_MAPPING_APPROVED:-false}
+      PROD_GATE_LEGAL_DISCLOSURES_APPROVED: ${PROD_GATE_LEGAL_DISCLOSURES_APPROVED:-false}
+      PROD_GATE_PENALTY_POLICY_APPROVED: ${PROD_GATE_PENALTY_POLICY_APPROVED:-false}
+      PROD_GATE_DPO_REGISTERED: ${PROD_GATE_DPO_REGISTERED:-false}
+      PROD_GATE_DPO_APPOINTED: ${PROD_GATE_DPO_APPOINTED:-false}
+      PROD_GATE_RECORDS_PROCESSING_APPROVED: ${PROD_GATE_RECORDS_PROCESSING_APPROVED:-false}
+      PROD_GATE_DPIA_APPROVED: ${PROD_GATE_DPIA_APPROVED:-false}
+      PROD_GATE_RETENTION_APPROVED: ${PROD_GATE_RETENTION_APPROVED:-false}
+      PROD_GATE_BREACH_PLAN_APPROVED: ${PROD_GATE_BREACH_PLAN_APPROVED:-false}
+      PROD_GATE_BACKUP_RESTORE_DRILL_APPROVED: ${PROD_GATE_BACKUP_RESTORE_DRILL_APPROVED:-false}
+      PROD_GATE_POSTGRES_HA_APPROVED: ${PROD_GATE_POSTGRES_HA_APPROVED:-false}
+      PROD_GATE_UPTIME_MONITORING_APPROVED: ${PROD_GATE_UPTIME_MONITORING_APPROVED:-false}
+      PROD_GATE_CENTRAL_ALERTING_APPROVED: ${PROD_GATE_CENTRAL_ALERTING_APPROVED:-false}
+      PROD_GATE_ACCOUNTING_CLOSE_APPROVED: ${PROD_GATE_ACCOUNTING_CLOSE_APPROVED:-false}
+      PROD_GATE_COA_APPROVED: ${PROD_GATE_COA_APPROVED:-false}
+      PROD_GATE_BANK_RECON_APPROVED: ${PROD_GATE_BANK_RECON_APPROVED:-false}
+      PROD_GATE_SUBLEDGER_RECON_APPROVED: ${PROD_GATE_SUBLEDGER_RECON_APPROVED:-false}
+      PROD_GATE_REVENUE_POLICY_APPROVED: ${PROD_GATE_REVENUE_POLICY_APPROVED:-false}
+      PROD_GATE_GOLDEN_SCENARIOS_APPROVED: ${PROD_GATE_GOLDEN_SCENARIOS_APPROVED:-false}
+      PROD_GATE_CONCURRENCY_TESTED: ${PROD_GATE_CONCURRENCY_TESTED:-false}
+      PROD_GATE_PRODUCTION_POSTGRES_TESTED: ${PROD_GATE_PRODUCTION_POSTGRES_TESTED:-false}
+      PROD_GATE_REGULATORY_GOLDEN_APPROVED: ${PROD_GATE_REGULATORY_GOLDEN_APPROVED:-false}
+
+      # ------------------------------------------------------
       # FINANCIAL RECONCILIATION
       # ------------------------------------------------------
 
       FINANCIAL_RECONCILIATION_LOCK_DURATION_MS: ${FINANCIAL_RECONCILIATION_LOCK_DURATION_MS:-900000}
+
+      # Keep production API documentation and local H2 surfaces disabled.
+      OPENAPI_ENABLED: ${OPENAPI_ENABLED:-false}
+      EXPOSE_H2: ${EXPOSE_H2:-false}
 
     volumes:
       - backend_logs:/var/log/loansaas
@@ -273,11 +335,11 @@ services:
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
-      NEXT_PUBLIC_TENANT_SLUG: nobleloansolutions
+      NEXT_PUBLIC_TENANT_SLUG: ${BOOTSTRAP_ORG_SLUG:-nobleloansolutions}
 
       # Internal server-side backend address.
       # This is NOT exposed to the browser.
-      BACKEND_API_URL: http://backend:8080/api
+      BACKEND_API_URL: ${BACKEND_API_URL:-http://backend:8080/api}
 
     networks:
       - loansaas-network
@@ -330,6 +392,17 @@ services:
     networks:
       - loansaas-network
 
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- --no-check-certificate https://127.0.0.1/healthz | grep -q 'UP'",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
   # ==========================================================
   # CERTBOT
   # ==========================================================
@@ -342,6 +415,7 @@ services:
     volumes:
       - certbot_www:/var/www/certbot
       - certbot_certs:/etc/letsencrypt
+      - ./docker/nginx/ssl:/etc/nginx/ssl
 
     profiles:
       - ssl

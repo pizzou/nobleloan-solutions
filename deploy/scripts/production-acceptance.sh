@@ -10,7 +10,7 @@ FAILED=0
 pass() { echo "[ACCEPTANCE PASS] $1"; }
 fail() { echo "[ACCEPTANCE FAIL] $1"; FAILED=1; }
 
-health="$(curl -sS --max-time 20 "${BASE_URL%/}/actuator/health/readiness")" 
+health="$(curl -sS --max-time 20 "${BASE_URL%/}/healthz")" 
 grep -Eq '"status"[[:space:]]*:[[:space:]]*"UP"' <<<"$health" \
   && pass "Backend readiness is UP" \
   || fail "Backend readiness is not UP"

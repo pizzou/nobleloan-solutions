@@ -119,20 +119,31 @@ let connectionGeneration = 0;
  */
 
 function getWebSocketUrl(): string {
-  const apiUrl =
-    process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL;
+  const rawApiUrl = (
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    ""
+  ).trim();
 
-  if (!apiUrl) {
+  if (!rawApiUrl) {
     throw new Error(
       "NEXT_PUBLIC_API_URL or NEXT_PUBLIC_API_BASE_URL is not configured.",
     );
   }
 
-  const normalized = apiUrl.replace(/\/+$/, "");
+  if (typeof window === "undefined") {
+    throw new Error(
+      "WebSocket connections can only be initialized in a browser.",
+    );
+  }
 
-  const url = new URL(normalized);
-
-  const protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  /*
+   * AOS production intentionally exposes the API through the same-origin
+   * reverse proxy as /api. A relative API URL cannot be passed directly to
+   * new URL(), so resolve it against the browser origin.
+   */
+  const url = new URL(rawApiUrl, window.location.origin);
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 
   return `${protocol}//${url.host}/ws`;
 }

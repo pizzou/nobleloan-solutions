@@ -165,7 +165,8 @@ export default function ContactPage() {
                     Office
                   </div>
                   <div className="mt-1 text-sm font-bold text-slate-800 whitespace-pre-line">
-                    {tenant.address || "Kigali, Rwanda"}
+                    {tenant.address ||
+                      "Contact office details are not configured."}
                   </div>
                   <div className="mt-1 text-xs text-slate-400">
                     Monday–Friday · 8:00 AM–5:00 PM
@@ -184,7 +185,7 @@ export default function ContactPage() {
                     Phone
                   </div>
                   <div className="mt-1 text-sm font-bold text-slate-800">
-                    {tenant.contactPhone || "+250 788 000 000"}
+                    {tenant.contactPhone || "Phone number not configured"}
                   </div>
                   <div className="mt-1 text-xs text-slate-400">
                     Available during business hours
@@ -203,7 +204,7 @@ export default function ContactPage() {
                     Email
                   </div>
                   <div className="mt-1 break-all text-sm font-bold text-slate-800">
-                    {tenant.contactEmail || "info@nobleloansolutions.rw"}
+                    {tenant.contactEmail || "Email address not configured"}
                   </div>
                   <div className="mt-1 text-xs text-slate-400">
                     We aim to respond promptly

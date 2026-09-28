@@ -1,23 +1,43 @@
-
+#!/usr/bin/env bash
+# Restore a production backup into an isolated database inside the private
+# PostgreSQL container. This intentionally does not require host port 5432.
 set -euo pipefail
+umask 077
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT_DIR"
+
+[[ -f .env ]] || { echo ".env is required." >&2; exit 1; }
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
 
 BACKUP_FILE="${1:?Usage: $0 <backup.sql.gz[.enc]>}"
 [[ -f "$BACKUP_FILE" ]] || { echo "[DR] Backup file not found: $BACKUP_FILE" >&2; exit 1; }
 
-command -v psql >/dev/null 2>&1 || { echo "[DR] psql is required." >&2; exit 1; }
-command -v createdb >/dev/null 2>&1 || { echo "[DR] createdb is required." >&2; exit 1; }
-command -v dropdb >/dev/null 2>&1 || { echo "[DR] dropdb is required." >&2; exit 1; }
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE=(docker-compose)
+else
+  echo "[DR] Docker Compose v2 is required." >&2
+  exit 1
+fi
+command -v openssl >/dev/null 2>&1 || { echo "[DR] openssl is required." >&2; exit 1; }
 command -v gzip >/dev/null 2>&1 || { echo "[DR] gzip is required." >&2; exit 1; }
 
-PGHOST="${PGHOST:-localhost}"
-PGPORT="${PGPORT:-5432}"
-PGUSER="${PGUSER:-postgres}"
-DR_TEST_DB="${DR_TEST_DB:-loansaas_nobleloansolutions_restore_test_$(date +%Y%m%d_%H%M%S)_$$}"
+./deploy/scripts/verify-backup.sh "$BACKUP_FILE"
 
+DB_NAME="${DB_NAME:-loansaas_nobleloansolutions}"
+DR_TEST_DB="loansaas_restore_test_$(date -u +%Y%m%d_%H%M%S)_$$"
 WORKDIR="$(mktemp -d)"
+
 cleanup() {
   rm -rf "$WORKDIR"
-  dropdb --if-exists --host="$PGHOST" --port="$PGPORT" --username="$PGUSER" "$DR_TEST_DB" >/dev/null 2>&1 || true
+  "${COMPOSE[@]}" exec -T postgres psql -U loansaas -d "$DB_NAME" \
+    -v ON_ERROR_STOP=1 \
+    -c "DROP DATABASE IF EXISTS \"$DR_TEST_DB\";" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -33,20 +53,19 @@ fi
 
 gzip -t "$INPUT"
 
-echo "[DR] Creating isolated restore database: $DR_TEST_DB"
-createdb --host="$PGHOST" --port="$PGPORT" --username="$PGUSER" "$DR_TEST_DB"
+"${COMPOSE[@]}" exec -T postgres psql -U loansaas -d "$DB_NAME" \
+  -v ON_ERROR_STOP=1 \
+  -c "CREATE DATABASE \"$DR_TEST_DB\";" >/dev/null
 
-echo "[DR] Restoring backup into isolated database..."
-gunzip -c "$INPUT" | psql \
-  --host="$PGHOST" \
-  --port="$PGPORT" \
-  --username="$PGUSER" \
-  --dbname="$DR_TEST_DB" \
-  --set ON_ERROR_STOP=1 \
+echo "[DR] Restoring backup into isolated database inside PostgreSQL container: $DR_TEST_DB"
+gunzip -c "$INPUT" | "${COMPOSE[@]}" exec -T postgres psql \
+  -U loansaas \
+  -d "$DR_TEST_DB" \
+  -v ON_ERROR_STOP=1 \
   >/dev/null
 
-echo "[DR] Running structural checks..."
-psql --host="$PGHOST" --port="$PGPORT" --username="$PGUSER" --dbname="$DR_TEST_DB" --set ON_ERROR_STOP=1 <<'SQL'
+echo "[DR] Running structural and accounting checks..."
+"${COMPOSE[@]}" exec -T postgres psql -U loansaas -d "$DR_TEST_DB" -v ON_ERROR_STOP=1 <<'SQL'
 DO $$
 BEGIN
   IF to_regclass('public.loans') IS NULL THEN
@@ -82,5 +101,5 @@ BEGIN
 END $$;
 SQL
 
-echo "[DR] PASS: backup restored successfully into isolated database and core financial invariants passed."
+echo "[DR] PASS: backup restored inside the private PostgreSQL service and core financial invariants passed."
 echo "[DR] RPO/RTO measurement must be recorded separately from this technical restore test."

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${BASE_URL:?BASE_URL is required, e.g. https://nobleloan-solutions.onrender.com}"
-HEALTH_URL="${HEALTH_URL:-${BASE_URL%/}/actuator/health/readiness}"
+BASE_URL="${BASE_URL:?BASE_URL is required, e.g. https://nobleloansolutions.rw}"
+HEALTH_URL="${HEALTH_URL:-${BASE_URL%/}/healthz}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-15}"
 
 TMP_FILE="$(mktemp)"

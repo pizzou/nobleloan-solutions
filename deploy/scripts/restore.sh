@@ -14,6 +14,10 @@ else
   exit 1
 fi
 BACKUP_FILE="${1:?Usage: restore.sh <backup.sql.gz[.enc]>}"
+if [[ -f .env ]]; then set -a; # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
 DB_NAME="${DB_NAME:-loansaas_nobleloansolutions}"
 [[ -f "$BACKUP_FILE" ]] || { echo "Backup file not found: $BACKUP_FILE" >&2; exit 1; }
 
@@ -43,9 +47,9 @@ gunzip -c "$INPUT_FILE" | "${COMPOSE[@]}" exec -T postgres psql \
 echo "[RESTORE] Starting backend..."
 "${COMPOSE[@]}" start backend
 
-echo "[RESTORE] Waiting for readiness..."
+echo "[RESTORE] Waiting for backend readiness inside the container..."
 for i in $(seq 1 60); do
-  if curl -fsS http://localhost:8080/actuator/health/readiness | grep -q '"status":"UP"'; then
+  if "${COMPOSE[@]}" exec -T backend wget -qO- http://127.0.0.1:8080/actuator/health/readiness 2>/dev/null | grep -q '"status"[[:space:]]*:[[:space:]]*"UP"'; then
     echo "[RESTORE] PASS — application readiness is UP."
     exit 0
   fi

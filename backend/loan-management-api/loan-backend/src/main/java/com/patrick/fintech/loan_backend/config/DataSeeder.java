@@ -119,6 +119,8 @@ public class DataSeeder implements CommandLineRunner {
                                         organization.getId(),
                                         organization.getName());
 
+                        ensureProductionOrganizationIdentity(organization);
+
                         ensureLoanProducts(
                                         organization);
 
@@ -150,18 +152,22 @@ public class DataSeeder implements CommandLineRunner {
                 Organization organization = Organization.builder()
 
                                 /*
-                                 * Organization name remains exactly:
-                                 * nobleloansolution
+                                 * Organization identity is deployment-configured.
                                  */
                                 .name(
                                                 envOrDefault(
                                                                 "BOOTSTRAP_ORG_NAME",
-                                                                "nobleloansolution"))
+                                                                "Noble Loan Solutions Ltd"))
 
                                 .slug(
                                                 envOrDefault(
                                                                 "BOOTSTRAP_ORG_SLUG",
-                                                                "nobleloansolution"))
+                                                                "nobleloansolutions"))
+
+                                .publicDomain(
+                                                envOrDefault(
+                                                                "BOOTSTRAP_ORG_PUBLIC_DOMAIN",
+                                                                "nobleloansolutions.rw"))
 
                                 .industry(
                                                 "Microfinance")
@@ -187,25 +193,25 @@ public class DataSeeder implements CommandLineRunner {
                                                                 "en-RW"))
 
                                 .primaryColor(
-                                                "#0F1B3D")
+                                                envOrDefault("BOOTSTRAP_ORG_PRIMARY_COLOR", "#0F1B3D"))
 
                                 .accentColor(
-                                                "#C9A227")
+                                                envOrDefault("BOOTSTRAP_ORG_ACCENT_COLOR", "#C9A227"))
 
                                 .website(
-                                                "https://nobleloansolutions.rw")
+                                                envOrDefault("BOOTSTRAP_ORG_WEBSITE", ""))
 
                                 .contactEmail(
-                                                "info@nobleloansolutions.rw")
+                                                envOrDefault("BOOTSTRAP_ORG_CONTACT_EMAIL", ""))
 
                                 .contactPhone(
-                                                "+250 788 000 000")
+                                                envOrDefault("BOOTSTRAP_ORG_CONTACT_PHONE", ""))
 
                                 .address(
-                                                "KG 7 Ave, Kigali, Rwanda")
+                                                envOrDefault("BOOTSTRAP_ORG_ADDRESS", ""))
 
                                 .registrationNumber(
-                                                "REG-NLS-004")
+                                                envOrDefault("BOOTSTRAP_ORG_REGISTRATION_NUMBER", ""))
 
                                 .tagline(
                                                 "Your Trusted Partner in Financial Support")
@@ -222,26 +228,14 @@ public class DataSeeder implements CommandLineRunner {
                                 .heroSubtext(
                                                 "Your trusted partner in financial support — personal, business, vehicle, salary advance, and agriculture loans, backed by a secure, fully compliant lending platform.")
 
-                                .foundedYear(
-                                                2025)
+                                .foundedYear(parseIntegerEnv("BOOTSTRAP_ORG_FOUNDED_YEAR"))
 
-                                .facebookUrl(
-                                                "https://facebook.com/nobleloansolutionsrw")
-
-                                .instagramUrl(
-                                                "https://instagram.com/nobleloansolutionsrw")
-
-                                .linkedinUrl(
-                                                "https://linkedin.com/company/nobleloansolutionsrw")
-
-                                .twitterUrl(
-                                                "https://twitter.com/nobleloansolutionsrw")
-
-                                .whatsappUrl(
-                                                "https://wa.me/250788000000")
-
-                                .mapUrl(
-                                                "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d63800.15641867!2d30.0644!3d-1.9536!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x19dca75a929d959f%3A0x0!2sKigali!5e0!3m2!1sen!2srw!4v1690000000000")
+                                .facebookUrl(envOrDefault("BOOTSTRAP_ORG_FACEBOOK_URL", ""))
+                                .instagramUrl(envOrDefault("BOOTSTRAP_ORG_INSTAGRAM_URL", ""))
+                                .linkedinUrl(envOrDefault("BOOTSTRAP_ORG_LINKEDIN_URL", ""))
+                                .twitterUrl(envOrDefault("BOOTSTRAP_ORG_TWITTER_URL", ""))
+                                .whatsappUrl(envOrDefault("BOOTSTRAP_ORG_WHATSAPP_URL", ""))
+                                .mapUrl(envOrDefault("BOOTSTRAP_ORG_MAP_URL", ""))
 
                                 .subscriptionTier(
                                                 Organization.SubscriptionTier.PROFESSIONAL)
@@ -623,6 +617,77 @@ public class DataSeeder implements CommandLineRunner {
 
                 loanProductRepo.save(
                                 product);
+        }
+
+        private void ensureProductionOrganizationIdentity(Organization organization) {
+                if (organization == null || organization.getName() == null) {
+                        return;
+                }
+
+                String configuredName = envOrDefault("BOOTSTRAP_ORG_NAME", "").trim();
+                String currentName = organization.getName().trim();
+                boolean targetOrganization = !configuredName.isBlank()
+                                ? currentName.equalsIgnoreCase(configuredName)
+                                : currentName.equalsIgnoreCase("Noble Loan Solutions Ltd")
+                                                || currentName.equalsIgnoreCase("Noble Loan Solutions");
+
+                if (!targetOrganization) {
+                        return;
+                }
+
+                String configuredSlug = envOrDefault("BOOTSTRAP_ORG_SLUG", "nobleloansolutions");
+                String currentSlug = organization.getSlug() == null ? "" : organization.getSlug().trim();
+                if (currentSlug.isBlank()
+                                || currentSlug.equalsIgnoreCase("nobleloansolution")
+                                || currentSlug.equalsIgnoreCase("nobleloan")) {
+                        organization.setSlug(configuredSlug);
+                }
+
+                String configuredDomain = envOrDefault("BOOTSTRAP_ORG_PUBLIC_DOMAIN", "");
+                if (!configuredDomain.isBlank()
+                                && (organization.getPublicDomain() == null || organization.getPublicDomain().isBlank())) {
+                        organization.setPublicDomain(configuredDomain);
+                }
+
+                setConfiguredIfBlankOrKnownPlaceholder(organization.getWebsite(),
+                                envOrDefault("BOOTSTRAP_ORG_WEBSITE", ""), organization::setWebsite);
+                setConfiguredIfBlankOrKnownPlaceholder(organization.getContactEmail(),
+                                envOrDefault("BOOTSTRAP_ORG_CONTACT_EMAIL", ""), organization::setContactEmail);
+                setConfiguredIfBlankOrKnownPlaceholder(organization.getContactPhone(),
+                                envOrDefault("BOOTSTRAP_ORG_CONTACT_PHONE", ""), organization::setContactPhone);
+                setConfiguredIfBlankOrKnownPlaceholder(organization.getAddress(),
+                                envOrDefault("BOOTSTRAP_ORG_ADDRESS", ""), organization::setAddress);
+                setConfiguredIfBlankOrKnownPlaceholder(organization.getRegistrationNumber(),
+                                envOrDefault("BOOTSTRAP_ORG_REGISTRATION_NUMBER", ""), organization::setRegistrationNumber);
+
+                orgRepo.save(organization);
+        }
+
+        private void setConfiguredIfBlankOrKnownPlaceholder(
+                        String current, String configured, java.util.function.Consumer<String> setter) {
+                if (configured == null || configured.isBlank()) {
+                        return;
+                }
+                if (current == null || current.isBlank()
+                                || current.equalsIgnoreCase("https://nobleloansolutions.rw")
+                                || current.equalsIgnoreCase("info@nobleloansolutions.rw")
+                                || current.equalsIgnoreCase("+250 788 000 000")
+                                || current.equalsIgnoreCase("REG-NLS-004")
+                                || current.equalsIgnoreCase("KG 7 Ave, Kigali, Rwanda")) {
+                        setter.accept(configured.trim());
+                }
+        }
+
+        private Integer parseIntegerEnv(String name) {
+                String value = System.getenv(name);
+                if (value == null || value.isBlank()) {
+                        return null;
+                }
+                try {
+                        return Integer.valueOf(value.trim());
+                } catch (NumberFormatException ex) {
+                        throw new IllegalStateException(name + " must be a valid integer", ex);
+                }
         }
 
         private String envOrDefault(

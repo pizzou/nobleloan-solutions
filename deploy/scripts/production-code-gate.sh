@@ -3,7 +3,7 @@
 # Runs repository checks that can be executed before deployment.
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKEND="$ROOT_DIR/backend/loan-management-api/loan-backend"
 FRONTEND="$ROOT_DIR/frontend/loan-management-ui"
 
@@ -21,14 +21,19 @@ test -x "$ROOT_DIR/deploy/scripts/provider-certification.sh" 2>/dev/null || chmo
 
 echo "[GATE] Checking frontend TypeScript..."
 cd "$FRONTEND"
-node node_modules/typescript/bin/tsc --noEmit
+npm run typecheck
 
 echo "[GATE] Checking frontend ESLint..."
-node node_modules/next/dist/bin/next lint --max-warnings=0
+npm run lint:ci
 
 echo "[GATE] Frontend typecheck + lint PASSED."
 
-echo "[GATE] Backend Maven tests must be run with Maven in CI/deployment environment:"
-echo "       cd backend/loan-management-api/loan-backend && mvn clean test"
+if command -v mvn >/dev/null 2>&1; then
+  echo "[GATE] Running backend Maven tests..."
+  cd "$BACKEND"
+  mvn clean test
+else
+  echo "[GATE] Maven is not installed on this host; backend tests will be executed by the Docker production build (mvn clean verify)."
+fi
 echo "[GATE] External certification still required: KYC/AML, credit bureau, payment provider, DR restore, penetration test."
 echo "[GATE] CODE GATE PASSED for locally executable checks."

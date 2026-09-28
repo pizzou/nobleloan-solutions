@@ -2,6 +2,12 @@
 # Verify backup checksum, encryption/decompression integrity, and manifest.
 set -euo pipefail
 umask 077
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT_DIR"
+if [[ -f .env ]]; then set -a; # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
 FILE="${1:?Usage: verify-backup.sh <backup.sql.gz[.enc]>}"
 [[ -f "$FILE" ]] || { echo "Backup not found: $FILE" >&2; exit 1; }
 sha256sum -c "$FILE.sha256"
