@@ -1,4 +1,5 @@
 import { LoanStatus, RiskCategory } from "@/types";
+import { calculateContractualSchedule } from "@/lib/loanRepaymentCalculator";
 
 export function formatCurrency(
   amount: number | null | undefined,
@@ -162,9 +163,11 @@ export const COUNTRIES = [
 ];
 
 /**
- * @deprecated Conventional annual-rate EMI is not part of the contractual
- * pricing model. Use `calculateContractualSchedule` instead. This compatibility
- * wrapper treats the supplied rate as the MONTHLY contractual rate.
+ * @deprecated Use `calculateContractualSchedule` directly.
+ *
+ * This compatibility wrapper intentionally delegates to the canonical
+ * BigInt/cents calculator so no legacy client-side formula can drift from
+ * the backend contractual schedule.
  */
 export function calcLoan(
   principal: number,
@@ -178,29 +181,16 @@ export function calcLoan(
   if (!Number.isInteger(months) || months <= 0)
     throw new Error("Months must be a positive integer");
 
-  const rate = monthlyRate / 100;
-  let balance = Math.round(principal * 100) / 100;
-  let total = 0;
-  let interest = 0;
-
-  for (let month = 1; month <= months; month += 1) {
-    const i = Math.round(balance * rate * 100) / 100;
-    const management = Math.round(balance * 0.05 * 100) / 100;
-    const principalComponent =
-      month === months ? balance : Math.round((principal / months) * 100) / 100;
-    const installment =
-      Math.round((principalComponent + i + management) * 100) / 100;
-    total = Math.round((total + installment) * 100) / 100;
-    interest = Math.round((interest + i) * 100) / 100;
-    balance = Math.max(
-      0,
-      Math.round((balance - principalComponent) * 100) / 100,
-    );
-  }
+  const schedule = calculateContractualSchedule(
+    principal,
+    months,
+    monthlyRate,
+    5,
+  );
 
   return {
-    monthly: Math.round((total / months) * 100) / 100,
-    total,
-    interest,
+    monthly: Math.round((schedule.total / months) * 100) / 100,
+    total: schedule.total,
+    interest: schedule.interest,
   };
 }

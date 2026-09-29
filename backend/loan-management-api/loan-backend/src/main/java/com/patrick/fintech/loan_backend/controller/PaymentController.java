@@ -53,7 +53,7 @@ public class PaymentController {
         public ResponseEntity<ApiResponse<PaymentResponse>> recordPayment(
                         @PathVariable Long loanId,
                         @RequestBody Map<String, Object> body,
-                        @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey)
+                        @RequestHeader(value = "Idempotency-Key", required = true) String idempotencyKey)
                         throws Exception {
 
                 var currentUser = currentUserUtil.getCurrentUser();
@@ -141,6 +141,12 @@ public class PaymentController {
 
                                 throw new RuntimeException(
                                                 "Payment amount must be greater than zero.");
+                        }
+
+                        if (amount.stripTrailingZeros().scale() > 2) {
+
+                                throw new RuntimeException(
+                                                "Payment amount cannot contain more than two decimal places.");
                         }
 
                         // ====================================================

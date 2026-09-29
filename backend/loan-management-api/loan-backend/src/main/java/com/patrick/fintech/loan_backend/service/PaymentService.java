@@ -126,6 +126,17 @@ public class PaymentService {
                                         "Payment amount must be greater than zero");
                 }
 
+                /*
+                 * Monetary values are persisted at scale 2 throughout the
+                 * operational loan/payment ledger. Never silently round a
+                 * caller-supplied financial amount: doing so can turn a retry
+                 * or provider callback into a different monetary event.
+                 */
+                if (amount.stripTrailingZeros().scale() > 2) {
+                        throw new IllegalArgumentException(
+                                        "Payment amount cannot contain more than two decimal places");
+                }
+
                 amount = roundMoney(amount);
 
                 String normalizedTxnId = normalizeTransactionId(txnId);
