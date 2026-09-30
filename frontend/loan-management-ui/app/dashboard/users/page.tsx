@@ -54,6 +54,7 @@ function inputCls(err?: string) {
 
 export default function UsersPage() {
   const isAdmin = hasRole("ADMIN");
+  const isBusinessOwner = hasRole("BUSINESS_OWNER");
 
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,6 +64,8 @@ export default function UsersPage() {
   const [resetUserId, setResetUserId] = useState<number | null>(null);
 
   const [delUserId, setDelUserId] = useState<number | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deletingUser, setDeletingUser] = useState(false);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -288,19 +291,34 @@ export default function UsersPage() {
       return;
     }
 
+    const target = users.find((user) => user.id === delUserId);
+    if (!target) return;
+
+    const expected = `sudo ${target.name}`;
+    if (deleteConfirmation !== expected) {
+      toast("error", `Type exactly: ${expected}`);
+      return;
+    }
+
+    setDeletingUser(true);
     try {
-      await del("/users/" + delUserId);
+      await del("/users/" + delUserId, {
+        data: { confirmation: deleteConfirmation },
+      });
 
       toast(
         "success",
-        "User deactivated — their login is disabled and their history is preserved",
+        "User deleted — login disabled and historical records preserved",
       );
 
       setDelUserId(null);
+      setDeleteConfirmation("");
 
       load();
     } catch (err: unknown) {
       toast("error", getMsg(err));
+    } finally {
+      setDeletingUser(false);
     }
   };
 
@@ -399,7 +417,7 @@ export default function UsersPage() {
                     Organization
                   </th>
 
-                  {isAdmin && (
+                  {(isAdmin || isBusinessOwner) && (
                     <th className="px-5 py-3 text-left font-medium">Actions</th>
                   )}
                 </tr>
@@ -533,16 +551,17 @@ export default function UsersPage() {
                     </td>
 
                     {/* ACTIONS */}
-                    {isAdmin && (
+                    {(isAdmin || isBusinessOwner) && (
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => {
-                              setResetUserId(u.id);
-                              setNewPw("");
-                              setCfPw("");
-                            }}
-                            className="
+                          {isAdmin ? (
+                            <button
+                              onClick={() => {
+                                setResetUserId(u.id);
+                                setNewPw("");
+                                setCfPw("");
+                              }}
+                              className="
                               text-xs
                               text-blue-600
                               hover:text-blue-800
@@ -556,11 +575,12 @@ export default function UsersPage() {
                               rounded-lg
                               transition
                             "
-                          >
-                            Reset PW
-                          </button>
+                            >
+                              Reset PW
+                            </button>
+                          ) : null}
 
-                          {u.status === "SUSPENDED" ? (
+                          {u.status === "SUSPENDED" && isAdmin ? (
                             <button
                               onClick={() => handleReactivate(u.id)}
                               className="
@@ -580,9 +600,12 @@ export default function UsersPage() {
                             >
                               Reactivate
                             </button>
-                          ) : (
+                          ) : isBusinessOwner ? (
                             <button
-                              onClick={() => setDelUserId(u.id)}
+                              onClick={() => {
+                                setDelUserId(u.id);
+                                setDeleteConfirmation("");
+                              }}
                               className="
                                 text-xs
                                 text-red-500
@@ -598,9 +621,9 @@ export default function UsersPage() {
                                 transition
                               "
                             >
-                              Deactivate
+                              Delete
                             </button>
-                          )}
+                          ) : null}
                         </div>
                       </td>
                     )}
@@ -1202,7 +1225,7 @@ export default function UsersPage() {
               mb-2
             "
             >
-              Deactivate User?
+              Delete User?
             </h2>
 
             <p
@@ -1212,13 +1235,40 @@ export default function UsersPage() {
               mb-6
             "
             >
-              Their login will be disabled immediately. Their history stays
-              intact, and an admin can reactivate the account later.
+              This is a high-risk action restricted to the Business Owner. The
+              account is disabled and historical financial/audit records are
+              preserved. Type the exact confirmation below.
             </p>
+
+            {delUserId ? (
+              <div className="mb-4">
+                <p className="mb-2 text-xs font-semibold text-gray-500">
+                  Type exactly:
+                </p>
+                <code className="block rounded-lg bg-gray-100 px-3 py-2 text-sm font-bold text-gray-800">
+                  sudo {users.find((u) => u.id === delUserId)?.name}
+                </code>
+                <input
+                  value={deleteConfirmation}
+                  onChange={(event) =>
+                    setDeleteConfirmation(event.target.value)
+                  }
+                  placeholder={`sudo ${users.find((u) => u.id === delUserId)?.name ?? ""}`}
+                  autoComplete="off"
+                  className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                />
+              </div>
+            ) : null}
 
             <div className="flex gap-3">
               <button
-                onClick={handleDeactivate}
+                onClick={() => void handleDeactivate()}
+                disabled={
+                  deletingUser ||
+                  !delUserId ||
+                  deleteConfirmation !==
+                    `sudo ${users.find((u) => u.id === delUserId)?.name ?? ""}`
+                }
                 className="
                   flex-1
                   bg-red-600
@@ -1230,7 +1280,7 @@ export default function UsersPage() {
                   font-medium
                 "
               >
-                Deactivate
+                Delete
               </button>
 
               <button

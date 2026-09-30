@@ -180,6 +180,38 @@ public class UserService {
      * lists, history
      * intact) is the correct operation here, not a workaround.
      */
+    /**
+     * High-risk business-owner deletion confirmation.
+     *
+     * The account is suspended rather than physically removed because this
+     * system keeps foreign-keyed loan, audit, approval, notification and
+     * operational history against users. The DELETE API therefore means
+     * business deletion/deactivation while preserving the immutable history.
+     */
+    @Transactional
+    public User deleteWithConfirmation(
+            Long id,
+            String confirmation,
+            Long organizationId) {
+
+        User user = getById(id, organizationId);
+
+        String expected = "sudo " + user.getName();
+
+        if (confirmation == null || !confirmation.equals(expected)) {
+            throw new IllegalArgumentException(
+                    "Deletion verification failed. Type exactly: sudo " + user.getName()
+            );
+        }
+
+        user.setStatus(User.UserStatus.SUSPENDED);
+        user.setTokenVersion(
+                (user.getTokenVersion() == null ? 0L : user.getTokenVersion()) + 1L
+        );
+
+        return userRepository.save(user);
+    }
+
     @Transactional
     public User deactivate(Long id, Long organizationId) {
         User user = getById(id, organizationId);

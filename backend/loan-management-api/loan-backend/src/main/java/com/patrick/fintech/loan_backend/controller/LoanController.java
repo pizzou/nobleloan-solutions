@@ -18,6 +18,7 @@ import com.patrick.fintech.loan_backend.service.AuditService;
 import com.patrick.fintech.loan_backend.service.LoanApprovalService;
 import com.patrick.fintech.loan_backend.service.LoanService;
 import com.patrick.fintech.loan_backend.service.LoanRestructuringService;
+import com.patrick.fintech.loan_backend.service.LoanAdministrationService;
 import com.patrick.fintech.loan_backend.service.MailService;
 import com.patrick.fintech.loan_backend.service.IdempotencyService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -69,6 +70,7 @@ public class LoanController {
         private final LoanRestructuringService loanRestructuringService;
         private final IdempotencyService idempotencyService;
         private final ObjectMapper objectMapper;
+        private final LoanAdministrationService loanAdministrationService;
 
         // ================================================================
         // CREATE LOAN
@@ -639,6 +641,35 @@ public class LoanController {
          * Applicant-visible comments can be sent to the borrower.
          * Internal comments remain staff-only.
          */
+        @DeleteMapping("/{id}")
+        @PreAuthorize("hasRole('BUSINESS_OWNER')")
+        public ResponseEntity<ApiResponse<Void>> deleteLoan(
+                        @PathVariable Long id,
+                        @RequestBody(required = false) Map<String, String> body) {
+
+                User actor = currentUserUtil.getCurrentUser();
+                String confirmation = body == null ? null : body.get("confirmation");
+
+                loanAdministrationService.deleteWithConfirmation(
+                                id,
+                                confirmation,
+                                actor);
+
+                auditService.log(
+                                actor.getOrganization(),
+                                actor,
+                                "LOAN_DELETED",
+                                "LOAN",
+                                String.valueOf(id),
+                                "Deleted loan after exact sudo/reference confirmation",
+                                null,
+                                null,
+                                "Loan Management");
+
+                return ResponseEntity.ok(
+                                ApiResponse.ok("Loan deleted successfully"));
+        }
+
         @PostMapping("/{id}/comments")
         @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
         @Transactional

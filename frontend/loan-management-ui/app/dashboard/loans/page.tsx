@@ -321,10 +321,14 @@ function LoanRow({
   loan,
   currency,
   locale,
+  canDelete,
+  onDelete,
 }: {
   loan: Loan;
   currency: string;
   locale: string;
+  canDelete: boolean;
+  onDelete: (loan: Loan) => void;
 }) {
   const borrowerName = getBorrowerName(loan);
   const borrowerInitials = getBorrowerInitials(loan);
@@ -566,6 +570,18 @@ function LoanRow({
           </div>
         ) : null}
       </td>
+
+      {canDelete ? (
+        <td className="px-5 py-4 align-top">
+          <button
+            type="button"
+            onClick={() => onDelete(loan)}
+            className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"
+          >
+            Delete
+          </button>
+        </td>
+      ) : null}
     </tr>
   );
 }
@@ -575,7 +591,7 @@ function LoanRow({
    ============================================================ */
 
 export default function LoanListPage() {
-  const { currency, locale, isOfficer } = useAuth();
+  const { currency, locale, isOfficer, isBusinessOwner } = useAuth();
 
   const online = useOnlineStatus();
 
@@ -588,6 +604,10 @@ export default function LoanListPage() {
   const [loading, setLoading] = useState(true);
 
   const [refreshing, setRefreshing] = useState(false);
+
+  const [deleteLoan, setDeleteLoan] = useState<Loan | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deletingLoan, setDeletingLoan] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -744,6 +764,32 @@ export default function LoanListPage() {
     await loadPortfolio();
 
     setRefreshing(false);
+  };
+
+  const handleDeleteLoan = async () => {
+    if (!deleteLoan) return;
+
+    const expected = `sudo ${deleteLoan.referenceNumber ?? ""}`;
+    if (deleteConfirmation !== expected) {
+      setError(`Type exactly: ${expected}`);
+      return;
+    }
+
+    setDeletingLoan(true);
+    try {
+      await loanApi.deleteWithConfirmation(deleteLoan.id, deleteConfirmation);
+      setDeleteLoan(null);
+      setDeleteConfirmation("");
+      await loadPortfolio();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to delete the loan.",
+      );
+    } finally {
+      setDeletingLoan(false);
+    }
   };
 
   /* ==========================================================
@@ -1378,6 +1424,7 @@ export default function LoanListPage() {
                     "Disbursed",
                     "Outstanding",
                     "Type / repayment",
+                    ...(isBusinessOwner ? ["Actions"] : []),
                   ].map((label) => (
                     <th
                       key={label}
@@ -1402,7 +1449,7 @@ export default function LoanListPage() {
               <tbody>
                 {visibleLoans.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-0">
+                    <td colSpan={isBusinessOwner ? 8 : 7} className="p-0">
                       <EmptyState
                         searching={Boolean(query || status || type)}
                       />
@@ -1415,6 +1462,8 @@ export default function LoanListPage() {
                       loan={loan}
                       currency={currency}
                       locale={locale}
+                      canDelete={isBusinessOwner}
+                      onDelete={setDeleteLoan}
                     />
                   ))
                 )}
@@ -1489,6 +1538,58 @@ export default function LoanListPage() {
             </div>
           </div>
         </section>
+
+        {deleteLoan ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+              <h2 className="text-lg font-black text-slate-900">
+                Delete loan — high-risk confirmation
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                This action is restricted to the Business Owner. To prevent
+                accidental deletion, type exactly:
+              </p>
+              <code className="mt-3 block rounded-lg bg-slate-100 px-3 py-2 text-sm font-bold text-slate-900">
+                sudo {deleteLoan.referenceNumber}
+              </code>
+              <input
+                value={deleteConfirmation}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+                placeholder={`sudo ${deleteLoan.referenceNumber}`}
+                autoComplete="off"
+                className="mt-4 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+              />
+              <p className="mt-2 text-xs leading-5 text-red-600">
+                Any loan linked to financial, accounting, BNR/credit-bureau,
+                reporting, approval, collection, collateral, signature, or other
+                protected history cannot be physically deleted.
+              </p>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteLoan(null);
+                    setDeleteConfirmation("");
+                  }}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    deletingLoan ||
+                    deleteConfirmation !== `sudo ${deleteLoan.referenceNumber}`
+                  }
+                  onClick={() => void handleDeleteLoan()}
+                  className="rounded-xl bg-red-600 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {deletingLoan ? "Deleting…" : "Delete loan"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {/* ====================================================
             FINANCIAL DEFINITIONS

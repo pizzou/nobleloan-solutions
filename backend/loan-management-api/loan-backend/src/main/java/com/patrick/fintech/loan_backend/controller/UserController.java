@@ -362,9 +362,10 @@ public class UserController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('BUSINESS_OWNER')")
     public ResponseEntity<ApiResponse<Void>> delete(
-            @PathVariable Long id) {
+            @PathVariable Long id,
+            @RequestBody(required = false) Map<String, String> body) {
 
         validateUserId(id);
 
@@ -389,6 +390,14 @@ public class UserController {
                 organizationId
         );
 
+        String confirmation = body == null ? null : body.get("confirmation");
+        String expected = "sudo " + target.getName();
+        if (!expected.equals(confirmation)) {
+            throw new IllegalArgumentException(
+                    "High-risk deletion confirmation failed. Type exactly: " + expected
+            );
+        }
+
         userService.deactivate(
                 id,
                 organizationId
@@ -397,10 +406,10 @@ public class UserController {
         auditService.log(
                 target.getOrganization(),
                 currentUserUtil.getCurrentUser(),
-                "USER_DEACTIVATED",
+                "USER_DELETED",
                 "USER",
                 String.valueOf(id),
-                "Deactivated user "
+                "Deleted user (account disabled; history preserved) "
                         + target.getName()
                         + " ("
                         + target.getEmail()

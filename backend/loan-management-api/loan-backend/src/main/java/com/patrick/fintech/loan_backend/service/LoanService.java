@@ -15,6 +15,7 @@ import com.patrick.fintech.loan_backend.model.LoanStatus;
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.Payment;
 import com.patrick.fintech.loan_backend.model.PaymentSchedule;
+import com.patrick.fintech.loan_backend.model.PaymentTransaction;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.AuditLogRepository;
 import com.patrick.fintech.loan_backend.repository.BorrowerRepository;
@@ -22,6 +23,7 @@ import com.patrick.fintech.loan_backend.repository.LoanProductRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
+import com.patrick.fintech.loan_backend.repository.PaymentTransactionRepository;
 import com.patrick.fintech.loan_backend.security.HmacIndexer;
 import com.patrick.fintech.loan_backend.util.FinancialPolicy;
 
@@ -77,6 +79,7 @@ public class LoanService {
         private final CreditBureauService creditBureauService;
         private final ComplianceService complianceService;
         private final PaymentScheduleService paymentScheduleService;
+    private final PaymentTransactionRepository paymentTransactionRepo;
         private final DashboardService dashboardService;
 
         @Value("${app.environment:development}")
@@ -1836,10 +1839,21 @@ public class LoanService {
 
                 try {
 
+                        String borrowerName = loan.getBorrower() != null
+                                        ? loan.getBorrower().getFullName()
+                                        : "—";
+
+                        String loanInfo =
+                                        " Borrower: " + borrowerName
+                                                        + " | Amount: " + loan.getCurrency() + " " + loan.getAmountDecimal()
+                                                        + " | Duration: " + loan.getDurationMonths() + " months"
+                                                        + " | Outstanding: " + loan.getCurrency() + " " + loan.getOutstandingBalanceDecimal()
+                                                        + " | Next due: " + (loan.getNextDueDate() == null ? "—" : loan.getNextDueDate());
+
                         notifService.notifyUsers(
                                         List.of(officer),
                                         title,
-                                        message,
+                                        message + loanInfo,
                                         type,
                                         "/dashboard/loans/"
                                                         + loan.getId());
@@ -1856,20 +1870,81 @@ public class LoanService {
         // CREDIT QUALITY
         // ================================================================
 
-        /**
-         * Updates the credit quality of a loan using the exact delinquency
-         * bands defined by the business:
-         *
-         * 0 days -> CURRENT
-         * 1 - 89 -> WATCH
-         * 90 - 179 -> SUBSTANDARD
-         * 180 - 359 -> DOUBTFUL
-         * 360+ -> WRITTEN_OFF
-         *
-         * This method uses the loan's organization for tenant isolation.
-         */
-        @Transactional
-        public Loan updateCreditQuality(
+    
+    @Transactional
+    public void deleteWithConfirmation(
+            Long loanId,
+            String confirmation,
+            Long organizationId,
+            User actor) {
+
+        if (actor == null || actor.getRole() == null
+                || !"BUSINESS_OWNER".equalsIgnoreCase(actor.getRole().getName())) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Only the business owner can delete a loan"
+            );
+        }
+
+        Loan loan = getLoanForOrg(loanId, organizationId);
+
+        String expected = "sudo " + loan.getReferenceNumber();
+        if (confirmation == null || !confirmation.equals(expected)) {
+            throw new IllegalArgumentException(
+                    "Deletion verification failed. Type exactly: sudo "
+                            + loan.getReferenceNumber()
+            );
+        }
+
+        List<Payment> schedule = paymentRepo.findByLoanId(loan.getId());
+        List<PaymentTransaction> transactions =
+                paymentTransactionRepo.findByLoanIdOrderByCreatedAtDesc(loan.getId());
+
+        boolean financiallyUsed = loan.getDisbursedAt() != null
+                || loan.getStatus() == LoanStatus.DISBURSED
+                || loan.getStatus() == LoanStatus.ACTIVE
+                || loan.getStatus() == LoanStatus.OVERDUE
+                || loan.getStatus() == LoanStatus.DEFAULTED
+                || loan.getStatus() == LoanStatus.RESTRUCTURED
+                || loan.getStatus() == LoanStatus.WRITTEN_OFF
+                || loan.getStatus() == LoanStatus.PAID
+                || loan.getStatus() == LoanStatus.CLOSED
+                || !schedule.isEmpty()
+                || !transactions.isEmpty();
+
+        if (financiallyUsed) {
+            throw new IllegalStateException(
+                    "This loan cannot be physically deleted because it has financial or repayment history. "
+                            + "Keep the loan for audit and accounting integrity."
+            );
+        }
+
+        if (loan.getStatus() != LoanStatus.PENDING
+                && loan.getStatus() != LoanStatus.UNDER_REVIEW
+                && loan.getStatus() != LoanStatus.REJECTED
+                && loan.getStatus() != LoanStatus.CANCELLED) {
+            throw new IllegalStateException(
+                    "Only an unused pending, under-review, rejected or cancelled loan can be deleted."
+            );
+        }
+
+        loanRepo.delete(loan);
+        loanRepo.flush();
+
+        auditService.log(
+                loan.getOrganization(),
+                actor,
+                "LOAN_DELETED",
+                "LOAN",
+                String.valueOf(loan.getId()),
+                "Business owner deleted unused loan " + loan.getReferenceNumber()
+                        + " after exact high-risk confirmation",
+                null,
+                null,
+                "Loan Management"
+        );
+    }
+
+    public Loan updateCreditQuality(
                         Long loanId,
                         Long organizationId) {
 

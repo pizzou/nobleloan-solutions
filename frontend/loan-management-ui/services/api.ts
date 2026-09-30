@@ -320,6 +320,9 @@ export const loanApi = {
 
   get: (id: number) => get(`/loans/${id}`),
 
+  deleteWithConfirmation: (id: number, confirmation: string) =>
+    del(`/loans/${id}`, { data: { confirmation } }),
+
   create: (data: unknown) => post("/loans", data),
 
   approve: (

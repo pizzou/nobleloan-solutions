@@ -1,5 +1,7 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+
 import React, {
   useCallback,
   useEffect,
@@ -332,6 +334,7 @@ function sameNotification(
 }
 
 export default function Page() {
+  const router = useRouter();
   const organizationId = useMemo(() => getOrganizationId(), []);
 
   const [notifications, setNotifications] = useState<DisplayNotification[]>([]);
@@ -1526,6 +1529,17 @@ export default function Page() {
                   } ${severity}`}
                   onClick={() => {
                     void markRead(notification);
+
+                    const link = notification.link?.trim();
+                    if (link && link.startsWith("/dashboard/loans/")) {
+                      router.push(link);
+                      return;
+                    }
+
+                    if (notification.loanId) {
+                      router.push(`/dashboard/loans/${notification.loanId}`);
+                      return;
+                    }
 
                     setSelected(notification);
                   }}
