@@ -1153,13 +1153,18 @@ public class LoanService {
                 loan.setRequestedAmount(requestedAmount);
                 loan.setAmount(principal);
 
-                if (loan.getOutstandingBalanceDecimal() == null
-                                || moneyValue(
-                                                loan.getOutstandingBalanceDecimal()).compareTo(ZERO) <= 0) {
-
-                        loan.setOutstandingBalance(
-                                        principal);
-                }
+                /*
+                 * APPROVAL PRINCIPAL IS CONTRACTUAL FROM THIS POINT FORWARD.
+                 *
+                 * A borrower may request RWF 10,000,000 and be approved for
+                 * RWF 9,000,000. The previous outstanding balance must never
+                 * survive that principal amendment. The database invariant
+                 * requires principalPaid + outstandingBalance = amount.
+                 * Therefore approval always synchronizes outstanding principal
+                 * to the final approved principal before saving.
+                 */
+                loan.setOutstandingBalance(
+                                principal);
 
                 loan.setStatus(
                                 LoanStatus.APPROVED);

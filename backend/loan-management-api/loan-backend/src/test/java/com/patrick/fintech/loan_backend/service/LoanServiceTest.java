@@ -6,6 +6,7 @@ import com.patrick.fintech.loan_backend.model.Borrower;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.LoanStatus;
 import com.patrick.fintech.loan_backend.model.Organization;
+import com.patrick.fintech.loan_backend.model.Role;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.AuditLogRepository;
 import com.patrick.fintech.loan_backend.repository.BorrowerRepository;
@@ -349,6 +350,97 @@ class LoanServiceTest {
         verify(paymentRepository, times(6))
                 .save(any());
     }
+
+    // ============================================================
+    // APPROVAL PRINCIPAL AMENDMENT / FINANCIAL INVARIANT
+    // ============================================================
+
+    @Test
+    void approveLoan_shouldSynchronizeOutstandingBalance_whenApprovedPrincipalIsReduced() {
+
+        Loan loan = new Loan();
+
+        loan.setId(3L);
+        loan.setReferenceNumber("LN-TEST-REDUCED-PRINCIPAL");
+        loan.setStatus(LoanStatus.PENDING);
+        loan.setAmount(new BigDecimal("10000000.00"));
+        loan.setRequestedAmount(new BigDecimal("10000000.00"));
+        loan.setOutstandingBalance(new BigDecimal("10000000.00"));
+        loan.setInterestRate(new BigDecimal("5.00"));
+        loan.setManagementFeeRate(new BigDecimal("5.00"));
+        loan.setApplicationFeeRate(new BigDecimal("2.00"));
+        loan.setPenaltyRate(new BigDecimal("10.00"));
+        loan.setInterestRateType("MONTHLY");
+        loan.setDurationMonths(1);
+        loan.setStartDate(LocalDate.of(2026, 9, 30));
+        loan.setBorrower(borrower);
+        loan.setOrganization(org);
+        loan.setCurrency("RWF");
+
+        User admin = new User();
+        admin.setId(4L);
+        admin.setName("Test Admin");
+        admin.setOrganization(org);
+
+        Role adminRole = new Role();
+        adminRole.setName("ADMIN");
+        admin.setRole(adminRole);
+
+        when(loanRepository.findVisibleByIdForUpdate(
+                3L,
+                1L,
+                true))
+                .thenReturn(Optional.of(loan));
+
+        when(fileService.getMissingDocumentTypes(
+                any(Long.class),
+                any()))
+                .thenReturn(List.of());
+
+        when(loanRepository.save(any(Loan.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        when(paymentRepository.save(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        when(paymentRepository.findByLoanId(3L))
+                .thenReturn(List.of());
+
+        lenient().when(
+                holidayService.adjustToBusinessDay(
+                        anyLong(),
+                        any(LocalDate.class)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+
+        Loan result = loanService.approveLoan(
+                3L,
+                admin,
+                "Approved below requested amount",
+                null,
+                null,
+                new BigDecimal("9000000.00"));
+
+        assertThat(result.getAmountDecimal())
+                .isEqualByComparingTo("9000000.00");
+
+        assertThat(result.getPrincipalPaidDecimal())
+                .isEqualByComparingTo("0.00");
+
+        assertThat(result.getOutstandingBalanceDecimal())
+                .isEqualByComparingTo("9000000.00");
+
+        assertThat(result.getTotalInterestDecimal())
+                .isEqualByComparingTo("450000.00");
+
+        assertThat(result.getManagementFeeDecimal())
+                .isEqualByComparingTo("450000.00");
+
+        assertThat(result.getPrincipalPaidDecimal()
+                        .add(result.getOutstandingBalanceDecimal())
+                        .compareTo(result.getAmountDecimal()))
+                .isZero();
+    }
+
 
     // ============================================================
     // ALREADY APPROVED
