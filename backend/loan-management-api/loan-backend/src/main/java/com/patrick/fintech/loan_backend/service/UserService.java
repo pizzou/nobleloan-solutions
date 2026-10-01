@@ -188,6 +188,13 @@ public class UserService {
      * operational history against users. The DELETE API therefore means
      * business deletion/deactivation while preserving the immutable history.
      */
+    /**
+     * Legacy overload retained for existing non-request callers. New request
+     * paths must use the actor-aware overload below.
+     *
+     * @deprecated use {@link #deleteWithConfirmation(Long, String, Long, User)}
+     */
+    @Deprecated
     @Transactional
     public User deleteWithConfirmation(
             Long id,
@@ -195,21 +202,109 @@ public class UserService {
             Long organizationId) {
 
         User user = getById(id, organizationId);
-
         String expected = "sudo " + user.getName();
 
         if (confirmation == null || !confirmation.equals(expected)) {
             throw new IllegalArgumentException(
-                    "Deletion verification failed. Type exactly: sudo " + user.getName()
-            );
+                    "Deletion verification failed. Type exactly: " + expected);
+        }
+
+        if (user.getStatus() == User.UserStatus.SUSPENDED
+                || user.getStatus() == User.UserStatus.INACTIVE) {
+            throw new IllegalStateException("User account is already inactive");
+        }
+
+        String targetRole = user.getRole() == null ? null : user.getRole().getName();
+        if ("BUSINESS_OWNER".equalsIgnoreCase(targetRole)
+                && userRepository.countByOrganization_IdAndRole_NameAndStatus(
+                        organizationId,
+                        "BUSINESS_OWNER",
+                        User.UserStatus.ACTIVE) <= 1L) {
+            throw new IllegalStateException(
+                    "The last active BUSINESS_OWNER cannot be deleted. Assign another active BUSINESS_OWNER first.");
         }
 
         user.setStatus(User.UserStatus.SUSPENDED);
         user.setTokenVersion(
-                (user.getTokenVersion() == null ? 0L : user.getTokenVersion()) + 1L
-        );
+                (user.getTokenVersion() == null ? 0L : user.getTokenVersion()) + 1L);
+        return userRepository.save(user);
+    }
+
+    /**
+     * High-risk staff-account deletion for the authenticated BUSINESS_OWNER.
+     *
+     * This is a business deletion (suspension), not a physical DELETE. User
+     * rows are referenced by loans, approvals, audit records, notifications
+     * and other operational history. Removing the row would either violate
+     * foreign keys or destroy the identity needed to explain historical work.
+     */
+    @Transactional
+    public User deleteWithConfirmation(
+            Long id,
+            String confirmation,
+            Long organizationId,
+            User actor) {
+
+        requireBusinessOwner(actor);
+
+        if (organizationId == null
+                || actor.getOrganization() == null
+                || actor.getOrganization().getId() == null
+                || !organizationId.equals(actor.getOrganization().getId())) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "User deletion organization does not match the authenticated user");
+        }
+
+        if (id == null || id <= 0) {
+            throw new IllegalArgumentException("Invalid user id");
+        }
+
+        if (id.equals(actor.getId())) {
+            throw new IllegalArgumentException("Cannot delete your own account");
+        }
+
+        User user = getById(id, organizationId);
+
+        if (user.getStatus() == User.UserStatus.SUSPENDED
+                || user.getStatus() == User.UserStatus.INACTIVE) {
+            throw new IllegalStateException("User account is already inactive");
+        }
+
+        String expected = "sudo " + user.getName();
+        if (confirmation == null || !confirmation.equals(expected)) {
+            throw new IllegalArgumentException(
+                    "Deletion verification failed. Type exactly: " + expected);
+        }
+
+        String targetRole = user.getRole() == null ? null : user.getRole().getName();
+        if ("BUSINESS_OWNER".equalsIgnoreCase(targetRole)) {
+            long activeBusinessOwners =
+                    userRepository.countByOrganization_IdAndRole_NameAndStatus(
+                            organizationId,
+                            "BUSINESS_OWNER",
+                            User.UserStatus.ACTIVE);
+
+            if (activeBusinessOwners <= 1L) {
+                throw new IllegalStateException(
+                        "The last active BUSINESS_OWNER cannot be deleted. Assign another active BUSINESS_OWNER first.");
+            }
+        }
+
+        user.setStatus(User.UserStatus.SUSPENDED);
+        user.setTokenVersion(
+                (user.getTokenVersion() == null ? 0L : user.getTokenVersion()) + 1L);
 
         return userRepository.save(user);
+    }
+
+    private void requireBusinessOwner(User actor) {
+        if (actor == null
+                || actor.getRole() == null
+                || actor.getRole().getName() == null
+                || !"BUSINESS_OWNER".equalsIgnoreCase(actor.getRole().getName())) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Only the BUSINESS_OWNER can delete a user");
+        }
     }
 
     @Transactional

@@ -136,6 +136,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             SELECT l
             FROM Loan l
             WHERE l.organization.id = :organizationId
+              AND l.status <> 'CANCELLED'
               AND (
                     :includeBusinessOwnerOnly = true
                     OR COALESCE(l.businessOwnerOnly, false) = false
@@ -349,6 +350,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             FROM Loan l
             WHERE l.organization.id = :orgId
               AND (:branchId IS NULL OR l.branch.id = :branchId)
+              AND l.status <> 'CANCELLED'
               AND (
                   l.imported = true
                   OR l.importBatchId IS NOT NULL
@@ -370,6 +372,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             FROM Loan l
             WHERE l.organization.id = :orgId
               AND (:branchId IS NULL OR l.branch.id = :branchId)
+              AND l.status <> 'CANCELLED'
               AND (
                     :includeBusinessOwnerOnly = true
                     OR COALESCE(l.businessOwnerOnly, false) = false
@@ -1096,6 +1099,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             FROM Loan l
             WHERE l.organization.id = :orgId
               AND (:branchId IS NULL OR l.branch.id = :branchId)
+              AND l.status <> 'CANCELLED'
               AND (
                   l.imported = true
                   OR l.importBatchId IS NOT NULL
@@ -1120,6 +1124,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             FROM Loan l
             WHERE l.organization.id = :orgId
               AND (:branchId IS NULL OR l.branch.id = :branchId)
+              AND l.status <> 'CANCELLED'
               AND (
                     :includeBusinessOwnerOnly = true
                     OR COALESCE(l.businessOwnerOnly, false) = false

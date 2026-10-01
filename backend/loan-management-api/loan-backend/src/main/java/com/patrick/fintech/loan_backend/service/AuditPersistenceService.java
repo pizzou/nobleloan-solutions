@@ -125,20 +125,27 @@ public class AuditPersistenceService {
             String module = (moduleOverride != null && !moduleOverride.isBlank())
                     ? moduleOverride
                     : deriveModule(entityType);
-            String timestamp = java.time.LocalDateTime.now().toString();
+            // The exact timestamp included in the hash must also be the timestamp
+            // persisted on the audit row. Previously @PrePersist could generate a
+            // second timestamp after the hash had already been calculated, making
+            // an otherwise untouched entry fail verification.
+            java.time.LocalDateTime auditTimestamp = java.time.LocalDateTime.now();
+            String timestamp = auditTimestamp.toString();
 
-            String entryHash = sha256(String.join("|",
+            String entryHash = AuditHashChain.hashFor(
                     previousHash,
-                    org != null ? String.valueOf(org.getId()) : "",
-                    actor != null ? String.valueOf(actor.getId()) : "",
-                    action, entityType, entityId != null ? entityId : "",
-                    description != null ? description : "",
-                    before != null ? before : "",
-                    after != null ? after : "",
-                    ip != null ? ip : "",
-                    ua != null ? ua : "",
-                    module != null ? module : "",
-                    timestamp));
+                    org != null ? org.getId() : null,
+                    actor != null ? actor.getId() : null,
+                    action,
+                    entityType,
+                    entityId,
+                    description,
+                    before,
+                    after,
+                    ip,
+                    ua,
+                    module,
+                    timestamp);
 
             auditLogRepo.save(AuditLog.builder()
                     .organization(org).user(actor).action(action)
@@ -147,6 +154,7 @@ public class AuditPersistenceService {
                     .ipAddress(ip).userAgent(ua)
                     .operatingSystem(os).browser(browser)
                     .location(location).module(module)
+                    .timestamp(auditTimestamp)
                     .previousHash(previousHash).entryHash(entryHash)
                     .build());
         } catch (Exception e) {

@@ -46,6 +46,16 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     long countByOrganization(Organization organization);
 
+    /**
+     * Counts active BUSINESS_OWNER accounts inside one tenant.
+     * The tenant and status predicates are evaluated in SQL so the last
+     * active business owner cannot be removed by a stale in-memory list.
+     */
+    long countByOrganization_IdAndRole_NameAndStatus(
+            Long organizationId,
+            String roleName,
+            User.UserStatus status);
+
     @EntityGraph(attributePaths = {"role", "organization", "branch"})
     Optional<User> findByEmailIgnoreCase(String email);
 

@@ -5,6 +5,7 @@ import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.AuditLog;
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.repository.AuditLogRepository;
+import com.patrick.fintech.loan_backend.service.AuditHashChain;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -12,8 +13,6 @@ import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,13 +48,17 @@ public class AuditController {
         List<AuditLog> all = auditLogRepo.findAllByOrderByIdAsc();
         String expectedPrevious = "GENESIS";
         for (AuditLog entry : all) {
-            String recomputed = sha256(String.join("|",
-                    expectedPrevious,
-                    entry.getOrganization() != null ? String.valueOf(entry.getOrganization().getId()) : "",
-                    entry.getUser() != null ? String.valueOf(entry.getUser().getId()) : "",
-                    entry.getAction(), entry.getEntityType(), entry.getEntityId() != null ? entry.getEntityId() : "",
-                    entry.getDescription() != null ? entry.getDescription() : "",
-                    entry.getTimestamp() != null ? entry.getTimestamp().toString() : ""));
+            if (!java.util.Objects.equals(expectedPrevious, entry.getPreviousHash())) {
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("intact", false);
+                result.put("brokenAtId", entry.getId());
+                result.put("brokenAtTimestamp", entry.getTimestamp());
+                result.put("message", "Entry #" + entry.getId()
+                        + " points to an unexpected previous audit hash; an entry may have been altered or deleted.");
+                return ResponseEntity.ok(ApiResponse.safe(result));
+            }
+
+            String recomputed = AuditHashChain.hashFor(expectedPrevious, entry);
 
             if (!recomputed.equals(entry.getEntryHash())) {
                 Map<String, Object> result = new LinkedHashMap<>();
@@ -114,16 +117,4 @@ public class AuditController {
         return "\"" + v.replace("\"", "\"\"") + "\"";
     }
 
-    private String sha256(String input) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder();
-            for (byte b : hash)
-                sb.append(String.format("%02x", b));
-            return sb.toString();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
 }

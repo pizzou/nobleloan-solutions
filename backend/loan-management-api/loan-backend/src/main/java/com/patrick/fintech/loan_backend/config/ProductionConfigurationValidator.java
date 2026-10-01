@@ -13,8 +13,14 @@ public class ProductionConfigurationValidator {
         private String environment;
         @Value("${app.jwt.secret:}")
         private String jwtSecret;
+        @Value("${spring.datasource.username:}")
+        private String dbUsername;
         @Value("${spring.datasource.password:}")
         private String dbPassword;
+        @Value("${spring.flyway.user:}")
+        private String flywayUsername;
+        @Value("${spring.flyway.password:}")
+        private String flywayPassword;
         @Value("${APP_ENCRYPTION_KEY:}")
         private String encryptionKey;
         @Value("${APP_INDEX_KEY:}")
@@ -161,6 +167,13 @@ public class ProductionConfigurationValidator {
                                         "JWT_SECRET must be a strong non-placeholder secret of at least 32 characters in production");
 
                 requireSecret(dbPassword, "DB_PASSWORD", 16);
+                requireNonBlank(dbUsername, "DB_USERNAME");
+                requireSecret(flywayPassword, "FLYWAY_DB_PASSWORD", 16);
+                requireNonBlank(flywayUsername, "FLYWAY_DB_USERNAME");
+                if (dbUsername.trim().equalsIgnoreCase(flywayUsername.trim())) {
+                        throw new IllegalStateException(
+                                        "DB_USERNAME and FLYWAY_DB_USERNAME must be different in production; runtime and schema-migration privileges must be separated");
+                }
 
                 requireEmail(bootstrapAdminEmail, "BOOTSTRAP_ADMIN_EMAIL");
                 requireStrongBootstrapPassword(bootstrapAdminPassword);

@@ -1302,17 +1302,27 @@ public class BankAccountService {
                         lines
                 );
 
-        /*
-         * IMPORTANT:
-         *
-         * There is deliberately NO consumeApproved() call here.
-         *
-         * FinancialApprovalService in the current project exposes
-         * requireApproved(), not consumeApproved().
-         *
-         * Adding a nonexistent completion method would cause a
-         * compilation failure.
-         */
+        // A verified maker-checker approval is a one-time financial control.
+        // Consume it only after the journal has posted successfully and inside
+        // this same transaction. If posting fails, the transaction rolls back
+        // and the approval remains available for a controlled retry.
+        if (withdrawal) {
+            String operationId =
+                    bankAccountId
+                            + "|WITHDRAWAL|"
+                            + transactionAmount
+                            + "|"
+                            + counterAccountId
+                            + "|"
+                            + (description == null ? "" : description);
+
+            financialApprovalService.consumeApproved(
+                    approvalId,
+                    organization,
+                    "CASH_WITHDRAWAL",
+                    operationId
+            );
+        }
 
         log.info(
                 "Recorded {} of {} on bank account {} " +

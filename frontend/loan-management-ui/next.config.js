@@ -7,6 +7,31 @@ const nextConfig = {
     return [{ source: "/api/:path*", destination: `${api.replace(/\/$/, "")}/:path*` }];
   },
   async headers() {
+    const configuredApi = process.env.NEXT_PUBLIC_API_URL?.trim();
+    let apiOrigin = "'self'";
+    let websocketOrigin = null;
+
+    if (configuredApi && !configuredApi.startsWith("/")) {
+      try {
+        const parsed = new URL(configuredApi);
+        apiOrigin = parsed.origin;
+        websocketOrigin = parsed.protocol === "https:"
+          ? `wss://${parsed.host}`
+          : parsed.protocol === "http:"
+            ? `ws://${parsed.host}`
+            : null;
+      } catch {
+        // Keep the fail-safe 'self' policy if the build-time API URL is invalid.
+      }
+    }
+
+    const connectSources = [
+      "'self'",
+      apiOrigin,
+      "https://api.frankfurter.dev",
+      websocketOrigin,
+    ].filter(Boolean).join(" ");
+
     return [
       {
         source: "/(.*)",
@@ -23,11 +48,11 @@ const nextConfig = {
             "form-action 'self'",
             "frame-ancestors 'none'",
             "object-src 'none'",
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+            "script-src 'self' 'unsafe-inline'",
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             "font-src 'self' https://fonts.gstatic.com data:",
             "img-src 'self' data: blob: https:",
-            "connect-src 'self' https:",
+            `connect-src ${connectSources}`,
             "frame-src 'self' https:",
             "worker-src 'self' blob:",
             "manifest-src 'self'",

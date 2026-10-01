@@ -60,6 +60,10 @@ public class AuditLog {
 
     @PrePersist
     protected void onCreate() {
-        timestamp = LocalDateTime.now();
+        // Persistence code may supply the exact timestamp used by the audit
+        // hash. Never replace it during entity lifecycle callbacks.
+        if (timestamp == null) {
+            timestamp = LocalDateTime.now();
+        }
     }
 }

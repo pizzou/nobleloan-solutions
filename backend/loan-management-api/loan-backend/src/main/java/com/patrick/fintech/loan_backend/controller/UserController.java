@@ -398,9 +398,11 @@ public class UserController {
             );
         }
 
-        userService.deactivate(
+        userService.deleteWithConfirmation(
                 id,
-                organizationId
+                confirmation,
+                organizationId,
+                currentUserUtil.getCurrentUser()
         );
 
         auditService.log(
