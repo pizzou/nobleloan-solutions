@@ -1,78 +1,16 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
+import { SITE_CONTENT, type TenantConfig } from "../../lib/siteContent";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ToastContainer } from "../../components/ui/ToastContainer";
-import { TENANT_SLUG } from "../../lib/tenant";
 
-export interface TenantConfig {
-  name: string;
-  slug: string;
-  country: string;
-  currency: string;
-  primaryColor: string;
-  accentColor: string;
-  logoUrl?: string;
-  contactEmail?: string;
-  contactPhone?: string;
-  website?: string;
-  address?: string;
-  tagline?: string;
-  mission?: string;
-  vision?: string;
-  founded?: string;
-  registrationNumber?: string;
-  socialMedia?: {
-    facebook?: string;
-    instagram?: string;
-    linkedin?: string;
-    twitter?: string;
-    whatsapp?: string;
-  };
-  mapUrl?: string;
-  monthlyInterestRate?: string | number;
-  monthlyManagementFeeRate?: string | number;
-  applicationFeeRate?: string | number;
-  services?: {
-    title: string;
-    description: string;
-    icon: string;
-    loanType?: string;
-    rate: string | number;
-    rateType?: string;
-    interestRate?: string | number;
-    applicationFeeRate?: string | number;
-    managementFeeRate?: string | number;
-    minAmount?: string | number;
-    maxAmount?: string | number | null;
-    minTermMonths?: number;
-    maxTermMonths?: number;
-    term: string;
-  }[];
-  hero?: { headline: string; subtext: string };
-  stats?: { icon: string; value: string; label: string }[];
-  testimonials?: { name: string; role: string; text: string; rating: number }[];
-  team?: { name: string; role: string; initials: string }[];
-}
+const NAVY = "#0B1F3A";
+const GOLD = "#D4AF37";
 
 const TenantCtx = createContext<TenantConfig | null>(null);
 export const useTenant = () => useContext(TenantCtx);
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
-const NAVY = "#0B1F3A";
-const NAVY_DEEP = "#061326";
-const GOLD = "#D4AF37";
-
-const FALLBACK_TENANT: TenantConfig = {
-  name: "Noble Loan Solutions",
-  slug: TENANT_SLUG,
-  country: "Rwanda",
-  currency: "RWF",
-  primaryColor: NAVY,
-  accentColor: GOLD,
-  services: [],
-};
 
 /* eslint-disable @next/next/no-img-element */
 function NobleLogo({ compact = false }: { compact?: boolean }) {
@@ -170,105 +108,12 @@ export default function SiteLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const [tenant, setTenant] = useState<TenantConfig | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
-  const [serviceError, setServiceError] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setNotFound(false);
-    setServiceError(false);
-
-    fetch(`${API_BASE}/public/tenant/${encodeURIComponent(TENANT_SLUG)}`, {
-      credentials: "include",
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    })
-      .then(async (response) => {
-        if (response.status === 404) {
-          if (!cancelled) setNotFound(true);
-          return null;
-        }
-        if (!response.ok)
-          throw new Error(`Tenant service unavailable: ${response.status}`);
-        return response.json();
-      })
-      .then((result) => {
-        if (cancelled || result == null) return;
-        if (!result?.data || result?.success === false) {
-          setServiceError(true);
-          return;
-        }
-        setTenant({ ...FALLBACK_TENANT, ...result.data, slug: TENANT_SLUG });
-      })
-      .catch(() => {
-        if (!cancelled) setServiceError(true);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const tenant = SITE_CONTENT;
 
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname]);
-
-  if (loading) {
-    return (
-      <div
-        className="min-h-screen bg-[#F4F7FB]"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle at 50% 0%, rgba(212,175,55,.10), transparent 34rem)",
-        }}
-      >
-        <div className="flex min-h-screen items-center justify-center px-6">
-          <div className="text-center">
-            <NobleLogo />
-            <div className="mx-auto mt-6 h-1 w-32 overflow-hidden rounded-full bg-slate-200">
-              <div className="h-full w-1/2 animate-pulse rounded-full bg-[#D4AF37]" />
-            </div>
-            <p className="mt-4 text-[10px] font-black uppercase tracking-[.22em] text-slate-400">
-              Preparing your secure experience
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (notFound || serviceError || !tenant) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F4F7FB] px-6">
-        <div className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-8 text-center shadow-[0_30px_90px_rgba(15,23,42,.10)]">
-          <NobleLogo />
-          <h1 className="mt-6 text-2xl font-black tracking-tight text-[#0B1F3A]">
-            {notFound ? "Site not found" : "Service temporarily unavailable"}
-          </h1>
-          <p className="mt-3 text-sm leading-6 text-slate-500">
-            {notFound
-              ? "The requested financial institution site could not be found."
-              : "We could not load the organization configuration. Please try again shortly."}
-          </p>
-          {!notFound && (
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-6 rounded-xl bg-[#0B1F3A] px-6 py-3 text-sm font-black text-white shadow-lg"
-            >
-              Try again
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   const primary = tenant.primaryColor || NAVY;
   const accent = tenant.accentColor || GOLD;
@@ -433,6 +278,18 @@ export default function SiteLayout({
                     className="block transition hover:text-white"
                   >
                     Track application
+                  </Link>
+                  <Link
+                    href="/team"
+                    className="block transition hover:text-white"
+                  >
+                    Our team
+                  </Link>
+                  <Link
+                    href="/testimonials"
+                    className="block transition hover:text-white"
+                  >
+                    Client stories
                   </Link>
                 </div>
               </div>
