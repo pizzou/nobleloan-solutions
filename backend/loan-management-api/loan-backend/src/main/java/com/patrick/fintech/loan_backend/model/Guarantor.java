@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
 
 @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
 @Entity
-@SQLRestriction("loan_id IN (SELECT id FROM loans WHERE deleted_at IS NULL)")
+@SQLRestriction("public.loan_is_visible(loan_id)")
 @Table(name = "guarantors", indexes = @Index(name = "idx_guarantor_loan", columnList = "loan_id"))
 @Data @NoArgsConstructor @AllArgsConstructor @Builder
 public class Guarantor {

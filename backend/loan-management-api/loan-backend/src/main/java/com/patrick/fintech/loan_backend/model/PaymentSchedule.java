@@ -31,7 +31,7 @@ import java.time.LocalDateTime;
 import com.patrick.fintech.loan_backend.util.MoneyMath;
 
 @Entity
-@SQLRestriction("loan_id IN (SELECT id FROM loans WHERE deleted_at IS NULL)")
+@SQLRestriction("public.loan_is_visible(loan_id)")
 @Table(name = "payment_schedules")
 @Data
 @NoArgsConstructor

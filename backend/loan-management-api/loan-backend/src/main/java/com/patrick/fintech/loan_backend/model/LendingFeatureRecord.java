@@ -9,7 +9,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
-@SQLRestriction("loan_id IN (SELECT id FROM loans WHERE deleted_at IS NULL)")
+@SQLRestriction("public.loan_is_visible(loan_id)")
 @Table(name = "lending_feature_records", indexes = {
         @Index(name = "idx_lfr_org_type", columnList = "organization_id,feature_type"),
         @Index(name = "idx_lfr_org_status", columnList = "organization_id,status"),

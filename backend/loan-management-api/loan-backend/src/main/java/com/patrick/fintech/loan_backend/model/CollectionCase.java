@@ -15,7 +15,7 @@ import java.util.List;
 
 @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
 @Entity
-@SQLRestriction("loan_id IN (SELECT id FROM loans WHERE deleted_at IS NULL)")
+@SQLRestriction("public.loan_is_visible(loan_id)")
 @Table(name = "collection_cases",
     indexes = {
         @Index(name = "idx_cc_org", columnList = "organization_id"),
