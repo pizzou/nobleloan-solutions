@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTenant } from "../layout";
 import { useOnlineStatus } from "../../../hooks/useOnlineStatus";
@@ -15,7 +15,7 @@ import {
 
 type Step = 1 | 2 | 3 | 4;
 
-export default function ApplyPage() {
+function ApplyPageContent() {
   const searchParams = useSearchParams();
   const slug = TENANT_SLUG;
   const tenant = useTenant();
@@ -1559,5 +1559,24 @@ function Field({
         </p>
       )}
     </div>
+  );
+}
+
+export default function ApplyPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-[60vh] bg-white flex items-center justify-center px-6">
+          <div className="text-center">
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-slate-900" />
+            <p className="mt-4 text-sm text-slate-500">
+              Loading application form…
+            </p>
+          </div>
+        </main>
+      }
+    >
+      <ApplyPageContent />
+    </Suspense>
   );
 }
