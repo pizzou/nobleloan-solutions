@@ -1872,7 +1872,7 @@ public class LoanService {
         // ================================================================
 
     
-    @Transactional
+    
     @Transactional
     public void deleteWithConfirmation(
             Long loanId,
