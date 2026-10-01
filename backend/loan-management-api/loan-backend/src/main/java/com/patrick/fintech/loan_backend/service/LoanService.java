@@ -81,6 +81,7 @@ public class LoanService {
         private final PaymentScheduleService paymentScheduleService;
     private final PaymentTransactionRepository paymentTransactionRepo;
         private final DashboardService dashboardService;
+        private final LoanAdministrationService loanAdministrationService;
 
         @Value("${app.environment:development}")
         private String applicationEnvironment;
@@ -1872,76 +1873,25 @@ public class LoanService {
 
     
     @Transactional
+    @Transactional
     public void deleteWithConfirmation(
             Long loanId,
             String confirmation,
             Long organizationId,
             User actor) {
 
-        if (actor == null || actor.getRole() == null
-                || !"BUSINESS_OWNER".equalsIgnoreCase(actor.getRole().getName())) {
+        if (organizationId == null || actor == null
+                || actor.getOrganization() == null
+                || !organizationId.equals(actor.getOrganization().getId())) {
             throw new org.springframework.security.access.AccessDeniedException(
-                    "Only the business owner can delete a loan"
-            );
+                    "Loan deletion organization does not match the authenticated user");
         }
 
-        Loan loan = getLoanForOrg(loanId, organizationId);
-
-        String expected = "sudo " + loan.getReferenceNumber();
-        if (confirmation == null || !confirmation.equals(expected)) {
-            throw new IllegalArgumentException(
-                    "Deletion verification failed. Type exactly: sudo "
-                            + loan.getReferenceNumber()
-            );
-        }
-
-        List<Payment> schedule = paymentRepo.findByLoanId(loan.getId());
-        List<PaymentTransaction> transactions =
-                paymentTransactionRepo.findByLoanIdOrderByCreatedAtDesc(loan.getId());
-
-        boolean financiallyUsed = loan.getDisbursedAt() != null
-                || loan.getStatus() == LoanStatus.DISBURSED
-                || loan.getStatus() == LoanStatus.ACTIVE
-                || loan.getStatus() == LoanStatus.OVERDUE
-                || loan.getStatus() == LoanStatus.DEFAULTED
-                || loan.getStatus() == LoanStatus.RESTRUCTURED
-                || loan.getStatus() == LoanStatus.WRITTEN_OFF
-                || loan.getStatus() == LoanStatus.PAID
-                || loan.getStatus() == LoanStatus.CLOSED
-                || !schedule.isEmpty()
-                || !transactions.isEmpty();
-
-        if (financiallyUsed) {
-            throw new IllegalStateException(
-                    "This loan cannot be physically deleted because it has financial or repayment history. "
-                            + "Keep the loan for audit and accounting integrity."
-            );
-        }
-
-        if (loan.getStatus() != LoanStatus.PENDING
-                && loan.getStatus() != LoanStatus.UNDER_REVIEW
-                && loan.getStatus() != LoanStatus.REJECTED
-                && loan.getStatus() != LoanStatus.CANCELLED) {
-            throw new IllegalStateException(
-                    "Only an unused pending, under-review, rejected or cancelled loan can be deleted."
-            );
-        }
-
-        loanRepo.delete(loan);
-        loanRepo.flush();
-
-        auditService.log(
-                loan.getOrganization(),
-                actor,
-                "LOAN_DELETED",
-                "LOAN",
-                String.valueOf(loan.getId()),
-                "Business owner deleted unused loan " + loan.getReferenceNumber()
-                        + " after exact high-risk confirmation",
-                null,
-                null,
-                "Loan Management"
-        );
+        loanAdministrationService.deleteWithConfirmation(
+                loanId,
+                confirmation,
+                "Legacy LoanService deletion path delegated to the controlled Business Owner recycle-bin workflow.",
+                actor);
     }
 
     public Loan updateCreditQuality(
