@@ -1,31 +1,21 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
-import { SITE_CONTENT, type TenantConfig } from "../../lib/siteContent";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+
 import { ToastContainer } from "../../components/ui/ToastContainer";
+import { SITE_CONTENT, type TenantConfig } from "../../lib/siteContent";
 
 const NAVY = "#0B1F3A";
 const GOLD = "#D4AF37";
 
 const TenantCtx = createContext<TenantConfig | null>(null);
+
 export const useTenant = () => useContext(TenantCtx);
 
 /* eslint-disable @next/next/no-img-element */
-function NobleLogo({ compact = false }: { compact?: boolean }) {
-  return (
-    <img
-      src="/noble-loan-solutions-logo.svg"
-      alt="Noble Loan Solutions — Financial Support Partner"
-      className={
-        compact
-          ? "h-9 w-auto max-w-[210px] object-contain"
-          : "h-11 w-auto max-w-[270px] object-contain"
-      }
-    />
-  );
-}
 
 function Brand({
   tenant,
@@ -34,22 +24,17 @@ function Brand({
   tenant: TenantConfig;
   compact?: boolean;
 }) {
-  if (tenant.logoUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={tenant.logoUrl}
-        alt={tenant.name}
-        className={
-          compact
-            ? "h-9 w-auto max-w-[210px] object-contain"
-            : "h-11 w-auto max-w-[270px] object-contain"
-        }
-      />
-    );
-  }
-
-  return <NobleLogo compact={compact} />;
+  return (
+    <img
+      src={tenant.logoUrl || "/noble-loan-solutions-logo.svg"}
+      alt={`${tenant.name} logo`}
+      className={
+        compact
+          ? "h-9 w-auto max-w-[210px] object-contain"
+          : "h-11 w-auto max-w-[270px] object-contain"
+      }
+    />
+  );
 }
 
 function PhoneIcon() {
@@ -65,6 +50,7 @@ function PhoneIcon() {
     </svg>
   );
 }
+
 function MailIcon() {
   return (
     <svg
@@ -75,10 +61,12 @@ function MailIcon() {
       className="h-3.5 w-3.5"
     >
       <rect x="3" y="5" width="18" height="14" rx="2" />
+
       <path d="m3 7 9 6 9-6" />
     </svg>
   );
 }
+
 function ShieldIcon() {
   return (
     <svg
@@ -95,11 +83,30 @@ function ShieldIcon() {
 }
 
 const navLinks = [
-  { href: "/", label: "Home" },
-  { href: "/services", label: "Solutions" },
-  { href: "/about", label: "About" },
-  { href: "/contact", label: "Contact" },
-  { href: "/track", label: "Track application" },
+  {
+    href: "/",
+    label: "Home",
+  },
+  {
+    href: "/services",
+    label: "Loans",
+  },
+  {
+    href: "/how-it-works",
+    label: "How it works",
+  },
+  {
+    href: "/about",
+    label: "About",
+  },
+  {
+    href: "/contact",
+    label: "Contact",
+  },
+  {
+    href: "/track",
+    label: "Track application",
+  },
 ];
 
 export default function SiteLayout({
@@ -108,7 +115,9 @@ export default function SiteLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+
   const [menuOpen, setMenuOpen] = useState(false);
+
   const tenant = SITE_CONTENT;
 
   useEffect(() => {
@@ -116,11 +125,13 @@ export default function SiteLayout({
   }, [pathname]);
 
   const primary = tenant.primaryColor || NAVY;
+
   const accent = tenant.accentColor || GOLD;
 
   return (
     <TenantCtx.Provider value={tenant}>
       <ToastContainer />
+
       <div
         className="min-h-screen bg-white"
         style={
@@ -130,6 +141,8 @@ export default function SiteLayout({
           } as React.CSSProperties
         }
       >
+        {/* SECURITY / SERVICE BAR */}
+
         <div className="bg-[#061326] text-white">
           <div className="mx-auto flex min-h-9 max-w-7xl items-center justify-between gap-4 px-5 text-[10px] font-semibold sm:px-8">
             <div className="flex items-center gap-5 text-white/65">
@@ -139,6 +152,7 @@ export default function SiteLayout({
                   {tenant.contactPhone}
                 </span>
               )}
+
               {tenant.contactEmail && (
                 <span className="hidden items-center gap-1.5 md:flex">
                   <MailIcon />
@@ -146,16 +160,22 @@ export default function SiteLayout({
                 </span>
               )}
             </div>
+
             <div className="flex items-center gap-1.5 text-white/65">
               <ShieldIcon />
+
               <span>Secure digital lending</span>
+
               <span className="text-white/20">•</span>
+
               <span>{tenant.country || "Rwanda"}</span>
             </div>
           </div>
         </div>
 
-        <nav className="site-public-nav sticky top-0 z-50 border-b border-slate-200/80 bg-white/90 backdrop-blur-2xl">
+        {/* NAVIGATION */}
+
+        <nav className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/90 backdrop-blur-2xl">
           <div className="mx-auto flex h-[76px] max-w-7xl items-center justify-between px-5 sm:px-8">
             <Link
               href="/"
@@ -164,37 +184,50 @@ export default function SiteLayout({
             >
               <Brand tenant={tenant} />
             </Link>
+
             <div className="hidden items-center gap-1 lg:flex">
               {navLinks.map((link) => {
                 const active =
                   link.href === "/"
                     ? pathname === "/"
                     : pathname.startsWith(link.href);
+
                 return (
                   <Link
                     key={link.href}
                     href={link.href}
-                    className={`rounded-xl px-4 py-2.5 text-[13px] font-bold transition ${active ? "bg-slate-100 text-[#0B1F3A]" : "text-slate-500 hover:bg-slate-50 hover:text-[#0B1F3A]"}`}
+                    className={`rounded-xl px-4 py-2.5 text-[13px] font-bold transition ${
+                      active
+                        ? "bg-slate-100 text-[#0B1F3A]"
+                        : "text-slate-500 hover:bg-slate-50 hover:text-[#0B1F3A]"
+                    }`}
                   >
                     {link.label}
                   </Link>
                 );
               })}
+
               <span className="mx-2 h-7 w-px bg-slate-200" />
+
               <Link
                 href="/login"
                 className="rounded-xl px-4 py-2.5 text-[13px] font-bold text-slate-600 transition hover:bg-slate-50 hover:text-[#0B1F3A]"
               >
-                Staff portal
+                Sign in
               </Link>
+
               <Link
                 href="/apply"
                 className="ml-1 rounded-xl px-5 py-3 text-[13px] font-black text-white shadow-[0_10px_24px_rgba(11,31,58,.18)] transition hover:-translate-y-0.5"
-                style={{ backgroundColor: primary }}
+                style={{
+                  backgroundColor: primary,
+                }}
               >
-                Apply now <span className="ml-1">→</span>
+                Check your options
+                <span className="ml-1">→</span>
               </Link>
             </div>
+
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
@@ -207,6 +240,7 @@ export default function SiteLayout({
               <span className="mt-1.5 block h-0.5 w-5 bg-slate-700" />
             </button>
           </div>
+
           {menuOpen && (
             <div className="border-t border-slate-200 bg-white px-5 py-4 shadow-xl lg:hidden">
               <div className="space-y-1">
@@ -220,17 +254,21 @@ export default function SiteLayout({
                   </Link>
                 ))}
               </div>
+
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <Link
                   href="/login"
                   className="rounded-xl border border-slate-200 px-4 py-3 text-center text-sm font-bold text-slate-700"
                 >
-                  Staff portal
+                  Sign in
                 </Link>
+
                 <Link
                   href="/apply"
                   className="rounded-xl px-4 py-3 text-center text-sm font-black text-white"
-                  style={{ backgroundColor: primary }}
+                  style={{
+                    backgroundColor: primary,
+                  }}
                 >
                   Apply now
                 </Link>
@@ -241,6 +279,8 @@ export default function SiteLayout({
 
         <main>{children}</main>
 
+        {/* FOOTER */}
+
         <footer className="mt-20 bg-[#061326] text-white">
           <div className="mx-auto max-w-7xl px-5 py-16 sm:px-8 lg:py-20">
             <div className="grid gap-12 lg:grid-cols-[1.5fr_.7fr_.7fr_.9fr]">
@@ -248,69 +288,80 @@ export default function SiteLayout({
                 <div className="inline-flex rounded-2xl bg-white p-3">
                   <Brand tenant={tenant} compact />
                 </div>
+
                 <p className="mt-6 max-w-md text-sm leading-7 text-white/55">
                   {tenant.mission ||
                     tenant.tagline ||
                     "Responsible financial solutions with clear terms, secure digital journeys and human support."}
                 </p>
+
                 <div className="mt-6 space-y-2 text-xs text-white/45">
                   {tenant.address && <div>{tenant.address}</div>}
+
                   {tenant.contactPhone && <div>{tenant.contactPhone}</div>}
+
                   {tenant.contactEmail && <div>{tenant.contactEmail}</div>}
                 </div>
               </div>
+
               <div>
                 <div className="text-[10px] font-black uppercase tracking-[.2em] text-[#D4AF37]">
-                  Navigate
+                  Company
                 </div>
+
                 <div className="mt-5 space-y-3 text-sm text-white/55">
-                  {navLinks.slice(0, 4).map((l) => (
-                    <Link
-                      key={l.href}
-                      href={l.href}
-                      className="block transition hover:text-white"
-                    >
-                      {l.label}
-                    </Link>
-                  ))}
-                  <Link
-                    href="/track"
-                    className="block transition hover:text-white"
-                  >
+                  <Link href="/about" className="block hover:text-white">
+                    About us
+                  </Link>
+
+                  <Link href="/services" className="block hover:text-white">
+                    Loan solutions
+                  </Link>
+
+                  <Link href="/how-it-works" className="block hover:text-white">
+                    How it works
+                  </Link>
+
+                  <Link href="/contact" className="block hover:text-white">
+                    Contact
+                  </Link>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-[.2em] text-[#D4AF37]">
+                  Client tools
+                </div>
+
+                <div className="mt-5 space-y-3 text-sm text-white/55">
+                  <Link href="/apply" className="block hover:text-white">
+                    Apply for a loan
+                  </Link>
+
+                  <Link href="/track" className="block hover:text-white">
                     Track application
                   </Link>
-                  <Link
-                    href="/team"
-                    className="block transition hover:text-white"
-                  >
-                    Our team
+
+                  <Link href="/faq" className="block hover:text-white">
+                    FAQs
                   </Link>
-                  <Link
-                    href="/testimonials"
-                    className="block transition hover:text-white"
-                  >
-                    Client stories
+
+                  <Link href="/login" className="block hover:text-white">
+                    Sign in
                   </Link>
                 </div>
               </div>
+
               <div>
                 <div className="text-[10px] font-black uppercase tracking-[.2em] text-[#D4AF37]">
-                  Solutions
+                  Need help?
                 </div>
-                <div className="mt-5 space-y-3 text-sm text-white/55">
-                  {tenant.services?.slice(0, 5).map((s) => (
-                    <div key={s.title}>{s.title}</div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] font-black uppercase tracking-[.2em] text-[#D4AF37]">
-                  Client care
-                </div>
+
                 <p className="mt-5 text-sm leading-6 text-white/55">
-                  Need help with an application or repayment? Our team is here
-                  to guide you.
+                  Have a question about a loan or an existing application? Our
+                  team is available to help.
                 </p>
+
                 <Link
                   href="/contact"
                   className="mt-5 inline-flex rounded-xl border border-white/15 px-4 py-2.5 text-xs font-black text-white transition hover:bg-white/10"
@@ -319,6 +370,7 @@ export default function SiteLayout({
                 </Link>
               </div>
             </div>
+
             <div className="mt-14 flex flex-col gap-4 border-t border-white/10 pt-6 text-[10px] text-white/35 md:flex-row md:items-center md:justify-between">
               <span>
                 © {new Date().getFullYear()} {tenant.name}. All rights reserved.
@@ -326,14 +378,17 @@ export default function SiteLayout({
                   ? ` Reg. No. ${tenant.registrationNumber}`
                   : ""}
               </span>
+
               <div className="flex gap-5">
                 <Link href="/privacy" className="hover:text-white/70">
                   Privacy
                 </Link>
+
                 <Link href="/terms" className="hover:text-white/70">
                   Terms
                 </Link>
               </div>
+
               <span>Secure financial services • Transparent by design</span>
             </div>
           </div>
