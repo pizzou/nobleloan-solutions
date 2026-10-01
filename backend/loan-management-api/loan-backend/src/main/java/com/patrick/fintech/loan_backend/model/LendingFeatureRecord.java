@@ -1,5 +1,7 @@
 package com.patrick.fintech.loan_backend.model;
 
+import org.hibernate.annotations.SQLRestriction;
+
 import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
@@ -7,6 +9,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
+@SQLRestriction("loan_id IN (SELECT id FROM loans WHERE deleted_at IS NULL)")
 @Table(name = "lending_feature_records", indexes = {
         @Index(name = "idx_lfr_org_type", columnList = "organization_id,feature_type"),
         @Index(name = "idx_lfr_org_status", columnList = "organization_id,status"),

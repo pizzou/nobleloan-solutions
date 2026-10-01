@@ -607,6 +607,7 @@ export default function LoanListPage() {
 
   const [deleteLoan, setDeleteLoan] = useState<Loan | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleteReason, setDeleteReason] = useState("");
   const [deletingLoan, setDeletingLoan] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
@@ -775,23 +776,32 @@ export default function LoanListPage() {
       return;
     }
 
+    if (deleteReason.trim().length < 20) {
+      setError("Enter a deletion reason of at least 20 characters.");
+      return;
+    }
+
     setDeletingLoan(true);
     try {
-      await loanApi.deleteWithConfirmation(deleteLoan.id, deleteConfirmation);
+      await loanApi.deleteWithConfirmation(
+        deleteLoan.id,
+        deleteConfirmation,
+        deleteReason.trim(),
+      );
       setDeleteLoan(null);
       setDeleteConfirmation("");
+      setDeleteReason("");
       await loadPortfolio();
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Unable to delete the loan.",
+          : "Unable to recycle the loan.",
       );
     } finally {
       setDeletingLoan(false);
     }
   };
-
   /* ==========================================================
      CLIENT-SIDE SEARCH
      ========================================================== */
@@ -999,6 +1009,14 @@ export default function LoanListPage() {
                 <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
                   Loan Portfolio
                 </h1>
+                {isBusinessOwner ? (
+                  <Link
+                    href="/dashboard/loans/recycle-bin"
+                    className="mt-3 inline-flex rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800"
+                  >
+                    Recycle bin
+                  </Link>
+                ) : null}
 
                 <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
                   Monitor the institution's loan book, disbursements,
@@ -1559,10 +1577,21 @@ export default function LoanListPage() {
                 autoComplete="off"
                 className="mt-4 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
               />
+              <textarea
+                value={deleteReason}
+                onChange={(event) => setDeleteReason(event.target.value)}
+                placeholder="Reason for deleting/recycling this loan (minimum 20 characters)"
+                rows={3}
+                className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100"
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                {deleteReason.trim().length}/20 minimum characters
+              </p>
               <p className="mt-2 text-xs leading-5 text-red-600">
-                Any loan linked to financial, accounting, BNR/credit-bureau,
-                reporting, approval, collection, collateral, signature, or other
-                protected history cannot be physically deleted.
+                The loan is moved to the recycle bin, removed from normal
+                accounting/reporting/BNR/Credit Bureau visibility, and remains
+                restorable for 30 days. Financial formulas and original values
+                are not recalculated.
               </p>
               <div className="mt-5 flex justify-end gap-2">
                 <button
@@ -1570,6 +1599,7 @@ export default function LoanListPage() {
                   onClick={() => {
                     setDeleteLoan(null);
                     setDeleteConfirmation("");
+                    setDeleteReason("");
                   }}
                   className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700"
                 >
@@ -1579,7 +1609,9 @@ export default function LoanListPage() {
                   type="button"
                   disabled={
                     deletingLoan ||
-                    deleteConfirmation !== `sudo ${deleteLoan.referenceNumber}`
+                    deleteConfirmation !==
+                      `sudo ${deleteLoan.referenceNumber}` ||
+                    deleteReason.trim().length < 20
                   }
                   onClick={() => void handleDeleteLoan()}
                   className="rounded-xl bg-red-600 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"

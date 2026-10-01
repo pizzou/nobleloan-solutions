@@ -18,6 +18,8 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
+import org.hibernate.annotations.SQLRestriction;
+
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -54,6 +56,7 @@ import com.patrick.fintech.loan_backend.util.MoneyMath;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@SQLRestriction("deleted_at IS NULL")
 public class Loan {
 
         // ================================================================
@@ -162,19 +165,29 @@ public class Loan {
         @Builder.Default
         private LoanStatus status = LoanStatus.PENDING;
 
-        /**
-         * Information-classification flag selected during final loan approval.
-         *
-         * FALSE (default) = normal portfolio/reporting scope.
-         * TRUE = visible only to BUSINESS_OWNER after final approval.
-         *
-         * This is a visibility/reporting boundary, not a second loan or
-         * accounting system.
-         */
+       
         @Column(name = "business_owner_only", nullable = false)
         @Builder.Default
         @JsonIgnore
         private Boolean businessOwnerOnly = false;
+
+
+        @Column(name = "deleted_at")
+        @JsonIgnore
+        private LocalDateTime deletedAt;
+
+        @Column(name = "deletion_reason", columnDefinition = "TEXT")
+        @JsonIgnore
+        private String deletionReason;
+
+        
+        @Column(name = "deleted_by")
+        @JsonIgnore
+        private Long deletedBy;
+
+        @Column(name = "purge_after")
+        @JsonIgnore
+        private LocalDateTime purgeAfter;
 
         @Enumerated(EnumType.STRING)
         @Builder.Default

@@ -649,25 +649,45 @@ public class LoanController {
 
                 User actor = currentUserUtil.getCurrentUser();
                 String confirmation = body == null ? null : body.get("confirmation");
+                String reason = body == null ? null : body.get("reason");
 
                 loanAdministrationService.deleteWithConfirmation(
                                 id,
                                 confirmation,
+                                reason,
                                 actor);
 
-                auditService.log(
-                                actor.getOrganization(),
-                                actor,
-                                "LOAN_DELETED",
-                                "LOAN",
-                                String.valueOf(id),
-                                "Deleted loan after exact sudo/reference confirmation",
-                                null,
-                                null,
-                                "Loan Management");
+                return ResponseEntity.ok(
+                                ApiResponse.ok(
+                                                "Loan moved to the recycle bin for 30 days. "
+                                                                + "It is excluded from normal accounting and reporting "
+                                                                + "and can be restored during the retention period."));
+        }
+
+        @GetMapping("/recycle-bin")
+        @PreAuthorize("hasRole('BUSINESS_OWNER')")
+        public ResponseEntity<ApiResponse<List<LoanAdministrationService.LoanRecycleBinItem>>> recycleBin() {
+                return ResponseEntity.ok(
+                                ApiResponse.ok(
+                                                loanAdministrationService.listRecycleBin(
+                                                                currentUserUtil.getCurrentUser())));
+        }
+
+        @PostMapping("/{id}/restore")
+        @PreAuthorize("hasRole('BUSINESS_OWNER')")
+        public ResponseEntity<ApiResponse<Void>> restoreLoan(
+                        @PathVariable Long id,
+                        @RequestBody(required = false) Map<String, String> body) {
+
+                String confirmation = body == null ? null : body.get("confirmation");
+
+                loanAdministrationService.restoreWithConfirmation(
+                                id,
+                                confirmation,
+                                currentUserUtil.getCurrentUser());
 
                 return ResponseEntity.ok(
-                                ApiResponse.ok("Loan deleted successfully"));
+                                ApiResponse.ok("Loan restored from the recycle bin"));
         }
 
         @PostMapping("/{id}/comments")

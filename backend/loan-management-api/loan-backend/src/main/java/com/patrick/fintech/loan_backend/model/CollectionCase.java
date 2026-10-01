@@ -1,5 +1,7 @@
 package com.patrick.fintech.loan_backend.model;
 
+import org.hibernate.annotations.SQLRestriction;
+
 import java.math.BigDecimal;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -13,6 +15,7 @@ import java.util.List;
 
 @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
 @Entity
+@SQLRestriction("loan_id IN (SELECT id FROM loans WHERE deleted_at IS NULL)")
 @Table(name = "collection_cases",
     indexes = {
         @Index(name = "idx_cc_org", columnList = "organization_id"),

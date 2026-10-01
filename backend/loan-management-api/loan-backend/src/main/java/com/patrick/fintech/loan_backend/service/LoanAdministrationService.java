@@ -1,100 +1,81 @@
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.model.Loan;
-import com.patrick.fintech.loan_backend.model.LoanStatus;
 import com.patrick.fintech.loan_backend.model.User;
-import com.patrick.fintech.loan_backend.repository.JournalEntryRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.Query;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
-/**
- * High-risk administrative operations for loans.
- *
- * Physical deletion is deliberately limited to a genuinely unused loan.
- * Once a loan has any workflow, financial, accounting, regulatory,
- * reporting, collection, collateral, signature, or other database
- * relationship, the operation fails closed and the loan is preserved.
- *
- * This service intentionally does not cascade-delete business history.
- */
+
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class LoanAdministrationService {
 
-    /**
-     * These statuses are already part of the financial/regulatory lifecycle.
-     * They must never be physically removed even if a future schema change
-     * accidentally weakens one of the foreign-key protections.
-     */
-    private static final List<LoanStatus> FINANCIAL_OR_REGULATORY_STATUSES = List.of(
-            LoanStatus.APPROVED,
-            LoanStatus.DISBURSED,
-            LoanStatus.ACTIVE,
-            LoanStatus.OVERDUE,
-            LoanStatus.DEFAULTED,
-            LoanStatus.RESTRUCTURED,
-            LoanStatus.WRITTEN_OFF,
-            LoanStatus.PAID,
-            LoanStatus.CLOSED
-    );
+    private static final int RECYCLE_DAYS = 30;
+    private static final int MIN_REASON_LENGTH = 20;
+    private static final int MAX_REASON_LENGTH = 1000;
 
-    /**
-     * Loan-originated accounting journal families used by the current
-     * accounting/reporting implementation. Payment-originated journals are
-     * protected by the payment -> loan foreign key and by the payment checks
-     * in the database relationship scan below.
+    /*
+     * Every current direct FK from a loan child table is represented here.
+     * The names are constants, never request input.
      */
-    private static final List<String> LOAN_ACCOUNTING_SOURCE_TYPES = List.of(
-            "LOAN_DISBURSEMENT",
-            "LOAN_PAYMENT",
-            "LOAN_EXTENSION_FEE",
-            "LOAN_EXTENSION_FEE_COLLECTION",
-            "PENALTY_ACCRUAL",
-            "INTEREST_ACCRUAL",
-            "MANAGEMENT_FEE_ACCRUAL",
-            "SCHEDULED_INTEREST_ACCRUAL",
-            "SCHEDULED_MANAGEMENT_FEE_ACCRUAL",
-            "CONTRACTUAL_MONTHLY_INTEREST_ACCRUAL",
-            "CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL",
-            "HISTORICAL_LOAN_OPENING",
-            "LEGACY_LOAN_OPENING",
-            "LEGACY_LOAN_RECONCILIATION",
-            "LEGACY_LOAN_OPENING_DATE_REPAIR",
-            "WRITE_OFF"
+    private static final List<String> DIRECT_LOAN_CHILD_TABLES = List.of(
+            "credit_bureau_disputes",
+            "credit_bureau_submission_records",
+            "loan_comments",
+            "loan_approvals",
+            "loan_restructuring_history",
+            "esignature_requests",
+            "collection_cases",
+            "guarantors",
+            "collaterals",
+            "lending_feature_records",
+            "payment_transactions",
+            "payment_schedules",
+            "payments"
     );
 
     private final LoanRepository loanRepository;
-    private final JournalEntryRepository journalEntryRepository;
     private final EntityManager entityManager;
+    private final AuditService auditService;
 
-    /**
-     * Deletes a loan only when exact high-risk confirmation is supplied and
-     * the complete persistence graph proves that the loan has no history.
-     */
     @Transactional
-    public void deleteWithConfirmation(Long loanId, String confirmation, User actor) {
+    public void deleteWithConfirmation(
+            Long loanId,
+            String confirmation,
+            User actor) {
+        deleteWithConfirmation(
+                loanId,
+                confirmation,
+                "Business Owner recycled the loan through the controlled recycle-bin workflow.",
+                actor);
+    }
+
+    @Transactional
+    public void deleteWithConfirmation(
+            Long loanId,
+            String confirmation,
+            String reason,
+            User actor) {
+
         requireBusinessOwner(actor);
 
-        if (loanId == null) {
+        if (loanId == null || loanId <= 0) {
             throw new IllegalArgumentException("Loan ID is required");
         }
 
-        Long organizationId = actor.getOrganization() == null
-                ? null
-                : actor.getOrganization().getId();
-        if (organizationId == null) {
-            throw new IllegalArgumentException("Organization is required");
-        }
+        Long organizationId = organizationId(actor);
 
-        // Serialize the deletion decision with loan lifecycle changes.
         Loan loan = loanRepository.findByIdForUpdate(loanId)
                 .orElseThrow(() -> new IllegalArgumentException("Loan not found"));
 
@@ -103,67 +84,452 @@ public class LoanAdministrationService {
             throw new AccessDeniedException("Loan does not belong to your organization");
         }
 
-        String reference = loan.getReferenceNumber();
-        if (reference == null || reference.isBlank()) {
-            throw cannotSafelyDelete("The loan has no valid reference number. It cannot be safely deleted.");
+        String reference = requireReference(loan);
+        requireConfirmation(confirmation, reference);
+        String normalizedReason = requireReason(reason);
+
+        if (loan.getDeletedAt() != null) {
+            throw new IllegalStateException("Loan is already in the recycle bin");
         }
 
+        /*
+         * Do not change LoanStatus or any financial amount. The recycle state
+         * is orthogonal to principal, interest, management fee, application
+         * fee, penalty, repayment schedule and payment allocation.
+         */
+        ensureNoPendingPaymentTransaction(loanId);
+
+        LocalDateTime now = LocalDateTime.now();
+
+        loan.setDeletedAt(now);
+        loan.setDeletionReason(normalizedReason);
+        loan.setDeletedBy(actor.getId());
+        loan.setPurgeAfter(now.plusDays(RECYCLE_DAYS));
+
+        /*
+         * @SQLRestriction immediately removes this loan from ordinary JPA
+         * queries after commit. No financial value is recalculated.
+         */
+        loanRepository.saveAndFlush(loan);
+
+        /*
+         * Hide every journal generated by the loan, including journals whose
+         * source ID is a payment ID and reversal journals. The journal rows
+         * remain immutable; current accounting simply excludes them.
+         */
+        hideLoanJournals(organizationId, loanId, reference);
+
+        /*
+         * The tombstone makes the accounting exclusion survive permanent
+         * deletion of the loan row.
+         */
+        upsertTombstone(
+                organizationId,
+                loanId,
+                reference,
+                now);
+
+        auditService.log(
+                loan.getOrganization(),
+                actor,
+                "LOAN_RECYCLED",
+                "LOAN",
+                String.valueOf(loanId),
+                "Loan " + reference
+                        + " moved to recycle bin for " + RECYCLE_DAYS
+                        + " days. Normal accounting/reporting visibility removed. Reason: "
+                        + normalizedReason,
+                null,
+                null,
+                "Loan Management");
+    }
+
+    @Transactional(readOnly = true)
+    public List<LoanRecycleBinItem> listRecycleBin(User actor) {
+        requireBusinessOwner(actor);
+        Long organizationId = organizationId(actor);
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = entityManager.createNativeQuery("""
+                SELECT id, reference_number, status, deleted_at,
+                       purge_after, deletion_reason, deleted_by
+                FROM loans
+                WHERE organization_id = :organizationId
+                  AND deleted_at IS NOT NULL
+                ORDER BY deleted_at DESC, id DESC
+                """)
+                .setParameter("organizationId", organizationId)
+                .getResultList();
+
+        List<LoanRecycleBinItem> result = new ArrayList<>();
+        for (Object[] row : rows) {
+            result.add(new LoanRecycleBinItem(
+                    ((Number) row[0]).longValue(),
+                    row[1] == null ? null : String.valueOf(row[1]),
+                    row[2] == null ? null : String.valueOf(row[2]),
+                    toLocalDateTime(row[3]),
+                    toLocalDateTime(row[4]),
+                    row[5] == null ? null : String.valueOf(row[5]),
+                    row[6] == null ? null : ((Number) row[6]).longValue()));
+        }
+        return result;
+    }
+
+    @Transactional
+    public void restoreWithConfirmation(
+            Long loanId,
+            String confirmation,
+            User actor) {
+
+        requireBusinessOwner(actor);
+
+        if (loanId == null || loanId <= 0) {
+            throw new IllegalArgumentException("Loan ID is required");
+        }
+
+        Long organizationId = organizationId(actor);
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = entityManager.createNativeQuery("""
+                SELECT id, reference_number, purge_after
+                FROM loans
+                WHERE id = :loanId
+                  AND organization_id = :organizationId
+                  AND deleted_at IS NOT NULL
+                FOR UPDATE
+                """)
+                .setParameter("loanId", loanId)
+                .setParameter("organizationId", organizationId)
+                .getResultList();
+
+        if (rows.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Recycled loan not found or it is no longer restorable");
+        }
+
+        Object[] row = rows.get(0);
+        String reference = row[1] == null ? null : String.valueOf(row[1]);
+        requireConfirmation(confirmation, reference);
+
+        LocalDateTime purgeAfter = toLocalDateTime(row[2]);
+        if (purgeAfter != null && !purgeAfter.isAfter(LocalDateTime.now())) {
+            throw new IllegalStateException(
+                    "The 30-day recycle period has expired; the loan is no longer restorable");
+        }
+
+        entityManager.createNativeQuery("""
+                UPDATE loans
+                SET deleted_at = NULL,
+                    deletion_reason = NULL,
+                    deleted_by = NULL,
+                    purge_after = NULL
+                WHERE id = :loanId
+                  AND organization_id = :organizationId
+                  AND deleted_at IS NOT NULL
+                """)
+                .setParameter("loanId", loanId)
+                .setParameter("organizationId", organizationId)
+                .executeUpdate();
+
+        entityManager.createNativeQuery("""
+                UPDATE journal_entries
+                SET hidden_loan_id = NULL
+                WHERE organization_id = :organizationId
+                  AND hidden_loan_id = :loanId
+                """)
+                .setParameter("organizationId", organizationId)
+                .setParameter("loanId", loanId)
+                .executeUpdate();
+
+        entityManager.createNativeQuery("""
+                DELETE FROM loan_deletion_tombstones
+                WHERE organization_id = :organizationId
+                  AND loan_id = :loanId
+                """)
+                .setParameter("organizationId", organizationId)
+                .setParameter("loanId", loanId)
+                .executeUpdate();
+
+        auditService.log(
+                actor.getOrganization(),
+                actor,
+                "LOAN_RESTORED",
+                "LOAN",
+                String.valueOf(loanId),
+                "Restored loan " + reference + " from the 30-day recycle bin",
+                null,
+                null,
+                "Loan Management");
+    }
+
+    /**
+     * Daily automatic purge. A batch limit prevents a large recycle bin from
+     * creating one unbounded transaction.
+     */
+    @Scheduled(
+            cron = "${app.loan.recycle-bin.purge-cron:0 15 2 * * *}",
+            zone = "${app.loan.recycle-bin.purge-zone:Africa/Kigali}")
+    @Transactional
+    public void purgeExpiredRecycledLoans() {
+
+        @SuppressWarnings("unchecked")
+        List<Number> ids = entityManager.createNativeQuery("""
+                SELECT id
+                FROM loans
+                WHERE deleted_at IS NOT NULL
+                  AND purge_after IS NOT NULL
+                  AND purge_after <= CURRENT_TIMESTAMP
+                ORDER BY purge_after ASC, id ASC
+                LIMIT 100
+                """)
+                .getResultList();
+
+        for (Number idValue : ids) {
+            purgeExpiredLoan(idValue.longValue());
+        }
+    }
+
+    private void purgeExpiredLoan(Long loanId) {
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = entityManager.createNativeQuery("""
+                SELECT id, organization_id, reference_number
+                FROM loans
+                WHERE id = :loanId
+                  AND deleted_at IS NOT NULL
+                  AND purge_after <= CURRENT_TIMESTAMP
+                FOR UPDATE
+                """)
+                .setParameter("loanId", loanId)
+                .getResultList();
+
+        if (rows.isEmpty()) {
+            return;
+        }
+
+        Object[] row = rows.get(0);
+        Long organizationId = ((Number) row[1]).longValue();
+        String reference = row[2] == null ? String.valueOf(loanId) : String.valueOf(row[2]);
+
+        /*
+         * Credit-bureau correction records can self-reference one another.
+         * Break only that internal correction pointer before deleting the
+         * expired operational records.
+         */
+        entityManager.createNativeQuery("""
+                UPDATE credit_bureau_submission_records
+                SET correction_of_record_id = NULL
+                WHERE loan_id = :loanId
+                """)
+                .setParameter("loanId", loanId)
+                .executeUpdate();
+
+        /*
+         * These are operational records. Immutable accounting journals are
+         * intentionally retained and hidden by the permanent tombstone.
+         */
+        for (String table : DIRECT_LOAN_CHILD_TABLES) {
+            deleteLoanChildren(table, loanId);
+        }
+
+        entityManager.createNativeQuery("""
+                DELETE FROM loans
+                WHERE id = :loanId
+                  AND organization_id = :organizationId
+                  AND deleted_at IS NOT NULL
+                """)
+                .setParameter("loanId", loanId)
+                .setParameter("organizationId", organizationId)
+                .executeUpdate();
+
+        entityManager.createNativeQuery("""
+                UPDATE loan_deletion_tombstones
+                SET purged_at = CURRENT_TIMESTAMP
+                WHERE organization_id = :organizationId
+                  AND loan_id = :loanId
+                """)
+                .setParameter("organizationId", organizationId)
+                .setParameter("loanId", loanId)
+                .executeUpdate();
+
+        auditService.log(
+                null,
+                null,
+                "LOAN_PERMANENTLY_PURGED",
+                "LOAN",
+                String.valueOf(loanId),
+                "Recycle-bin loan " + reference
+                        + " permanently purged after " + RECYCLE_DAYS
+                        + " days. Immutable accounting/audit tombstone retained.",
+                null,
+                null,
+                "Loan Management");
+
+        log.info("Recycle-bin loan {} permanently purged", reference);
+    }
+
+   private void deleteLoanChildren(String table, Long loanId) {
+    entityManager.createNativeQuery(
+            "DELETE FROM \"" + table + "\" WHERE loan_id = :loanId")
+            .setParameter("loanId", loanId)
+            .executeUpdate();
+}
+
+    private void hideLoanJournals(
+            Long organizationId,
+            Long loanId,
+            String reference) {
+
+        entityManager.createNativeQuery("""
+                UPDATE journal_entries
+                SET hidden_loan_id = :loanId
+                WHERE organization_id = :organizationId
+                  AND (
+                        (
+                            source_type IN (
+                                'LOAN_DISBURSEMENT',
+                                'LOAN_PAYMENT',
+                                'LOAN_EXTENSION_FEE',
+                                'LOAN_EXTENSION_FEE_COLLECTION',
+                                'PENALTY_ACCRUAL',
+                                'INTEREST_ACCRUAL',
+                                'MANAGEMENT_FEE_ACCRUAL',
+                                'SCHEDULED_INTEREST_ACCRUAL',
+                                'SCHEDULED_MANAGEMENT_FEE_ACCRUAL',
+                                'CONTRACTUAL_MONTHLY_INTEREST_ACCRUAL',
+                                'CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL',
+                                'HISTORICAL_LOAN_OPENING',
+                                'LEGACY_LOAN_OPENING',
+                                'LEGACY_LOAN_RECONCILIATION',
+                                'LEGACY_LOAN_OPENING_DATE_REPAIR',
+                                'WRITE_OFF'
+                            )
+                            AND regexp_replace(coalesce(source_id, ''), '^LOAN:', '') = :loanIdText
+                        )
+                        OR (
+                            source_type IN (
+                                'PAYMENT_RECEIVED',
+                                'REFUND_PAYMENT',
+                                'PAYMENT_REFUND',
+                                'PAYMENT_REVERSAL'
+                            )
+                            AND source_id IN (
+                                SELECT CAST(p.id AS TEXT)
+                                FROM payments p
+                                WHERE p.loan_id = :loanId
+                            )
+                        )
+                        OR reference = :reference
+                  )
+                """)
+                .setParameter("organizationId", organizationId)
+                .setParameter("loanId", loanId)
+                .setParameter("loanIdText", String.valueOf(loanId))
+                .setParameter("reference", reference)
+                .executeUpdate();
+
+        /*
+         * Reversal journals use the original journal ID as source_id.
+         * Hide them after the originals have been marked.
+         */
+        entityManager.createNativeQuery("""
+                UPDATE journal_entries reversal
+                SET hidden_loan_id = :loanId
+                WHERE reversal.organization_id = :organizationId
+                  AND reversal.source_type = 'REVERSAL'
+                  AND reversal.source_id IN (
+                        SELECT CAST(original.id AS TEXT)
+                        FROM journal_entries original
+                        WHERE original.organization_id = :organizationId
+                          AND original.hidden_loan_id = :loanId
+                  )
+                """)
+                .setParameter("organizationId", organizationId)
+                .setParameter("loanId", loanId)
+                .executeUpdate();
+    }
+
+    private void ensureNoPendingPaymentTransaction(Long loanId) {
+        Number count = (Number) entityManager.createNativeQuery("""
+                SELECT COUNT(*)
+                FROM payment_transactions
+                WHERE loan_id = :loanId
+                  AND COALESCE(reversed, FALSE) = FALSE
+                  AND status IN ('INITIATED', 'PENDING')
+                """)
+                .setParameter("loanId", loanId)
+                .getSingleResult();
+
+        if (count.longValue() > 0L) {
+            throw new IllegalStateException(
+                    "The loan cannot be recycled while a payment transaction is still pending. "
+                            + "Complete or reverse the payment first.");
+        }
+    }
+
+    private void upsertTombstone(
+            Long organizationId,
+            Long loanId,
+            String reference,
+            LocalDateTime deletedAt) {
+
+        entityManager.createNativeQuery("""
+                INSERT INTO loan_deletion_tombstones
+                    (organization_id, loan_id, reference_number, deleted_at)
+                VALUES
+                    (:organizationId, :loanId, :reference, :deletedAt)
+                ON CONFLICT (organization_id, loan_id)
+                DO UPDATE SET
+                    reference_number = EXCLUDED.reference_number,
+                    deleted_at = EXCLUDED.deleted_at,
+                    purged_at = NULL
+                """)
+                .setParameter("organizationId", organizationId)
+                .setParameter("loanId", loanId)
+                .setParameter("reference", reference)
+                .setParameter("deletedAt", deletedAt)
+                .executeUpdate();
+    }
+
+    private Long organizationId(User actor) {
+        if (actor.getOrganization() == null
+                || actor.getOrganization().getId() == null) {
+            throw new IllegalArgumentException("Organization is required");
+        }
+        return actor.getOrganization().getId();
+    }
+
+    private String requireReference(Loan loan) {
+        if (loan.getReferenceNumber() == null
+                || loan.getReferenceNumber().isBlank()) {
+            throw new IllegalStateException(
+                    "The loan has no valid reference number and cannot be safely recycled");
+        }
+        return loan.getReferenceNumber().trim();
+    }
+
+    private void requireConfirmation(String confirmation, String reference) {
         String expected = "sudo " + reference;
         if (!expected.equals(confirmation)) {
             throw new IllegalArgumentException(
-                    "High-risk deletion confirmation failed. Type exactly: " + expected);
+                    "High-risk confirmation failed. Type exactly: " + expected);
+        }
+    }
+
+    private String requireReason(String reason) {
+        String normalized = reason == null ? "" : reason.trim();
+
+        if (normalized.length() < MIN_REASON_LENGTH) {
+            throw new IllegalArgumentException(
+                    "A deletion reason of at least " + MIN_REASON_LENGTH + " characters is required");
         }
 
-        if (FINANCIAL_OR_REGULATORY_STATUSES.contains(loan.getStatus())) {
-            throw cannotSafelyDelete(
-                    "This loan has entered the financial or regulatory lifecycle (status: "
-                            + loan.getStatus()
-                            + "). It must be preserved for accounting, BNR/credit-bureau and reporting history.");
+        if (normalized.length() > MAX_REASON_LENGTH) {
+            throw new IllegalArgumentException(
+                    "Deletion reason cannot exceed " + MAX_REASON_LENGTH + " characters");
         }
 
-        /*
-         * Do not maintain a hand-written list of child repositories here.
-         * The database is the source of truth for relationships. This scan
-         * discovers every foreign key whose parent is loans(id), including
-         * tables represented only by SQL migrations (for example credit-bureau
-         * submission/dispute tables).
-         *
-         * This also catches future loan child tables automatically after a
-         * migration, so a new relationship fails closed instead of becoming
-         * an accidental data-loss path.
-         */
-        String dependentTable = findLoanForeignKeyDependency(loanId);
-        if (dependentTable != null) {
-            throw cannotSafelyDelete(
-                    "This loan has linked records in " + dependentTable
-                            + ". The loan is preserved so accounting, BNR, credit-bureau and reporting history remain intact.");
-        }
-
-        /*
-         * Journal entries deliberately do not have a loan_id foreign key in
-         * this project. They use source_type/source_id, so they require a
-         * separate accounting-history guard.
-         */
-        if (hasLoanAccountingHistory(organizationId, loanId, reference)) {
-            throw cannotSafelyDelete(
-                    "This loan has accounting journal history. The loan must be preserved so the general ledger and financial reports remain correct.");
-        }
-
-        try {
-            // No child business record exists, so delete only the loan row.
-            // No cascade-delete of financial/regulatory history is performed.
-            loanRepository.delete(loan);
-            loanRepository.flush();
-        } catch (DataIntegrityViolationException ex) {
-            /*
-             * Final database-level backstop. If a concurrent transaction or a
-             * future schema relationship creates a dependency after the scan,
-             * the transaction fails closed and no deletion is accepted.
-             */
-            throw cannotSafelyDelete(
-                    "The loan has a linked record protected by the database. No financial or reporting data was deleted.",
-                    ex);
-        }
+        return normalized;
     }
 
     private void requireBusinessOwner(User actor) {
@@ -171,119 +537,31 @@ public class LoanAdministrationService {
                 || actor.getRole() == null
                 || actor.getRole().getName() == null
                 || !"BUSINESS_OWNER".equalsIgnoreCase(actor.getRole().getName())) {
-            throw new AccessDeniedException("Only the BUSINESS_OWNER can delete a loan");
+            throw new AccessDeniedException(
+                    "Only the BUSINESS_OWNER can perform this operation");
         }
     }
 
-    /**
-     * Returns the first actual child table/column containing the loan ID, or
-     * null when no foreign-key child record exists.
-     */
-    private String findLoanForeignKeyDependency(Long loanId) {
-        @SuppressWarnings("unchecked")
-        List<Object[]> foreignKeys = entityManager.createNativeQuery("""
-                SELECT
-                    child_ns.nspname,
-                    child_table.relname,
-                    child_column.attname
-                FROM pg_constraint constraint_row
-                JOIN pg_class child_table
-                  ON child_table.oid = constraint_row.conrelid
-                JOIN pg_namespace child_ns
-                  ON child_ns.oid = child_table.relnamespace
-                JOIN LATERAL unnest(constraint_row.conkey)
-                    WITH ORDINALITY AS child_key(attnum, ord)
-                  ON TRUE
-                JOIN pg_attribute child_column
-                  ON child_column.attrelid = child_table.oid
-                 AND child_column.attnum = child_key.attnum
-                JOIN LATERAL unnest(constraint_row.confkey)
-                    WITH ORDINALITY AS parent_key(attnum, ord)
-                  ON parent_key.ord = child_key.ord
-                JOIN pg_class parent_table
-                  ON parent_table.oid = constraint_row.confrelid
-                JOIN pg_namespace parent_ns
-                  ON parent_ns.oid = parent_table.relnamespace
-                WHERE constraint_row.contype = 'f'
-                  AND parent_ns.nspname = 'public'
-                  AND parent_table.relname = 'loans'
-                  AND child_table.oid <> parent_table.oid
-                  AND child_table.relkind IN ('r', 'p')
-                ORDER BY child_ns.nspname, child_table.relname, child_column.attname
-                """).getResultList();
-
-        for (Object[] foreignKey : foreignKeys) {
-            String schema = String.valueOf(foreignKey[0]);
-            String table = String.valueOf(foreignKey[1]);
-            String column = String.valueOf(foreignKey[2]);
-
-            String sql = "SELECT EXISTS (SELECT 1 FROM "
-                    + quoteIdentifier(schema) + "." + quoteIdentifier(table)
-                    + " WHERE " + quoteIdentifier(column) + " = :loanId)";
-
-            Query dependencyQuery = entityManager.createNativeQuery(sql);
-            dependencyQuery.setParameter("loanId", loanId);
-
-            Object result = dependencyQuery.getSingleResult();
-            if (Boolean.TRUE.equals(result)) {
-                return schema + "." + table + "." + column;
-            }
+    private LocalDateTime toLocalDateTime(Object value) {
+        if (value == null) {
+            return null;
         }
-
-        return null;
-    }
-
-    private boolean hasLoanAccountingHistory(Long organizationId, Long loanId, String reference) {
-        String numericLoanId = String.valueOf(loanId);
-        String prefixedLoanId = "LOAN:" + loanId;
-
-        for (String sourceType : LOAN_ACCOUNTING_SOURCE_TYPES) {
-            if (journalEntryRepository
-                    .findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                            organizationId, sourceType, numericLoanId)
-                    .isPresent()) {
-                return true;
-            }
-
-            if (journalEntryRepository
-                    .findFirstByOrganization_IdAndSourceTypeAndSourceId(
-                            organizationId, sourceType, prefixedLoanId)
-                    .isPresent()) {
-                return true;
-            }
+        if (value instanceof java.sql.Timestamp timestamp) {
+            return timestamp.toLocalDateTime();
         }
-
-        // Historical/compatibility journals can carry the immutable loan
-        // reference instead of the numeric loan ID. A match is deliberately
-        // treated as a blocker rather than attempting to infer ownership.
-        if (reference != null && !reference.isBlank()) {
-            Object count = entityManager.createNativeQuery("""
-                    SELECT COUNT(*)
-                    FROM journal_entries
-                    WHERE organization_id = :organizationId
-                      AND reference = :reference
-                    """)
-                    .setParameter("organizationId", organizationId)
-                    .setParameter("reference", reference)
-                    .getSingleResult();
-
-            if (count instanceof Number number && number.longValue() > 0L) {
-                return true;
-            }
+        if (value instanceof LocalDateTime localDateTime) {
+            return localDateTime;
         }
-
-        return false;
+        return LocalDateTime.parse(String.valueOf(value).replace(' ', 'T'));
     }
 
-    private String quoteIdentifier(String identifier) {
-        return "\"" + identifier.replace("\"", "\"\"") + "\"";
-    }
-
-    private IllegalStateException cannotSafelyDelete(String message) {
-        return new IllegalStateException(message);
-    }
-
-    private IllegalStateException cannotSafelyDelete(String message, Throwable cause) {
-        return new IllegalStateException(message, cause);
+    public record LoanRecycleBinItem(
+            Long id,
+            String referenceNumber,
+            String status,
+            LocalDateTime deletedAt,
+            LocalDateTime purgeAfter,
+            String deletionReason,
+            Long deletedBy) {
     }
 }

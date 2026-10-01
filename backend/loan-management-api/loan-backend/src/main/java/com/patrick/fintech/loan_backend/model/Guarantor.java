@@ -1,5 +1,7 @@
 package com.patrick.fintech.loan_backend.model;
 
+import org.hibernate.annotations.SQLRestriction;
+
 import java.math.BigDecimal;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -11,6 +13,7 @@ import java.time.LocalDateTime;
 
 @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
 @Entity
+@SQLRestriction("loan_id IN (SELECT id FROM loans WHERE deleted_at IS NULL)")
 @Table(name = "guarantors", indexes = @Index(name = "idx_guarantor_loan", columnList = "loan_id"))
 @Data @NoArgsConstructor @AllArgsConstructor @Builder
 public class Guarantor {

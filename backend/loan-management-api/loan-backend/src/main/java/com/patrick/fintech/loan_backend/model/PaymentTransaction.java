@@ -1,5 +1,7 @@
 package com.patrick.fintech.loan_backend.model;
 
+import org.hibernate.annotations.SQLRestriction;
+
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
@@ -8,6 +10,7 @@ import java.time.LocalDateTime;
 import com.patrick.fintech.loan_backend.util.MoneyMath;
 
 @Entity
+@SQLRestriction("loan_id IN (SELECT id FROM loans WHERE deleted_at IS NULL)")
 @Table(name = "payment_transactions", uniqueConstraints = {
         @UniqueConstraint(name = "uq_payment_txn_reference", columnNames = { "organization_id",
                 "transaction_reference" })

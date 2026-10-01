@@ -320,8 +320,13 @@ export const loanApi = {
 
   get: (id: number) => get(`/loans/${id}`),
 
-  deleteWithConfirmation: (id: number, confirmation: string) =>
-    del(`/loans/${id}`, { data: { confirmation } }),
+  deleteWithConfirmation: (id: number, confirmation: string, reason: string) =>
+    del(`/loans/${id}`, { data: { confirmation, reason } }),
+
+  recycleBin: () => get("/loans/recycle-bin"),
+
+  restore: (id: number, confirmation: string) =>
+    post(`/loans/${id}/restore`, { confirmation }),
 
   create: (data: unknown) => post("/loans", data),
 

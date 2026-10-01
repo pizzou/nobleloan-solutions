@@ -1,5 +1,7 @@
 package com.patrick.fintech.loan_backend.model;
 
+import org.hibernate.annotations.SQLRestriction;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -29,6 +31,7 @@ import java.time.LocalDateTime;
 import com.patrick.fintech.loan_backend.util.MoneyMath;
 
 @Entity
+@SQLRestriction("loan_id IN (SELECT id FROM loans WHERE deleted_at IS NULL)")
 @Table(name = "payment_schedules")
 @Data
 @NoArgsConstructor

@@ -8,8 +8,10 @@ import lombok.*;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import org.hibernate.annotations.SQLRestriction;
 
 @Entity
+@SQLRestriction("hidden_loan_id IS NULL AND NOT public.loan_journal_is_recycled(organization_id, source_type, source_id, reference)")
 @Table(name = "journal_entries")
 @Getter
 @Setter
@@ -81,6 +83,10 @@ public class JournalEntry {
     @Builder.Default
     @JsonIgnore
     private Boolean businessOwnerOnly = false;
+
+    @Column(name = "hidden_loan_id")
+    @JsonIgnore
+    private Long hiddenLoanId;
 
     @OneToMany(
         mappedBy = "journalEntry",
