@@ -42,6 +42,30 @@ export function useAuthState() {
 
   useEffect(() => {
     let mounted = true;
+
+    // Restore the last known user immediately so a browser refresh does not
+    // temporarily turn an authenticated session into an unauthenticated one.
+    // The HttpOnly NLS_SESSION cookie remains the source of truth for the
+    // server; localStorage is only a UI bootstrap cache and never a credential.
+    try {
+      const raw = localStorage.getItem("user");
+      if (raw) {
+        const cached = JSON.parse(raw) as AuthResponse;
+        if (
+          cached &&
+          typeof cached === "object" &&
+          typeof cached.userId === "number" &&
+          typeof cached.email === "string"
+        ) {
+          setUser(cached);
+        } else {
+          localStorage.removeItem("user");
+        }
+      }
+    } catch {
+      localStorage.removeItem("user");
+    }
+
     (async () => {
       try {
         const me = (await authApi.me()) as AuthResponse;
@@ -49,8 +73,14 @@ export function useAuthState() {
           setUser(me);
           localStorage.setItem("user", JSON.stringify(me));
         }
-      } catch {
-        if (mounted) {
+      } catch (error: any) {
+        if (!mounted) return;
+
+        // Only a confirmed authentication failure means the session is gone.
+        // Network errors, timeouts, 5xx responses, etc. must not log a user
+        // out merely because the browser was refreshed at that moment.
+        const status = error?.response?.status ?? error?.status;
+        if (status === 401) {
           localStorage.removeItem("user");
           setUser(null);
         }
@@ -58,6 +88,7 @@ export function useAuthState() {
         if (mounted) setLoading(false);
       }
     })();
+
     return () => {
       mounted = false;
     };
