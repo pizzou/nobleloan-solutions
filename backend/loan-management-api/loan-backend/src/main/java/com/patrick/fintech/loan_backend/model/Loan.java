@@ -56,7 +56,7 @@ import com.patrick.fintech.loan_backend.util.MoneyMath;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@SQLRestriction("deleted_at IS NULL")
+@SQLRestriction("public.loan_is_visible(id)")
 public class Loan {
 
         // ================================================================
