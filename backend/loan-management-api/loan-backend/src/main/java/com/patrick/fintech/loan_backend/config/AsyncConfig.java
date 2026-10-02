@@ -40,6 +40,28 @@ public class AsyncConfig {
                 return executor;
         }
 
+
+
+        /**
+         * Dedicated executor for CPU/memory-heavy regulatory report generation.
+         * Keeping report work separate prevents exports from delaying audit,
+         * notification, reconciliation, or import tasks.
+         */
+        @Bean(name = "loansaasReportExecutor")
+        public Executor loansaasReportExecutor() {
+                ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+                executor.setCorePoolSize(2);
+                executor.setMaxPoolSize(2);
+                executor.setQueueCapacity(10);
+                executor.setThreadNamePrefix("loansaas-report-");
+                executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+                executor.setWaitForTasksToCompleteOnShutdown(true);
+                executor.setAwaitTerminationSeconds(30);
+                executor.setAllowCoreThreadTimeOut(false);
+                executor.initialize();
+                return executor;
+        }
+
         /**
          * Dedicated executor for external email delivery.
          *

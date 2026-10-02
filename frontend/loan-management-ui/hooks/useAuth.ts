@@ -46,11 +46,14 @@ export function useAuthState() {
       return null;
     }
   });
-  const [loading, setLoading] = useState(false);
+  // A cached user is safe to use for immediate UI hydration; the HttpOnly
+  // session cookie remains the authoritative authentication credential.
+  // Validate it in the background instead of blocking the entire dashboard.
+  const [loading, setLoading] = useState(() => !user);
 
   useEffect(() => {
     let mounted = true;
-    setLoading(true);
+
     (async () => {
       try {
         const me = (await authApi.me()) as AuthResponse;
@@ -60,8 +63,6 @@ export function useAuthState() {
         }
       } catch (error: any) {
         if (mounted) {
-          // Only an explicit authentication rejection means the session is gone.
-          // Network failures and server errors must not log an operator out.
           const status = error?.response?.status ?? error?.status;
           if (status === 401) {
             localStorage.removeItem("user");
@@ -72,6 +73,7 @@ export function useAuthState() {
         if (mounted) setLoading(false);
       }
     })();
+
     return () => {
       mounted = false;
     };

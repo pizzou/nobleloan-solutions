@@ -631,6 +631,16 @@ function triggerDownload(blob: Blob, filename: string): void {
  * ============================================================
  */
 
+function sanitizeServerMessage(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^<!doctype html/i.test(trimmed) || /^<html[\s>]/i.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
 async function getBlobErrorMessage(error: unknown): Promise<string | null> {
   if (!error || typeof error !== "object") {
     return null;
@@ -677,7 +687,7 @@ async function getBlobErrorMessage(error: unknown): Promise<string | null> {
 
           return json.message || json.error || json.detail || null;
         } catch {
-          return text;
+          return sanitizeServerMessage(text);
         }
       } catch {
         return null;
@@ -685,7 +695,7 @@ async function getBlobErrorMessage(error: unknown): Promise<string | null> {
     }
 
     if (typeof responseData === "string") {
-      return responseData || null;
+      return sanitizeServerMessage(responseData);
     }
 
     if (responseData && typeof responseData === "object") {
@@ -737,7 +747,7 @@ async function getBlobErrorMessage(error: unknown): Promise<string | null> {
     return data.message || data.error || data.detail || null;
   }
 
-  return value.message || null;
+  return sanitizeServerMessage(value.message);
 }
 
 /**
@@ -1017,25 +1027,80 @@ export const regulatoryApi = {
        * ------------------------------------------------------
        */
 
+      // XLSX generation is asynchronous so a large CRB workbook cannot hold
+      // the Render/Vercel HTTP request open long enough to trigger a gateway
+      // timeout or restart. CSV/PDF retain the existing direct-download path.
+      if (format === "xlsx") {
+        const started = await api.get("/regulatory/credit-bureau/download", {
+          params: {
+            ...queryParams,
+            format,
+          },
+          timeout: 20000,
+          headers: { Accept: "application/json" },
+        });
+
+        const jobId = started?.data?.jobId;
+        if (!jobId || typeof jobId !== "string") {
+          throw new Error("The Credit Bureau export job could not be started.");
+        }
+
+        const deadline = Date.now() + 15 * 60 * 1000;
+
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1500));
+
+          const statusResponse = await api.get(
+            `/regulatory/credit-bureau/jobs/${encodeURIComponent(jobId)}`,
+            { timeout: 20000, headers: { Accept: "application/json" } },
+          );
+
+          const status = statusResponse?.data?.status;
+
+          if (status === "COMPLETED") {
+            const response = await api.get(
+              `/regulatory/credit-bureau/jobs/${encodeURIComponent(jobId)}/download`,
+              {
+                responseType: "blob",
+                timeout: 120000,
+                headers: { Accept: getExportAcceptHeader(format) },
+              },
+            );
+
+            const blob =
+              response.data instanceof Blob
+                ? response.data
+                : new Blob([response.data], {
+                    type: getExportContentType(format),
+                  });
+
+            triggerDownload(blob, `credit-bureau-export.${format}`);
+            return;
+          }
+
+          if (status === "FAILED") {
+            throw new Error(
+              statusResponse?.data?.error ||
+                "Credit Bureau export failed while generating the workbook.",
+            );
+          }
+        }
+
+        throw new Error(
+          "Credit Bureau export is still processing. Please check the report again shortly.",
+        );
+      }
+
       const response = await api.get("/regulatory/credit-bureau/download", {
         params: {
           ...queryParams,
           format,
         },
-
         responseType: "blob",
-
+        timeout: 120000,
         headers: {
           Accept: getExportAcceptHeader(format),
         },
-      });
-
-      console.log("Credit Bureau export response:", {
-        status: response.status,
-
-        contentType: response.headers?.["content-type"],
-
-        contentDisposition: response.headers?.["content-disposition"],
       });
 
       const blob =
@@ -1246,7 +1311,10 @@ export const regulatoryApi = {
          */
 
         if (typeof response.data === "string" && response.data) {
-          return response.data;
+          return (
+            sanitizeServerMessage(response.data) ||
+            "The server returned an unexpected gateway error. Please retry."
+          );
         }
 
         /**

@@ -21,7 +21,7 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,6 +38,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Native CRB regulatory workbook generator.
@@ -327,11 +328,14 @@ public class CreditBureauRegulatoryExportService {
                 reportDate
         );
 
-        try (
-                XSSFWorkbook workbook = new XSSFWorkbook();
-                ByteArrayOutputStream output =
-                        new ByteArrayOutputStream(128 * 1024)
-        ) {
+        SXSSFWorkbook workbook = new SXSSFWorkbook(250);
+workbook.setCompressTempFiles(true);
+
+try (
+        workbook;
+        ByteArrayOutputStream output =
+                new ByteArrayOutputStream(128 * 1024)
+) {
 
             Styles styles = new Styles(workbook);
 
@@ -360,9 +364,43 @@ public class CreditBureauRegulatoryExportService {
              * Those sheets therefore remain structurally present but contain no
              * fabricated rows.
              */
+            // The old exporter executed one payment/guarantor/collateral query
+            // per loan. That N+1 pattern made CRB exports increasingly slow and
+            // could exhaust the connection pool on large portfolios. Load the
+            // required child data in bounded bulk queries instead.
             Map<Long, List<Payment>> paymentCache = new HashMap<>();
             Map<Long, List<Guarantor>> guarantorCache = new HashMap<>();
             Map<Long, List<Collateral>> collateralCache = new HashMap<>();
+
+            List<Long> loanIds = loans.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .map(Loan::getId)
+                    .filter(java.util.Objects::nonNull)
+                    .distinct()
+                    .toList();
+
+            if (!loanIds.isEmpty()) {
+                // Payments are already included in the Loan EntityGraph. Avoid
+                // another query per loan and only use the bulk repositories for
+                // child collections that are not part of that graph.
+                for (Loan loan : loans) {
+                    if (loan != null && loan.getId() != null && loan.getPayments() != null) {
+                        paymentCache.put(loan.getId(), new ArrayList<>(loan.getPayments()));
+                    }
+                }
+
+                guarantorCache.putAll(guarantorRepository
+                        .findByLoan_IdInAndOrganization_Id(loanIds, organizationId)
+                        .stream()
+                        .filter(g -> g != null && g.getLoan() != null && g.getLoan().getId() != null)
+                        .collect(Collectors.groupingBy(g -> g.getLoan().getId())));
+
+                collateralCache.putAll(collateralRepository
+                        .findByLoan_IdInAndOrganization_Id(loanIds, organizationId)
+                        .stream()
+                        .filter(c -> c != null && c.getLoan() != null && c.getLoan().getId() != null)
+                        .collect(Collectors.groupingBy(c -> c.getLoan().getId())));
+            }
 
             int consumerRow = 1;
             int guarantorRow = 1;
@@ -376,10 +414,8 @@ public class CreditBureauRegulatoryExportService {
 
                 Borrower borrower = loan.getBorrower();
 
-                List<Payment> payments = paymentCache.computeIfAbsent(
-                        loan.getId(),
-                        id -> safePayments(id, loan)
-                );
+                List<Payment> payments = paymentCache.getOrDefault(
+                        loan.getId(), Collections.emptyList());
 
                 writeConsumerRow(
                         consumer.createRow(consumerRow++),
@@ -400,10 +436,8 @@ public class CreditBureauRegulatoryExportService {
                  * and prevents cross-tenant child-record access.
                  */
                 List<Guarantor> guarantorsForLoan =
-                        guarantorCache.computeIfAbsent(
-                                loan.getId(),
-                                id -> safeGuarantors(id, organizationId)
-                        );
+                        guarantorCache.getOrDefault(
+                                loan.getId(), Collections.emptyList());
 
                 for (Guarantor guarantor : guarantorsForLoan) {
 
@@ -429,10 +463,8 @@ public class CreditBureauRegulatoryExportService {
                  * and prevents cross-tenant child-record access.
                  */
                 List<Collateral> collateralsForLoan =
-                        collateralCache.computeIfAbsent(
-                                loan.getId(),
-                                id -> safeCollaterals(id, organizationId)
-                        );
+                        collateralCache.getOrDefault(
+                                loan.getId(), Collections.emptyList());
 
                 if (collateralsForLoan.isEmpty()
                         && hasLoanCollateral(loan)) {
@@ -497,8 +529,9 @@ public class CreditBureauRegulatoryExportService {
             );
 
             workbook.write(output);
-
-            return output.toByteArray();
+            byte[] result = output.toByteArray();
+            workbook.dispose();
+            return result;
 
         } catch (IOException e) {
 

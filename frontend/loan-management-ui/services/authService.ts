@@ -7,7 +7,6 @@ export async function login(
   email: string,
   password: string,
 ): Promise<AuthResponse> {
-  await authApi.csrf();
   const data = (await authApi.login(email, password)) as AuthResponse;
   if (typeof window !== "undefined") {
     localStorage.setItem("user", JSON.stringify(data));

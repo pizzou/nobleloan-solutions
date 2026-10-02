@@ -131,10 +131,32 @@ API.interceptors.response.use(
       window.location.href = "/login";
     }
 
-    const message =
-      getAxiosErrorMessage(responseData) ||
-      error.message ||
-      `Request failed with status ${status ?? "unknown"}`;
+    let message = getAxiosErrorMessage(responseData);
+
+    if (!message && status != null) {
+      if (status === 401)
+        message = "Your session has expired. Please sign in again.";
+      else if (status === 403)
+        message = "You do not have permission to perform this action.";
+      else if (status === 408 || status === 504)
+        message =
+          "The server took too long to complete this request. Please retry.";
+      else if (status === 429)
+        message = "Too many requests. Please wait a moment and retry.";
+      else if (status >= 500)
+        message = "The server could not complete this request. Please retry.";
+    }
+
+    message = message || error.message || "The request could not be completed.";
+    // Guard against an HTML error page already present in Axios' generic
+    // message/data path.
+    if (
+      /^<!doctype html/i.test(message.trim()) ||
+      /^<html[\s>]/i.test(message.trim())
+    ) {
+      message =
+        "The server returned an unexpected gateway error. Please retry.";
+    }
 
     error.message = message;
 

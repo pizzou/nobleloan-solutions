@@ -310,117 +310,27 @@ public class ReportExportService {
             // COLUMN WIDTHS
             // ====================================================
 
-            for (
-                    int i = 0;
-                    i < safeColumns.size();
-                    i++
-            ) {
-
-                sheet.autoSizeColumn(i);
-
-                int currentWidth =
-                        sheet.getColumnWidth(i);
-
-                int minimumWidth =
-                        3000;
-
-                int maximumWidth =
-                        12000;
-
-                int width =
-                        Math.max(
-                                minimumWidth,
-                                Math.min(
-                                        maximumWidth,
-                                        currentWidth + 500
-                                )
-                        );
-
-                sheet.setColumnWidth(
-                        i,
-                        width
-                );
+            // POI autoSizeColumn() scans every populated cell and is extremely
+            // expensive on large regulatory workbooks. Use deterministic widths
+            // instead so export time remains approximately linear in row count.
+            for (int i = 0; i < safeColumns.size(); i++) {
+                String column = safeColumns.get(i);
+                int width = 4200;
+                if (column != null) {
+                    if ("Full Name".equals(column) || "National ID".equals(column)
+                            || "Loan Number".equals(column) || "Repayment Classification".equals(column)) {
+                        width = 6500;
+                    } else if ("Loan Amount".equals(column) || "Outstanding Balance".equals(column)) {
+                        width = 5000;
+                    } else if ("Phone".equals(column) || "Branch".equals(column)) {
+                        width = 5000;
+                    }
+                }
+                sheet.setColumnWidth(i, width);
             }
 
 
-            // ====================================================
-            // SPECIFIC COLUMN WIDTHS
-            // ====================================================
-
-            for (
-                    int i = 0;
-                    i < safeColumns.size();
-                    i++
-            ) {
-
-                String column =
-                        safeColumns.get(i);
-
-                if (column == null) {
-                    continue;
-                }
-
-
-                if (
-                        "Full Name".equals(column)
-                                ||
-                        "National ID".equals(column)
-                                ||
-                        "Loan Number".equals(column)
-                                ||
-                        "Repayment Classification".equals(column)
-                ) {
-
-                    sheet.setColumnWidth(
-                            i,
-                            6500
-                    );
-                }
-
-
-                if (
-                        "Loan Amount".equals(column)
-                                ||
-                        "Outstanding Balance".equals(column)
-                ) {
-
-                    sheet.setColumnWidth(
-                            i,
-                            5000
-                    );
-                }
-
-
-                if (
-                        "Borrower ID".equals(column)
-                                ||
-                        "Days Past Due".equals(column)
-                                ||
-                        "Credit Score".equals(column)
-                ) {
-
-                    sheet.setColumnWidth(
-                            i,
-                            4000
-                    );
-                }
-
-
-                if (
-                        "Phone".equals(column)
-                                ||
-                        "Branch".equals(column)
-                ) {
-
-                    sheet.setColumnWidth(
-                            i,
-                            5000
-                    );
-                }
-            }
-
-
-            // ====================================================
+            // Column widths are assigned once above; avoid POI auto-sizing/scanning.\n\n            // ====================================================
             // WRITE WORKBOOK
             // ====================================================
 

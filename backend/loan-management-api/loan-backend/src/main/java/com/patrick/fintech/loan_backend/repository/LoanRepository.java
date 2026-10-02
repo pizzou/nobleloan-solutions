@@ -995,10 +995,11 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     @EntityGraph(attributePaths = {
             "borrower",
             "organization",
-            "branch"
+            "branch",
+            "payments"
     })
     @Query("""
-            SELECT l
+            SELECT DISTINCT l
             FROM Loan l
             WHERE l.organization.id = :orgId
               AND (:branchId IS NULL OR l.branch.id = :branchId)
@@ -1014,9 +1015,9 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("to") LocalDateTime to);
 
 
-    @EntityGraph(attributePaths = {"borrower", "organization", "branch"})
+    @EntityGraph(attributePaths = {"borrower", "organization", "branch", "payments"})
     @Query("""
-            SELECT l
+            SELECT DISTINCT l
             FROM Loan l
             WHERE l.organization.id = :orgId
               AND (:branchId IS NULL OR l.branch.id = :branchId)

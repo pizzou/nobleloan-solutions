@@ -753,39 +753,11 @@ public class ReportingService {
                         Sheet sheet,
                         int columnCount) {
 
+                // POI autoSizeColumn() scans every populated cell and can turn a
+                // large regulatory export into an O(rows * columns) CPU hotspot.
+                // Fixed widths are predictable and materially faster.
                 for (int i = 0; i < columnCount; i++) {
-
-                        try {
-
-                                sheet.autoSizeColumn(i);
-
-                        } catch (RuntimeException exception) {
-
-                                log.warn(
-                                                "Unable to auto-size Excel column {}",
-                                                i,
-                                                exception);
-                        }
-
-                        int currentWidth = sheet.getColumnWidth(i);
-
-                        int minimumWidth = 3000;
-
-                        if (currentWidth < minimumWidth) {
-
-                                sheet.setColumnWidth(
-                                                i,
-                                                minimumWidth);
-                        }
-
-                        int maximumWidth = 12000;
-
-                        if (sheet.getColumnWidth(i) > maximumWidth) {
-
-                                sheet.setColumnWidth(
-                                                i,
-                                                maximumWidth);
-                        }
+                        sheet.setColumnWidth(i, 4200);
                 }
         }
 

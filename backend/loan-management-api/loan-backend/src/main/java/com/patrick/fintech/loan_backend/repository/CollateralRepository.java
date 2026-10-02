@@ -10,6 +10,7 @@ import java.util.List;
 public interface CollateralRepository extends JpaRepository<Collateral, Long> {
 
     List<Collateral> findByLoan_IdAndOrganization_Id(Long loanId, Long organizationId);
+    List<Collateral> findByLoan_IdInAndOrganization_Id(List<Long> loanIds, Long organizationId);
 
     List<Collateral> findByOrganization_Id(Long orgId);
 }
