@@ -3,75 +3,13 @@
 import Link from "next/link";
 import Image from "next/image";
 import { FormEvent, useMemo, useState } from "react";
-import PublicLoanCalculator from "../../components/PublicLoanCalculator";
+import {
+  calculateContractualSchedule,
+  safeRate,
+} from "../../lib/loanRepaymentCalculator";
 import { publicApi } from "../../services/api";
 import { SITE_CONTENT } from "../../lib/siteContent";
 import { useTenant } from "./layout";
-
-const Arrow = () => <span aria-hidden="true">→</span>;
-const productImages = [
-  "/images/noble/personal-loan.jpg",
-  "/images/noble/business-loan.jpg",
-  "/images/noble/vehicle-loan.jpg",
-  "/images/noble/salary-advance.jpg",
-  "/images/noble/agriculture-loan.jpg",
-];
-const productRoutes: Record<string, string> = {
-  PERSONAL: "/personal-loans",
-  BUSINESS: "/business-loans",
-  AUTO: "/vehicle-loans",
-  SALARY_ADVANCE: "/salary-advance",
-  AGRICULTURAL: "/agriculture-loans",
-};
-
-function LineIcon({
-  kind,
-}: {
-  kind: "shield" | "clock" | "people" | "handshake" | "mail";
-}) {
-  const common = {
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.65,
-    className: "h-6 w-6",
-    "aria-hidden": true as const,
-  };
-  if (kind === "shield")
-    return (
-      <svg {...common}>
-        <path d="M12 3 20 6v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-3Z" />
-        <path d="m9 12 2 2 4-4" />
-      </svg>
-    );
-  if (kind === "clock")
-    return (
-      <svg {...common}>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 7v5l3 2" />
-      </svg>
-    );
-  if (kind === "people")
-    return (
-      <svg {...common}>
-        <circle cx="9" cy="8" r="3" />
-        <path d="M3 20v-1.5A4.5 4.5 0 0 1 7.5 14h3a4.5 4.5 0 0 1 4.5 4.5V20M16 5.5a3 3 0 0 1 0 5.8M18 14.5a4 4 0 0 1 3 3.9V20" />
-      </svg>
-    );
-  if (kind === "handshake")
-    return (
-      <svg {...common}>
-        <path d="m3 10 4-4 4 2 3-1 7 4-3 3-4-2-3 2-4-2-4 2Z" />
-        <path d="m8 13 4 3 3-2M7 6l2-2 4 2 3-1 5 3" />
-      </svg>
-    );
-  return (
-    <svg {...common}>
-      <rect x="3" y="5" width="18" height="14" rx="2" />
-      <path d="m3 7 9 6 9-6" />
-    </svg>
-  );
-}
 
 function ContactQuickForm({
   primary,
@@ -214,6 +152,175 @@ function ContactQuickForm({
   );
 }
 
+type LoanProduct = (typeof SITE_CONTENT.services)[number];
+
+function CompactLoanCalculator({
+  products,
+  currency,
+  accent,
+}: {
+  products: LoanProduct[];
+  currency: string;
+  accent: string;
+}) {
+  const [index, setIndex] = useState(0);
+  const product = products[index] || products[0];
+  const [amount, setAmount] = useState(1000000);
+  const [months, setMonths] = useState(6);
+  const min = Number(product?.minAmount ?? 500000);
+  const maxTerm = Number(product?.maxTermMonths ?? 6);
+  const minTerm = Number(product?.minTermMonths ?? 1);
+  const actualMonths = Math.min(maxTerm, Math.max(minTerm, months));
+  const boundedAmount = Math.max(min, amount || min);
+  const schedule = useMemo(
+    () =>
+      calculateContractualSchedule(
+        boundedAmount,
+        actualMonths,
+        safeRate(product?.interestRate ?? product?.rate, 5),
+        safeRate(product?.managementFeeRate, 5),
+      ),
+    [boundedAmount, actualMonths, product],
+  );
+  const money = (n: number) =>
+    `${currency} ${Math.round(n).toLocaleString("en-RW")}`;
+  const selectProduct = (next: number) => {
+    setIndex(next);
+    setAmount(Math.max(500000, Number(products[next]?.minAmount ?? 500000)));
+    setMonths(Number(products[next]?.minTermMonths ?? 1));
+  };
+  return (
+    <div className="overflow-hidden rounded-[24px] border border-white/70 bg-white shadow-[0_28px_80px_rgba(4,20,42,.28)]">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 pb-4 pt-5 sm:px-6">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[.2em] text-[#9a7415]">
+            Noble loan planner
+          </p>
+          <h2 className="mt-1 text-xl font-black tracking-tight text-[#0F1B3D] sm:text-2xl">
+            Make a plan that fits.
+          </h2>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Explore an estimate before you apply.
+          </p>
+        </div>
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0F1B3D] text-lg font-black text-[#E4B943]">
+          ₣
+        </div>
+      </div>
+      <div className="p-5 sm:p-6">
+        <label className="block text-[11px] font-bold text-slate-600">
+          Choose a loan type
+        </label>
+        <select
+          value={index}
+          onChange={(e) => selectProduct(Number(e.target.value))}
+          className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-[#0F1B3D] outline-none focus:border-[#C9A227]"
+        >
+          {products.map((p, i) => (
+            <option key={`${p.title}-${i}`} value={i}>
+              {p.title}
+            </option>
+          ))}
+        </select>
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <label
+            htmlFor="noble-amount"
+            className="text-[11px] font-bold text-slate-600"
+          >
+            Loan amount
+          </label>
+          <span className="text-[10px] text-slate-400">
+            Minimum {money(min)}
+          </span>
+        </div>
+        <div className="mt-2 flex h-12 items-center rounded-xl border border-slate-200 bg-white px-3 focus-within:border-[#C9A227]">
+          <span className="mr-2 text-xs font-bold text-slate-400">
+            {currency}
+          </span>
+          <input
+            id="noble-amount"
+            inputMode="numeric"
+            value={String(amount)}
+            onChange={(e) =>
+              setAmount(Number(e.target.value.replace(/\D/g, "")))
+            }
+            className="w-full min-w-0 bg-transparent text-lg font-black text-[#0F1B3D] outline-none"
+            aria-label="Loan amount"
+          />
+        </div>
+        <input
+          aria-label="Adjust loan amount"
+          type="range"
+          min={min}
+          max={Math.max(min + 100000, 20000000)}
+          step={50000}
+          value={Math.min(
+            Math.max(boundedAmount, min),
+            Math.max(min + 100000, 20000000),
+          )}
+          onChange={(e) => setAmount(Number(e.target.value))}
+          className="mt-3 w-full accent-[#C9A227]"
+        />
+        <div className="mt-4">
+          <label
+            htmlFor="noble-term"
+            className="text-[11px] font-bold text-slate-600"
+          >
+            Repayment term
+          </label>
+          <select
+            id="noble-term"
+            value={actualMonths}
+            onChange={(e) => setMonths(Number(e.target.value))}
+            className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-[#0F1B3D] outline-none focus:border-[#C9A227]"
+          >
+            {Array.from(
+              { length: maxTerm - minTerm + 1 },
+              (_, i) => minTerm + i,
+            ).map((n) => (
+              <option key={n} value={n}>
+                {n} {n === 1 ? "month" : "months"}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="mt-5 rounded-2xl bg-[#0F1B3D] p-4 text-white">
+          <p className="text-[10px] font-semibold text-white/65">
+            Indicative total repayment
+          </p>
+          <p className="mt-1 text-2xl font-black tracking-tight text-[#F2C653] sm:text-3xl">
+            {money(schedule.total)}
+          </p>
+          <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/15 pt-3">
+            <div>
+              <p className="text-[10px] text-white/55">First instalment</p>
+              <p className="mt-1 text-sm font-bold">
+                {money(schedule.firstInstallment)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] text-white/55">Monthly interest*</p>
+              <p className="mt-1 text-sm font-bold">
+                {safeRate(product?.interestRate ?? product?.rate, 5)}%
+              </p>
+            </div>
+          </div>
+        </div>
+        <Link
+          href="/apply"
+          className="mt-4 flex h-12 items-center justify-center gap-2 rounded-xl bg-[#C9A227] px-4 text-sm font-black text-[#0F1B3D] transition hover:bg-[#e0b73f]"
+        >
+          Apply for this loan <span>→</span>
+        </Link>
+        <p className="mt-3 text-[10px] leading-4 text-slate-400">
+          Illustration only. Fees, eligibility and the final repayment schedule
+          are confirmed during assessment and in your loan agreement.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const tenant = useTenant() || SITE_CONTENT;
   const primary = tenant.primaryColor || "#0F1B3D";
@@ -221,619 +328,385 @@ export default function HomePage() {
   const products = tenant.services?.length
     ? tenant.services
     : SITE_CONTENT.services;
-  const contactPhone =
-    tenant.contactPhone || SITE_CONTENT.contactPhone || "+250 788 123 456";
-  const contactEmail =
-    tenant.contactEmail ||
-    SITE_CONTENT.contactEmail ||
-    "info@nobleloansolutions.rw";
+  const contactPhone = tenant.contactPhone || "+250 788 123 456";
+  const contactEmail = tenant.contactEmail || "info@nobleloansolutions.rw";
   const phoneHref = contactPhone.replace(/[^+\d]/g, "");
-  const social = [
-    {
-      key: "facebook",
-      label: "Facebook",
-      mark: "f",
-      url: tenant.socialMedia?.facebook,
-    },
-    { key: "twitter", label: "X", mark: "𝕏", url: tenant.socialMedia?.twitter },
-    {
-      key: "linkedin",
-      label: "LinkedIn",
-      mark: "in",
-      url: tenant.socialMedia?.linkedin,
-    },
-    {
-      key: "youtube",
-      label: "YouTube",
-      mark: "▶",
-      url: tenant.socialMedia?.youtube,
-    },
+  const productImages = [
+    "/images/noble/personal-loan.jpg",
+    "/images/noble/business-loan.jpg",
+    "/images/noble/vehicle-loan.jpg",
+    "/images/noble/salary-advance.jpg",
+    "/images/noble/agriculture-loan.jpg",
   ];
-  const highlights = useMemo(
-    () => [
-      {
-        icon: "shield" as const,
-        title: "Clear lending terms",
-        body: "Review published rates, fees and repayment periods before you decide.",
-      },
-      {
-        icon: "clock" as const,
-        title: "A guided application",
-        body: "Understand the steps and what information you may need to provide.",
-      },
-      {
-        icon: "people" as const,
-        title: "Real borrower support",
-        body: "Reach our team for help with your loan journey and questions.",
-      },
-      {
-        icon: "handshake" as const,
-        title: "Your information matters",
-        body: "Use the secure application and tracking journeys for borrower tasks.",
-      },
-    ],
-    [],
-  );
-
+  const productRoutes: Record<string, string> = {
+    PERSONAL: "/personal-loans",
+    BUSINESS: "/business-loans",
+    AUTO: "/vehicle-loans",
+    SALARY_ADVANCE: "/salary-advance",
+    AGRICULTURAL: "/agriculture-loans",
+  };
+  const social = [
+    { label: "Facebook", mark: "f", url: tenant.socialMedia?.facebook },
+    { label: "Instagram", mark: "◎", url: tenant.socialMedia?.instagram },
+    { label: "X", mark: "𝕏", url: tenant.socialMedia?.twitter },
+    { label: "LinkedIn", mark: "in", url: tenant.socialMedia?.linkedin },
+    { label: "YouTube", mark: "▶", url: tenant.socialMedia?.youtube },
+  ];
   return (
-    <main className="overflow-hidden bg-[#f5f6f8] text-[#0F1B3D]">
-      {/* HERO: photography, transparent overlays and the calculator share the first screen. */}
-      <section className="relative isolate overflow-hidden bg-[#061326] text-white">
-        <div className="absolute inset-0 -z-20">
-          <Image
-            src="/images/noble/hero-borrower.jpg"
-            alt=""
-            fill
-            priority
-            sizes="100vw"
-            className="object-cover object-[62%_center] opacity-100"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#041126]/95 via-[#071a32]/72 to-[#071a32]/12" />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#061326]/65 via-transparent to-transparent" />
-        </div>
-        <div className="absolute -left-24 top-16 -z-10 h-72 w-72 rounded-full border border-[#C9A227]/20" />
-        <div className="absolute -left-16 top-28 -z-10 h-52 w-52 rounded-full border border-[#C9A227]/15" />
-        <div className="mx-auto grid max-w-7xl gap-10 px-5 pb-16 pt-12 sm:px-8 sm:pb-20 sm:pt-16 lg:grid-cols-[.92fr_1.08fr] lg:items-center lg:gap-12 lg:pb-24 lg:pt-20">
-          <div className="relative z-10 max-w-2xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-[#071a32]/55 px-4 py-2 text-[10px] font-black uppercase tracking-[.22em] text-white/80 backdrop-blur-md">
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: accent }}
-              />
-              {tenant.tagline || "Your trusted lending partner"}
+    <main className="overflow-hidden bg-[#f3f5f8] text-[#0F1B3D]">
+      <section className="relative isolate min-h-[650px] overflow-hidden bg-[#071a32] text-white lg:min-h-[690px]">
+        <Image
+          src="/images/noble/hero-borrower.jpg"
+          alt="Professional woman looking toward the future in Kigali"
+          fill
+          priority
+          sizes="100vw"
+          className="-z-20 object-cover object-[65%_center]"
+        />
+        <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(4,19,39,.95)_0%,rgba(4,19,39,.84)_31%,rgba(4,19,39,.45)_59%,rgba(4,19,39,.12)_100%)]" />
+        <div className="absolute inset-0 -z-10 bg-[linear-gradient(0deg,rgba(4,17,35,.7),transparent_38%,rgba(4,17,35,.12))]" />
+        <div className="mx-auto grid max-w-7xl items-center gap-10 px-5 pb-16 pt-14 sm:px-8 sm:pb-20 sm:pt-16 lg:grid-cols-[1fr_430px] lg:gap-14 lg:py-20 xl:grid-cols-[1fr_455px]">
+          <div className="max-w-2xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-[#071a32]/45 px-4 py-2 text-[10px] font-extrabold uppercase tracking-[.22em] text-white/90 backdrop-blur-md">
+              <span className="h-2 w-2 rounded-full bg-[#C9A227]" /> Trusted
+              lending for Rwanda
             </div>
-            <h1 className="mt-6 text-[clamp(2.9rem,5.8vw,5.4rem)] font-black leading-[.97] tracking-[-.065em]">
-              Real support.{" "}
-              <span className="block" style={{ color: accent }}>
-                Bigger dreams.
-              </span>
+            <h1 className="mt-6 max-w-2xl text-[clamp(3rem,5.7vw,5.7rem)] font-black leading-[.96] tracking-[-.065em]">
+              Real support.
+              <span className="block text-[#F0C34E]">Bigger dreams.</span>
             </h1>
-            <p className="mt-6 max-w-xl text-base leading-7 text-white/75 sm:text-lg sm:leading-8">
-              Flexible loans for personal needs, business growth, vehicles,
-              salary advances and agriculture — with clear terms and support at
-              every step.
+            <p className="mt-6 max-w-xl text-base leading-7 text-white/85 sm:text-lg sm:leading-8">
+              From a personal milestone to your next business step, find a loan
+              designed around your needs—with clear terms, practical guidance
+              and a team ready to help.
             </p>
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/apply"
-                className="inline-flex items-center justify-center gap-3 rounded-xl px-6 py-4 text-sm font-black text-[#0F1B3D] shadow-[0_12px_35px_rgba(201,162,39,.22)] transition hover:-translate-y-0.5"
-                style={{ backgroundColor: accent }}
+                className="inline-flex min-h-12 items-center justify-center gap-3 rounded-full bg-[#C9A227] px-7 py-3 text-sm font-black text-[#0F1B3D] shadow-lg transition hover:-translate-y-0.5 hover:bg-[#e3b83e]"
               >
-                Explore a loan <Arrow />
+                Explore our loans <span>→</span>
               </Link>
               <Link
                 href="/how-it-works"
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/25 bg-white/[.07] px-6 py-4 text-sm font-bold text-white backdrop-blur-md transition hover:bg-white/15"
+                className="inline-flex min-h-12 items-center justify-center rounded-full border border-white/45 bg-white/10 px-7 py-3 text-sm font-bold text-white backdrop-blur-md transition hover:bg-white/20"
               >
-                How it works <Arrow />
+                How it works
               </Link>
             </div>
-            <div className="mt-9 grid max-w-xl grid-cols-3 border-t border-white/20 pt-5">
+            <div className="mt-9 grid max-w-xl grid-cols-3 border-t border-white/25 pt-5">
               <div className="pr-3">
-                <div className="text-sm font-black sm:text-base">
-                  Clear terms
-                </div>
-                <div className="mt-1 text-[10px] leading-4 text-white/55 sm:text-xs">
-                  Know the fees
-                </div>
+                <p className="text-lg font-black text-[#F0C34E]">Clear</p>
+                <p className="mt-1 text-xs leading-5 text-white/75">
+                  Published fees & terms
+                </p>
               </div>
-              <div className="border-l border-white/20 px-4">
-                <div className="text-sm font-black sm:text-base">
-                  1–6 months*
-                </div>
-                <div className="mt-1 text-[10px] leading-4 text-white/55 sm:text-xs">
-                  Published terms
-                </div>
+              <div className="border-l border-white/25 px-4">
+                <p className="text-lg font-black text-[#F0C34E]">Guided</p>
+                <p className="mt-1 text-xs leading-5 text-white/75">
+                  Step-by-step application
+                </p>
               </div>
-              <div className="border-l border-white/20 pl-4">
-                <div className="text-sm font-black sm:text-base">RWF</div>
-                <div className="mt-1 text-[10px] leading-4 text-white/55 sm:text-xs">
-                  Rwanda lending
-                </div>
+              <div className="border-l border-white/25 pl-4">
+                <p className="text-lg font-black text-[#F0C34E]">Local</p>
+                <p className="mt-1 text-xs leading-5 text-white/75">
+                  Lending in Rwanda
+                </p>
               </div>
             </div>
-            <p className="mt-3 max-w-lg text-[10px] leading-4 text-white/40">
-              *Terms vary by product and are subject to assessment and the final
-              loan agreement.
-            </p>
           </div>
-          <div className="relative lg:pl-3">
-            <div className="absolute -inset-3 rounded-[32px] bg-[#C9A227]/15 blur-2xl" />
-            <div className="relative rounded-[28px] border border-white/20 bg-[#06172d]/90 p-1 shadow-[0_35px_100px_rgba(0,0,0,.4)] backdrop-blur-xl">
-              <div className="rounded-[24px] border border-white/10 bg-gradient-to-br from-white/[.09] to-white/[.025] p-5 sm:p-7">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div
-                      className="text-[10px] font-black uppercase tracking-[.2em]"
-                      style={{ color: accent }}
-                    >
-                      Noble loan calculator
-                    </div>
-                    <h2 className="mt-2 text-2xl font-black tracking-[-.04em] sm:text-3xl">
-                      Plan your repayments.
-                    </h2>
-                    <p className="mt-2 max-w-md text-xs leading-5 text-white/55">
-                      Explore an indicative estimate using the published product
-                      terms.
-                    </p>
-                  </div>
-                  <div className="hidden h-12 w-12 items-center justify-center rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 text-xl font-black text-[#C9A227] sm:flex">
-                    ₣
-                  </div>
-                </div>
-                <div className="mt-5">
-                  <PublicLoanCalculator
-                    products={products}
-                    currency={tenant.currency || "RWF"}
-                    primary={primary}
-                    accent={accent}
-                  />
-                </div>
-                <div className="mt-4 flex items-start gap-2 rounded-xl border border-white/10 bg-white/[.035] p-3 text-[10px] leading-4 text-white/45">
-                  <span style={{ color: accent }}>ⓘ</span>
-                  <span>
-                    Illustrative estimate only. Final eligibility, fees and
-                    repayment amounts are confirmed during assessment.
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="absolute -bottom-5 -left-4 hidden rounded-2xl border border-white/15 bg-[#0b2440]/90 px-4 py-3 shadow-xl backdrop-blur-md sm:flex sm:items-center sm:gap-3">
-              <span
-                className="flex h-9 w-9 items-center justify-center rounded-xl text-[#C9A227]"
-                style={{ backgroundColor: `${accent}20` }}
-              >
-                <LineIcon kind="shield" />
-              </span>
-              <span>
-                <span className="block text-xs font-black">
-                  Borrow with clarity
-                </span>
-                <span className="mt-1 block text-[10px] text-white/50">
-                  Terms, fees and steps in view
-                </span>
-              </span>
-            </div>
+          <div className="relative z-10">
+            <CompactLoanCalculator
+              products={products}
+              currency={tenant.currency || "RWF"}
+              accent={accent}
+            />
           </div>
         </div>
-        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#C9A227]/70 to-transparent" />
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-[#C9A227] to-transparent" />
       </section>
 
-      {/* LOAN PRODUCTS */}
-      <section
-        id="loans"
-        className="relative bg-gradient-to-b from-[#f9fafb] to-[#edf1f5] py-16 sm:py-20"
-      >
-        <div className="absolute right-0 top-0 h-48 w-48 rounded-bl-full bg-[#C9A227]/[.06]" />
-        <div className="relative mx-auto max-w-7xl px-5 sm:px-8">
-          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+      <section className="relative bg-white py-14 sm:py-17">
+        <div className="mx-auto max-w-7xl px-5 sm:px-8">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[.24em] text-[#B58A18]">
-                Our loan products
+              <p className="text-[10px] font-black uppercase tracking-[.23em] text-[#9A7415]">
+                Lending for real life
               </p>
-              <h2 className="mt-3 max-w-2xl text-3xl font-black leading-tight tracking-[-.05em] sm:text-4xl lg:text-5xl">
-                The right loan for the road ahead.
+              <h2 className="mt-2 text-3xl font-black tracking-[-.05em] sm:text-4xl">
+                A loan for your next step.
               </h2>
-              <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-600">
-                Different goals call for different kinds of support. Explore
-                Noble&apos;s lending options and review the terms that apply.
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+                Explore the loan types available through Noble. Each product has
+                its own eligibility and terms, so you can review the details
+                before you apply.
               </p>
             </div>
             <Link
               href="/services"
-              className="inline-flex shrink-0 items-center gap-2 text-sm font-black text-[#0F1B3D]"
+              className="font-bold text-[#0F1B3D] hover:text-[#9A7415]"
             >
-              View all loan products <Arrow />
+              Explore all loan products <span aria-hidden="true">→</span>
             </Link>
           </div>
-          <div className="mt-9 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             {products.slice(0, 5).map((p, i) => {
               const route =
                 productRoutes[String(p.loanType || "").toUpperCase()] ||
-                `/apply?type=${encodeURIComponent(p.loanType || p.title)}`;
+                "/apply";
               return (
-                <article
-                  key={p.loanType || p.title}
-                  className="group overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-[0_8px_28px_rgba(15,27,61,.045)] transition duration-300 hover:-translate-y-1.5 hover:border-[#C9A227]/50 hover:shadow-[0_22px_50px_rgba(15,27,61,.13)]"
+                <Link
+                  key={`${p.title}-${i}`}
+                  href={route}
+                  className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_28px_rgba(15,27,61,.06)] transition duration-300 hover:-translate-y-1 hover:border-[#C9A227]/60 hover:shadow-[0_20px_42px_rgba(15,27,61,.13)]"
                 >
-                  <Link href={route} className="block">
-                    <div className="relative h-36 overflow-hidden bg-[#0F1B3D]">
-                      <Image
-                        src={productImages[i]}
-                        alt={`${p.title} loan product`}
-                        fill
-                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 20vw"
-                        className="object-cover transition duration-500 group-hover:scale-105"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#07172c]/45 to-transparent" />
-                      <span className="absolute bottom-3 left-3 rounded-full border border-white/20 bg-[#07172c]/85 px-3 py-1 text-[9px] font-black uppercase tracking-wider text-white backdrop-blur">
-                        Noble lending
+                  <div className="relative h-36 overflow-hidden bg-slate-100">
+                    <Image
+                      src={productImages[i] || productImages[0]}
+                      alt={p.title}
+                      fill
+                      sizes="(max-width: 768px) 100vw, 20vw"
+                      className="object-cover transition duration-500 group-hover:scale-105"
+                    />
+                    <span className="absolute bottom-3 left-3 flex h-10 w-10 items-center justify-center rounded-xl border border-white/60 bg-[#0F1B3D]/95 text-lg text-[#F0C34E] shadow-lg">
+                      {p.icon || "◈"}
+                    </span>
+                  </div>
+                  <div className="p-4">
+                    <h3 className="font-black text-[#0F1B3D]">{p.title}</h3>
+                    <p className="mt-2 min-h-[42px] text-xs leading-5 text-slate-600">
+                      {p.description}
+                    </p>
+                    <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-xs font-bold text-[#9A7415]">
+                      <span>View loan details</span>
+                      <span className="transition group-hover:translate-x-1">
+                        →
                       </span>
                     </div>
-                    <div className="p-5">
-                      <h3 className="text-sm font-black">{p.title}</h3>
-                      <p className="mt-2 min-h-[54px] text-xs leading-5 text-slate-500">
-                        {p.description ||
-                          "Explore the loan details, eligibility and published repayment terms."}
-                      </p>
-                      <span className="mt-4 inline-flex items-center gap-2 text-xs font-black text-[#B58A18]">
-                        Explore product <Arrow />
-                      </span>
-                    </div>
-                  </Link>
-                </article>
+                  </div>
+                </Link>
               );
             })}
           </div>
         </div>
       </section>
 
-      {/* DARK TRUST BAND */}
-      <section className="relative overflow-hidden bg-[#071a32] text-white">
-        <div
-          className="absolute inset-0 opacity-20"
-          style={{
-            backgroundImage:
-              "linear-gradient(135deg,transparent 48%,rgba(201,162,39,.25) 49%,transparent 50%),radial-gradient(circle at 85% 50%,rgba(201,162,39,.28),transparent 32%)",
-            backgroundSize: "56px 56px, auto",
-          }}
-        />
-        <div className="relative mx-auto grid max-w-7xl gap-7 px-5 py-9 sm:px-8 md:grid-cols-2 lg:grid-cols-4">
-          {highlights.map((item) => (
-            <div
-              key={item.title}
-              className="flex gap-4 border-b border-white/10 pb-6 last:border-0 md:border-0 md:pb-0"
-            >
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#C9A227]/45 bg-[#C9A227]/10 text-[#E5BD52]">
-                <LineIcon kind={item.icon} />
-              </span>
-              <div>
-                <h3 className="text-sm font-black">{item.title}</h3>
-                <p className="mt-1.5 text-xs leading-5 text-white/55">
-                  {item.body}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* HOW IT WORKS — image-backed process band keeps the long page visually rich. */}
-      <section className="relative isolate overflow-hidden bg-[#071a32] py-16 text-white sm:py-20">
-        <div className="absolute inset-0 -z-20">
+      <section className="relative overflow-hidden bg-[#e9eef3] py-14 sm:py-16">
+        <div className="absolute inset-0 opacity-25">
           <Image
-            src="/images/noble/rwanda-landscape.jpg"
+            src="/images/noble/business-loan.jpg"
             alt=""
             fill
             sizes="100vw"
-            className="object-cover opacity-40"
+            className="object-cover"
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#061326]/95 via-[#071a32]/85 to-[#071a32]/80" />
         </div>
-        <div className="absolute -right-24 top-0 h-80 w-80 rounded-full bg-[#C9A227]/[.08] blur-2xl" />
-        <div className="relative mx-auto max-w-7xl px-5 sm:px-8">
-          <div className="grid gap-10 lg:grid-cols-[.72fr_1.28fr] lg:items-center">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[.24em] text-[#B58A18]">
-                How it works
-              </p>
-              <h2 className="mt-3 text-3xl font-black leading-tight tracking-[-.05em] text-white sm:text-4xl">
-                A clear path from enquiry to repayment.
-              </h2>
-              <p className="mt-4 text-sm leading-7 text-white/70">
-                Know what to expect at each stage, from choosing a product to
-                reviewing an offer and keeping up with repayments.
-              </p>
-              <Link
-                href="/how-it-works"
-                className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#C9A227] px-5 py-3.5 text-xs font-black text-[#0F1B3D] transition hover:bg-[#e1b941]"
-              >
-                See the full process <Arrow />
-              </Link>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {[
-                {
-                  n: "01",
-                  title: "Explore",
-                  body: "Compare loan types and read the terms that apply to your needs.",
-                },
-                {
-                  n: "02",
-                  title: "Apply",
-                  body: "Complete the secure application and provide requested information.",
-                },
-                {
-                  n: "03",
-                  title: "Review",
-                  body: "Noble assesses your application and communicates next steps.",
-                },
-                {
-                  n: "04",
-                  title: "Manage",
-                  body: "Keep your reference and follow application or repayment instructions.",
-                },
-              ].map((step, i) => (
-                <div
-                  key={step.n}
-                  className="relative rounded-2xl border border-white/20 bg-white/[.96] p-6 text-[#0F1B3D] shadow-xl transition hover:-translate-y-1 hover:border-[#C9A227] hover:bg-white"
-                >
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0F1B3D] text-sm font-black text-[#E6BE52]">
-                    {step.n}
-                  </span>
-                  <h3 className="mt-5 text-base font-black">{step.title}</h3>
-                  <p className="mt-2 text-xs leading-6 text-slate-500">
-                    {step.body}
-                  </p>
-                  {i < 3 && (
-                    <span className="absolute right-5 top-7 hidden text-xl text-[#C9A227] sm:block">
-                      ↗
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* RESOURCES + QUOTE */}
-      <section className="bg-[#eef1f5] py-14 sm:py-16">
-        <div className="mx-auto grid max-w-7xl gap-6 px-5 sm:px-8 lg:grid-cols-[1fr_1fr]">
-          <div className="rounded-[28px] bg-gradient-to-br from-[#0F1B3D] to-[#071326] p-7 text-white sm:p-9">
-            <p className="text-[10px] font-black uppercase tracking-[.23em] text-[#DDB449]">
-              Borrower resources
-            </p>
-            <h2 className="mt-3 text-3xl font-black tracking-[-.04em]">
-              Make your decision with confidence.
-            </h2>
-            <p className="mt-4 max-w-lg text-sm leading-7 text-white/60">
-              Understand repayments, learn about loan terms and prepare for the
-              application process before you commit.
-            </p>
-            <div className="mt-7 grid grid-cols-2 gap-3">
-              {[
-                { title: "Loan calculators", href: "/calculators", icon: "▦" },
-                { title: "Loan terms", href: "/loan-terms", icon: "≋" },
-                { title: "Borrower guide", href: "/learn", icon: "◫" },
-                {
-                  title: "Frequently asked questions",
-                  href: "/faq",
-                  icon: "?",
-                },
-              ].map((tool) => (
-                <Link
-                  key={tool.href}
-                  href={tool.href}
-                  className="rounded-xl border border-white/10 bg-white/[.045] p-4 transition hover:border-[#C9A227]/60 hover:bg-white/[.08]"
-                >
-                  <span className="text-lg text-[#E6BE52]">{tool.icon}</span>
-                  <span className="mt-2 block text-xs font-black">
-                    {tool.title}
-                  </span>
-                  <span className="mt-2 block text-[10px] text-white/45">
-                    Explore resource →
-                  </span>
-                </Link>
-              ))}
-            </div>
-          </div>
-          <div className="relative overflow-hidden rounded-[28px] border border-white bg-white p-7 shadow-[0_18px_50px_rgba(15,27,61,.06)] sm:p-9">
-            <div className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-[#C9A227]/10" />
-            <div className="relative">
-              <p className="text-[10px] font-black uppercase tracking-[.23em] text-[#B58A18]">
-                Your next step
-              </p>
-              <h2 className="mt-3 text-3xl font-black tracking-[-.04em]">
-                Already started an application?
-              </h2>
-              <p className="mt-4 text-sm leading-7 text-slate-600">
-                Keep your application reference close. You can check its status
-                online and follow any instructions shared by the Noble team.
-              </p>
-              <Link
-                href="/track"
-                className="mt-6 inline-flex items-center gap-2 rounded-xl border border-[#0F1B3D]/15 bg-[#0F1B3D] px-5 py-3.5 text-xs font-black text-white"
-              >
-                Track your application <Arrow />
-              </Link>
-              <div className="mt-8 border-t border-slate-100 pt-6">
-                <p className="text-xs font-black">New to Noble?</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500">
-                  Browse loan products first, then start an application when
-                  you&apos;re ready.
-                </p>
-                <Link
-                  href="/apply"
-                  className="mt-4 inline-flex items-center gap-2 text-xs font-black text-[#B58A18]"
-                >
-                  Start a loan application <Arrow />
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* HOMEPAGE CONTACT FORM — sends to existing backend/dashboard message flow. */}
-      <section
-        id="contact"
-        className="relative isolate overflow-hidden bg-[#061326] py-16 text-white sm:py-20"
-      >
-        <div className="absolute inset-0 -z-20">
-          <Image
-            src="/images/noble/rwanda-landscape.jpg"
-            alt=""
-            fill
-            sizes="100vw"
-            className="object-cover opacity-30"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#061326]/95 via-[#071a32]/92 to-[#061326]/85" />
-        </div>
-        <div className="absolute left-0 top-0 h-72 w-72 rounded-full bg-[#C9A227]/[.08] blur-3xl" />
-        <div className="relative mx-auto grid max-w-7xl gap-10 px-5 sm:px-8 lg:grid-cols-[.75fr_1.25fr]">
-          <div className="pt-2">
-            <p className="text-[10px] font-black uppercase tracking-[.24em] text-[#B58A18]">
-              Talk to Noble
-            </p>
-            <h2 className="mt-3 text-3xl font-black leading-tight tracking-[-.05em] sm:text-4xl">
-              A question about borrowing? We&apos;re here to help.
-            </h2>
-            <p className="mt-5 max-w-lg text-sm leading-7 text-white/65">
-              Send the team a message about loan products, eligibility,
-              applications or repayments. Your enquiry is submitted through
-              Noble&apos;s existing contact service for staff to review.
-            </p>
-            <div className="mt-7 space-y-3">
-              {contactPhone && (
-                <a
-                  href={`tel:${phoneHref}`}
-                  className="flex items-center gap-3 rounded-xl border border-slate-200 bg-[#f8f9fb] p-4 transition hover:border-[#C9A227]/60"
-                >
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0F1B3D] text-[#E6BE52]">
-                    ☎
-                  </span>
-                  <span>
-                    <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">
-                      Call us
-                    </span>
-                    <span className="mt-1 block text-sm font-black">
-                      {contactPhone}
-                    </span>
-                  </span>
-                </a>
-              )}
-              {contactEmail && (
-                <a
-                  href={`mailto:${contactEmail}`}
-                  className="flex items-center gap-3 rounded-xl border border-slate-200 bg-[#f8f9fb] p-4 transition hover:border-[#C9A227]/60"
-                >
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0F1B3D] text-[#E6BE52]">
-                    <LineIcon kind="mail" />
-                  </span>
-                  <span>
-                    <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">
-                      Email us
-                    </span>
-                    <span className="mt-1 block break-all text-sm font-black">
-                      {contactEmail}
-                    </span>
-                  </span>
-                </a>
-              )}
-              {tenant.address && (
-                <p className="text-xs text-white/55">
-                  ⌖ {tenant.address || "Kigali, Rwanda"}
-                </p>
-              )}
-            </div>
-            <div className="mt-6">
-              <p className="text-[10px] font-black uppercase tracking-[.18em] text-white/45">
-                Follow Noble
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {social.map((item) =>
-                  item.url ? (
-                    <a
-                      key={item.key}
-                      href={item.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-label={`Noble on ${item.label}`}
-                      title={item.label}
-                      className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/20 bg-white/[.06] text-sm font-black text-white transition hover:border-[#C9A227] hover:bg-[#C9A227]/15"
-                    >
-                      {item.mark}
-                    </a>
-                  ) : (
-                    <span
-                      key={item.key}
-                      aria-label={`${item.label} URL not configured`}
-                      title={`${item.label}: configure the official profile URL in the public site environment`}
-                      className="flex h-10 w-10 cursor-default items-center justify-center rounded-xl border border-white/10 bg-white/[.025] text-sm font-black text-white/40"
-                    >
-                      {item.mark}
-                    </span>
-                  ),
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="rounded-[28px] border border-slate-200 bg-[#f8f9fb] p-5 shadow-[0_25px_75px_rgba(15,27,61,.08)] sm:p-8">
-            <div className="flex flex-col justify-between gap-3 border-b border-slate-200 pb-5 sm:flex-row sm:items-end">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[.2em] text-[#B58A18]">
-                  Send an enquiry
-                </p>
-                <h3 className="mt-2 text-2xl font-black tracking-[-.04em]">
-                  How can we help?
-                </h3>
-              </div>
-              <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-[#80600e]">
-                Noble customer support
-              </span>
-            </div>
-            <div className="pt-6">
-              <ContactQuickForm
-                primary={primary}
-                accent={accent}
-                slug={tenant.slug}
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* FINAL CTA */}
-      <section className="bg-[#071a32] px-5 py-12 text-white sm:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col justify-between gap-6 md:flex-row md:items-center">
+        <div className="absolute inset-0 bg-gradient-to-r from-[#edf1f5]/95 via-[#edf1f5]/90 to-[#edf1f5]/75" />
+        <div className="relative mx-auto grid max-w-7xl gap-10 px-5 sm:px-8 lg:grid-cols-[.8fr_1.2fr] lg:items-center">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[.23em] text-[#E6BE52]">
-              When you&apos;re ready
+            <p className="text-[10px] font-black uppercase tracking-[.22em] text-[#9A7415]">
+              A clearer borrowing journey
             </p>
-            <h2 className="mt-2 text-3xl font-black tracking-[-.04em] sm:text-4xl">
-              Let&apos;s take the next step together.
+            <h2 className="mt-3 text-3xl font-black tracking-[-.05em] sm:text-4xl">
+              Know what comes next.
             </h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/55">
-              Review your options, understand the terms and apply when the time
-              is right for you.
+            <p className="mt-4 max-w-md text-sm leading-6 text-slate-600">
+              From your first question to your repayment plan, we make the steps
+              easier to understand—so you can make an informed decision.
+            </p>
+            <Link
+              href="/how-it-works"
+              className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#0F1B3D] px-6 py-3 text-sm font-bold text-white hover:bg-[#18325c]"
+            >
+              See how it works <span>→</span>
+            </Link>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[
+              {
+                n: "01",
+                title: "Choose your loan",
+                body: "Compare the available loan types and review the published terms.",
+              },
+              {
+                n: "02",
+                title: "Apply securely",
+                body: "Complete the application with the information requested.",
+              },
+              {
+                n: "03",
+                title: "Review the decision",
+                body: "The team assesses your application and confirms next steps.",
+              },
+              {
+                n: "04",
+                title: "Understand repayment",
+                body: "Read your agreement carefully and follow the agreed schedule.",
+              },
+            ].map((x, i) => (
+              <div
+                key={x.n}
+                className="rounded-2xl border border-white/80 bg-white/90 p-5 shadow-[0_8px_24px_rgba(15,27,61,.06)] backdrop-blur-sm"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0F1B3D] text-sm font-black text-[#F0C34E]">
+                    {x.n}
+                  </span>
+                  <h3 className="font-black">{x.title}</h3>
+                </div>
+                <p className="mt-3 text-xs leading-5 text-slate-600">
+                  {x.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-[#0F1B3D] py-12 text-white sm:py-14">
+        <div className="mx-auto grid max-w-7xl gap-8 px-5 sm:px-8 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[.22em] text-[#E4B943]">
+              Borrow with confidence
+            </p>
+            <h2 className="mt-2 text-3xl font-black tracking-tight">
+              Clarity belongs at every step.
+            </h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/70">
+              Review the costs, understand the repayment period and ask
+              questions whenever something is unclear. A loan should fit your
+              circumstances and your ability to repay.
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Link
-              href="/apply"
-              className="rounded-xl px-6 py-4 text-center text-sm font-black text-[#0F1B3D]"
-              style={{ backgroundColor: accent }}
+              href="/loan-terms"
+              className="rounded-full border border-white/30 px-6 py-3 text-center text-sm font-bold text-white hover:bg-white/10"
             >
-              Apply for a loan <Arrow />
+              Review loan terms
             </Link>
             <Link
               href="/track"
-              className="rounded-xl border border-white/20 px-6 py-4 text-center text-sm font-black text-white transition hover:bg-white/10"
+              className="rounded-full bg-[#C9A227] px-6 py-3 text-center text-sm font-black text-[#0F1B3D] hover:bg-[#e3b83e]"
             >
-              Track application
+              Track application →
             </Link>
           </div>
+        </div>
+      </section>
+
+      <section
+        id="contact"
+        className="relative overflow-hidden bg-[#f4f6f8] py-14 sm:py-16"
+      >
+        <div className="absolute right-0 top-0 h-64 w-64 rounded-bl-full bg-[#C9A227]/10" />
+        <div className="relative mx-auto grid max-w-7xl gap-8 px-5 sm:px-8 lg:grid-cols-[.8fr_1.2fr] lg:gap-12">
+          <div className="rounded-[26px] bg-[#071a32] p-6 text-white shadow-xl sm:p-8">
+            <p className="text-[10px] font-black uppercase tracking-[.22em] text-[#F0C34E]">
+              We are here to help
+            </p>
+            <h2 className="mt-3 text-3xl font-black tracking-[-.04em]">
+              Talk to the Noble team.
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-white/65">
+              Have a question about a loan, your application or repayment terms?
+              Send us a message or contact us directly.
+            </p>
+            <div className="mt-7 space-y-4 border-t border-white/15 pt-6">
+              <a
+                href={`tel:${phoneHref}`}
+                className="flex items-center gap-3 text-sm font-semibold hover:text-[#F0C34E]"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-[#F0C34E]">
+                  ☎
+                </span>
+                <span>
+                  <span className="block text-[10px] text-white/50">
+                    Call us
+                  </span>
+                  {contactPhone}
+                </span>
+              </a>
+              <a
+                href={`mailto:${contactEmail}`}
+                className="flex items-center gap-3 text-sm font-semibold hover:text-[#F0C34E]"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-[#F0C34E]">
+                  ✉
+                </span>
+                <span>
+                  <span className="block text-[10px] text-white/50">
+                    Email us
+                  </span>
+                  {contactEmail}
+                </span>
+              </a>
+              <div className="flex items-center gap-3 text-sm font-semibold">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-[#F0C34E]">
+                  ⌖
+                </span>
+                <span>
+                  <span className="block text-[10px] text-white/50">
+                    Visit us
+                  </span>
+                  {tenant.address || "Kigali, Rwanda"}
+                </span>
+              </div>
+            </div>
+            <div className="mt-6 border-t border-white/15 pt-5">
+              <p className="text-xs font-bold text-white/65">Follow Noble</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {social.map((s) => (
+                  <a
+                    key={s.label}
+                    href={s.url || undefined}
+                    target={s.url ? "_blank" : undefined}
+                    rel={s.url ? "noreferrer" : undefined}
+                    aria-label={s.label}
+                    title={
+                      s.url
+                        ? s.label
+                        : `Configure the official ${s.label} profile URL`
+                    }
+                    className={`flex h-10 min-w-10 items-center justify-center rounded-full border border-white/20 px-3 text-sm font-black ${s.url ? "text-white hover:border-[#C9A227] hover:text-[#F0C34E]" : "cursor-default text-white/45"}`}
+                  >
+                    {s.mark}
+                  </a>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-[0_18px_55px_rgba(15,27,61,.08)] sm:p-8">
+            <div className="mb-6">
+              <p className="text-[10px] font-black uppercase tracking-[.22em] text-[#9A7415]">
+                Send an enquiry
+              </p>
+              <h2 className="mt-2 text-2xl font-black tracking-tight">
+                How can we help you?
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                Your message goes to the Noble team through our existing enquiry
+                system.
+              </p>
+            </div>
+            <ContactQuickForm
+              primary={primary}
+              accent={accent}
+              slug={tenant.slug}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-slate-200 bg-white py-5">
+        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-5 text-[10px] leading-5 text-slate-500 sm:px-8 md:flex-row md:items-center md:justify-between">
+          <span>
+            © {new Date().getFullYear()} {tenant.name}. All rights reserved.
+          </span>
+          <span>
+            Loan estimates are illustrative. Approval and final terms are
+            subject to assessment and a signed agreement.
+          </span>
         </div>
       </section>
     </main>
