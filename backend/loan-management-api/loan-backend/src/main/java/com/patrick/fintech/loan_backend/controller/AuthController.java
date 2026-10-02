@@ -1,6 +1,7 @@
 package com.patrick.fintech.loan_backend.controller;
 
 import com.patrick.fintech.loan_backend.config.JwtUtils;
+import com.patrick.fintech.loan_backend.security.JwtAuthFilter;
 import com.patrick.fintech.loan_backend.dto.*;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.UserRepository;
@@ -16,6 +17,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.web.csrf.CsrfToken;
 import java.security.SecureRandom;
 import java.util.LinkedHashMap;
@@ -124,8 +126,8 @@ public class AuthController {
             throw new RuntimeException("Invalid email or password");
         }
 
-        user = userRepository.findByEmailIgnoreCase(email)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+        // AuthenticationManager already validated this exact account. Reuse the
+        // user loaded before authentication instead of issuing a third user lookup.
 
         // Successful password check — reset the failure counter and any lock.
         if ((user.getFailedLoginAttempts() != null && user.getFailedLoginAttempts() > 0)
@@ -379,8 +381,10 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    @Transactional
-    public ResponseEntity<Map<String, Object>> me(Authentication auth) {
+    @Transactional(readOnly = true)
+    public ResponseEntity<Map<String, Object>> me(
+            Authentication auth,
+            HttpServletRequest request) {
         if (auth == null || auth.getName() == null || auth.getName().isBlank()) {
             return ResponseEntity.status(401).body(Map.of(
                     "success", false,
@@ -389,7 +393,10 @@ public class AuthController {
             ));
         }
 
-        User user = userRepository.findByEmailIgnoreCase(auth.getName()).orElse(null);
+        User user = (User) request.getAttribute(JwtAuthFilter.AUTHENTICATED_USER_ATTRIBUTE);
+        if (user == null) {
+            user = userRepository.findByEmailIgnoreCase(auth.getName()).orElse(null);
+        }
         if (user == null) {
             return ResponseEntity.status(401).body(Map.of(
                     "success", false,

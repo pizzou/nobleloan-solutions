@@ -24,6 +24,9 @@ import java.io.IOException;
 @Slf4j
 public class JwtAuthFilter extends OncePerRequestFilter {
 
+    public static final String AUTHENTICATED_USER_ATTRIBUTE =
+            JwtAuthFilter.class.getName() + ".authenticatedUser";
+
     private final JwtUtils jwtUtils;
     private final CustomUserDetailsService userDetailsService;
     private final UserRepository userRepository;
@@ -188,7 +191,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             }
 
             UserDetails userDetails =
-                userDetailsService.loadUserByUsername(email);
+                userDetailsService.fromUser(currentUser);
+
+            // Reuse the authoritative user entity for controllers such as /auth/me
+            // instead of querying the same account again during the same request.
+            request.setAttribute(AUTHENTICATED_USER_ATTRIBUTE, currentUser);
 
             /*
              * ========================================================

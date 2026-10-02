@@ -121,18 +121,11 @@ API.interceptors.response.use(
 
     const responseData = error.response?.data;
 
-    const requestUrl = String(error.config?.url ?? "");
-    const isAuthMeRequest = requestUrl.includes("/auth/me");
-
-    // /auth/me is the session-bootstrap request. Let useAuthState decide
-    // whether a 401 is a real logout condition; redirecting here races the
-    // refresh/bootstrap flow and can turn a temporary refresh failure into
-    // an unconditional navigation to /login.
     if (
       status === 401 &&
-      !isAuthMeRequest &&
       typeof window !== "undefined" &&
-      window.location.pathname !== "/login"
+      window.location.pathname !== "/login" &&
+      !String(error.config?.url ?? "").includes("/auth/me")
     ) {
       localStorage.removeItem("user");
       window.location.href = "/login";

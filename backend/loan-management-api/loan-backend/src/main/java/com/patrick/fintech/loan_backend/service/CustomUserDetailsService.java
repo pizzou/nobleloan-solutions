@@ -43,6 +43,18 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .orElseThrow(() -> new UsernameNotFoundException(
                         "User not found: " + email));
 
+        return fromUser(user);
+    }
+
+    /**
+     * Converts an already-loaded application user without performing another
+     * repository lookup. Used by JwtAuthFilter on every authenticated request.
+     */
+    public UserDetails fromUser(User user) {
+        if (user == null) {
+            throw new UsernameNotFoundException("User not found");
+        }
+
         String roleName = normalizeRole(
                 user.getRole() != null ? user.getRole().getName() : null);
 

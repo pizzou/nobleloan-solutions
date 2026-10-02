@@ -71,10 +71,9 @@ public class DashboardService {
                 // instead of introducing another BorrowerRepository method.
                 // ============================================================
 
-                long totalBorrowers = borrowerRepository
-                                .findByOrganization_Id(
-                                                orgId)
-                                .size();
+                // Count at the database instead of materializing every borrower
+                // just to obtain the KPI. This is critical as the portfolio grows.
+                long totalBorrowers = borrowerRepository.countByOrganization_Id(orgId);
 
                 // ============================================================
                 // OVERDUE PAYMENTS

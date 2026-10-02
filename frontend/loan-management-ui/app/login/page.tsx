@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authApi } from "@/services/api";
-import { AuthContext, useAuthState } from "@/hooks/useAuth";
+import { AuthContext, useAuth, useAuthState } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 import { FormGroup, Input, Alert } from "@/components/ui/Form";
 import Link from "next/link";
@@ -33,7 +33,7 @@ function LoginInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const { login } = useAuthState();
+  const { login } = useAuth();
   const router = useRouter();
 
   /*

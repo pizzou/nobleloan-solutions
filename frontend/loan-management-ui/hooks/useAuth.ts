@@ -37,35 +37,20 @@ export function useAuth() {
 }
 
 export function useAuthState() {
-  const [user, setUser] = useState<AuthResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<AuthResponse | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const cached = localStorage.getItem("user");
+      return cached ? (JSON.parse(cached) as AuthResponse) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     let mounted = true;
-
-    // Restore the last known user immediately so a browser refresh does not
-    // temporarily turn an authenticated session into an unauthenticated one.
-    // The HttpOnly NLS_SESSION cookie remains the source of truth for the
-    // server; localStorage is only a UI bootstrap cache and never a credential.
-    try {
-      const raw = localStorage.getItem("user");
-      if (raw) {
-        const cached = JSON.parse(raw) as AuthResponse;
-        if (
-          cached &&
-          typeof cached === "object" &&
-          typeof cached.userId === "number" &&
-          typeof cached.email === "string"
-        ) {
-          setUser(cached);
-        } else {
-          localStorage.removeItem("user");
-        }
-      }
-    } catch {
-      localStorage.removeItem("user");
-    }
-
+    setLoading(true);
     (async () => {
       try {
         const me = (await authApi.me()) as AuthResponse;
@@ -74,21 +59,19 @@ export function useAuthState() {
           localStorage.setItem("user", JSON.stringify(me));
         }
       } catch (error: any) {
-        if (!mounted) return;
-
-        // Only a confirmed authentication failure means the session is gone.
-        // Network errors, timeouts, 5xx responses, etc. must not log a user
-        // out merely because the browser was refreshed at that moment.
-        const status = error?.response?.status ?? error?.status;
-        if (status === 401) {
-          localStorage.removeItem("user");
-          setUser(null);
+        if (mounted) {
+          // Only an explicit authentication rejection means the session is gone.
+          // Network failures and server errors must not log an operator out.
+          const status = error?.response?.status ?? error?.status;
+          if (status === 401) {
+            localStorage.removeItem("user");
+            setUser(null);
+          }
         }
       } finally {
         if (mounted) setLoading(false);
       }
     })();
-
     return () => {
       mounted = false;
     };
