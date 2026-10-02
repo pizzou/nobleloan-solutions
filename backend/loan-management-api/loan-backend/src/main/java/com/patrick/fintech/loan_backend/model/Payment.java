@@ -125,13 +125,7 @@ public class Payment {
         @Builder.Default
         private BigDecimal principalComponent = BigDecimal.ZERO;
 
-        /**
-         * Interest actually paid against this installment.
-         *
-         * Cumulative value.
-         *
-         * This field contains ONLY the interest portion.
-         */
+        
         @Column(name = "interest_component", precision = 19, scale = 2)
         @JsonProperty("interestComponent")
         @Builder.Default
