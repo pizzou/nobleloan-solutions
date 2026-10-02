@@ -161,20 +161,24 @@ function CompactLoanCalculator({
 }: {
   products: LoanProduct[];
   currency: string;
+  accent?: string;
 }) {
   const [index, setIndex] = useState(0);
   const product = products[index] || products[0];
-  const min = Number(product?.minAmount ?? 500000);
-  const max = Number(product?.maxAmount ?? 20000000);
-  const minTerm = Number(product?.minTermMonths ?? 1);
-  const maxTerm = Number(product?.maxTermMonths ?? 6);
   const [amount, setAmount] = useState(1000000);
   const [months, setMonths] = useState(6);
-  const boundedAmount = Math.min(max, Math.max(min, amount || min));
+  const min = Number(product?.minAmount ?? 500000);
+  const max = Math.max(
+    min,
+    product?.maxAmount == null ? 20000000 : Number(product.maxAmount),
+  );
+  const minTerm = Number(product?.minTermMonths ?? 1);
+  const maxTerm = Math.max(minTerm, Number(product?.maxTermMonths ?? 12));
   const actualMonths = Math.min(maxTerm, Math.max(minTerm, months));
+  const boundedAmount = Math.min(max, Math.max(min, amount || min));
   const interestRate = safeRate(product?.interestRate ?? product?.rate, 5);
   const managementRate = safeRate(product?.managementFeeRate, 5);
-  const applicationRate = safeRate(product?.applicationFeeRate, 2);
+  const applicationRate = safeRate(product?.applicationFeeRate ?? 2, 2);
   const schedule = useMemo(
     () =>
       calculateContractualSchedule(
@@ -191,42 +195,31 @@ function CompactLoanCalculator({
   const selectProduct = (next: number) => {
     const selected = products[next];
     setIndex(next);
-    setAmount(Math.max(Number(selected?.minAmount ?? 500000), 1000000));
+    setAmount(Math.max(500000, Number(selected?.minAmount ?? 500000)));
     setMonths(Number(selected?.minTermMonths ?? 1));
   };
-
   return (
-    <div className="noble-glass-calculator relative isolate overflow-hidden rounded-[22px] border border-[#e9bf4b]/80 text-white shadow-[0_26px_80px_rgba(0,0,0,.38)] backdrop-blur-2xl">
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_90%_0%,rgba(233,190,68,.20),transparent_40%),linear-gradient(145deg,rgba(3,22,43,.91),rgba(5,39,68,.82))]"
-      />
-      <div className="border-b border-white/10 px-5 pb-4 pt-5 sm:px-6">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[.2em] text-[#f4ca57]">
-              A clearer way to plan
-            </p>
-            <h2 className="mt-1 text-xl font-black tracking-tight sm:text-2xl">
-              Calculate your loan
-            </h2>
-            <p className="mt-1 text-xs leading-5 text-white/70">
-              Explore an estimate in Rwandan francs before you apply.
-            </p>
-          </div>
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#f4ca57]/35 bg-white/[.07] text-xl font-black text-[#f4ca57]">
-            ₣
-          </span>
-        </div>
+    <div className="noble-loan-calculator relative overflow-hidden rounded-[20px] border border-[#e8bd49] text-white shadow-[0_24px_70px_rgba(0,0,0,.38)]">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(238,190,67,.17),transparent_40%),linear-gradient(135deg,rgba(3,25,49,.96),rgba(4,39,70,.91))]" />
+      <div className="relative border-b border-white/10 px-5 pb-3 pt-5 sm:px-6">
+        <p className="text-[10px] font-black uppercase tracking-[.18em] text-[#f2c653]">
+          Your plans, made clearer
+        </p>
+        <h2 className="mt-1 text-xl font-black tracking-tight sm:text-2xl">
+          Calculate Your Loan
+        </h2>
+        <p className="mt-1 text-xs leading-5 text-white/75">
+          Find out how much you can borrow and explore estimated repayments.
+        </p>
       </div>
-      <div className="space-y-3.5 p-5 sm:px-6 sm:pb-6">
+      <div className="relative space-y-3 p-5 sm:px-6 sm:pb-5">
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block text-[11px] font-semibold text-white/80">
-            Loan product
+          <label className="block text-[10px] font-semibold text-white/85">
+            Loan Product
             <select
               value={index}
               onChange={(e) => selectProduct(Number(e.target.value))}
-              className="noble-calculator-field mt-1.5 h-10 w-full rounded-lg border border-white/20 bg-white/95 px-3 text-xs font-semibold text-[#102543] outline-none focus:border-[#f4ca57] focus:ring-2 focus:ring-[#f4ca57]/30"
+              className="noble-calc-field mt-1.5 h-10 w-full rounded-md border border-white/30 px-3 text-xs font-semibold text-[#102543] outline-none focus:border-[#f2c653] focus:ring-2 focus:ring-[#f2c653]/30"
             >
               {products.map((p, i) => (
                 <option key={`${p.title}-${i}`} value={i}>
@@ -235,8 +228,8 @@ function CompactLoanCalculator({
               ))}
             </select>
           </label>
-          <label className="block text-[11px] font-semibold text-white/80">
-            Loan amount (RWF)
+          <label className="block text-[10px] font-semibold text-white/85">
+            Loan Amount (RWF)
             <input
               type="number"
               inputMode="numeric"
@@ -245,12 +238,12 @@ function CompactLoanCalculator({
               step={50000}
               value={String(amount)}
               onChange={(e) => setAmount(Number(e.target.value))}
-              className="noble-calculator-field mt-1.5 h-10 w-full rounded-lg border border-white/20 bg-white/95 px-3 text-xs font-semibold text-[#102543] outline-none focus:border-[#f4ca57] focus:ring-2 focus:ring-[#f4ca57]/30"
+              className="noble-calc-field mt-1.5 h-10 w-full rounded-md border border-white/30 px-3 text-xs font-semibold text-[#102543] outline-none focus:border-[#f2c653] focus:ring-2 focus:ring-[#f2c653]/30"
               aria-label="Loan amount in Rwandan francs"
             />
           </label>
         </div>
-        <div className="flex justify-between gap-3 text-[10px] text-white/55">
+        <div className="flex justify-between text-[10px] text-white/55">
           <span>From {money(min)}</span>
           <span>Up to {money(max)}</span>
         </div>
@@ -258,93 +251,94 @@ function CompactLoanCalculator({
           aria-label="Adjust loan amount"
           type="range"
           min={min}
-          max={Math.max(min, max)}
+          max={max}
           step={50000}
           value={boundedAmount}
           onChange={(e) => setAmount(Number(e.target.value))}
-          className="w-full cursor-pointer accent-[#f4ca57]"
+          className="w-full cursor-pointer accent-[#f2c653]"
         />
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-          <label className="block text-[11px] font-semibold text-white/80">
-            Repayment term
+          <label className="block text-[10px] font-semibold text-white/85">
+            Repayment Term
             <select
               value={actualMonths}
               onChange={(e) => setMonths(Number(e.target.value))}
-              className="noble-calculator-field mt-1.5 h-10 w-full rounded-lg border border-white/20 bg-white/95 px-3 text-xs font-semibold text-[#102543] outline-none focus:border-[#f4ca57] focus:ring-2 focus:ring-[#f4ca57]/30"
+              className="noble-calc-field mt-1.5 h-10 w-full rounded-md border border-white/30 px-3 text-xs font-semibold text-[#102543] outline-none focus:border-[#f2c653] focus:ring-2 focus:ring-[#f2c653]/30"
             >
               {Array.from(
                 { length: maxTerm - minTerm + 1 },
                 (_, i) => minTerm + i,
               ).map((n) => (
                 <option key={n} value={n}>
-                  {n} {n === 1 ? "month" : "months"}
+                  {n} {n === 1 ? "Month" : "Months"}
                 </option>
               ))}
             </select>
           </label>
           <Link
             href="/apply"
-            className="inline-flex h-10 items-center justify-center rounded-lg bg-[#efc451] px-6 text-xs font-black text-[#0b1f3a] transition hover:bg-[#ffda70] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            className="inline-flex h-10 items-center justify-center rounded-full bg-[#efc451] px-6 text-xs font-black text-[#09203c] transition hover:bg-[#ffda70]"
           >
-            Calculate & apply <span className="ml-2">→</span>
+            Calculate <span className="ml-2">→</span>
           </Link>
         </div>
-        <div className="rounded-xl border border-white/10 bg-[#04192e]/65 p-3.5 shadow-inner">
+        <div className="rounded-lg border border-white/10 bg-[#061a30]/75 p-3.5">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <div className="sm:border-r sm:border-white/15 sm:pr-3">
-              <p className="text-[9px] text-white/60">
-                Estimated total repayment
+              <p className="text-[9px] text-white/65">
+                Average Monthly Payment
               </p>
-              <p className="mt-1 text-lg font-black leading-tight text-[#f4ca57] sm:text-xl">
-                {money(schedule.total)}
-              </p>
-            </div>
-            <div className="sm:border-r sm:border-white/15 sm:px-3">
-              <p className="text-[9px] text-white/60">Average per month</p>
-              <p className="mt-1 text-sm font-extrabold">
+              <p className="mt-1 text-base font-black text-white">
                 {money(schedule.total / actualMonths)}
               </p>
             </div>
-            <div className="col-span-2 sm:col-span-1 sm:pl-3">
-              <p className="text-[9px] text-white/60">Total interest</p>
-              <p className="mt-1 text-sm font-extrabold">
+            <div className="sm:border-r sm:border-white/15 sm:px-3">
+              <p className="text-[9px] text-white/65">Total Interest</p>
+              <p className="mt-1 text-base font-black text-white">
                 {money(schedule.interest)}
+              </p>
+            </div>
+            <div className="col-span-2 sm:col-span-1 sm:pl-3">
+              <p className="text-[9px] text-white/65">Total Repayment</p>
+              <p className="mt-1 text-base font-black text-[#f2c653]">
+                {money(schedule.total)}
               </p>
             </div>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-3 border-t border-white/10 pt-3 sm:grid-cols-4">
             <div>
               <p className="text-[9px] text-white/55">
-                Management fee ({managementRate}%)
+                Management Fee ({managementRate}%)
               </p>
-              <p className="mt-1 text-xs font-bold">
+              <p className="mt-1 text-[11px] font-bold">
                 {money(schedule.management)}
               </p>
             </div>
             <div>
               <p className="text-[9px] text-white/55">
-                Application fee ({applicationRate}%)
+                Application Fee ({applicationRate}%)
               </p>
-              <p className="mt-1 text-xs font-bold">{money(applicationFee)}</p>
+              <p className="mt-1 text-[11px] font-bold">
+                {money(applicationFee)}
+              </p>
             </div>
             <div>
-              <p className="text-[9px] text-white/55">First instalment</p>
-              <p className="mt-1 text-xs font-bold">
+              <p className="text-[9px] text-white/55">First Instalment</p>
+              <p className="mt-1 text-[11px] font-bold">
                 {money(schedule.firstInstallment)}
               </p>
             </div>
             <div>
-              <p className="text-[9px] text-white/55">Last instalment</p>
-              <p className="mt-1 text-xs font-bold">
+              <p className="text-[9px] text-white/55">Last Instalment</p>
+              <p className="mt-1 text-[11px] font-bold">
                 {money(schedule.lastInstallment)}
               </p>
             </div>
           </div>
         </div>
-        <p className="text-[10px] leading-4 text-white/55">
-          Illustrative only. Application fees are shown separately and are not
-          included in scheduled repayment. Final costs, eligibility and dates
-          are confirmed in your loan agreement.
+        <p className="text-[9px] leading-4 text-white/55">
+          Estimate only. Application fees are shown separately. Final fees,
+          eligibility and repayment dates are confirmed in your loan agreement.
         </p>
       </div>
     </div>
@@ -449,6 +443,7 @@ export default function HomePage() {
             <CompactLoanCalculator
               products={products}
               currency={tenant.currency || "RWF"}
+              accent={accent}
             />
           </div>
         </div>

@@ -45,13 +45,14 @@ const menus = [
     ],
   },
   {
-    label: "Plan & learn",
+    label: "Loan options",
     items: [
-      ["Loan calculator", "/loan-calculator"],
+      ["Personal loans", "/personal-loans"],
+      ["Business finance", "/business-loans"],
+      ["Vehicle finance", "/vehicle-loans"],
+      ["Salary advance", "/salary-advance"],
+      ["Agriculture finance", "/agriculture-loans"],
       ["How it works", "/how-it-works"],
-      ["Loan terms", "/terms"],
-      ["Borrower help", "/help"],
-      ["Frequently asked questions", "/faq"],
     ],
   },
   {
