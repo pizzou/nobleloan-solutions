@@ -75,7 +75,7 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
   return <TenantCtx.Provider value={tenant}>
     <ToastContainer />
     <div className="min-h-screen bg-white" style={{ "--brand-primary": primary, "--brand-accent": accent } as React.CSSProperties}>
-      <div className="bg-[#061326] text-white"><div className="mx-auto flex min-h-9 max-w-7xl items-center justify-between gap-4 px-5 text-[10px] font-semibold sm:px-8"><span className="text-white/55">{tenant.tagline}</span><span className="flex items-center gap-2 text-white/65"><Shield /> Secure digital lending <span className="text-white/20">•</span> {tenant.country}</span></div></div>
+      <div className="bg-[#061326] text-white"><div className="mx-auto flex min-h-9 max-w-7xl flex-wrap items-center justify-between gap-x-6 gap-y-1 px-5 py-2 text-[10px] font-semibold sm:px-8"><span className="text-white/55">{tenant.tagline}</span><div className="flex flex-wrap items-center gap-4 text-white/55">{tenant.contactPhone && <a href={`tel:${tenant.contactPhone.replace(/\s+/g, "")}`} className="hover:text-white">{tenant.contactPhone}</a>}{tenant.contactEmail && <a href={`mailto:${tenant.contactEmail}`} className="hover:text-white">{tenant.contactEmail}</a>}<span className="hidden items-center gap-2 sm:flex text-white/65"><Shield /> Secure digital lending <span className="text-white/20">•</span> {tenant.country}</span></div></div></div>
 
       <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/95 backdrop-blur-xl">
         <div className="mx-auto flex min-h-[76px] max-w-7xl items-center justify-between gap-4 px-5 sm:px-8">
@@ -97,15 +97,29 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
 
       <main>{children}</main>
 
-      <footer className="mt-16 bg-[#061326] text-white">
+      <footer className="mt-16 bg-[#040d1b] text-white">
         <div className="mx-auto max-w-7xl px-5 py-16 sm:px-8">
-          <div className="grid gap-12 lg:grid-cols-[1.5fr_.8fr_.8fr_.9fr]">
-            <div><div className="inline-flex rounded-2xl bg-white p-3"><Brand tenant={tenant} compact /></div><p className="mt-6 max-w-md text-sm leading-7 text-white/55">{tenant.mission}</p><div className="mt-5 space-y-2 text-xs text-white/45">{tenant.address && <div>{tenant.address}</div>}{tenant.contactPhone && <div>{tenant.contactPhone}</div>}{tenant.contactEmail && <div>{tenant.contactEmail}</div>}</div></div>
-            <div><h2 className="text-[10px] font-black uppercase tracking-[.2em] text-[#C9A227]">Borrow</h2><div className="mt-5 space-y-3 text-sm text-white/55">{menus[0].items.slice(0,5).map(([label, href]) => <Link key={href} href={href} className="block hover:text-white">{label}</Link>)}</div></div>
-            <div><h2 className="text-[10px] font-black uppercase tracking-[.2em] text-[#C9A227]">Resources</h2><div className="mt-5 space-y-3 text-sm text-white/55"><Link href="/calculators" className="block hover:text-white">Calculators</Link><Link href="/learn" className="block hover:text-white">Learn</Link><Link href="/faq" className="block hover:text-white">FAQs</Link><Link href="/help" className="block hover:text-white">Help centre</Link><Link href="/contact" className="block hover:text-white">Contact</Link></div></div>
-            <div><h2 className="text-[10px] font-black uppercase tracking-[.2em] text-[#C9A227]">Your application</h2><p className="mt-5 text-sm leading-6 text-white/55">Start a new application or securely check the status of one you have already submitted.</p><Link href="/apply" className="mt-5 inline-flex rounded-xl px-4 py-3 text-xs font-black text-slate-950" style={{ backgroundColor: accent }}>Apply now →</Link><Link href="/track" className="mt-2 inline-flex rounded-xl border border-white/15 px-4 py-3 text-xs font-black text-white">Track application</Link></div>
+          <div className="grid gap-12 lg:grid-cols-[1.35fr_.8fr_.8fr_1fr]">
+            <div>
+              <div className="inline-flex rounded-2xl bg-white p-3"><Brand tenant={tenant} compact /></div>
+              <p className="mt-6 max-w-md text-sm leading-7 text-white/50">{tenant.mission}</p>
+              <div className="mt-6 space-y-2 text-xs text-white/45">
+                {tenant.address && <div>{tenant.address}</div>}
+                {tenant.contactPhone && <a href={`tel:${tenant.contactPhone.replace(/\s+/g, "")}`} className="block hover:text-white">{tenant.contactPhone}</a>}
+                {tenant.contactEmail && <a href={`mailto:${tenant.contactEmail}`} className="block hover:text-white">{tenant.contactEmail}</a>}
+              </div>
+              {tenant.socialMedia && Object.values(tenant.socialMedia).some(Boolean) && <div className="mt-6 flex flex-wrap gap-2">
+                {Object.entries(tenant.socialMedia).filter(([, url]) => Boolean(url)).map(([name, url]) => <a key={name} href={url} target="_blank" rel="noreferrer" aria-label={`Noble ${name}`} className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[.04] text-[10px] font-black text-white/60 transition hover:border-white/25 hover:text-white">{name === "twitter" ? "X" : name.slice(0, 1).toUpperCase()}</a>)}
+              </div>}
+            </div>
+            <div><h2 className="text-[10px] font-black uppercase tracking-[.2em] text-[#C9A227]">Loans</h2><div className="mt-5 space-y-3 text-sm text-white/50">{menus[0].items.map(([label, href]) => <Link key={href} href={href} className="block hover:text-white">{label}</Link>)}</div></div>
+            <div><h2 className="text-[10px] font-black uppercase tracking-[.2em] text-[#C9A227]">Borrower tools</h2><div className="mt-5 space-y-3 text-sm text-white/50"><Link href="/calculators" className="block hover:text-white">Loan calculators</Link><Link href="/learn" className="block hover:text-white">Borrowing guide</Link><Link href="/faq" className="block hover:text-white">FAQs</Link><Link href="/help" className="block hover:text-white">Help centre</Link><Link href="/contact" className="block hover:text-white">Contact Noble</Link></div></div>
+            <div className="rounded-3xl border border-white/10 bg-white/[.035] p-6"><div className="text-[10px] font-black uppercase tracking-[.2em]" style={{ color: accent }}>Your loan journey</div><p className="mt-4 text-sm leading-6 text-white/50">Apply for a loan, keep your reference and track your application securely.</p><Link href="/apply" className="mt-5 inline-flex rounded-xl px-4 py-3 text-xs font-black text-slate-950" style={{ backgroundColor: accent }}>Apply now <span className="ml-2">→</span></Link><Link href="/track" className="ml-2 mt-5 inline-flex rounded-xl border border-white/15 px-4 py-3 text-xs font-black text-white">Track</Link></div>
           </div>
-          <div className="mt-14 border-t border-white/10 pt-6"><div className="flex flex-wrap gap-x-5 gap-y-3 text-[10px] text-white/40"><Link href="/terms" className="hover:text-white">Terms</Link><Link href="/privacy" className="hover:text-white">Privacy</Link><Link href="/privacy-choices" className="hover:text-white">Privacy choices</Link><Link href="/data-collection" className="hover:text-white">Data collection</Link><Link href="/accessibility" className="hover:text-white">Accessibility</Link><Link href="/state-licenses" className="hover:text-white">Licensing & disclosures</Link></div><div className="mt-5 flex flex-col gap-3 text-[10px] text-white/30 md:flex-row md:justify-between"><span>© {new Date().getFullYear()} {tenant.name}. All rights reserved.{tenant.registrationNumber ? ` Reg. No. ${tenant.registrationNumber}` : ""}</span><span>Information is for general guidance and does not guarantee approval.</span></div></div>
+          <div className="mt-14 border-t border-white/10 pt-6">
+            <div className="flex flex-wrap gap-x-5 gap-y-3 text-[10px] text-white/40"><Link href="/terms" className="hover:text-white">Terms</Link><Link href="/privacy" className="hover:text-white">Privacy</Link><Link href="/privacy-choices" className="hover:text-white">Privacy choices</Link><Link href="/data-collection" className="hover:text-white">Data collection</Link><Link href="/accessibility" className="hover:text-white">Accessibility</Link><Link href="/state-licenses" className="hover:text-white">Licensing & disclosures</Link></div>
+            <div className="mt-5 flex flex-col gap-3 text-[10px] text-white/30 md:flex-row md:justify-between"><span>© {new Date().getFullYear()} {tenant.name}. All rights reserved.{tenant.registrationNumber ? ` Reg. No. ${tenant.registrationNumber}` : ""}</span><span>Loan approval is subject to Noble&apos;s assessment and applicable lending terms.</span></div>
+          </div>
         </div>
       </footer>
     </div>

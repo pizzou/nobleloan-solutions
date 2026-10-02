@@ -918,6 +918,15 @@ export const contactMessageApi = {
  */
 
 export const publicApi = {
+  contact: (data: {
+    tenantSlug: string;
+    name: string;
+    email?: string;
+    phone?: string;
+    subject?: string;
+    message: string;
+  }) => post("/public/contact", data),
+
   getTenant: (slug: string) =>
     get(`/public/tenant/${encodeURIComponent(slug)}`),
 

@@ -202,7 +202,7 @@ export const SITE_CONTENT: TenantConfig = {
     "",
   ),
 
-  tagline: "Your Trusted Partner in Financial Support",
+  tagline: "Trusted lending for the moments that matter",
 
   mission:
     "To provide honest, fairly-priced credit to individuals and businesses across Rwanda, delivered with integrity, transparency, and respect for every client.",

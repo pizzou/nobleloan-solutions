@@ -33,56 +33,16 @@ function numeric(value: unknown, fallback: number) {
 
 function parseTerm(product?: Product) {
   if (!product) return { min: 1, max: 6 };
-
-  if (
-    product.minTermMonths !== undefined ||
-    product.maxTermMonths !== undefined
-  ) {
-    const min = Math.max(1, product.minTermMonths ?? 1);
-    const max = Math.max(min, product.maxTermMonths ?? min);
-    return { min, max };
-  }
-
-  const matches =
-    String(product.term ?? "")
-      .match(/\d+/g)
-      ?.map(Number) ?? [];
-
-  if (matches.length >= 2) {
-    return {
-      min: Math.max(1, matches[0]),
-      max: Math.max(matches[0], matches[1]),
-    };
-  }
-
-  if (matches.length === 1) {
-    return { min: Math.max(1, matches[0]), max: Math.max(1, matches[0]) };
-  }
-
-  return { min: 1, max: 6 };
+  const min = Math.max(1, product.minTermMonths ?? 1);
+  const max = Math.max(min, product.maxTermMonths ?? min);
+  return { min, max };
 }
 
-function hasMaximum(
-  product?: Product,
-): product is Product & { maxAmount: number | string } {
+function hasMaximum(product?: Product) {
   return (
     product?.maxAmount !== null &&
     product?.maxAmount !== undefined &&
     product.maxAmount !== ""
-  );
-}
-
-function calculateSchedule(
-  principal: number,
-  months: number,
-  interestRate: number | string,
-  managementRate: number | string,
-) {
-  return calculateContractualSchedule(
-    principal,
-    months,
-    safeRate(interestRate, 5),
-    safeRate(managementRate, 5),
   );
 }
 
@@ -101,17 +61,36 @@ export default function PublicLoanCalculator({
   const product = products[productIndex];
   const terms = parseTerm(product);
   const minAmount = numeric(product?.minAmount, 500000);
-  const configuredMax = hasMaximum(product)
-    ? numeric(product.maxAmount, minAmount)
+  const maxAmount = hasMaximum(product)
+    ? numeric(product?.maxAmount, minAmount)
     : null;
-  const interestRate = product?.interestRate ?? product?.rate ?? "5.00";
-  const managementRate = product?.managementFeeRate ?? "5.00";
-  const applicationRate = product?.applicationFeeRate ?? "2.00";
-
+  const interestRate = product?.interestRate ?? product?.rate ?? 5;
+  const managementRate = product?.managementFeeRate ?? 5;
+  const applicationRate = product?.applicationFeeRate ?? 2;
   const [amount, setAmount] = useState(minAmount);
   const [amountInput, setAmountInput] = useState(String(minAmount));
-  const [amountError, setAmountError] = useState("");
   const [months, setMonths] = useState(terms.min);
+
+  const estimate = useMemo(
+    () =>
+      calculateContractualSchedule(
+        amount,
+        months,
+        safeRate(interestRate, 5),
+        safeRate(managementRate, 5),
+      ),
+    [amount, months, interestRate, managementRate],
+  );
+
+  const fmt = (value: number) =>
+    value.toLocaleString("en-RW", { maximumFractionDigits: 0 });
+  const termOptions = Array.from(
+    { length: terms.max - terms.min + 1 },
+    (_, i) => terms.min + i,
+  );
+  const amountStep = maxAmount
+    ? Math.max(1000, Math.round((maxAmount - minAmount) / 100))
+    : 1000;
 
   function switchProduct(index: number) {
     const next = products[index];
@@ -119,362 +98,234 @@ export default function PublicLoanCalculator({
     setProductIndex(index);
     setAmount(nextMin);
     setAmountInput(String(nextMin));
-    setAmountError("");
     setMonths(parseTerm(next).min);
   }
 
   function commitAmount(value: number) {
-    if (!Number.isFinite(value)) {
-      setAmountError(`Enter a valid ${currency} loan amount.`);
-      setAmountInput(String(amount));
-      return;
-    }
-
-    if (value < minAmount) {
-      setAmountError(`Minimum loan amount is ${currency} ${fmt(minAmount)}.`);
-      setAmountInput(String(minAmount));
-      setAmount(minAmount);
-      return;
-    }
-
-    if (configuredMax !== null && value > configuredMax) {
-      setAmountError(
-        `Maximum loan amount is ${currency} ${fmt(configuredMax)}.`,
-      );
-      setAmountInput(String(configuredMax));
-      setAmount(configuredMax);
-      return;
-    }
-
-    const normalized = Math.round(value / amountStep) * amountStep;
+    if (!Number.isFinite(value)) return;
     const bounded = Math.max(
       minAmount,
-      configuredMax === null ? normalized : Math.min(configuredMax, normalized),
+      maxAmount == null ? value : Math.min(maxAmount, value),
     );
     setAmount(bounded);
     setAmountInput(String(bounded));
-    setAmountError("");
   }
 
-  const estimate = useMemo(
-    () => calculateSchedule(amount, months, interestRate, managementRate),
-    [amount, months, interestRate, managementRate],
-  );
-
-  const fmt = (value: number) =>
-    value.toLocaleString("en-RW", { maximumFractionDigits: 0 });
-
-  const termOptions = Array.from(
-    { length: Math.max(1, terms.max - terms.min + 1) },
-    (_, index) => terms.min + index,
-  );
-
-  const amountStep =
-    configuredMax !== null
-      ? Math.max(1000, Math.round((configuredMax - minAmount) / 100))
-      : 1000;
-
   return (
-    <div className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.12)]">
-      <div className="grid lg:grid-cols-[1.08fr_.92fr]">
-        <div className="p-6 sm:p-8">
-          <div
-            className="text-[11px] font-bold uppercase tracking-[0.18em]"
-            style={{ color: accent }}
-          >
-            Loan planning tool
+    <div className="overflow-hidden rounded-[28px] border border-white/10 bg-[#07162b] text-white shadow-[0_30px_90px_rgba(0,0,0,.35)]">
+      <div className="border-b border-white/10 bg-white/[.04] px-6 py-5 sm:px-8">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div
+              className="text-[10px] font-black uppercase tracking-[.22em]"
+              style={{ color: accent }}
+            >
+              Noble loan calculator
+            </div>
+            <h2 className="mt-2 text-2xl font-black tracking-[-.04em] sm:text-3xl">
+              See the numbers before you apply.
+            </h2>
+            <p className="mt-2 max-w-xl text-xs leading-6 text-white/55">
+              Choose a Noble loan, enter an amount and see an indicative
+              repayment schedule using the published product terms.
+            </p>
           </div>
-          <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
-            Plan before you apply
-          </h2>
-          <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">
-            Estimate the contractual repayment using the published product rates
-            and the same declining-principal method used by the lending
-            schedule.
-          </p>
+          <div
+            className="hidden h-12 w-12 shrink-0 items-center justify-center rounded-2xl sm:flex"
+            style={{ backgroundColor: `${accent}18`, color: accent }}
+          >
+            RWF
+          </div>
+        </div>
+      </div>
 
-          {products.length > 0 ? (
-            <div className="mt-7">
-              <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">
-                Product
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {products.map((item, index) => (
-                  <button
-                    key={`${item.title}-${index}`}
-                    type="button"
-                    onClick={() => switchProduct(index)}
-                    className="rounded-full border px-4 py-2 text-xs font-bold transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-offset-2"
-                    style={
-                      productIndex === index
-                        ? {
-                            borderColor: primary,
-                            backgroundColor: primary,
-                            color: "#fff",
-                          }
-                        : { borderColor: "#E2E8F0", color: "#475569" }
-                    }
-                  >
-                    {item.title}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="mt-7 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-              No active loan products are currently available.
-            </div>
-          )}
+      <div className="grid lg:grid-cols-[1.05fr_.95fr]">
+        <div className="p-6 sm:p-8">
+          <div className="text-[10px] font-black uppercase tracking-[.18em] text-white/35">
+            1 · Choose a loan
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {products.map((item, index) => (
+              <button
+                key={`${item.title}-${index}`}
+                type="button"
+                onClick={() => switchProduct(index)}
+                className="rounded-2xl border px-4 py-3 text-left transition hover:-translate-y-0.5"
+                style={
+                  productIndex === index
+                    ? { borderColor: accent, backgroundColor: `${accent}15` }
+                    : {
+                        borderColor: "rgba(255,255,255,.09)",
+                        backgroundColor: "rgba(255,255,255,.025)",
+                      }
+                }
+              >
+                <span className="text-lg">{item.icon || "◈"}</span>
+                <span className="ml-2 text-xs font-black text-white">
+                  {item.title}
+                </span>
+                <span className="mt-1 block text-[10px] text-white/40">
+                  {item.term || `${terms.min}-${terms.max} months`}
+                </span>
+              </button>
+            ))}
+          </div>
 
           {product && (
             <>
-              <div className="mt-7">
-                <div className="flex items-center justify-between gap-4">
-                  <label
-                    htmlFor="loan-amount"
-                    className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400"
-                  >
-                    Loan amount
-                  </label>
-                  <span className="text-xs font-bold text-slate-500">
-                    {currency}
-                  </span>
-                </div>
-
-                <div className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 focus-within:border-slate-400">
-                  <span className="text-xs font-bold text-slate-400">
+              <div className="mt-8 text-[10px] font-black uppercase tracking-[.18em] text-white/35">
+                2 · Set your amount
+              </div>
+              <div className="mt-3 rounded-2xl border border-white/10 bg-white/[.035] p-4 focus-within:border-white/25">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-black text-white/35">
                     {currency}
                   </span>
                   <input
-                    id="loan-amount"
-                    inputMode="numeric"
-                    type="text"
-                    minLength={1}
-                    aria-describedby="loan-amount-help loan-amount-error"
                     value={amountInput}
-                    onChange={(event) => {
-                      const raw = event.target.value.replace(/[^0-9]/g, "");
+                    inputMode="numeric"
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/[^0-9]/g, "");
                       setAmountInput(raw);
-                      setAmountError("");
-                      if (raw !== "") {
-                        const parsed = Number(raw);
-                        if (Number.isFinite(parsed)) setAmount(parsed);
-                      }
+                      if (raw) setAmount(Number(raw));
                     }}
                     onBlur={() => commitAmount(Number(amountInput))}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        commitAmount(Number(amountInput));
-                        (event.currentTarget as HTMLInputElement).blur();
-                      }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitAmount(Number(amountInput));
                     }}
-                    className="w-full min-w-0 bg-transparent text-2xl font-black tracking-tight text-slate-950 outline-none"
-                    placeholder={String(minAmount)}
+                    className="w-full bg-transparent text-3xl font-black tracking-[-.03em] text-white outline-none"
                     aria-label={`Loan amount in ${currency}`}
                   />
                 </div>
-
-                <div
-                  id="loan-amount-help"
-                  className="mt-2 flex items-center justify-between text-[10px] font-semibold text-slate-400"
-                >
-                  <span>Enter the amount you need</span>
-                  <span>Use numbers only</span>
+                <div className="mt-2 flex justify-between text-[10px] font-semibold text-white/35">
+                  <span>
+                    Minimum {currency} {fmt(minAmount)}
+                  </span>
+                  <span>
+                    {maxAmount
+                      ? `Maximum ${currency} ${fmt(maxAmount)}`
+                      : "No configured maximum"}
+                  </span>
                 </div>
-                {amountError && (
-                  <p
-                    id="loan-amount-error"
-                    className="mt-2 text-xs font-bold text-red-600"
-                    role="alert"
+                {maxAmount && (
+                  <input
+                    type="range"
+                    min={minAmount}
+                    max={maxAmount}
+                    step={amountStep}
+                    value={Math.min(amount, maxAmount)}
+                    onChange={(e) => {
+                      const next = Number(e.target.value);
+                      setAmount(next);
+                      setAmountInput(String(next));
+                    }}
+                    className="mt-5 w-full"
+                    style={{ accentColor: accent }}
+                    aria-label="Loan amount range"
+                  />
+                )}
+              </div>
+
+              <div className="mt-7 text-[10px] font-black uppercase tracking-[.18em] text-white/35">
+                3 · Choose your term
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {termOptions.map((term) => (
+                  <button
+                    key={term}
+                    type="button"
+                    onClick={() => setMonths(term)}
+                    className="rounded-xl px-4 py-2.5 text-xs font-black transition"
+                    style={
+                      months === term
+                        ? { backgroundColor: accent, color: primary }
+                        : {
+                            backgroundColor: "rgba(255,255,255,.06)",
+                            color: "rgba(255,255,255,.65)",
+                          }
+                    }
                   >
-                    {amountError}
-                  </p>
-                )}
-
-                {configuredMax !== null ? (
-                  <>
-                    <input
-                      type="range"
-                      min={minAmount}
-                      max={configuredMax}
-                      step={amountStep}
-                      value={Math.min(amount, configuredMax)}
-                      onChange={(event) => {
-                        const next = Number(event.target.value);
-                        setAmount(next);
-                        setAmountInput(String(next));
-                        setAmountError("");
-                      }}
-                      className="mt-4 w-full"
-                      style={{ accentColor: primary }}
-                      aria-label="Loan amount range"
-                    />
-                    <div className="mt-2 flex justify-between text-[10px] font-semibold text-slate-400">
-                      <span>
-                        {currency} {fmt(minAmount)}
-                      </span>
-                      <span>
-                        {currency} {fmt(configuredMax)}
-                      </span>
-                    </div>
-                  </>
-                ) : (
-                  <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2 text-[10px] font-bold text-slate-500">
-                    <span>
-                      Minimum: {currency} {fmt(minAmount)}
-                    </span>
-                    <span style={{ color: primary }}>
-                      No configured maximum
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-7">
-                <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">
-                  Repayment period
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {termOptions.map((term) => (
-                    <button
-                      key={term}
-                      type="button"
-                      onClick={() => setMonths(term)}
-                      className="rounded-full border px-4 py-2 text-xs font-bold transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-offset-2"
-                      style={
-                        months === term
-                          ? {
-                              borderColor: primary,
-                              backgroundColor: primary,
-                              color: "#fff",
-                            }
-                          : { borderColor: "#E2E8F0", color: "#475569" }
-                      }
-                    >
-                      {term} {term === 1 ? "month" : "months"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-7 grid grid-cols-3 gap-3">
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Interest
-                  </div>
-                  <div className="mt-1 text-sm font-black text-slate-900">
-                    {interestRate}% / mo
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Management
-                  </div>
-                  <div className="mt-1 text-sm font-black text-slate-900">
-                    {managementRate}% / mo
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Processing
-                  </div>
-                  <div className="mt-1 text-sm font-black text-slate-900">
-                    {applicationRate}% once
-                  </div>
-                </div>
+                    {term} {term === 1 ? "month" : "months"}
+                  </button>
+                ))}
               </div>
             </>
           )}
         </div>
 
         <div
-          className="p-6 sm:p-8"
-          style={{ background: `linear-gradient(160deg, ${primary}, #0B223E)` }}
+          className="relative overflow-hidden p-6 sm:p-8"
+          style={{ background: `linear-gradient(145deg, ${primary}, #061326)` }}
         >
-          <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">
-            Indicative contractual repayment
-          </div>
-
-          {product ? (
-            <>
-              <div className="mt-6 text-sm text-white/70">
-                First scheduled installment
-              </div>
-              <div className="mt-1 text-4xl font-black tracking-tight text-white">
-                {currency} {fmt(estimate.firstInstallment)}
-              </div>
-              <div className="mt-1 text-xs text-white/60">
-                The installment normally reduces as principal declines.
-              </div>
-
-              <div className="mt-8 space-y-3 border-t border-white/10 pt-5">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-white/60">Principal</span>
-                  <strong className="text-white">
-                    {currency} {fmt(amount)}
-                  </strong>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-white/60">
-                    Interest ({interestRate}%/mo)
-                  </span>
-                  <strong className="text-white">
-                    {currency} {fmt(estimate.interest)}
-                  </strong>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-white/60">
-                    Management fee ({managementRate}%/mo)
-                  </span>
-                  <strong className="text-white">
-                    {currency} {fmt(estimate.management)}
-                  </strong>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-white/60">Application fee</span>
-                  <strong className="text-white">
-                    {currency} {fmt(percentageCharge(amount, applicationRate))}
-                  </strong>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-white/60">
-                    Last scheduled installment
-                  </span>
-                  <strong className="text-white">
-                    {currency} {fmt(estimate.lastInstallment)}
-                  </strong>
-                </div>
-                <div className="flex items-center justify-between border-t border-white/10 pt-3 text-sm">
-                  <span className="font-bold text-white/80">
-                    Contractual repayment total
-                  </span>
-                  <strong className="text-lg text-white">
-                    {currency} {fmt(estimate.total)}
-                  </strong>
-                </div>
-              </div>
-
-              <Link
-                href={`/apply${product.title ? `?type=${encodeURIComponent(product.loanType || product.title)}` : ""}`}
-                className="mt-8 block rounded-2xl bg-white px-5 py-3.5 text-center text-sm font-black transition hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-white"
-                style={{ color: primary }}
-              >
-                Start application
-              </Link>
-
-              <div className="mt-4 text-center text-[10px] leading-4 text-white/50">
-                Indicative only. The final agreement, eligibility, fees and
-                schedule are determined by credit assessment and approved loan
-                terms. Application fee is collected separately at disbursement.
-              </div>
-            </>
-          ) : (
-            <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-5 text-sm leading-6 text-white/60">
-              Select an active loan product to calculate an indicative
-              repayment.
+          <div className="absolute -right-24 -top-24 h-56 w-56 rounded-full border border-white/10" />
+          <div className="relative">
+            <div
+              className="text-[10px] font-black uppercase tracking-[.18em]"
+              style={{ color: accent }}
+            >
+              Your estimate
             </div>
-          )}
+            {product ? (
+              <>
+                <div className="mt-7 text-xs font-semibold text-white/45">
+                  Indicative total repayment
+                </div>
+                <div className="mt-1 text-4xl font-black tracking-[-.04em] sm:text-5xl">
+                  {currency} {fmt(estimate.total)}
+                </div>
+                <div className="mt-2 text-xs text-white/45">
+                  over {months} {months === 1 ? "month" : "months"}
+                </div>
+                <div className="mt-7 grid grid-cols-2 gap-2">
+                  {[
+                    ["Loan amount", `${currency} ${fmt(amount)}`],
+                    [
+                      "First instalment",
+                      `${currency} ${fmt(estimate.firstInstallment)}`,
+                    ],
+                    ["Interest", `${currency} ${fmt(estimate.interest)}`],
+                    ["Management", `${currency} ${fmt(estimate.management)}`],
+                    [
+                      "Application fee",
+                      `${currency} ${fmt(percentageCharge(amount, Number(applicationRate)))}`,
+                    ],
+                    [
+                      "Last instalment",
+                      `${currency} ${fmt(estimate.lastInstallment)}`,
+                    ],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      className="rounded-2xl border border-white/10 bg-white/[.045] p-3"
+                    >
+                      <div className="text-[9px] font-bold uppercase tracking-wider text-white/35">
+                        {label}
+                      </div>
+                      <div className="mt-1 text-xs font-black text-white">
+                        {value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <Link
+                  href={`/apply?type=${encodeURIComponent(product.loanType || product.title)}`}
+                  className="mt-7 block rounded-2xl px-5 py-4 text-center text-sm font-black transition hover:-translate-y-0.5"
+                  style={{ backgroundColor: accent, color: primary }}
+                >
+                  Apply for {product.title} →
+                </Link>
+                <p className="mt-4 text-[9px] leading-4 text-white/35">
+                  Planning estimate only. Eligibility, approved amount, fees and
+                  final repayment schedule are determined through Noble&apos;s
+                  credit assessment and loan agreement.
+                </p>
+              </>
+            ) : (
+              <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-white/50">
+                Select a loan product to begin.
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

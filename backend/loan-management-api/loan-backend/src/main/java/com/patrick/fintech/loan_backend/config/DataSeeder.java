@@ -214,7 +214,7 @@ public class DataSeeder implements CommandLineRunner {
                                                 envOrDefault("BOOTSTRAP_ORG_REGISTRATION_NUMBER", ""))
 
                                 .tagline(
-                                                "Your Trusted Partner in Financial Support")
+                                                "Trusted lending for the moments that matter")
 
                                 .mission(
                                                 "To provide honest, fairly-priced credit to individuals and businesses across Rwanda, delivered with integrity, transparency, and respect for every client.")
@@ -223,10 +223,10 @@ public class DataSeeder implements CommandLineRunner {
                                                 "To be Rwanda's most trusted name in lending — synonymous with fairness, transparency, and financial dignity for every client we serve.")
 
                                 .heroHeadline(
-                                                "Need Cash Fast? We've Got You Covered!")
+                                                "Lending built around what matters to you.")
 
                                 .heroSubtext(
-                                                "Your trusted partner in financial support — personal, business, vehicle, salary advance, and agriculture loans, backed by a secure, fully compliant lending platform.")
+                                                "Explore personal, business, vehicle, salary advance and agriculture loans from Noble, with clear terms, a secure application journey and simple application tracking.")
 
                                 .foundedYear(parseIntegerEnv("BOOTSTRAP_ORG_FOUNDED_YEAR"))
 
@@ -659,6 +659,16 @@ public class DataSeeder implements CommandLineRunner {
                                 envOrDefault("BOOTSTRAP_ORG_ADDRESS", ""), organization::setAddress);
                 setConfiguredIfBlankOrKnownPlaceholder(organization.getRegistrationNumber(),
                                 envOrDefault("BOOTSTRAP_ORG_REGISTRATION_NUMBER", ""), organization::setRegistrationNumber);
+                setConfiguredIfBlankOrKnownPlaceholder(organization.getFacebookUrl(),
+                                envOrDefault("BOOTSTRAP_ORG_FACEBOOK_URL", ""), organization::setFacebookUrl);
+                setConfiguredIfBlankOrKnownPlaceholder(organization.getInstagramUrl(),
+                                envOrDefault("BOOTSTRAP_ORG_INSTAGRAM_URL", ""), organization::setInstagramUrl);
+                setConfiguredIfBlankOrKnownPlaceholder(organization.getLinkedinUrl(),
+                                envOrDefault("BOOTSTRAP_ORG_LINKEDIN_URL", ""), organization::setLinkedinUrl);
+                setConfiguredIfBlankOrKnownPlaceholder(organization.getTwitterUrl(),
+                                envOrDefault("BOOTSTRAP_ORG_TWITTER_URL", ""), organization::setTwitterUrl);
+                setConfiguredIfBlankOrKnownPlaceholder(organization.getWhatsappUrl(),
+                                envOrDefault("BOOTSTRAP_ORG_WHATSAPP_URL", ""), organization::setWhatsappUrl);
 
                 orgRepo.save(organization);
         }
