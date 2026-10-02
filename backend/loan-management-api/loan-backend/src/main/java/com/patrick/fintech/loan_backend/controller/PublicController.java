@@ -2362,6 +2362,10 @@ public class PublicController {
                                                 defaultTeam()));
 
                 config.put(
+                                "websiteContent",
+                                parseMapOrEmpty(org.getWebsiteContentJson()));
+
+                config.put(
                                 "paymentMethods",
                                 paymentMethods());
 
@@ -3323,6 +3327,21 @@ public class PublicController {
                 return parseListOrDefault(
                                 org.getServicesJson(),
                                 List.of());
+        }
+
+        private Map<String, Object> parseMapOrEmpty(String json) {
+                if (json == null || json.isBlank()) {
+                        return Map.of();
+                }
+                try {
+                        Map<String, Object> parsed = objectMapper.readValue(
+                                        json,
+                                        new TypeReference<Map<String, Object>>() {});
+                        return parsed == null ? Map.of() : parsed;
+                } catch (Exception e) {
+                        log.warn("Ignoring invalid websiteContentJson for public site", e);
+                        return Map.of();
+                }
         }
 
         private List<Map<String, Object>> parseListOrDefault(

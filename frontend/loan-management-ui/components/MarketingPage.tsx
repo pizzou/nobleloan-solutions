@@ -3,7 +3,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { SITE_CONTENT } from "../lib/siteContent";
+import { pageContent } from "../lib/websiteContent";
 import { useTenant } from "../app/(site)/layout";
+import { usePathname } from "next/navigation";
 
 export type MarketingSection = {
   title: string;
@@ -51,6 +53,7 @@ export function MarketingPage({
   secondaryHref = "/loan-calculator",
   secondaryLabel = "Use a calculator",
   sections,
+  pageKey,
 }: {
   eyebrow: string;
   title: string;
@@ -60,11 +63,53 @@ export function MarketingPage({
   secondaryHref?: string;
   secondaryLabel?: string;
   sections: MarketingSection[];
+  pageKey?: string;
 }) {
   const tenant = useTenant() || SITE_CONTENT;
+  const pathname = usePathname();
+  const derivedPageKey =
+    pathname?.split("/").filter(Boolean).join("-") || "home";
+  const cms = pageContent(tenant.websiteContent, pageKey || derivedPageKey);
   const primary = tenant.primaryColor || "#0F1B3D";
   const accent = tenant.accentColor || "#C9A227";
   const products = tenant.services || SITE_CONTENT.services;
+  const resolvedEyebrow = cms?.eyebrow?.trim() || eyebrow;
+  const resolvedTitle = cms?.title?.trim() || title;
+  const resolvedDescription = cms?.description?.trim() || description;
+  const resolvedPrimaryHref = cms?.primaryHref?.trim() || primaryHref;
+  const resolvedPrimaryLabel = cms?.primaryLabel?.trim() || primaryLabel;
+  const resolvedSecondaryHref = cms?.secondaryHref?.trim() || secondaryHref;
+  const resolvedSecondaryLabel = cms?.secondaryLabel?.trim() || secondaryLabel;
+  const resolvedSections = cms?.sections?.length ? cms.sections : sections;
+
+  if (cms?.visible === false) {
+    return (
+      <main className="min-h-[60vh] bg-[#f5f7fa] px-5 py-20 text-slate-950 sm:px-8">
+        <div className="mx-auto max-w-3xl rounded-[32px] border border-slate-200 bg-white p-10 text-center shadow-sm">
+          <p
+            className="text-[10px] font-black uppercase tracking-[.22em]"
+            style={{ color: accent }}
+          >
+            {resolvedEyebrow}
+          </p>
+          <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-5xl">
+            This page is currently unavailable.
+          </h1>
+          <p className="mt-4 text-sm leading-7 text-slate-500">
+            Please use the current Noble loan catalogue or contact the team for
+            up-to-date information.
+          </p>
+          <Link
+            href="/services"
+            className="mt-7 inline-flex rounded-2xl px-5 py-3 text-sm font-black text-white"
+            style={{ backgroundColor: primary }}
+          >
+            View current loans →
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="overflow-hidden bg-[#f5f7fa] text-slate-950">
@@ -89,28 +134,28 @@ export function MarketingPage({
               className="text-[10px] font-black uppercase tracking-[.24em]"
               style={{ color: accent }}
             >
-              {eyebrow}
+              {resolvedEyebrow}
             </p>
             <h1 className="mt-5 max-w-4xl text-4xl font-black leading-[.98] tracking-[-.06em] sm:text-6xl lg:text-[4.35rem]">
-              {title}
+              {resolvedTitle}
             </h1>
             <p className="mt-6 max-w-2xl text-base leading-8 text-white/70 sm:text-lg">
-              {description}
+              {resolvedDescription}
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
-                href={primaryHref}
+                href={resolvedPrimaryHref}
                 className="inline-flex items-center justify-center gap-2 rounded-2xl px-6 py-4 text-sm font-black text-slate-950 shadow-xl transition hover:-translate-y-0.5"
                 style={{ backgroundColor: accent }}
               >
-                {primaryLabel}
+                {resolvedPrimaryLabel}
                 <Arrow />
               </Link>
               <Link
-                href={secondaryHref}
+                href={resolvedSecondaryHref}
                 className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/18 bg-white/[.06] px-6 py-4 text-sm font-bold text-white backdrop-blur-sm transition hover:bg-white/[.11]"
               >
-                {secondaryLabel}
+                {resolvedSecondaryLabel}
               </Link>
             </div>
           </div>
@@ -207,7 +252,7 @@ export function MarketingPage({
         </div>
 
         <div className="mt-10 grid gap-5 lg:grid-cols-2">
-          {sections.map((section, index) => (
+          {resolvedSections.map((section, index) => (
             <article
               key={section.title}
               className="group relative overflow-hidden rounded-[28px] border border-slate-200 bg-white p-7 shadow-[0_16px_55px_rgba(15,23,42,.055)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_28px_70px_rgba(15,23,42,.10)] sm:p-8"

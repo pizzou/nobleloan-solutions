@@ -3,12 +3,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { SITE_CONTENT } from "../lib/siteContent";
+import { pageContent } from "../lib/websiteContent";
 import { useTenant } from "../app/(site)/layout";
 
 export function ResourceHubPage() {
   const tenant = useTenant() || SITE_CONTENT;
   const primary = tenant.primaryColor || "#0F1B3D";
   const accent = tenant.accentColor || "#C9A227";
+  const cms = pageContent(tenant.websiteContent, "learn");
   const cards = [
     [
       "Loan calculator",
@@ -70,40 +72,45 @@ export function ResourceHubPage() {
             className="text-[10px] font-black uppercase tracking-[.24em]"
             style={{ color: accent }}
           >
-            Noble Learn
+            {cms.eyebrow || "Noble Learn"}
           </p>
           <h1 className="mt-5 max-w-4xl text-4xl font-black leading-[.98] tracking-[-.06em] sm:text-6xl">
-            Useful information for better financial decisions.
+            {cms.title || "Useful information for better financial decisions."}
           </h1>
           <p className="mt-6 max-w-2xl text-base leading-8 text-white/70 sm:text-lg">
-            Practical guidance, calculators and support routes built around
-            Noble Loan Solutions&apos; Rwanda lending experience.
+            {cms.description ||
+              "Practical guidance, calculators and support routes built around Noble Loan Solutions’ Rwanda lending experience."}
           </p>
         </div>
       </section>
 
       <section className="border-b border-slate-200 bg-white">
         <div className="mx-auto grid max-w-7xl gap-px sm:grid-cols-3">
-          {[
-            [
-              "Know the product",
-              "Review the active loan options and published terms.",
-            ],
-            [
-              "Know the numbers",
-              "Use the calculator for an indicative planning scenario.",
-            ],
-            [
-              "Know the next step",
-              "Apply securely or contact the team when you need help.",
-            ],
-          ].map(([title, body]) => (
+          {(cms.sections?.slice(0, 3).length
+            ? cms.sections.slice(0, 3)
+            : [
+                {
+                  title: "Know the product",
+                  body: "Review the active loan options and published terms.",
+                },
+                {
+                  title: "Know the numbers",
+                  body: "Use the calculator for an indicative planning scenario.",
+                },
+                {
+                  title: "Know the next step",
+                  body: "Apply securely or contact the team when you need help.",
+                },
+              ]
+          ).map((item) => (
             <div
-              key={title}
+              key={item.title}
               className="border-b border-slate-100 p-6 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0 sm:p-7"
             >
-              <h2 className="text-sm font-black">{title}</h2>
-              <p className="mt-2 text-xs leading-6 text-slate-500">{body}</p>
+              <h2 className="text-sm font-black">{item.title}</h2>
+              <p className="mt-2 text-xs leading-6 text-slate-500">
+                {item.body}
+              </p>
             </div>
           ))}
         </div>

@@ -192,6 +192,11 @@ public class OrganizationController {
                                 parseListOrEmpty(
                                                 org.getTeamJson()));
 
+                response.put(
+                                "websiteContent",
+                                parseMapOrEmpty(
+                                                org.getWebsiteContentJson()));
+
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
                                                 response));
@@ -429,6 +434,11 @@ public class OrganizationController {
                                 "team",
                                 org::setTeamJson);
 
+                setJsonIfPresent(
+                                body,
+                                "websiteContent",
+                                org::setWebsiteContentJson);
+
                 /*
                  * SAVE
                  */
@@ -515,6 +525,23 @@ public class OrganizationController {
                                 : value;
         }
 
+        private Map<String, Object> parseMapOrEmpty(
+                        String json) {
+                if (json == null || json.isBlank()) {
+                        return Map.of();
+                }
+                try {
+                        Map<String, Object> parsed = objectMapper.readValue(
+                                        json,
+                                        new TypeReference<Map<String, Object>>() {});
+                        return parsed == null ? Map.of() : parsed;
+                } catch (Exception e) {
+                        throw new IllegalStateException(
+                                        "Stored public website content is invalid JSON",
+                                        e);
+                }
+        }
+
         private List<Map<String, Object>> parseListOrEmpty(
                         String json) {
 
@@ -573,9 +600,19 @@ public class OrganizationController {
 
                 try {
 
-                        setter.accept(
-                                        objectMapper.writeValueAsString(
-                                                        body.get(key)));
+                        String json = objectMapper.writeValueAsString(
+                                        body.get(key));
+
+                        if (json.length() > 1_500_000) {
+                                throw new IllegalArgumentException(
+                                                key + " is too large to store");
+                        }
+
+                        setter.accept(json);
+
+                } catch (IllegalArgumentException e) {
+
+                        throw e;
 
                 } catch (Exception e) {
 

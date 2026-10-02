@@ -154,6 +154,10 @@ public class Organization {
     @Column(columnDefinition = "TEXT")
     private String teamJson;
 
+    /** Versioned JSON document containing editable public website page copy. */
+    @Column(columnDefinition = "TEXT")
+    private String websiteContentJson;
+
     /*
      * ============================================================
      * SUBSCRIPTION

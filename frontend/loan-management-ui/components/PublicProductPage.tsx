@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useTenant } from "../app/(site)/layout";
+import { pageContent } from "../lib/websiteContent";
 
 const productImages: Record<string, string> = {
   PERSONAL: "/personal-loan.jpg",
@@ -54,25 +55,32 @@ export default function PublicProductPage({
   type,
   title,
   description,
+  pageKey,
 }: {
   type: string;
   title?: string;
   description?: string;
+  pageKey?: string;
 }) {
   const tenant = useTenant();
   if (!tenant) return null;
 
   const normalizedType = type.toUpperCase();
+  const cms = pageKey ? pageContent(tenant.websiteContent, pageKey) : undefined;
   const product =
     tenant.services.find((x) => x.loanType === normalizedType) ||
     tenant.services.find((x) =>
       x.title.toLowerCase().includes(type.toLowerCase()),
     );
-  const resolvedTitle = title || product?.title || "Noble loan solution";
+  const resolvedTitle =
+    cms?.title?.trim() || title || product?.title || "Noble loan solution";
   const resolvedDescription =
+    cms?.description?.trim() ||
     description ||
     product?.description ||
     "Explore the applicable Noble lending product and review the terms before you apply.";
+  const resolvedEyebrow = cms?.eyebrow?.trim() || "Noble lending";
+  const resolvedSections = cms?.sections?.length ? cms.sections : [];
   const primary = tenant.primaryColor || "#0F1B3D";
   const accent = tenant.accentColor || "#C9A227";
   const image = productImages[normalizedType] || "/hero-borrower.jpg";
@@ -84,6 +92,35 @@ export default function PublicProductPage({
   const related = tenant.services
     .filter((item) => item !== product)
     .slice(0, 3);
+
+  if (cms?.visible === false) {
+    return (
+      <main className="min-h-[60vh] bg-[#f5f7fa] px-5 py-20 text-slate-950 sm:px-8">
+        <div className="mx-auto max-w-3xl rounded-[32px] border border-slate-200 bg-white p-10 text-center shadow-sm">
+          <p
+            className="text-[10px] font-black uppercase tracking-[.22em]"
+            style={{ color: accent }}
+          >
+            {resolvedEyebrow}
+          </p>
+          <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-5xl">
+            This product page is currently unavailable.
+          </h1>
+          <p className="mt-4 text-sm leading-7 text-slate-500">
+            Please view Noble&apos;s current loan catalogue or contact the team
+            for current information.
+          </p>
+          <Link
+            href="/services"
+            className="mt-7 inline-flex rounded-2xl px-5 py-3 text-sm font-black text-white"
+            style={{ backgroundColor: primary }}
+          >
+            View current loans →
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="overflow-hidden bg-[#f5f7fa] text-slate-950">
@@ -100,7 +137,7 @@ export default function PublicProductPage({
               className="text-[10px] font-black uppercase tracking-[.24em]"
               style={{ color: accent }}
             >
-              Noble lending
+              {resolvedEyebrow}
             </p>
             <h1 className="mt-5 max-w-3xl text-4xl font-black leading-[.98] tracking-[-.06em] sm:text-6xl">
               {resolvedTitle}
@@ -187,9 +224,11 @@ export default function PublicProductPage({
             >
               01 · Who it serves
             </span>
-            <h2 className="mt-4 text-xl font-black">{audience.title}</h2>
+            <h2 className="mt-4 text-xl font-black">
+              {resolvedSections[0]?.title || audience.title}
+            </h2>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              {audience.body}
+              {resolvedSections[0]?.body || audience.body}
             </p>
           </article>
           <article className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm sm:p-8">
@@ -199,8 +238,11 @@ export default function PublicProductPage({
             >
               02 · Loan range
             </span>
-            <h2 className="mt-4 text-xl font-black">Understand the amount</h2>
+            <h2 className="mt-4 text-xl font-black">
+              {resolvedSections[1]?.title || "Understand the amount"}
+            </h2>
             <p className="mt-3 text-sm leading-7 text-slate-600">
+              {resolvedSections[1]?.body ? `${resolvedSections[1].body} ` : ""}
               Minimum:{" "}
               <strong className="text-slate-800">
                 {amount(tenant.currency, product?.minAmount)}
@@ -223,11 +265,12 @@ export default function PublicProductPage({
             >
               03 · Before you apply
             </span>
-            <h2 className="mt-4 text-xl font-black">Plan the repayment</h2>
+            <h2 className="mt-4 text-xl font-black">
+              {resolvedSections[2]?.title || "Plan the repayment"}
+            </h2>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              Use the calculator to model an indicative schedule, then review
-              the exact fees, dates and obligations shown in the application and
-              agreement.
+              {resolvedSections[2]?.body ||
+                "Use the calculator to model an indicative schedule, then review the exact fees, dates and obligations shown in the application and agreement."}
             </p>
           </article>
         </div>

@@ -1,3 +1,5 @@
+import { DEFAULT_WEBSITE_CONTENT, type WebsiteContent } from "./websiteContent";
+
 export interface TenantConfig {
   name: string;
   slug: string;
@@ -74,6 +76,8 @@ export interface TenantConfig {
     role: string;
     initials: string;
   }[];
+
+  websiteContent: WebsiteContent;
 }
 
 const value = (candidate: string | undefined, fallback: string): string => {
@@ -267,4 +271,6 @@ export const SITE_CONTENT: TenantConfig = {
    * is supplied.
    */
   team: [],
+
+  websiteContent: DEFAULT_WEBSITE_CONTENT,
 };
