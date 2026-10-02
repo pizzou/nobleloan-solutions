@@ -5,6 +5,7 @@ import Image from "next/image";
 import { FormEvent, useMemo, useState } from "react";
 import {
   calculateContractualSchedule,
+  percentageCharge,
   safeRate,
 } from "../../lib/loanRepaymentCalculator";
 import { publicApi } from "../../services/api";
@@ -157,164 +158,193 @@ type LoanProduct = (typeof SITE_CONTENT.services)[number];
 function CompactLoanCalculator({
   products,
   currency,
-  accent,
 }: {
   products: LoanProduct[];
   currency: string;
-  accent: string;
 }) {
   const [index, setIndex] = useState(0);
   const product = products[index] || products[0];
+  const min = Number(product?.minAmount ?? 500000);
+  const max = Number(product?.maxAmount ?? 20000000);
+  const minTerm = Number(product?.minTermMonths ?? 1);
+  const maxTerm = Number(product?.maxTermMonths ?? 6);
   const [amount, setAmount] = useState(1000000);
   const [months, setMonths] = useState(6);
-  const min = Number(product?.minAmount ?? 500000);
-  const maxTerm = Number(product?.maxTermMonths ?? 6);
-  const minTerm = Number(product?.minTermMonths ?? 1);
+  const boundedAmount = Math.min(max, Math.max(min, amount || min));
   const actualMonths = Math.min(maxTerm, Math.max(minTerm, months));
-  const boundedAmount = Math.max(min, amount || min);
+  const interestRate = safeRate(product?.interestRate ?? product?.rate, 5);
+  const managementRate = safeRate(product?.managementFeeRate, 5);
+  const applicationRate = safeRate(product?.applicationFeeRate, 2);
   const schedule = useMemo(
     () =>
       calculateContractualSchedule(
         boundedAmount,
         actualMonths,
-        safeRate(product?.interestRate ?? product?.rate, 5),
-        safeRate(product?.managementFeeRate, 5),
+        interestRate,
+        managementRate,
       ),
-    [boundedAmount, actualMonths, product],
+    [boundedAmount, actualMonths, interestRate, managementRate],
   );
+  const applicationFee = percentageCharge(boundedAmount, applicationRate);
   const money = (n: number) =>
     `${currency} ${Math.round(n).toLocaleString("en-RW")}`;
   const selectProduct = (next: number) => {
+    const selected = products[next];
     setIndex(next);
-    setAmount(Math.max(500000, Number(products[next]?.minAmount ?? 500000)));
-    setMonths(Number(products[next]?.minTermMonths ?? 1));
+    setAmount(Math.max(Number(selected?.minAmount ?? 500000), 1000000));
+    setMonths(Number(selected?.minTermMonths ?? 1));
   };
+
   return (
-    <div className="overflow-hidden rounded-[24px] border border-white/70 bg-white shadow-[0_28px_80px_rgba(4,20,42,.28)]">
-      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 pb-4 pt-5 sm:px-6">
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-[.2em] text-[#9a7415]">
-            Noble loan planner
-          </p>
-          <h2 className="mt-1 text-xl font-black tracking-tight text-[#0F1B3D] sm:text-2xl">
-            Make a plan that fits.
-          </h2>
-          <p className="mt-1 text-xs leading-5 text-slate-500">
-            Explore an estimate before you apply.
-          </p>
-        </div>
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0F1B3D] text-lg font-black text-[#E4B943]">
-          ₣
+    <div className="noble-glass-calculator relative isolate overflow-hidden rounded-[22px] border border-[#e9bf4b]/80 text-white shadow-[0_26px_80px_rgba(0,0,0,.38)] backdrop-blur-2xl">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_90%_0%,rgba(233,190,68,.20),transparent_40%),linear-gradient(145deg,rgba(3,22,43,.91),rgba(5,39,68,.82))]"
+      />
+      <div className="border-b border-white/10 px-5 pb-4 pt-5 sm:px-6">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[.2em] text-[#f4ca57]">
+              A clearer way to plan
+            </p>
+            <h2 className="mt-1 text-xl font-black tracking-tight sm:text-2xl">
+              Calculate your loan
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-white/70">
+              Explore an estimate in Rwandan francs before you apply.
+            </p>
+          </div>
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#f4ca57]/35 bg-white/[.07] text-xl font-black text-[#f4ca57]">
+            ₣
+          </span>
         </div>
       </div>
-      <div className="p-5 sm:p-6">
-        <label className="block text-[11px] font-bold text-slate-600">
-          Choose a loan type
-        </label>
-        <select
-          value={index}
-          onChange={(e) => selectProduct(Number(e.target.value))}
-          className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-[#0F1B3D] outline-none focus:border-[#C9A227]"
-        >
-          {products.map((p, i) => (
-            <option key={`${p.title}-${i}`} value={i}>
-              {p.title}
-            </option>
-          ))}
-        </select>
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <label
-            htmlFor="noble-amount"
-            className="text-[11px] font-bold text-slate-600"
-          >
-            Loan amount
+      <div className="space-y-3.5 p-5 sm:px-6 sm:pb-6">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block text-[11px] font-semibold text-white/80">
+            Loan product
+            <select
+              value={index}
+              onChange={(e) => selectProduct(Number(e.target.value))}
+              className="noble-calculator-field mt-1.5 h-10 w-full rounded-lg border border-white/20 bg-white/95 px-3 text-xs font-semibold text-[#102543] outline-none focus:border-[#f4ca57] focus:ring-2 focus:ring-[#f4ca57]/30"
+            >
+              {products.map((p, i) => (
+                <option key={`${p.title}-${i}`} value={i}>
+                  {p.title}
+                </option>
+              ))}
+            </select>
           </label>
-          <span className="text-[10px] text-slate-400">
-            Minimum {money(min)}
-          </span>
+          <label className="block text-[11px] font-semibold text-white/80">
+            Loan amount (RWF)
+            <input
+              type="number"
+              inputMode="numeric"
+              min={min}
+              max={max}
+              step={50000}
+              value={String(amount)}
+              onChange={(e) => setAmount(Number(e.target.value))}
+              className="noble-calculator-field mt-1.5 h-10 w-full rounded-lg border border-white/20 bg-white/95 px-3 text-xs font-semibold text-[#102543] outline-none focus:border-[#f4ca57] focus:ring-2 focus:ring-[#f4ca57]/30"
+              aria-label="Loan amount in Rwandan francs"
+            />
+          </label>
         </div>
-        <div className="mt-2 flex h-12 items-center rounded-xl border border-slate-200 bg-white px-3 focus-within:border-[#C9A227]">
-          <span className="mr-2 text-xs font-bold text-slate-400">
-            {currency}
-          </span>
-          <input
-            id="noble-amount"
-            inputMode="numeric"
-            value={String(amount)}
-            onChange={(e) =>
-              setAmount(Number(e.target.value.replace(/\D/g, "")))
-            }
-            className="w-full min-w-0 bg-transparent text-lg font-black text-[#0F1B3D] outline-none"
-            aria-label="Loan amount"
-          />
+        <div className="flex justify-between gap-3 text-[10px] text-white/55">
+          <span>From {money(min)}</span>
+          <span>Up to {money(max)}</span>
         </div>
         <input
           aria-label="Adjust loan amount"
           type="range"
           min={min}
-          max={Math.max(min + 100000, 20000000)}
+          max={Math.max(min, max)}
           step={50000}
-          value={Math.min(
-            Math.max(boundedAmount, min),
-            Math.max(min + 100000, 20000000),
-          )}
+          value={boundedAmount}
           onChange={(e) => setAmount(Number(e.target.value))}
-          className="mt-3 w-full accent-[#C9A227]"
+          className="w-full cursor-pointer accent-[#f4ca57]"
         />
-        <div className="mt-4">
-          <label
-            htmlFor="noble-term"
-            className="text-[11px] font-bold text-slate-600"
-          >
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+          <label className="block text-[11px] font-semibold text-white/80">
             Repayment term
+            <select
+              value={actualMonths}
+              onChange={(e) => setMonths(Number(e.target.value))}
+              className="noble-calculator-field mt-1.5 h-10 w-full rounded-lg border border-white/20 bg-white/95 px-3 text-xs font-semibold text-[#102543] outline-none focus:border-[#f4ca57] focus:ring-2 focus:ring-[#f4ca57]/30"
+            >
+              {Array.from(
+                { length: maxTerm - minTerm + 1 },
+                (_, i) => minTerm + i,
+              ).map((n) => (
+                <option key={n} value={n}>
+                  {n} {n === 1 ? "month" : "months"}
+                </option>
+              ))}
+            </select>
           </label>
-          <select
-            id="noble-term"
-            value={actualMonths}
-            onChange={(e) => setMonths(Number(e.target.value))}
-            className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-[#0F1B3D] outline-none focus:border-[#C9A227]"
+          <Link
+            href="/apply"
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-[#efc451] px-6 text-xs font-black text-[#0b1f3a] transition hover:bg-[#ffda70] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
           >
-            {Array.from(
-              { length: maxTerm - minTerm + 1 },
-              (_, i) => minTerm + i,
-            ).map((n) => (
-              <option key={n} value={n}>
-                {n} {n === 1 ? "month" : "months"}
-              </option>
-            ))}
-          </select>
+            Calculate & apply <span className="ml-2">→</span>
+          </Link>
         </div>
-        <div className="mt-5 rounded-2xl bg-[#0F1B3D] p-4 text-white">
-          <p className="text-[10px] font-semibold text-white/65">
-            Indicative total repayment
-          </p>
-          <p className="mt-1 text-2xl font-black tracking-tight text-[#F2C653] sm:text-3xl">
-            {money(schedule.total)}
-          </p>
-          <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/15 pt-3">
+        <div className="rounded-xl border border-white/10 bg-[#04192e]/65 p-3.5 shadow-inner">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="sm:border-r sm:border-white/15 sm:pr-3">
+              <p className="text-[9px] text-white/60">
+                Estimated total repayment
+              </p>
+              <p className="mt-1 text-lg font-black leading-tight text-[#f4ca57] sm:text-xl">
+                {money(schedule.total)}
+              </p>
+            </div>
+            <div className="sm:border-r sm:border-white/15 sm:px-3">
+              <p className="text-[9px] text-white/60">Average per month</p>
+              <p className="mt-1 text-sm font-extrabold">
+                {money(schedule.total / actualMonths)}
+              </p>
+            </div>
+            <div className="col-span-2 sm:col-span-1 sm:pl-3">
+              <p className="text-[9px] text-white/60">Total interest</p>
+              <p className="mt-1 text-sm font-extrabold">
+                {money(schedule.interest)}
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-3 border-t border-white/10 pt-3 sm:grid-cols-4">
             <div>
-              <p className="text-[10px] text-white/55">First instalment</p>
-              <p className="mt-1 text-sm font-bold">
+              <p className="text-[9px] text-white/55">
+                Management fee ({managementRate}%)
+              </p>
+              <p className="mt-1 text-xs font-bold">
+                {money(schedule.management)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[9px] text-white/55">
+                Application fee ({applicationRate}%)
+              </p>
+              <p className="mt-1 text-xs font-bold">{money(applicationFee)}</p>
+            </div>
+            <div>
+              <p className="text-[9px] text-white/55">First instalment</p>
+              <p className="mt-1 text-xs font-bold">
                 {money(schedule.firstInstallment)}
               </p>
             </div>
             <div>
-              <p className="text-[10px] text-white/55">Monthly interest*</p>
-              <p className="mt-1 text-sm font-bold">
-                {safeRate(product?.interestRate ?? product?.rate, 5)}%
+              <p className="text-[9px] text-white/55">Last instalment</p>
+              <p className="mt-1 text-xs font-bold">
+                {money(schedule.lastInstallment)}
               </p>
             </div>
           </div>
         </div>
-        <Link
-          href="/apply"
-          className="mt-4 flex h-12 items-center justify-center gap-2 rounded-xl bg-[#C9A227] px-4 text-sm font-black text-[#0F1B3D] transition hover:bg-[#e0b73f]"
-        >
-          Apply for this loan <span>→</span>
-        </Link>
-        <p className="mt-3 text-[10px] leading-4 text-slate-400">
-          Illustration only. Fees, eligibility and the final repayment schedule
-          are confirmed during assessment and in your loan agreement.
+        <p className="text-[10px] leading-4 text-white/55">
+          Illustrative only. Application fees are shown separately and are not
+          included in scheduled repayment. Final costs, eligibility and dates
+          are confirmed in your loan agreement.
         </p>
       </div>
     </div>
@@ -332,11 +362,11 @@ export default function HomePage() {
   const contactEmail = tenant.contactEmail || "info@nobleloansolutions.rw";
   const phoneHref = contactPhone.replace(/[^+\d]/g, "");
   const productImages = [
-    "/images/noble/personal-loan.jpg",
-    "/images/noble/business-loan.jpg",
-    "/images/noble/vehicle-loan.jpg",
-    "/images/noble/salary-advance.jpg",
-    "/images/noble/agriculture-loan.jpg",
+    "/personal-loan.jpg",
+    "/business-loan.jpg",
+    "/vehicle-loan.jpg",
+    "/salary-advance.jpg",
+    "/agriculture-loan.jpg",
   ];
   const productRoutes: Record<string, string> = {
     PERSONAL: "/personal-loans",
@@ -354,9 +384,9 @@ export default function HomePage() {
   ];
   return (
     <main className="overflow-hidden bg-[#f3f5f8] text-[#0F1B3D]">
-      <section className="relative isolate min-h-[650px] overflow-hidden bg-[#071a32] text-white lg:min-h-[690px]">
+      <section className="relative isolate min-h-[560px] overflow-hidden bg-[#071a32] text-white lg:min-h-[570px]">
         <Image
-          src="/images/noble/hero-borrower.jpg"
+          src="/hero-borrower.jpg"
           alt="Professional woman looking toward the future in Kigali"
           fill
           priority
@@ -365,22 +395,22 @@ export default function HomePage() {
         />
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(4,19,39,.95)_0%,rgba(4,19,39,.84)_31%,rgba(4,19,39,.45)_59%,rgba(4,19,39,.12)_100%)]" />
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(0deg,rgba(4,17,35,.7),transparent_38%,rgba(4,17,35,.12))]" />
-        <div className="mx-auto grid max-w-7xl items-center gap-10 px-5 pb-16 pt-14 sm:px-8 sm:pb-20 sm:pt-16 lg:grid-cols-[1fr_430px] lg:gap-14 lg:py-20 xl:grid-cols-[1fr_455px]">
+        <div className="mx-auto grid max-w-7xl items-center gap-8 px-5 pb-10 pt-10 sm:px-8 sm:pb-12 sm:pt-12 lg:grid-cols-[minmax(0,1fr)_minmax(420px,455px)] lg:gap-10 lg:py-8 xl:gap-14">
           <div className="max-w-2xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-[#071a32]/45 px-4 py-2 text-[10px] font-extrabold uppercase tracking-[.22em] text-white/90 backdrop-blur-md">
               <span className="h-2 w-2 rounded-full bg-[#C9A227]" /> Trusted
               lending for Rwanda
             </div>
-            <h1 className="mt-6 max-w-2xl text-[clamp(3rem,5.7vw,5.7rem)] font-black leading-[.96] tracking-[-.065em]">
+            <h1 className="mt-6 max-w-2xl text-[clamp(2.8rem,4.8vw,4.7rem)] font-black leading-[.96] tracking-[-.065em]">
               Real support.
               <span className="block text-[#F0C34E]">Bigger dreams.</span>
             </h1>
-            <p className="mt-6 max-w-xl text-base leading-7 text-white/85 sm:text-lg sm:leading-8">
+            <p className="mt-5 max-w-xl text-sm leading-6 text-white/85 sm:text-base sm:leading-7">
               From a personal milestone to your next business step, find a loan
               designed around your needs—with clear terms, practical guidance
               and a team ready to help.
             </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/apply"
                 className="inline-flex min-h-12 items-center justify-center gap-3 rounded-full bg-[#C9A227] px-7 py-3 text-sm font-black text-[#0F1B3D] shadow-lg transition hover:-translate-y-0.5 hover:bg-[#e3b83e]"
@@ -394,7 +424,7 @@ export default function HomePage() {
                 How it works
               </Link>
             </div>
-            <div className="mt-9 grid max-w-xl grid-cols-3 border-t border-white/25 pt-5">
+            <div className="mt-7 grid max-w-xl grid-cols-3 border-t border-white/25 pt-4">
               <div className="pr-3">
                 <p className="text-lg font-black text-[#F0C34E]">Clear</p>
                 <p className="mt-1 text-xs leading-5 text-white/75">
@@ -419,14 +449,13 @@ export default function HomePage() {
             <CompactLoanCalculator
               products={products}
               currency={tenant.currency || "RWF"}
-              accent={accent}
             />
           </div>
         </div>
         <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-[#C9A227] to-transparent" />
       </section>
 
-      <section className="relative bg-white py-14 sm:py-17">
+      <section className="relative bg-[#f7f8fa] py-9 sm:py-11">
         <div className="mx-auto max-w-7xl px-5 sm:px-8">
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
@@ -449,7 +478,7 @@ export default function HomePage() {
               Explore all loan products <span aria-hidden="true">→</span>
             </Link>
           </div>
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             {products.slice(0, 5).map((p, i) => {
               const route =
                 productRoutes[String(p.loanType || "").toUpperCase()] ||
@@ -494,7 +523,7 @@ export default function HomePage() {
       <section className="relative overflow-hidden bg-[#e9eef3] py-14 sm:py-16">
         <div className="absolute inset-0 opacity-25">
           <Image
-            src="/images/noble/business-loan.jpg"
+            src="/business-loan.jpg"
             alt=""
             fill
             sizes="100vw"

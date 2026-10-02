@@ -45,14 +45,13 @@ const menus = [
     ],
   },
   {
-    label: "Loan purposes",
+    label: "Plan & learn",
     items: [
-      ["Debt consolidation", "/debt-consolidation"],
-      ["Credit card consolidation", "/credit-card-consolidation"],
-      ["Home improvement", "/home-improvement-loans"],
-      ["Medical expenses", "/medical-loans"],
-      ["Moving expenses", "/moving-loans"],
-      ["Wedding expenses", "/wedding-loans"],
+      ["Loan calculator", "/loan-calculator"],
+      ["How it works", "/how-it-works"],
+      ["Loan terms", "/terms"],
+      ["Borrower help", "/help"],
+      ["Frequently asked questions", "/faq"],
     ],
   },
   {
@@ -60,7 +59,6 @@ const menus = [
     items: [
       ["Calculators", "/calculators"],
       ["Learn", "/learn"],
-      ["Credit score", "/credit-score"],
       ["How it works", "/how-it-works"],
       ["Help centre", "/help"],
       ["FAQs", "/faq"],
