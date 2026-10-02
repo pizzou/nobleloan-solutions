@@ -2,156 +2,14 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { FormEvent, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   calculateContractualSchedule,
   percentageCharge,
   safeRate,
 } from "../../lib/loanRepaymentCalculator";
-import { publicApi } from "../../services/api";
 import { SITE_CONTENT } from "../../lib/siteContent";
 import { useTenant } from "./layout";
-
-function ContactQuickForm({
-  primary,
-  accent,
-  slug,
-}: {
-  primary: string;
-  accent: string;
-  slug: string;
-}) {
-  const [form, setForm] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    subject: "Loan enquiry",
-    message: "",
-  });
-  const [status, setStatus] = useState<
-    "idle" | "sending" | "success" | "error"
-  >("idle");
-  const [error, setError] = useState("");
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setStatus("sending");
-    setError("");
-    try {
-      await publicApi.contact({ tenantSlug: slug, ...form });
-      setForm({
-        name: "",
-        email: "",
-        phone: "",
-        subject: "Loan enquiry",
-        message: "",
-      });
-      setStatus("success");
-    } catch (cause) {
-      setStatus("error");
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "We could not send your message. Please try again.",
-      );
-    }
-  }
-
-  return (
-    <form onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
-      <label className="text-xs font-bold text-slate-600">
-        Your name
-        <input
-          required
-          maxLength={120}
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          placeholder="Full name"
-          className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#C9A227]"
-        />
-      </label>
-      <label className="text-xs font-bold text-slate-600">
-        Email address
-        <input
-          type="email"
-          maxLength={180}
-          value={form.email}
-          onChange={(e) => setForm({ ...form, email: e.target.value })}
-          placeholder="you@example.com"
-          className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#C9A227]"
-        />
-      </label>
-      <label className="text-xs font-bold text-slate-600">
-        Phone number{" "}
-        <span className="font-normal text-slate-400">(optional)</span>
-        <input
-          maxLength={40}
-          value={form.phone}
-          onChange={(e) => setForm({ ...form, phone: e.target.value })}
-          placeholder="Your phone number"
-          className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#C9A227]"
-        />
-      </label>
-      <label className="text-xs font-bold text-slate-600">
-        What can we help with?
-        <select
-          value={form.subject}
-          onChange={(e) => setForm({ ...form, subject: e.target.value })}
-          className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#C9A227]"
-        >
-          <option>Loan enquiry</option>
-          <option>Application support</option>
-          <option>Repayment question</option>
-          <option>Existing loan</option>
-          <option>General enquiry</option>
-        </select>
-      </label>
-      <label className="text-xs font-bold text-slate-600 sm:col-span-2">
-        Your message
-        <textarea
-          required
-          minLength={5}
-          maxLength={3000}
-          rows={3}
-          value={form.message}
-          onChange={(e) => setForm({ ...form, message: e.target.value })}
-          placeholder="Tell us a little about your question…"
-          className="mt-2 w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#C9A227]"
-        />
-      </label>
-      {status === "success" && (
-        <p
-          role="status"
-          className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-800 sm:col-span-2"
-        >
-          Your message has been sent to the Noble team.
-        </p>
-      )}
-      {status === "error" && (
-        <p
-          role="alert"
-          className="rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700 sm:col-span-2"
-        >
-          {error}
-        </p>
-      )}
-      <div className="flex flex-col justify-between gap-3 sm:col-span-2 sm:flex-row sm:items-center">
-        <p className="max-w-md text-[10px] leading-5 text-slate-400">
-          Please do not include passwords, OTPs, PINs or other confidential
-          credentials.
-        </p>
-        <button
-          type="submit"
-          disabled={status === "sending"}
-          className="rounded-xl px-6 py-3.5 text-sm font-black text-white transition hover:-translate-y-0.5 disabled:opacity-60"
-          style={{ backgroundColor: primary }}
-        >
-          {status === "sending" ? "Sending message…" : "Send a message →"}
-        </button>
-      </div>
-    </form>
-  );
-}
 
 type LoanProduct = (typeof SITE_CONTENT.services)[number];
 
@@ -604,10 +462,10 @@ export default function HomePage() {
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Link
-              href="/loan-terms"
+              href="/services"
               className="rounded-full border border-white/30 px-6 py-3 text-center text-sm font-bold text-white hover:bg-white/10"
             >
-              Review loan terms
+              Review loan solutions
             </Link>
             <Link
               href="/track"
@@ -621,103 +479,68 @@ export default function HomePage() {
 
       <section
         id="contact"
-        className="relative overflow-hidden bg-[#f4f6f8] py-14 sm:py-16"
+        className="relative overflow-hidden bg-[#071a32] py-14 text-white sm:py-20"
       >
-        <div className="absolute right-0 top-0 h-64 w-64 rounded-bl-full bg-[#C9A227]/10" />
-        <div className="relative mx-auto grid max-w-7xl gap-8 px-5 sm:px-8 lg:grid-cols-[.8fr_1.2fr] lg:gap-12">
-          <div className="rounded-[26px] bg-[#071a32] p-6 text-white shadow-xl sm:p-8">
-            <p className="text-[10px] font-black uppercase tracking-[.22em] text-[#F0C34E]">
-              We are here to help
+        <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full border border-white/10" />
+        <div
+          className="absolute -bottom-28 -left-16 h-64 w-64 rounded-full"
+          style={{ backgroundColor: `${accent}12` }}
+        />
+        <div className="relative mx-auto grid max-w-7xl gap-8 px-5 sm:px-8 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div className="max-w-3xl">
+            <p
+              className="text-[10px] font-black uppercase tracking-[.22em]"
+              style={{ color: accent }}
+            >
+              Customer support
             </p>
-            <h2 className="mt-3 text-3xl font-black tracking-[-.04em]">
-              Talk to the Noble team.
+            <h2 className="mt-3 text-3xl font-black tracking-[-.045em] sm:text-4xl">
+              Questions before you borrow? Talk to Noble.
             </h2>
-            <p className="mt-3 text-sm leading-6 text-white/65">
-              Have a question about a loan, your application or repayment terms?
-              Send us a message or contact us directly.
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-white/65">
+              Use the dedicated Contact page for detailed enquiries. Your
+              message is routed into the Noble dashboard for authorised staff to
+              review, while existing applications can be tracked separately.
             </p>
-            <div className="mt-7 space-y-4 border-t border-white/15 pt-6">
-              <a
-                href={`tel:${phoneHref}`}
-                className="flex items-center gap-3 text-sm font-semibold hover:text-[#F0C34E]"
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/contact"
+                className="rounded-2xl px-6 py-3.5 text-center text-sm font-black text-slate-950"
+                style={{ backgroundColor: accent }}
               >
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-[#F0C34E]">
-                  ☎
-                </span>
-                <span>
-                  <span className="block text-[10px] text-white/50">
-                    Call us
-                  </span>
-                  {contactPhone}
-                </span>
-              </a>
-              <a
-                href={`mailto:${contactEmail}`}
-                className="flex items-center gap-3 text-sm font-semibold hover:text-[#F0C34E]"
+                Contact the Noble team →
+              </Link>
+              <Link
+                href="/track"
+                className="rounded-2xl border border-white/15 px-6 py-3.5 text-center text-sm font-bold text-white"
               >
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-[#F0C34E]">
-                  ✉
-                </span>
-                <span>
-                  <span className="block text-[10px] text-white/50">
-                    Email us
-                  </span>
-                  {contactEmail}
-                </span>
-              </a>
-              <div className="flex items-center gap-3 text-sm font-semibold">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-[#F0C34E]">
-                  ⌖
-                </span>
-                <span>
-                  <span className="block text-[10px] text-white/50">
-                    Visit us
-                  </span>
-                  {tenant.address || "Kigali, Rwanda"}
-                </span>
-              </div>
-            </div>
-            <div className="mt-6 border-t border-white/15 pt-5">
-              <p className="text-xs font-bold text-white/65">Follow Noble</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {social.map((s) => (
-                  <a
-                    key={s.label}
-                    href={s.url || undefined}
-                    target={s.url ? "_blank" : undefined}
-                    rel={s.url ? "noreferrer" : undefined}
-                    aria-label={s.label}
-                    title={
-                      s.url
-                        ? s.label
-                        : `Configure the official ${s.label} profile URL`
-                    }
-                    className={`flex h-10 min-w-10 items-center justify-center rounded-full border border-white/20 px-3 text-sm font-black ${s.url ? "text-white hover:border-[#C9A227] hover:text-[#F0C34E]" : "cursor-default text-white/45"}`}
-                  >
-                    {s.mark}
-                  </a>
-                ))}
-              </div>
+                Track an application
+              </Link>
             </div>
           </div>
-          <div className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-[0_18px_55px_rgba(15,27,61,.08)] sm:p-8">
-            <div className="mb-6">
-              <p className="text-[10px] font-black uppercase tracking-[.22em] text-[#9A7415]">
-                Send an enquiry
-              </p>
-              <h2 className="mt-2 text-2xl font-black tracking-tight">
-                How can we help you?
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-slate-500">
-                Your message goes to the Noble team through our existing enquiry
-                system.
-              </p>
-            </div>
-            <ContactQuickForm
-              primary={primary}
-              accent={accent}
-              slug={tenant.slug}
-            />
+          <div className="grid gap-3 sm:grid-cols-2 lg:w-[420px]">
+            <a
+              href={`tel:${phoneHref}`}
+              className="rounded-2xl border border-white/10 bg-white/[.05] p-5 transition hover:bg-white/[.09]"
+            >
+              <span className="text-[9px] font-black uppercase tracking-[.18em] text-white/40">
+                Call
+              </span>
+              <span className="mt-2 block text-sm font-black">
+                {contactPhone}
+              </span>
+            </a>
+            <a
+              href={`mailto:${contactEmail}`}
+              className="rounded-2xl border border-white/10 bg-white/[.05] p-5 transition hover:bg-white/[.09]"
+            >
+              <span className="text-[9px] font-black uppercase tracking-[.18em] text-white/40">
+                Email
+              </span>
+              <span className="mt-2 block break-all text-sm font-black">
+                {contactEmail}
+              </span>
+            </a>
           </div>
         </div>
       </section>

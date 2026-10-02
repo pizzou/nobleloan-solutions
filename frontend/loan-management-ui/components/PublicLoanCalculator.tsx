@@ -134,7 +134,7 @@ export default function PublicLoanCalculator({
             className="hidden h-12 w-12 shrink-0 items-center justify-center rounded-2xl sm:flex"
             style={{ backgroundColor: `${accent}18`, color: accent }}
           >
-            RWF
+            {currency}
           </div>
         </div>
       </div>
