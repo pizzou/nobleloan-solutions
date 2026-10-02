@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { FormEvent, useMemo, useState } from "react";
 import PublicLoanCalculator from "../../components/PublicLoanCalculator";
 import { publicApi } from "../../services/api";
@@ -217,11 +218,37 @@ export default function HomePage() {
   const tenant = useTenant() || SITE_CONTENT;
   const primary = tenant.primaryColor || "#0F1B3D";
   const accent = tenant.accentColor || "#C9A227";
-  const products = tenant.services || SITE_CONTENT.services;
-  const phoneHref = tenant.contactPhone?.replace(/[^+\d]/g, "");
-  const social = Object.entries(tenant.socialMedia || {}).filter(([, url]) =>
-    Boolean(url),
-  );
+  const products = tenant.services?.length
+    ? tenant.services
+    : SITE_CONTENT.services;
+  const contactPhone =
+    tenant.contactPhone || SITE_CONTENT.contactPhone || "+250 788 123 456";
+  const contactEmail =
+    tenant.contactEmail ||
+    SITE_CONTENT.contactEmail ||
+    "info@nobleloansolutions.rw";
+  const phoneHref = contactPhone.replace(/[^+\d]/g, "");
+  const social = [
+    {
+      key: "facebook",
+      label: "Facebook",
+      mark: "f",
+      url: tenant.socialMedia?.facebook,
+    },
+    { key: "twitter", label: "X", mark: "𝕏", url: tenant.socialMedia?.twitter },
+    {
+      key: "linkedin",
+      label: "LinkedIn",
+      mark: "in",
+      url: tenant.socialMedia?.linkedin,
+    },
+    {
+      key: "youtube",
+      label: "YouTube",
+      mark: "▶",
+      url: tenant.socialMedia?.youtube,
+    },
+  ];
   const highlights = useMemo(
     () => [
       {
@@ -253,13 +280,16 @@ export default function HomePage() {
       {/* HERO: photography, transparent overlays and the calculator share the first screen. */}
       <section className="relative isolate overflow-hidden bg-[#061326] text-white">
         <div className="absolute inset-0 -z-20">
-          <img
+          <Image
             src="/images/noble/hero-borrower.jpg"
             alt=""
-            className="h-full w-full object-cover object-center opacity-65"
+            fill
+            priority
+            sizes="100vw"
+            className="object-cover object-[62%_center] opacity-100"
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#041126] via-[#071a32]/90 to-[#071a32]/45" />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#061326] via-transparent to-[#061326]/10" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#041126]/95 via-[#071a32]/72 to-[#071a32]/12" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#061326]/65 via-transparent to-transparent" />
         </div>
         <div className="absolute -left-24 top-16 -z-10 h-72 w-72 rounded-full border border-[#C9A227]/20" />
         <div className="absolute -left-16 top-28 -z-10 h-52 w-52 rounded-full border border-[#C9A227]/15" />
@@ -273,13 +303,13 @@ export default function HomePage() {
               {tenant.tagline || "Your trusted lending partner"}
             </div>
             <h1 className="mt-6 text-[clamp(2.9rem,5.8vw,5.4rem)] font-black leading-[.97] tracking-[-.065em]">
-              Loans for your{" "}
+              Real support.{" "}
               <span className="block" style={{ color: accent }}>
-                next big step.
+                Bigger dreams.
               </span>
             </h1>
             <p className="mt-6 max-w-xl text-base leading-7 text-white/75 sm:text-lg sm:leading-8">
-              Flexible lending for personal needs, business growth, vehicles,
+              Flexible loans for personal needs, business growth, vehicles,
               salary advances and agriculture — with clear terms and support at
               every step.
             </p>
@@ -428,11 +458,12 @@ export default function HomePage() {
                 >
                   <Link href={route} className="block">
                     <div className="relative h-36 overflow-hidden bg-[#0F1B3D]">
-                      <img
+                      <Image
                         src={productImages[i]}
-                        alt=""
-                        loading="lazy"
-                        className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                        alt={`${p.title} loan product`}
+                        fill
+                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 20vw"
+                        className="object-cover transition duration-500 group-hover:scale-105"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-[#07172c]/45 to-transparent" />
                       <span className="absolute bottom-3 left-3 rounded-full border border-white/20 bg-[#07172c]/85 px-3 py-1 text-[9px] font-black uppercase tracking-wider text-white backdrop-blur">
@@ -487,25 +518,35 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* HOW IT WORKS */}
-      <section className="relative overflow-hidden bg-white py-16 sm:py-20">
-        <div className="absolute -right-24 top-0 h-80 w-80 rounded-full bg-[#C9A227]/[.06] blur-2xl" />
+      {/* HOW IT WORKS — image-backed process band keeps the long page visually rich. */}
+      <section className="relative isolate overflow-hidden bg-[#071a32] py-16 text-white sm:py-20">
+        <div className="absolute inset-0 -z-20">
+          <Image
+            src="/images/noble/rwanda-landscape.jpg"
+            alt=""
+            fill
+            sizes="100vw"
+            className="object-cover opacity-40"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#061326]/95 via-[#071a32]/85 to-[#071a32]/80" />
+        </div>
+        <div className="absolute -right-24 top-0 h-80 w-80 rounded-full bg-[#C9A227]/[.08] blur-2xl" />
         <div className="relative mx-auto max-w-7xl px-5 sm:px-8">
           <div className="grid gap-10 lg:grid-cols-[.72fr_1.28fr] lg:items-center">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[.24em] text-[#B58A18]">
                 How it works
               </p>
-              <h2 className="mt-3 text-3xl font-black leading-tight tracking-[-.05em] sm:text-4xl">
+              <h2 className="mt-3 text-3xl font-black leading-tight tracking-[-.05em] text-white sm:text-4xl">
                 A clear path from enquiry to repayment.
               </h2>
-              <p className="mt-4 text-sm leading-7 text-slate-600">
+              <p className="mt-4 text-sm leading-7 text-white/70">
                 Know what to expect at each stage, from choosing a product to
                 reviewing an offer and keeping up with repayments.
               </p>
               <Link
                 href="/how-it-works"
-                className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#0F1B3D] px-5 py-3.5 text-xs font-black text-white transition hover:bg-[#17315c]"
+                className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#C9A227] px-5 py-3.5 text-xs font-black text-[#0F1B3D] transition hover:bg-[#e1b941]"
               >
                 See the full process <Arrow />
               </Link>
@@ -535,7 +576,7 @@ export default function HomePage() {
               ].map((step, i) => (
                 <div
                   key={step.n}
-                  className="relative rounded-2xl border border-slate-200 bg-[#f8f9fb] p-6 transition hover:border-[#C9A227]/60 hover:bg-white"
+                  className="relative rounded-2xl border border-white/20 bg-white/[.96] p-6 text-[#0F1B3D] shadow-xl transition hover:-translate-y-1 hover:border-[#C9A227] hover:bg-white"
                 >
                   <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0F1B3D] text-sm font-black text-[#E6BE52]">
                     {step.n}
@@ -637,9 +678,19 @@ export default function HomePage() {
       {/* HOMEPAGE CONTACT FORM — sends to existing backend/dashboard message flow. */}
       <section
         id="contact"
-        className="relative overflow-hidden bg-white py-16 sm:py-20"
+        className="relative isolate overflow-hidden bg-[#061326] py-16 text-white sm:py-20"
       >
-        <div className="absolute left-0 top-0 h-72 w-72 rounded-full bg-[#C9A227]/[.07] blur-3xl" />
+        <div className="absolute inset-0 -z-20">
+          <Image
+            src="/images/noble/rwanda-landscape.jpg"
+            alt=""
+            fill
+            sizes="100vw"
+            className="object-cover opacity-30"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#061326]/95 via-[#071a32]/92 to-[#061326]/85" />
+        </div>
+        <div className="absolute left-0 top-0 h-72 w-72 rounded-full bg-[#C9A227]/[.08] blur-3xl" />
         <div className="relative mx-auto grid max-w-7xl gap-10 px-5 sm:px-8 lg:grid-cols-[.75fr_1.25fr]">
           <div className="pt-2">
             <p className="text-[10px] font-black uppercase tracking-[.24em] text-[#B58A18]">
@@ -648,13 +699,13 @@ export default function HomePage() {
             <h2 className="mt-3 text-3xl font-black leading-tight tracking-[-.05em] sm:text-4xl">
               A question about borrowing? We&apos;re here to help.
             </h2>
-            <p className="mt-5 max-w-lg text-sm leading-7 text-slate-600">
+            <p className="mt-5 max-w-lg text-sm leading-7 text-white/65">
               Send the team a message about loan products, eligibility,
               applications or repayments. Your enquiry is submitted through
               Noble&apos;s existing contact service for staff to review.
             </p>
             <div className="mt-7 space-y-3">
-              {tenant.contactPhone && (
+              {contactPhone && (
                 <a
                   href={`tel:${phoneHref}`}
                   className="flex items-center gap-3 rounded-xl border border-slate-200 bg-[#f8f9fb] p-4 transition hover:border-[#C9A227]/60"
@@ -667,14 +718,14 @@ export default function HomePage() {
                       Call us
                     </span>
                     <span className="mt-1 block text-sm font-black">
-                      {tenant.contactPhone}
+                      {contactPhone}
                     </span>
                   </span>
                 </a>
               )}
-              {tenant.contactEmail && (
+              {contactEmail && (
                 <a
-                  href={`mailto:${tenant.contactEmail}`}
+                  href={`mailto:${contactEmail}`}
                   className="flex items-center gap-3 rounded-xl border border-slate-200 bg-[#f8f9fb] p-4 transition hover:border-[#C9A227]/60"
                 >
                   <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0F1B3D] text-[#E6BE52]">
@@ -685,38 +736,48 @@ export default function HomePage() {
                       Email us
                     </span>
                     <span className="mt-1 block break-all text-sm font-black">
-                      {tenant.contactEmail}
+                      {contactEmail}
                     </span>
                   </span>
                 </a>
               )}
               {tenant.address && (
-                <p className="text-xs text-slate-500">⌖ {tenant.address}</p>
+                <p className="text-xs text-white/55">
+                  ⌖ {tenant.address || "Kigali, Rwanda"}
+                </p>
               )}
             </div>
-            {social.length > 0 && (
-              <div className="mt-6">
-                <p className="text-[10px] font-black uppercase tracking-[.18em] text-slate-400">
-                  Follow Noble
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {social.map(([name, url]) => (
+            <div className="mt-6">
+              <p className="text-[10px] font-black uppercase tracking-[.18em] text-white/45">
+                Follow Noble
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {social.map((item) =>
+                  item.url ? (
                     <a
-                      key={name}
-                      href={url || undefined}
+                      key={item.key}
+                      href={item.url}
                       target="_blank"
                       rel="noreferrer"
-                      aria-label={`Noble on ${name}`}
-                      className="flex h-10 items-center justify-center rounded-xl border border-slate-200 px-4 text-xs font-black text-[#0F1B3D] transition hover:border-[#C9A227] hover:bg-[#C9A227]/10"
+                      aria-label={`Noble on ${item.label}`}
+                      title={item.label}
+                      className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/20 bg-white/[.06] text-sm font-black text-white transition hover:border-[#C9A227] hover:bg-[#C9A227]/15"
                     >
-                      {name === "twitter"
-                        ? "X"
-                        : name.charAt(0).toUpperCase() + name.slice(1)}
+                      {item.mark}
                     </a>
-                  ))}
-                </div>
+                  ) : (
+                    <span
+                      key={item.key}
+                      aria-label={`${item.label} URL not configured`}
+                      title={`${item.label}: configure the official profile URL in the public site environment`}
+                      className="flex h-10 w-10 cursor-default items-center justify-center rounded-xl border border-white/10 bg-white/[.025] text-sm font-black text-white/40"
+                    >
+                      {item.mark}
+                    </span>
+                  ),
+                )}
               </div>
-            )}
+            </div>
           </div>
           <div className="rounded-[28px] border border-slate-200 bg-[#f8f9fb] p-5 shadow-[0_25px_75px_rgba(15,27,61,.08)] sm:p-8">
             <div className="flex flex-col justify-between gap-3 border-b border-slate-200 pb-5 sm:flex-row sm:items-end">

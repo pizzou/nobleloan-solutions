@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { ToastContainer } from "../../components/ui/ToastContainer";
 import { SITE_CONTENT, type TenantConfig } from "../../lib/siteContent";
@@ -17,9 +18,12 @@ function Brand({
   compact?: boolean;
 }) {
   return (
-    <img
+    <Image
       src={tenant.logoUrl || "/noble-loan-solutions-logo.svg"}
       alt={`${tenant.name} logo`}
+      width={270}
+      height={110}
+      priority
       className={
         compact
           ? "h-9 w-auto max-w-[210px] object-contain"
@@ -122,6 +126,33 @@ export default function SiteLayout({
 
   const primary = tenant.primaryColor || "#0F1B3D";
   const accent = tenant.accentColor || "#C9A227";
+  const contactPhone =
+    tenant.contactPhone || SITE_CONTENT.contactPhone || "+250 788 123 456";
+  const contactEmail =
+    tenant.contactEmail ||
+    SITE_CONTENT.contactEmail ||
+    "info@nobleloansolutions.rw";
+  const socialItems = [
+    {
+      key: "facebook",
+      label: "Facebook",
+      mark: "f",
+      url: tenant.socialMedia?.facebook,
+    },
+    { key: "twitter", label: "X", mark: "𝕏", url: tenant.socialMedia?.twitter },
+    {
+      key: "linkedin",
+      label: "LinkedIn",
+      mark: "in",
+      url: tenant.socialMedia?.linkedin,
+    },
+    {
+      key: "youtube",
+      label: "YouTube",
+      mark: "▶",
+      url: tenant.socialMedia?.youtube,
+    },
+  ];
 
   return (
     <TenantCtx.Provider value={tenant}>
@@ -139,22 +170,49 @@ export default function SiteLayout({
           <div className="mx-auto flex min-h-9 max-w-7xl flex-wrap items-center justify-between gap-x-6 gap-y-1 px-5 py-2 text-[10px] font-semibold sm:px-8">
             <span className="text-white/55">{tenant.tagline}</span>
             <div className="flex flex-wrap items-center gap-4 text-white/55">
-              {tenant.contactPhone && (
-                <a
-                  href={`tel:${tenant.contactPhone.replace(/\s+/g, "")}`}
-                  className="hover:text-white"
-                >
-                  {tenant.contactPhone}
-                </a>
-              )}
-              {tenant.contactEmail && (
-                <a
-                  href={`mailto:${tenant.contactEmail}`}
-                  className="hover:text-white"
-                >
-                  {tenant.contactEmail}
-                </a>
-              )}
+              <a
+                href={`tel:${contactPhone.replace(/\s+/g, "")}`}
+                className="inline-flex items-center gap-2 hover:text-white"
+              >
+                <span className="text-[#C9A227]">☎</span>
+                {contactPhone}
+              </a>
+              <a
+                href={`mailto:${contactEmail}`}
+                className="inline-flex items-center gap-2 hover:text-white"
+              >
+                <span className="text-[#C9A227]">✉</span>
+                {contactEmail}
+              </a>
+              <div
+                className="hidden items-center gap-1.5 md:flex"
+                aria-label="Noble social media"
+              >
+                {socialItems.map((item) =>
+                  item.url ? (
+                    <a
+                      key={item.key}
+                      href={item.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={item.label}
+                      aria-label={`Noble on ${item.label}`}
+                      className="flex h-6 min-w-6 items-center justify-center rounded-md px-1.5 text-[11px] font-black text-white/75 hover:bg-white/10 hover:text-[#E6BE52]"
+                    >
+                      {item.mark}
+                    </a>
+                  ) : (
+                    <span
+                      key={item.key}
+                      title={`${item.label} profile URL can be configured for this site`}
+                      aria-label={`${item.label} profile not configured`}
+                      className="flex h-6 min-w-6 items-center justify-center rounded-md px-1.5 text-[11px] font-black text-white/45"
+                    >
+                      {item.mark}
+                    </span>
+                  ),
+                )}
+              </div>
               <span className="hidden items-center gap-2 sm:flex text-white/65">
                 <Shield /> Secure digital lending{" "}
                 <span className="text-white/20">•</span> {tenant.country}
@@ -289,44 +347,48 @@ export default function SiteLayout({
                 </p>
                 <div className="mt-6 space-y-2 text-xs text-white/45">
                   {tenant.address && <div>{tenant.address}</div>}
-                  {tenant.contactPhone && (
-                    <a
-                      href={`tel:${tenant.contactPhone.replace(/\s+/g, "")}`}
-                      className="block hover:text-white"
-                    >
-                      {tenant.contactPhone}
-                    </a>
-                  )}
-                  {tenant.contactEmail && (
-                    <a
-                      href={`mailto:${tenant.contactEmail}`}
-                      className="block hover:text-white"
-                    >
-                      {tenant.contactEmail}
-                    </a>
+                  <a
+                    href={`tel:${contactPhone.replace(/\s+/g, "")}`}
+                    className="block hover:text-white"
+                  >
+                    {contactPhone}
+                  </a>
+                  <a
+                    href={`mailto:${contactEmail}`}
+                    className="block hover:text-white"
+                  >
+                    {contactEmail}
+                  </a>
+                </div>
+                <div
+                  className="mt-6 flex flex-wrap gap-2"
+                  aria-label="Noble social media links"
+                >
+                  {socialItems.map((item) =>
+                    item.url ? (
+                      <a
+                        key={item.key}
+                        href={item.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label={`Noble on ${item.label}`}
+                        title={item.label}
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[.04] text-xs font-black text-white/70 transition hover:border-[#C9A227] hover:text-[#E6BE52]"
+                      >
+                        {item.mark}
+                      </a>
+                    ) : (
+                      <span
+                        key={item.key}
+                        aria-label={`${item.label} profile not configured`}
+                        title={`${item.label} profile URL can be configured for this site`}
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[.025] text-xs font-black text-white/40"
+                      >
+                        {item.mark}
+                      </span>
+                    ),
                   )}
                 </div>
-                {tenant.socialMedia &&
-                  Object.values(tenant.socialMedia).some(Boolean) && (
-                    <div className="mt-6 flex flex-wrap gap-2">
-                      {Object.entries(tenant.socialMedia)
-                        .filter(([, url]) => Boolean(url))
-                        .map(([name, url]) => (
-                          <a
-                            key={name}
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            aria-label={`Noble ${name}`}
-                            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[.04] text-[10px] font-black text-white/60 transition hover:border-white/25 hover:text-white"
-                          >
-                            {name === "twitter"
-                              ? "X"
-                              : name.slice(0, 1).toUpperCase()}
-                          </a>
-                        ))}
-                    </div>
-                  )}
               </div>
               <div>
                 <h2 className="text-[10px] font-black uppercase tracking-[.2em] text-[#C9A227]">

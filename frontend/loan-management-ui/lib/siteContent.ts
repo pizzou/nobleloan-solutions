@@ -22,6 +22,7 @@ export interface TenantConfig {
     linkedin?: string;
     twitter?: string;
     whatsapp?: string;
+    youtube?: string;
   };
 
   mapUrl?: string;
@@ -186,16 +187,22 @@ export const SITE_CONTENT: TenantConfig = {
     "/noble-loan-solutions-logo.svg",
   ),
 
-  contactEmail: value(process.env.NEXT_PUBLIC_SITE_CONTACT_EMAIL, ""),
+  contactEmail: value(
+    process.env.NEXT_PUBLIC_SITE_CONTACT_EMAIL,
+    "info@nobleloansolutions.rw",
+  ),
 
-  contactPhone: value(process.env.NEXT_PUBLIC_SITE_CONTACT_PHONE, ""),
+  contactPhone: value(
+    process.env.NEXT_PUBLIC_SITE_CONTACT_PHONE,
+    "+250 788 123 456",
+  ),
 
   website: value(
     process.env.NEXT_PUBLIC_SITE_WEBSITE,
     "https://nobleloan-solutions.vercel.app",
   ),
 
-  address: value(process.env.NEXT_PUBLIC_SITE_ADDRESS, ""),
+  address: value(process.env.NEXT_PUBLIC_SITE_ADDRESS, "Kigali, Rwanda"),
 
   registrationNumber: value(
     process.env.NEXT_PUBLIC_SITE_REGISTRATION_NUMBER,
@@ -211,10 +218,10 @@ export const SITE_CONTENT: TenantConfig = {
     "To be Rwanda's most trusted name in lending — synonymous with fairness, transparency, and financial dignity for every client we serve.",
 
   hero: {
-    headline: "Simple financing for the moments that matter.",
+    headline: "Real support. Bigger dreams.",
 
     subtext:
-      "Explore lending solutions designed for individuals and businesses, with a straightforward digital application and clear next steps.",
+      "Flexible loans for personal needs, business growth, vehicles, salary advances and agriculture—with clear terms and support at every step.",
   },
 
   founded: value(process.env.NEXT_PUBLIC_SITE_FOUNDED_YEAR, ""),
@@ -229,6 +236,7 @@ export const SITE_CONTENT: TenantConfig = {
     twitter: value(process.env.NEXT_PUBLIC_SITE_TWITTER_URL, ""),
 
     whatsapp: value(process.env.NEXT_PUBLIC_SITE_WHATSAPP_URL, ""),
+    youtube: value(process.env.NEXT_PUBLIC_SITE_YOUTUBE_URL, ""),
   },
 
   mapUrl: value(process.env.NEXT_PUBLIC_SITE_MAP_URL, ""),
