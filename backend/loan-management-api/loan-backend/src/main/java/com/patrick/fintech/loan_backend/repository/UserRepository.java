@@ -59,11 +59,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @EntityGraph(attributePaths = {"role", "organization", "branch"})
     Optional<User> findByEmailIgnoreCase(String email);
 
-    /** Minimal authentication lookup: role and organization are required by the security boundary; branch is not. */
-    @EntityGraph(attributePaths = {"role", "organization"})
-    @Query("select u from User u where lower(u.email) = lower(:email)")
-    Optional<User> findSecurityUserByEmailIgnoreCase(@Param("email") String email);
-
 
     /**
      * Atomically consumes a valid login OTP. This avoids holding a pessimistic

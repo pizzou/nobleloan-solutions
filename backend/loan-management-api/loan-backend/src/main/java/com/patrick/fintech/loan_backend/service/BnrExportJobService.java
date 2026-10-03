@@ -34,7 +34,7 @@ public class BnrExportJobService {
 
     private final BnrTemplateExportService exportService;
 
-    @Value("${app.report.staging-dir:${java.io.tmpdir}/loansaas-reports}")
+    @Value("${app.import.staging-dir:${java.io.tmpdir}/loansaas-imports}")
     private String stagingDir;
 
     private final Map<String, Job> jobs = new ConcurrentHashMap<>();
@@ -74,7 +74,7 @@ public class BnrExportJobService {
         return jobId == null ? null : jobs.get(jobId);
     }
 
-    @Async("reportAsyncExecutor")
+    @Async("loansaasAsyncExecutor")
     public void process(String jobId) {
         Job job = jobs.get(jobId);
         if (job == null) {
@@ -102,14 +102,14 @@ public class BnrExportJobService {
                 throw new IllegalStateException("Invalid BNR export path.");
             }
 
+            byte[] bytes;
             ReportingScopeService.Scope exportScope = job.includeBusinessOwnerOnly
                     ? ReportingScopeService.Scope.BUSINESS_OWNER
                     : ReportingScopeService.Scope.NORMAL;
 
             try (ReportingScopeService.ScopeContext ignored =
                     ReportingScopeService.useScope(exportScope)) {
-                exportService.exportToFile(
-                        temporary,
+                bytes = exportService.export(
                         job.organizationId,
                         job.branchId,
                         job.period,
@@ -117,9 +117,16 @@ public class BnrExportJobService {
                         job.to);
             }
 
-            if (!Files.isRegularFile(temporary) || Files.size(temporary) == 0) {
+            if (bytes == null || bytes.length == 0) {
                 throw new IllegalStateException("BNR export produced an empty workbook.");
             }
+
+            Files.write(
+                    temporary,
+                    bytes,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE);
 
             // Never expose a partially written XLSX to the download endpoint.
             try {
@@ -131,7 +138,7 @@ public class BnrExportJobService {
             }
 
             job.path = output.toString();
-            job.size = Files.size(output);
+            job.size = bytes.length;
             job.status = Status.COMPLETED;
             job.completedAt = Instant.now();
 

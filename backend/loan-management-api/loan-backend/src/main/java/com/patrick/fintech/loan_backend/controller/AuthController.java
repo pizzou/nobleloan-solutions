@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.ResponseCookie;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.authentication.*;
 import org.springframework.security.core.Authentication;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -26,6 +27,7 @@ import java.util.Map;
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {
+    private final AuthenticationManager authenticationManager;
     private final AuthService authService;
     private final JwtUtils jwtUtils;
     private final UserRepository userRepository;
@@ -87,7 +89,7 @@ public class AuthController {
         }
 
         String email = req.getEmail().trim().toLowerCase();
-        User user = userRepository.findSecurityUserByEmailIgnoreCase(email).orElse(null);
+        User user = userRepository.findByEmailIgnoreCase(email).orElse(null);
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
 
         if (user != null && user.getLockedUntil() != null && user.getLockedUntil().isAfter(now)) {
@@ -99,25 +101,10 @@ public class AuthController {
                     "Account locked due to repeated failed logins. Try again in " + minutesLeft + " minute(s).");
         }
 
-        /*
-         * The login endpoint already loaded the authoritative User with role,
-         * organization and branch in one EntityGraph query. Calling the
-         * AuthenticationManager here would make Spring Security load the same
-         * user a second time. PasswordEncoder.matches preserves the same password
-         * verification rule while eliminating that duplicate round-trip.
-         *
-         * Locked-account handling, active-status checks, failed-attempt counting,
-         * MFA/OTP flow and audit events remain unchanged.
-         */
-        final String DUMMY_PASSWORD_HASH =
-                "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
-        boolean passwordValid = passwordEncoder.matches(
-                req.getPassword(),
-                user == null || user.getPassword() == null
-                        ? DUMMY_PASSWORD_HASH
-                        : user.getPassword());
-
-        if (user == null || user.getStatus() != User.UserStatus.ACTIVE || !passwordValid) {
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(email, req.getPassword()));
+        } catch (Exception e) {
             if (user != null) {
                 int attempts = (user.getFailedLoginAttempts() == null ? 0 : user.getFailedLoginAttempts()) + 1;
                 user.setFailedLoginAttempts(attempts);
@@ -138,6 +125,9 @@ public class AuthController {
             }
             throw new RuntimeException("Invalid email or password");
         }
+
+        // AuthenticationManager already validated this exact account. Reuse the
+        // user loaded before authentication instead of issuing a third user lookup.
 
         // Successful password check — reset the failure counter and any lock.
         if ((user.getFailedLoginAttempts() != null && user.getFailedLoginAttempts() > 0)
@@ -215,7 +205,7 @@ public class AuthController {
             }
             email = jwtUtils.getEmailFromToken(req.getOtpChallengeToken());
             long tokenVersion = jwtUtils.getTokenVersion(req.getOtpChallengeToken());
-            User user = userRepository.findSecurityUserByEmailIgnoreCase(email)
+            User user = userRepository.findByEmailIgnoreCase(email)
                     .orElseThrow(() -> new RuntimeException("User account not found"));
             long currentVersion = user.getTokenVersion() == null ? 0L : user.getTokenVersion();
             if (tokenVersion != currentVersion || !isEmailOtpRole(user)) {

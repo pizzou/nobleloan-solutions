@@ -41,27 +41,11 @@ public class AsyncConfig {
         }
 
         /**
-         * Heavy regulatory report executor.  Reports are intentionally isolated
-         * from login, API, import and mail work.  A single worker prevents two
-         * large POI workbooks from exhausting a small Render instance at once.
-         */
-        @Bean(name = "reportAsyncExecutor")
-        public Executor reportAsyncExecutor() {
-                ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-                executor.setCorePoolSize(1);
-                executor.setMaxPoolSize(1);
-                executor.setQueueCapacity(2);
-                executor.setThreadNamePrefix("loansaas-report-");
-                executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
-                executor.setWaitForTasksToCompleteOnShutdown(true);
-                executor.setAwaitTerminationSeconds(120);
-                executor.setAllowCoreThreadTimeOut(false);
-                executor.initialize();
-                return executor;
-        }
-
-        /**
          * Dedicated executor for external email delivery.
+         *
+         * Login OTP delivery must never wait behind legacy-import, reconciliation,
+         * or audit tasks. A small bounded pool is sufficient because each task is
+         * an outbound HTTPS request and MailService has its own network timeout.
          */
         @Bean(name = "mailAsyncExecutor")
         public Executor mailAsyncExecutor() {

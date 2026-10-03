@@ -631,34 +631,16 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     @Query("""
             SELECT
                 COUNT(l),
-                SUM(CASE WHEN l.status = 'PENDING' THEN 1 ELSE 0 END),
-                SUM(CASE WHEN l.status = 'ACTIVE' THEN 1 ELSE 0 END),
-                SUM(CASE WHEN l.status = 'PAID' THEN 1 ELSE 0 END),
-                SUM(CASE WHEN l.status = 'DEFAULTED' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN l.status IN ('PENDING', 'UNDER_REVIEW') THEN 1 ELSE 0 END),
+                SUM(CASE WHEN l.status IN ('ACTIVE', 'DISBURSED', 'OVERDUE', 'RESTRUCTURED') THEN 1 ELSE 0 END),
+                SUM(CASE WHEN l.status IN ('PAID', 'CLOSED') THEN 1 ELSE 0 END),
+                SUM(CASE WHEN l.status IN ('DEFAULTED', 'WRITTEN_OFF') THEN 1 ELSE 0 END),
                 COALESCE(SUM(CASE WHEN (l.imported = false OR l.imported IS NULL) AND l.disbursedAmount IS NOT NULL
                                    THEN l.disbursedAmount ELSE 0 END), 0),
-                COALESCE(SUM(CASE
-                    WHEN COALESCE(l.outstandingBalance, 0) > 0
-                     AND l.status IN ('ACTIVE', 'DISBURSED', 'OVERDUE', 'DEFAULTED', 'RESTRUCTURED')
-                     AND (
-                          l.imported = true
-                          OR l.importBatchId IS NOT NULL
-                          OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
-                          OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
-                          OR l.disbursedAt IS NOT NULL
-                     )
-                    THEN l.outstandingBalance ELSE 0 END), 0),
-                COALESCE(SUM(CASE
-                    WHEN COALESCE(l.outstandingBalance, 0) > 0
-                     AND l.status IN ('OVERDUE', 'DEFAULTED', 'RESTRUCTURED')
-                     AND (
-                          l.imported = true
-                          OR l.importBatchId IS NOT NULL
-                          OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
-                          OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
-                          OR l.disbursedAt IS NOT NULL
-                     )
-                    THEN l.outstandingBalance ELSE 0 END), 0)
+                COALESCE(SUM(CASE WHEN l.outstandingBalance > 0 THEN l.outstandingBalance ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN l.outstandingBalance > 0 AND l.daysOverdue > 0
+                                   THEN l.outstandingBalance ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN l.outstandingBalance > 0 AND l.daysOverdue > 0 THEN 1 ELSE 0 END), 0)
             FROM Loan l
             WHERE l.organization.id = :organizationId
               AND (
@@ -668,106 +650,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
               )
             """)
     Object[] getVisibleDashboardLoanAggregate(
-            @Param("organizationId") Long organizationId,
-            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-    /**
-     * Dashboard-only recent loan slice.  Unlike Page, this returns no count
-     * query; the dashboard needs the eight rows, not the total portfolio size.
-     */
-    @EntityGraph(attributePaths = {"borrower", "organization", "branch", "loanOfficer"})
-    @Query("""
-            SELECT l
-            FROM Loan l
-            WHERE l.organization.id = :organizationId
-              AND (
-                    :includeBusinessOwnerOnly = true
-                    OR COALESCE(l.businessOwnerOnly, false) = false
-                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
-              )
-            ORDER BY l.createdAt DESC
-            """)
-    List<Loan> findVisibleRecentLoans(
-            @Param("organizationId") Long organizationId,
-            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly,
-            org.springframework.data.domain.Pageable pageable);
-
-    /** Current application fees, excluding legacy/imported loans exactly as the dashboard rule defines them. */
-    @Query("""
-            SELECT COALESCE(SUM(l.applicationFeePaid), 0)
-            FROM Loan l
-            WHERE l.organization.id = :organizationId
-              AND COALESCE(l.disbursedAmount, 0) > 0
-              AND (
-                    :includeBusinessOwnerOnly = true
-                    OR COALESCE(l.businessOwnerOnly, false) = false
-              )
-              AND (l.imported = false OR l.imported IS NULL)
-              AND l.importBatchId IS NULL
-              AND LOWER(COALESCE(l.internalNotes, '')) NOT LIKE '%imported from legacy ledger%'
-              AND LOWER(COALESCE(l.notes, '')) NOT LIKE '%imported from noble loan historical portfolio workbook%'
-            """)
-    BigDecimal sumCurrentApplicationFeesCollected(
-            @Param("organizationId") Long organizationId,
-            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-    /** Dashboard receivable charges: interest outstanding and unpaid contractual fees. */
-    @Query("""
-            SELECT
-                COALESCE(SUM(CASE
-                    WHEN COALESCE(l.outstandingBalance, 0) > 0
-                     AND l.status IN ('ACTIVE', 'DISBURSED', 'OVERDUE', 'DEFAULTED', 'RESTRUCTURED')
-                     AND (
-                          :includeBusinessOwnerOnly = true
-                          OR COALESCE(l.businessOwnerOnly, false) = false
-                     )
-                    THEN CASE WHEN COALESCE(l.interestOutstanding, 0) > 0
-                             THEN l.interestOutstanding ELSE 0 END
-                    ELSE 0 END), 0),
-                COALESCE(SUM(CASE
-                    WHEN COALESCE(l.outstandingBalance, 0) > 0
-                     AND l.status IN ('ACTIVE', 'DISBURSED', 'OVERDUE', 'DEFAULTED', 'RESTRUCTURED')
-                     AND (
-                          :includeBusinessOwnerOnly = true
-                          OR COALESCE(l.businessOwnerOnly, false) = false
-                     )
-                    THEN (CASE WHEN COALESCE(l.managementFeeOutstanding, 0) > 0
-                              THEN l.managementFeeOutstanding ELSE 0 END)
-                       + (CASE WHEN COALESCE(l.extensionFeeOutstanding, 0) > 0
-                              THEN l.extensionFeeOutstanding ELSE 0 END)
-                       + (CASE WHEN COALESCE(l.penaltiesAssessed, 0) - COALESCE(l.penaltiesPaid, 0) > 0
-                              THEN COALESCE(l.penaltiesAssessed, 0) - COALESCE(l.penaltiesPaid, 0) ELSE 0 END)
-                       + (CASE WHEN COALESCE(l.applicationFee, 0) - COALESCE(l.applicationFeePaid, 0) > 0
-                              THEN COALESCE(l.applicationFee, 0) - COALESCE(l.applicationFeePaid, 0) ELSE 0 END)
-                    ELSE 0 END), 0)
-            FROM Loan l
-            WHERE l.organization.id = :organizationId
-            """)
-    Object[] getVisibleDashboardReceivableAggregate(
-            @Param("organizationId") Long organizationId,
-            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
-
-    /** Historical imported collection components used by the dashboard KPI. */
-    @Query("""
-            SELECT
-                COALESCE(SUM(COALESCE(l.principalPaid, 0)), 0),
-                COALESCE(SUM(COALESCE(l.interestPaid, 0)), 0),
-                COALESCE(SUM(COALESCE(l.managementFeePaid, 0)), 0),
-                COALESCE(SUM(COALESCE(l.extensionFeePaid, 0)), 0),
-                COALESCE(SUM(COALESCE(l.penaltiesPaid, 0)), 0),
-                COALESCE(SUM(COALESCE(l.applicationFeePaid, 0)), 0)
-            FROM Loan l
-            WHERE l.organization.id = :organizationId
-              AND (
-                    :includeBusinessOwnerOnly = true
-                    OR COALESCE(l.businessOwnerOnly, false) = false
-              )
-              AND (l.imported = true
-                   OR l.importBatchId IS NOT NULL
-                   OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
-                   OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%')
-            """)
-    Object[] getDashboardLegacyCollectionAggregate(
             @Param("organizationId") Long organizationId,
             @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
@@ -1235,36 +1117,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             @Param("branchId") Long branchId,
             @Param("asOf") LocalDateTime asOf);
 
-
-    /**
-     * CRB export loan slice without the payment collection fetch. Payments are
-     * loaded in one batched query by CreditBureauRegulatoryExportService.
-     */
-    @EntityGraph(attributePaths = {"borrower", "organization", "branch"})
-    @Query("""
-            SELECT l
-            FROM Loan l
-            WHERE l.organization.id = :orgId
-              AND (:branchId IS NULL OR l.branch.id = :branchId)
-              AND l.status <> 'CANCELLED'
-              AND (
-                    :includeBusinessOwnerOnly = true
-                    OR COALESCE(l.businessOwnerOnly, false) = false
-              )
-              AND (
-                  l.imported = true
-                  OR l.importBatchId IS NOT NULL
-                  OR LOWER(COALESCE(l.internalNotes, '')) LIKE '%imported from legacy ledger%'
-                  OR LOWER(COALESCE(l.notes, '')) LIKE '%imported from noble loan historical portfolio workbook%'
-                  OR (l.disbursedAt IS NOT NULL AND l.disbursedAt < :asOf)
-              )
-            ORDER BY l.disbursedAt ASC
-            """)
-    List<Loan> findVisiblePortfolioAsOfForCreditBureauExport(
-            @Param("orgId") Long orgId,
-            @Param("branchId") Long branchId,
-            @Param("asOf") LocalDateTime asOf,
-            @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
     @EntityGraph(attributePaths = {"borrower", "organization", "branch", "payments"})
     @Query("""

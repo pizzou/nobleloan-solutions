@@ -21,15 +21,11 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
-import java.io.OutputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -312,57 +308,6 @@ public class CreditBureauRegulatoryExportService {
             LocalDate from,
             LocalDate to) {
 
-        try (ByteArrayOutputStream output = new ByteArrayOutputStream(128 * 1024)) {
-            writeExport(output, organizationId, branchId, borrowerId, from, to);
-            return output.toByteArray();
-        } catch (IOException e) {
-            throw new IllegalStateException("Unable to generate CRB regulatory Excel workbook", e);
-        }
-    }
-
-    /**
-     * Generates the same regulatory workbook directly to disk.  Report jobs use
-     * this method so the completed XLSX is not duplicated as a second large byte[]
-     * on the Render heap.
-     */
-    public long exportToFile(
-            Path outputFile,
-            Long organizationId,
-            Long branchId,
-            Long borrowerId,
-            LocalDate from,
-            LocalDate to) {
-
-        if (outputFile == null) {
-            throw new IllegalArgumentException("outputFile is required");
-        }
-
-        try {
-            Path parent = outputFile.toAbsolutePath().normalize().getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-            try (OutputStream output = Files.newOutputStream(
-                    outputFile,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING,
-                    StandardOpenOption.WRITE)) {
-                writeExport(output, organizationId, branchId, borrowerId, from, to);
-            }
-            return Files.size(outputFile);
-        } catch (IOException e) {
-            throw new IllegalStateException("Unable to generate CRB regulatory Excel workbook", e);
-        }
-    }
-
-    private void writeExport(
-            OutputStream output,
-            Long organizationId,
-            Long branchId,
-            Long borrowerId,
-            LocalDate from,
-            LocalDate to) throws IOException {
-
         if (organizationId == null || organizationId <= 0) {
             throw new IllegalArgumentException("organizationId is required");
         }
@@ -372,12 +317,22 @@ public class CreditBureauRegulatoryExportService {
         }
 
         LocalDate reportDate = to != null ? to : LocalDate.now();
-        List<Loan> loans = loadLoans(organizationId, branchId, borrowerId, from, to, reportDate);
 
-        SXSSFWorkbook workbook = new SXSSFWorkbook(200);
-        workbook.setCompressTempFiles(true);
+        List<Loan> loans = loadLoans(
+                organizationId,
+                branchId,
+                borrowerId,
+                from,
+                to,
+                reportDate
+        );
 
-        try {
+        try (
+                XSSFWorkbook workbook = new XSSFWorkbook();
+                ByteArrayOutputStream output =
+                        new ByteArrayOutputStream(128 * 1024)
+        ) {
+
             Styles styles = new Styles(workbook);
 
             Sheet consumer = workbook.createSheet("Consumer");
@@ -396,101 +351,162 @@ public class CreditBureauRegulatoryExportService {
             createHeader(collateral, COLLATERAL_HEADERS, styles);
             createHeader(bounced, BOUNCED_CHEQUE_HEADERS, styles);
 
-            // The source loan query already belongs to one tenant. Fetch all child
-            // rows in bounded batches instead of issuing 2-3 SQL statements per loan.
-            Map<Long, List<Payment>> paymentCache = loadPaymentsByLoan(loans);
-            Map<Long, List<Guarantor>> guarantorCache = loadGuarantorsByLoan(loans, organizationId);
-            Map<Long, List<Collateral>> collateralCache = loadCollateralsByLoan(loans, organizationId);
+            /*
+             * The supplied workbook is a seven-sheet submission structure.
+             *
+             * Noble Loan currently has individual Borrower records and does not
+             * have separate corporate/shareholder/director/bounced-cheque entities.
+             *
+             * Those sheets therefore remain structurally present but contain no
+             * fabricated rows.
+             */
+            Map<Long, List<Payment>> paymentCache = new HashMap<>();
+            Map<Long, List<Guarantor>> guarantorCache = new HashMap<>();
+            Map<Long, List<Collateral>> collateralCache = new HashMap<>();
 
             int consumerRow = 1;
             int guarantorRow = 1;
             int collateralRow = 1;
 
             for (Loan loan : loans) {
+
                 if (loan == null || loan.getBorrower() == null) {
                     continue;
                 }
 
                 Borrower borrower = loan.getBorrower();
-                List<Payment> payments = paymentCache.getOrDefault(loan.getId(), Collections.emptyList());
 
-                writeConsumerRow(consumer.createRow(consumerRow++), loan, borrower, payments, reportDate, styles);
+                List<Payment> payments = paymentCache.computeIfAbsent(
+                        loan.getId(),
+                        id -> safePayments(id, loan)
+                );
 
-                for (Guarantor guarantor : guarantorCache.getOrDefault(loan.getId(), Collections.emptyList())) {
-                    if (guarantor != null) {
-                        writeGuarantorRow(guarantors.createRow(guarantorRow++), loan, guarantor, styles);
+                writeConsumerRow(
+                        consumer.createRow(consumerRow++),
+                        loan,
+                        borrower,
+                        payments,
+                        reportDate,
+                        styles
+                );
+
+                /*
+                 * IMPORTANT:
+                 * The organizationId is explicitly passed into the helper.
+                 *
+                 * This matches:
+                 * GuarantorRepository.findByLoan_IdAndOrganization_Id(...)
+                 *
+                 * and prevents cross-tenant child-record access.
+                 */
+                List<Guarantor> guarantorsForLoan =
+                        guarantorCache.computeIfAbsent(
+                                loan.getId(),
+                                id -> safeGuarantors(id, organizationId)
+                        );
+
+                for (Guarantor guarantor : guarantorsForLoan) {
+
+                    if (guarantor == null) {
+                        continue;
                     }
+
+                    writeGuarantorRow(
+                            guarantors.createRow(guarantorRow++),
+                            loan,
+                            guarantor,
+                            styles
+                    );
                 }
 
-                List<Collateral> collateralsForLoan = collateralCache.getOrDefault(
-                        loan.getId(), Collections.emptyList());
-                if (collateralsForLoan.isEmpty() && hasLoanCollateral(loan)) {
-                    writeLoanCollateralFallback(collateral.createRow(collateralRow++), loan, styles);
+                /*
+                 * IMPORTANT:
+                 * The organizationId is explicitly passed into the helper.
+                 *
+                 * This matches:
+                 * CollateralRepository.findByLoan_IdAndOrganization_Id(...)
+                 *
+                 * and prevents cross-tenant child-record access.
+                 */
+                List<Collateral> collateralsForLoan =
+                        collateralCache.computeIfAbsent(
+                                loan.getId(),
+                                id -> safeCollaterals(id, organizationId)
+                        );
+
+                if (collateralsForLoan.isEmpty()
+                        && hasLoanCollateral(loan)) {
+
+                    writeLoanCollateralFallback(
+                            collateral.createRow(collateralRow++),
+                            loan,
+                            styles
+                    );
+
                 } else {
+
                     for (Collateral item : collateralsForLoan) {
-                        if (item != null) {
-                            writeCollateralRow(collateral.createRow(collateralRow++), loan, item, styles);
+
+                        if (item == null) {
+                            continue;
                         }
+
+                        writeCollateralRow(
+                                collateral.createRow(collateralRow++),
+                                loan,
+                                item,
+                                styles
+                        );
                     }
                 }
             }
 
-            finishSheet(consumer, CONSUMER_HEADERS.length);
-            finishSheet(corporate, CORPORATE_HEADERS.length);
-            finishSheet(shareholders, SHAREHOLDER_HEADERS.length);
-            finishSheet(directors, DIRECTOR_HEADERS.length);
-            finishSheet(guarantors, GUARANTOR_HEADERS.length);
-            finishSheet(collateral, COLLATERAL_HEADERS.length);
-            finishSheet(bounced, BOUNCED_CHEQUE_HEADERS.length);
+            finishSheet(
+                    consumer,
+                    CONSUMER_HEADERS.length
+            );
+
+            finishSheet(
+                    corporate,
+                    CORPORATE_HEADERS.length
+            );
+
+            finishSheet(
+                    shareholders,
+                    SHAREHOLDER_HEADERS.length
+            );
+
+            finishSheet(
+                    directors,
+                    DIRECTOR_HEADERS.length
+            );
+
+            finishSheet(
+                    guarantors,
+                    GUARANTOR_HEADERS.length
+            );
+
+            finishSheet(
+                    collateral,
+                    COLLATERAL_HEADERS.length
+            );
+
+            finishSheet(
+                    bounced,
+                    BOUNCED_CHEQUE_HEADERS.length
+            );
 
             workbook.write(output);
-            output.flush();
-        } finally {
-            workbook.dispose();
-            try { workbook.close(); } catch (IOException ignored) { }
-        }
-    }
 
-    private Map<Long, List<Payment>> loadPaymentsByLoan(List<Loan> loans) {
-        Map<Long, List<Payment>> result = new HashMap<>();
-        List<Long> ids = loans.stream().map(Loan::getId).filter(java.util.Objects::nonNull).toList();
-        for (int start = 0; start < ids.size(); start += 500) {
-            List<Long> batch = ids.subList(start, Math.min(start + 500, ids.size()));
-            for (Payment payment : paymentRepository.findByLoanIdInOrderByLoanIdAscDueDateAsc(batch)) {
-                if (payment != null && payment.getLoan() != null && payment.getLoan().getId() != null) {
-                    result.computeIfAbsent(payment.getLoan().getId(), ignored -> new ArrayList<>()).add(payment);
-                }
-            }
-        }
-        return result;
-    }
+            return output.toByteArray();
 
-    private Map<Long, List<Guarantor>> loadGuarantorsByLoan(List<Loan> loans, Long organizationId) {
-        Map<Long, List<Guarantor>> result = new HashMap<>();
-        List<Long> ids = loans.stream().map(Loan::getId).filter(java.util.Objects::nonNull).toList();
-        for (int start = 0; start < ids.size(); start += 500) {
-            List<Long> batch = ids.subList(start, Math.min(start + 500, ids.size()));
-            for (Guarantor item : guarantorRepository.findByLoanIdsAndOrganizationId(batch, organizationId)) {
-                if (item != null && item.getLoan() != null && item.getLoan().getId() != null) {
-                    result.computeIfAbsent(item.getLoan().getId(), ignored -> new ArrayList<>()).add(item);
-                }
-            }
-        }
-        return result;
-    }
+        } catch (IOException e) {
 
-    private Map<Long, List<Collateral>> loadCollateralsByLoan(List<Loan> loans, Long organizationId) {
-        Map<Long, List<Collateral>> result = new HashMap<>();
-        List<Long> ids = loans.stream().map(Loan::getId).filter(java.util.Objects::nonNull).toList();
-        for (int start = 0; start < ids.size(); start += 500) {
-            List<Long> batch = ids.subList(start, Math.min(start + 500, ids.size()));
-            for (Collateral item : collateralRepository.findByLoanIdsAndOrganizationId(batch, organizationId)) {
-                if (item != null && item.getLoan() != null && item.getLoan().getId() != null) {
-                    result.computeIfAbsent(item.getLoan().getId(), ignored -> new ArrayList<>()).add(item);
-                }
-            }
+            throw new IllegalStateException(
+                    "Unable to generate CRB regulatory Excel workbook",
+                    e
+            );
         }
-        return result;
     }
 
     private List<Loan> loadLoans(
@@ -525,7 +541,7 @@ public class CreditBureauRegulatoryExportService {
         } else {
 
             loans = safeLoans(
-                    loanRepository.findVisiblePortfolioAsOfForCreditBureauExport(
+                    loanRepository.findVisiblePortfolioAsOf(
                             organizationId,
                             branchId,
                             reportDate.plusDays(1).atStartOfDay(),

@@ -5,7 +5,6 @@ import io.jsonwebtoken.security.Keys;
 import lombok.extern.slf4j.Slf4j;
 import com.patrick.fintech.loan_backend.model.User;
 import org.springframework.beans.factory.annotation.Value;
-import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -22,25 +21,8 @@ public class JwtUtils {
     @Value("${app.jwt.expiration-ms:86400000}")
     private long expirationMs;
 
-    /** Immutable key object reused for every JWT operation. */
-    private SecretKey signingKey;
-
-    @PostConstruct
-    void initializeSigningKey() {
-        if (secret == null || secret.isBlank()) {
-            throw new IllegalStateException("app.jwt.secret must be configured");
-        }
-        signingKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-    }
-
     private SecretKey getSigningKey() {
-        SecretKey key = signingKey;
-        if (key == null) {
-            // Defensive fallback for unusual direct-instantiation tests.
-            key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-            signingKey = key;
-        }
-        return key;
+        return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
     public String generateToken(String email) {
@@ -99,15 +81,6 @@ public class JwtUtils {
                 .expiration(new Date(System.currentTimeMillis() + 5 * 60 * 1000L))
                 .signWith(getSigningKey())
                 .compact();
-    }
-
-    /** Parses and verifies a JWT exactly once for request filters that need several claims. */
-    public Claims parseClaims(String token) {
-        return Jwts.parser()
-                .verifyWith(getSigningKey())
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
     }
 
     public boolean isLoginOtpChallengeToken(String token) {

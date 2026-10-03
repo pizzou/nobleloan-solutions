@@ -4,7 +4,6 @@ import com.patrick.fintech.loan_backend.dto.ApiResponse;
 import com.patrick.fintech.loan_backend.dto.regulatory.CreditBureauRecord;
 import com.patrick.fintech.loan_backend.service.AuditService;
 import com.patrick.fintech.loan_backend.service.CreditBureauRegulatoryExportService;
-import com.patrick.fintech.loan_backend.service.CreditBureauExportJobService;
 import com.patrick.fintech.loan_backend.service.RegulatoryReportingService;
 import com.patrick.fintech.loan_backend.service.ReportExportService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
@@ -13,19 +12,14 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.core.io.FileSystemResource;
-import org.springframework.core.io.Resource;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.util.LinkedHashMap;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/regulatory/credit-bureau")
@@ -37,7 +31,6 @@ public class CreditBureauExportController {
     private final ReportExportService exportService;
     private final AuditService auditService;
     private final CreditBureauRegulatoryExportService creditBureauRegulatoryExportService;
-    private final CreditBureauExportJobService creditBureauExportJobService;
     private final CurrentUserUtil currentUserUtil;
 
     private static final List<String> COLUMNS = List.of(
@@ -79,10 +72,9 @@ public class CreditBureauExportController {
             MediaType.TEXT_PLAIN_VALUE,
             "text/csv",
             "application/vnd.ms-excel",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            MediaType.APPLICATION_JSON_VALUE
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     })
-    public ResponseEntity<?> export(
+    public ResponseEntity<byte[]> export(
             @RequestParam(defaultValue = "xlsx") String format,
             @RequestParam(required = false) Long branchId,
             @RequestParam(required = false) String from,
@@ -97,30 +89,34 @@ public class CreditBureauExportController {
         validateDateRange(fromDate, toDate);
 
         if ("xlsx".equalsIgnoreCase(format)) {
-            var job = creditBureauExportJobService.create(
-                    organizationId, branchId, null, fromDate, toDate);
-            try {
-                creditBureauExportJobService.process(job.getId());
-            } catch (java.util.concurrent.RejectedExecutionException ex) {
-                throw new IllegalStateException(
-                        "A Credit Bureau report is already being generated. Please wait for it to finish.", ex);
-            }
+            byte[] fileBytes = creditBureauRegulatoryExportService.export(
+                    organizationId,
+                    branchId,
+                    null,
+                    fromDate,
+                    toDate);
+
+            String fileName = "credit_bureau_" + LocalDate.now() + ".xlsx";
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.parseMediaType(
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+            headers.setContentDispositionFormData("attachment", fileName);
+            headers.setCacheControl("no-cache, no-store, must-revalidate");
+            headers.setPragma("no-cache");
+            headers.setContentLength(fileBytes.length);
 
             auditService.log(
                     currentUserUtil.getCurrentUser().getOrganization(),
                     currentUserUtil.getCurrentUser(),
-                    "EXPORT_STARTED",
+                    "EXPORT",
                     "CreditBureauExport",
-                    job.getId(),
-                    "Started asynchronous Credit Bureau regulatory workbook export",
-                    null, null, "Regulatory Reporting");
+                    "export",
+                    "Exported native CRB regulatory workbook",
+                    null,
+                    null,
+                    "Regulatory Reporting");
 
-            return ResponseEntity.accepted()
-                    .header(HttpHeaders.CACHE_CONTROL, "no-store, no-cache, must-revalidate, max-age=0")
-                    .body(Map.of(
-                            "success", true,
-                            "jobId", job.getId(),
-                            "status", job.getStatus().name()));
+            return ResponseEntity.ok().headers(headers).body(fileBytes);
         }
 
         List<CreditBureauRecord> records = reportingService.buildCreditBureauExport(
@@ -314,60 +310,6 @@ public class CreditBureauExportController {
     // ============================================================
     // PRIVATE UTILS
     // ============================================================
-
-    @GetMapping("/jobs/{jobId}")
-    public ResponseEntity<Map<String, Object>> exportStatus(
-            @org.springframework.web.bind.annotation.PathVariable String jobId) {
-        var job = creditBureauExportJobService.get(jobId);
-        if (job == null || !organizationMatches(job.getOrganizationId())) {
-            throw new IllegalArgumentException("Credit Bureau export job not found.");
-        }
-
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("success", true);
-        body.put("jobId", job.getId());
-        body.put("status", job.getStatus().name());
-        body.put("size", job.getSize());
-        body.put("createdAt", job.getCreatedAt());
-        body.put("startedAt", job.getStartedAt());
-        body.put("completedAt", job.getCompletedAt());
-        if (job.getError() != null) body.put("error", job.getError());
-
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CACHE_CONTROL, "no-store, no-cache, must-revalidate, max-age=0")
-                .header("Pragma", "no-cache")
-                .body(body);
-    }
-
-    @GetMapping("/jobs/{jobId}/download")
-    public ResponseEntity<Resource> downloadExport(
-            @org.springframework.web.bind.annotation.PathVariable String jobId) {
-        var job = creditBureauExportJobService.get(jobId);
-        if (job == null || !organizationMatches(job.getOrganizationId())) {
-            throw new IllegalArgumentException("Credit Bureau export job not found.");
-        }
-        if (job.getStatus() != CreditBureauExportJobService.Status.COMPLETED) {
-            throw new IllegalStateException("Credit Bureau export is not ready yet.");
-        }
-
-        Path file = creditBureauExportJobService.completedFile(job);
-        if (file == null) {
-            throw new IllegalStateException("Credit Bureau export file is no longer available.");
-        }
-
-        return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType(
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
-                .contentLength(job.getSize())
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=\"credit-bureau-" + LocalDate.now() + ".xlsx\"")
-                .body(new FileSystemResource(file));
-    }
-
-    private boolean organizationMatches(Long organizationId) {
-        Long current = currentUserUtil.getCurrentOrganizationId();
-        return current != null && organizationId != null && current.equals(organizationId);
-    }
 
     private LocalDate parseDate(String d) {
         return d != null && !d.trim().isEmpty() ? LocalDate.parse(d) : null;

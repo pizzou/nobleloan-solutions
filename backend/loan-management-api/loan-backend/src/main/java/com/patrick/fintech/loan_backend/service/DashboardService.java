@@ -41,123 +41,457 @@ public class DashboardService {
         // DASHBOARD STATISTICS
         // ================================================================
 
-        public DashboardStats getStats(Long orgId) {
+        public DashboardStats getStats(
+                        Long orgId) {
 
                 if (orgId == null) {
-                        throw new IllegalArgumentException("Organization ID is required");
+
+                        throw new IllegalArgumentException(
+                                        "Organization ID is required");
                 }
 
                 LocalDate today = LocalDate.now();
+
                 LocalDate firstOfMonth = today.withDayOfMonth(1);
-                boolean includeBusinessOwnerOnly = ReportingScopeService.includeBusinessOwnerOnly();
 
-                // One SQL aggregate replaces loading the entire loan portfolio.
-                Object[] loanAgg = loanRepository.getVisibleDashboardLoanAggregate(
-                                orgId, includeBusinessOwnerOnly);
+                // ============================================================
+                // BASIC COUNTS
+                // ============================================================
 
-                long totalLoans = number(loanAgg, 0).longValue();
-                long pendingLoans = number(loanAgg, 1).longValue();
-                long activeLoans = number(loanAgg, 2).longValue();
-                long completedLoans = number(loanAgg, 3).longValue();
-                long defaultedLoans = number(loanAgg, 4).longValue();
-                BigDecimal totalDisbursed = money(decimal(loanAgg, 5));
-                BigDecimal totalOutstanding = money(decimal(loanAgg, 6));
-                BigDecimal atRiskPrincipal = money(decimal(loanAgg, 7));
+                long totalLoans = 0;
+                long activeLoans = 0;
+                long pendingLoans = 0;
+                long completedLoans = 0;
+                long defaultedLoans = 0;
 
-                // One SQL aggregate replaces loading every overdue Payment entity.
-                Object[] paymentAgg = paymentRepository.getDashboardPerformanceAggregate(
-                                orgId, firstOfMonth, today, includeBusinessOwnerOnly);
+                // ============================================================
+                // BORROWERS
+                //
+                // Use the repository method already used by the application
+                // instead of introducing another BorrowerRepository method.
+                // ============================================================
 
-                BigDecimal paymentCollections = money(decimal(paymentAgg, 0));
-                BigDecimal collectedThisMonth = money(decimal(paymentAgg, 1));
-                long latePaymentsCount = number(paymentAgg, 2).longValue();
-                long overdueLoans = number(paymentAgg, 3).longValue();
+                // Count at the database instead of materializing every borrower
+                // just to obtain the KPI. This is critical as the portfolio grows.
+                long totalBorrowers = borrowerRepository.countByOrganization_Id(orgId);
 
-                // Preserve the existing legacy/imported collection rules, but evaluate
-                // them with SQL aggregates instead of iterating every historical loan.
-                Object[] legacyAgg = loanRepository.getDashboardLegacyCollectionAggregate(orgId, includeBusinessOwnerOnly);
-                BigDecimal legacyHistoricalCollected = money(decimal(legacyAgg, 0))
-                                .add(money(decimal(legacyAgg, 1)))
-                                .add(money(decimal(legacyAgg, 2)))
-                                .add(money(decimal(legacyAgg, 3)))
-                                .add(money(decimal(legacyAgg, 4)))
-                                .add(money(decimal(legacyAgg, 5)));
-                legacyHistoricalCollected = money(legacyHistoricalCollected);
+                // ============================================================
+                // OVERDUE PAYMENTS
+                // ============================================================
 
-                BigDecimal legacyApplicationFeesCollected = money(decimal(legacyAgg, 5));
-                BigDecimal currentApplicationFeesCollected = money(
-                                loanRepository.sumCurrentApplicationFeesCollected(orgId, includeBusinessOwnerOnly));
+                List<Payment> overduePayments = paymentRepository
+                                .findVisibleOverdueByOrganization(
+                                                orgId,
+                                                today,
+                                                ReportingScopeService.includeBusinessOwnerOnly());
 
-                BigDecimal totalCollected = money(
-                                paymentCollections
-                                                .add(currentApplicationFeesCollected)
-                                                .add(legacyHistoricalCollected));
+                if (overduePayments == null) {
+                        overduePayments = List.of();
+                }
 
-                BigDecimal totalReceivables = money(totalOutstanding);
-                // The dashboard's contractual receivable figure includes the same
-                // outstanding charges used by the existing implementation. Those
-                // charge fields are already persisted on each loan, so calculate
-                // the charge total in SQL rather than loading the portfolio.
-                Object[] receivableAgg = loanRepository.getVisibleDashboardReceivableAggregate(
-                                orgId, includeBusinessOwnerOnly);
-                BigDecimal outstandingInterest = money(decimal(receivableAgg, 0));
-                BigDecimal outstandingFees = money(decimal(receivableAgg, 1));
-                totalReceivables = money(totalOutstanding.add(outstandingInterest).add(outstandingFees));
+                long overdueLoans = overduePayments
+                                .stream()
+                                .filter(
+                                                payment -> payment != null
+                                                                && payment.getLoan() != null)
+                                .map(
+                                                payment -> payment.getLoan().getId())
+                                .filter(
+                                                loanId -> loanId != null)
+                                .distinct()
+                                .count();
 
-                BigDecimal activePortfolioPrincipal = totalOutstanding;
-                BigDecimal portfolioAtRiskPct = ZERO;
-                if (activePortfolioPrincipal.compareTo(ZERO) > 0) {
-                        portfolioAtRiskPct = money(atRiskPrincipal
-                                        .multiply(ONE_HUNDRED)
-                                        .divide(activePortfolioPrincipal, 16, RoundingMode.HALF_UP));
-                        if (portfolioAtRiskPct.compareTo(ONE_HUNDRED) > 0) {
-                                portfolioAtRiskPct = ONE_HUNDRED.setScale(2, RoundingMode.HALF_UP);
+                long latePaymentsCount = overduePayments.size();
+
+                // ============================================================
+                // LOAD ORGANIZATION LOANS
+                // ============================================================
+
+                List<Loan> loans = loanRepository.findReportingByOrganizationId(
+                                orgId,
+                                ReportingScopeService.includeBusinessOwnerOnly());
+
+                if (loans == null) {
+                        loans = List.of();
+                }
+
+                totalLoans = loans.size();
+                activeLoans = loans.stream()
+                                .filter(l -> l != null && l.getStatus() == LoanStatus.ACTIVE)
+                                .count();
+                pendingLoans = loans.stream()
+                                .filter(l -> l != null && l.getStatus() == LoanStatus.PENDING)
+                                .count();
+                completedLoans = loans.stream()
+                                .filter(l -> l != null && l.getStatus() == LoanStatus.PAID)
+                                .count();
+                defaultedLoans = loans.stream()
+                                .filter(l -> l != null && l.getStatus() == LoanStatus.DEFAULTED)
+                                .count();
+
+                // ============================================================
+                // PORTFOLIO TOTALS
+                // ============================================================
+
+                BigDecimal totalDisbursed = ZERO;
+
+                BigDecimal totalOutstanding = ZERO;
+                BigDecimal outstandingInterest = ZERO;
+                BigDecimal outstandingFees = ZERO;
+
+                BigDecimal activePortfolioPrincipal = ZERO;
+
+                BigDecimal atRiskPrincipal = ZERO;
+
+                for (Loan loan : loans) {
+
+                        if (loan == null) {
+                                continue;
+                        }
+
+                        LoanStatus status = loan.getStatus();
+
+                        BigDecimal disbursedAmount = money(
+                                        loan.getDisbursedAmountDecimal());
+
+                        BigDecimal outstanding = money(
+                                        loan.getOutstandingBalanceDecimal());
+
+                        /*
+                         * Gross disbursement is derived from the persisted
+                         * disbursedAmount field, which is the same source used
+                         * by LoanService.sumGrossDisbursedPrincipal(). A
+                         * historical imported loan may legitimately have no
+                         * disbursedAt timestamp.
+                         */
+                        if (disbursedAmount.compareTo(ZERO) > 0) {
+
+                                totalDisbursed = money(
+                                                totalDisbursed.add(
+                                                                disbursedAmount));
+                        }
+
+                        /*
+                         * Use the same current-portfolio definition as the
+                         * regulatory portfolio and LoanRepository aggregate:
+                         * imported historical loans remain financially relevant
+                         * even when the legacy source lacks disbursedAt.
+                         */
+                        boolean outstandingLoan = isCurrentPortfolioLoan(loan);
+
+                        if (outstandingLoan) {
+
+                                totalOutstanding = money(
+                                                totalOutstanding.add(
+                                                                outstanding));
+
+                                outstandingInterest = money(
+                                                outstandingInterest.add(
+                                                                money(loan.getInterestOutstandingDecimal()).max(ZERO)));
+
+                                BigDecimal penaltyOutstanding = money(
+                                                money(loan.getPenaltiesAssessedDecimal())
+                                                                .subtract(money(loan.getPenaltiesPaidDecimal()))
+                                                                .max(ZERO));
+
+                                BigDecimal applicationFeeOutstanding = money(
+                                                money(loan.getApplicationFee())
+                                                                .subtract(money(loan.getApplicationFeePaidDecimal()))
+                                                                .max(ZERO));
+
+                                outstandingFees = money(
+                                                outstandingFees
+                                                                .add(money(loan.getManagementFeeOutstandingDecimal()))
+                                                                .add(money(loan.getExtensionFeeOutstandingDecimal()))
+                                                                .add(penaltyOutstanding)
+                                                                .add(applicationFeeOutstanding));
+
+                                activePortfolioPrincipal = money(
+                                                activePortfolioPrincipal.add(
+                                                                outstanding));
+
+                                /*
+                                 * Portfolio at risk must be a subset of the
+                                 * current outstanding portfolio. This prevents
+                                 * old/non-financial pipeline rows from inflating
+                                 * PAR.
+                                 */
+                                boolean atRisk = status == LoanStatus.OVERDUE
+                                                || status == LoanStatus.DEFAULTED
+                                                || status == LoanStatus.RESTRUCTURED;
+
+                                if (atRisk) {
+
+                                        atRiskPrincipal = money(
+                                                        atRiskPrincipal.add(
+                                                                        outstanding));
+                                }
                         }
                 }
 
-                // Only fetch the rows actually displayed on the dashboard.
-                List<LoanResponse> recentLoans = loanRepository.findVisibleRecentLoans(
-                                orgId, includeBusinessOwnerOnly,
-                                org.springframework.data.domain.PageRequest.of(0, 8))
+                // ============================================================
+                // PAYMENT COLLECTIONS
+                // ============================================================
+
+                List<Payment> organizationPayments = paymentRepository.findVisibleByLoanOrganizationId(
+                                orgId,
+                                ReportingScopeService.includeBusinessOwnerOnly());
+
+                if (organizationPayments == null) {
+                        organizationPayments = List.of();
+                }
+
+                BigDecimal totalCollected = ZERO;
+
+                BigDecimal collectedThisMonth = ZERO;
+
+                /*
+                 * LEGACY PORTFOLIO COLLECTIONS
+                 *
+                 * Imported loans deliberately do not receive fabricated historical
+                 * Payment rows. Their historical collections live on the Loan opening
+                 * fields. Therefore the institution-wide collection KPI must combine:
+                 *
+                 * 1) actual Payment rows for system-originated/current activity
+                 * 2) historical component totals on imported loans
+                 *
+                 * We only add the historical component totals for imported loans.
+                 * This prevents double-counting current Payment rows.
+                 */
+                BigDecimal legacyHistoricalCollected = ZERO;
+                BigDecimal currentApplicationFeesCollected = ZERO;
+                BigDecimal legacyApplicationFeesCollected = ZERO;
+
+                for (Payment payment : organizationPayments) {
+
+                        if (payment == null) {
+                                continue;
+                        }
+
+                        if (!Boolean.TRUE.equals(
+                                        payment.getPaid())) {
+                                continue;
+                        }
+
+                        BigDecimal paymentAmount = money(
+                                        payment.getAmountPaidDecimal());
+
+                        totalCollected = money(
+                                        totalCollected.add(
+                                                        paymentAmount));
+
+                        LocalDate paidDate = payment.getPaidDate();
+
+                        if (paidDate != null
+                                        && !paidDate.isBefore(
+                                                        firstOfMonth)
+                                        && !paidDate.isAfter(
+                                                        today)) {
+
+                                collectedThisMonth = money(
+                                                collectedThisMonth.add(
+                                                                paymentAmount));
+                        }
+                }
+
+                /*
+                 * Current application/processing fees are cash collections at
+                 * disbursement and are not represented by Payment rows. Keep
+                 * them in the institution-wide collected KPI while keeping
+                 * legacy application fees inside the legacy historical bucket
+                 * so they are never counted twice.
+                 */
+                for (Loan loan : loans) {
+                        if (loan == null || isLegacyImportedLoan(loan)) {
+                                continue;
+                        }
+                        if (money(loan.getDisbursedAmountDecimal()).compareTo(ZERO) <= 0) {
+                                continue;
+                        }
+                        currentApplicationFeesCollected = money(
+                                        currentApplicationFeesCollected.add(
+                                                        money(loan.getApplicationFeePaidDecimal())));
+                }
+
+                /*
+                 * Historical imported collection basis:
+                 *
+                 * principal paid
+                 * + interest paid
+                 * + management fee paid
+                 * + extension fee paid
+                 * + penalties paid
+                 * + application fee paid
+                 *
+                 * Processing fee is a one-time cash collection at disbursement.
+                 * It is kept in the institution-wide collected KPI, but is not
+                 * treated as a repayment Payment row.
+                 */
+                for (Loan loan : loans) {
+                        if (!isLegacyImportedLoan(loan)) {
+                                continue;
+                        }
+
+                        BigDecimal applicationFeePaid = money(loan.getApplicationFeePaidDecimal());
+                        BigDecimal historical = money(loan.getPrincipalPaidDecimal())
+                                        .add(money(loan.getInterestPaidDecimal()))
+                                        .add(money(loan.getManagementFeePaidDecimal()))
+                                        .add(money(loan.getExtensionFeePaidDecimal()))
+                                        .add(money(loan.getPenaltiesPaidDecimal()))
+                                        .add(applicationFeePaid);
+
+                        legacyHistoricalCollected = money(legacyHistoricalCollected.add(historical));
+                        legacyApplicationFeesCollected = money(
+                                        legacyApplicationFeesCollected.add(applicationFeePaid));
+                }
+
+                totalCollected = money(
+                                totalCollected
+                                                .add(currentApplicationFeesCollected)
+                                                .add(legacyHistoricalCollected));
+
+                // Historical legacy collections have no reliable current-period
+                // payment date. They must NEVER be added to collectedThisMonth.
+
+                // ============================================================
+                // PORTFOLIO AT RISK %
+                // ============================================================
+
+                BigDecimal portfolioAtRiskPct = ZERO;
+
+                if (activePortfolioPrincipal.compareTo(
+                                ZERO) > 0) {
+
+                        portfolioAtRiskPct = money(
+                                        atRiskPrincipal
+                                                        .multiply(
+                                                                        ONE_HUNDRED)
+                                                        .divide(
+                                                                        activePortfolioPrincipal,
+                                                                        16,
+                                                                        RoundingMode.HALF_UP));
+
+                        if (portfolioAtRiskPct.compareTo(
+                                        ONE_HUNDRED) > 0) {
+
+                                portfolioAtRiskPct = ONE_HUNDRED.setScale(
+                                                2,
+                                                RoundingMode.HALF_UP);
+                        }
+                }
+
+                // ============================================================
+                // RECENT LOANS
+                //
+                // Avoid requiring another repository signature. We already
+                // have the organization's loans loaded above.
+                // ============================================================
+
+                List<LoanResponse> recentLoans = loans
                                 .stream()
-                                .filter(java.util.Objects::nonNull)
+                                .filter(
+                                                loan -> loan != null
+                                                                && loan.getCreatedAt() != null)
+                                .sorted(
+                                                Comparator.comparing(
+                                                                Loan::getCreatedAt,
+                                                                Comparator.nullsLast(
+                                                                                Comparator.reverseOrder())))
+                                .limit(8)
                                 .map(ResponseDtoMapper::loan)
                                 .toList();
 
+                // ============================================================
+                // LOG
+                // ============================================================
+
+                BigDecimal totalReceivables = money(
+                                totalOutstanding
+                                                .add(outstandingInterest)
+                                                .add(outstandingFees));
+
+                log.debug(
+                                "Dashboard calculated. " +
+                                                "orgId={}, totalLoans={}, activeLoans={}, " +
+                                                "pendingLoans={}, overdueLoans={}, " +
+                                                "defaultedLoans={}, totalDisbursed={}, " +
+                                                "totalCollected={}, legacyHistoricalCollected={}, outstanding={}, " +
+                                                "collectedThisMonth={}, PAR={}",
+                                orgId,
+                                totalLoans,
+                                activeLoans,
+                                pendingLoans,
+                                overdueLoans,
+                                defaultedLoans,
+                                totalDisbursed,
+                                totalCollected,
+                                legacyHistoricalCollected,
+                                totalOutstanding,
+                                collectedThisMonth,
+                                portfolioAtRiskPct);
+
+                // ============================================================
+                // RESPONSE
+                // ============================================================
+
                 return DashboardStats.builder()
-                                .totalLoans(totalLoans)
-                                .activeLoans(activeLoans)
-                                .pendingLoans(pendingLoans)
-                                .completedLoans(completedLoans)
-                                .defaultedLoans(defaultedLoans)
-                                .overdueLoans(overdueLoans)
-                                .totalBorrowers(borrowerRepository.countByOrganization_Id(orgId))
-                                .totalDisbursed(totalDisbursed)
-                                .totalCollected(totalCollected)
-                                .historicalCollected(legacyHistoricalCollected)
-                                .applicationFeesCollected(money(currentApplicationFeesCollected.add(legacyApplicationFeesCollected)))
-                                .outstandingBalance(totalOutstanding)
-                                .totalReceivables(totalReceivables)
-                                .collectedThisMonth(collectedThisMonth)
-                                .latePaymentsCount(latePaymentsCount)
-                                .portfolioAtRiskPct(portfolioAtRiskPct)
-                                .portfolioAtRiskAmount(atRiskPrincipal)
-                                .recentLoans(recentLoans)
+
+                                .totalLoans(
+                                                totalLoans)
+
+                                .activeLoans(
+                                                activeLoans)
+
+                                .pendingLoans(
+                                                pendingLoans)
+
+                                .completedLoans(
+                                                completedLoans)
+
+                                .defaultedLoans(
+                                                defaultedLoans)
+
+                                .overdueLoans(
+                                                overdueLoans)
+
+                                .totalBorrowers(
+                                                totalBorrowers)
+
+                                .totalDisbursed(
+                                                totalDisbursed)
+
+                                .totalCollected(
+                                                totalCollected)
+
+                                .historicalCollected(
+                                                legacyHistoricalCollected)
+
+                                .applicationFeesCollected(
+                                                money(currentApplicationFeesCollected
+                                                                .add(legacyApplicationFeesCollected)))
+
+                                .outstandingBalance(
+                                                totalOutstanding)
+
+                                .totalReceivables(
+                                                totalReceivables)
+
+                                .collectedThisMonth(
+                                                collectedThisMonth)
+
+                                .latePaymentsCount(
+                                                latePaymentsCount)
+
+                                .portfolioAtRiskPct(
+                                                portfolioAtRiskPct)
+
+                                .portfolioAtRiskAmount(
+                                                atRiskPrincipal)
+
+                                .recentLoans(
+                                                recentLoans)
+
                                 .build();
-        }
-
-        private static BigDecimal decimal(Object[] values, int index) {
-                if (values == null || index < 0 || index >= values.length || values[index] == null) {
-                        return ZERO;
-                }
-                Object value = values[index];
-                if (value instanceof BigDecimal bd) return bd;
-                if (value instanceof Number n) return BigDecimal.valueOf(n.doubleValue());
-                try { return new BigDecimal(value.toString()); } catch (NumberFormatException ex) { return ZERO; }
-        }
-
-        private static BigDecimal number(Object[] values, int index) {
-                return decimal(values, index);
         }
 
         /**
