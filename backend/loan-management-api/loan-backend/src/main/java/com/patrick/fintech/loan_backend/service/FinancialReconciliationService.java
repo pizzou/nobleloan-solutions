@@ -107,6 +107,7 @@ public class FinancialReconciliationService {
                 .toList();
 
         List<Issue> issues = new ArrayList<>();
+        Map<Long, BigDecimal> applicationFeeIncomeByLoan = new LinkedHashMap<>();
 
         for (Loan loan : loans) {
             if (loan == null || loan.getId() == null) {
@@ -181,6 +182,7 @@ public class FinancialReconciliationService {
                                 + ", fee=" + applicationFee.toPlainString(),
                         applicationFeePaid.subtract(applicationFee).abs().max(applicationFeeDifference.abs())));
             }
+
         }
 
         BigDecimal journalDebits = ZERO;
@@ -260,6 +262,27 @@ public class FinancialReconciliationService {
                     totals[0] = totals[0].add(debit);
                     totals[1] = totals[1].add(credit);
                 }
+
+                String sourceType = entry.getSourceType() == null
+                        ? ""
+                        : entry.getSourceType().trim().toUpperCase(java.util.Locale.ROOT);
+                if (line.getAccount() != null
+                        && "4100".equals(line.getAccount().getCode())
+                        && ("LOAN_DISBURSEMENT".equals(sourceType)
+                                || "PROCESSING_FEE".equals(sourceType)
+                                || "LOAN_DISBURSEMENT_FEE_RECONCILIATION".equals(sourceType))
+                        && entry.getSourceId() != null) {
+                    try {
+                        Long loanId = Long.valueOf(entry.getSourceId().trim());
+                        BigDecimal feeMovement = credit.subtract(debit);
+                        applicationFeeIncomeByLoan.merge(
+                                loanId,
+                                feeMovement,
+                                BigDecimal::add);
+                    } catch (NumberFormatException ignored) {
+                        // Other source-id formats are not loan disbursement IDs.
+                    }
+                }
             }
 
             BigDecimal difference = normalize(entryDebit.subtract(entryCredit));
@@ -270,6 +293,32 @@ public class FinancialReconciliationService {
                         "Journal entry " + entry.getId() + " is out of balance by "
                                 + difference.abs().toPlainString() + ".",
                         difference.abs()));
+            }
+        }
+
+        for (Loan loan : loans) {
+            if (loan == null || loan.getId() == null) {
+                continue;
+            }
+
+            BigDecimal applicationFeePaid = money(loan.getApplicationFeePaidDecimal());
+            if (applicationFeePaid.compareTo(ZERO) <= 0) {
+                continue;
+            }
+
+            BigDecimal glApplicationFeeIncome = normalize(
+                    applicationFeeIncomeByLoan.getOrDefault(loan.getId(), ZERO));
+            BigDecimal incomeDifference = normalize(
+                    glApplicationFeeIncome.subtract(applicationFeePaid));
+
+            if (incomeDifference.abs().compareTo(TOLERANCE) >= 0) {
+                issues.add(issue(
+                        "APPLICATION_FEE_GL_MISMATCH",
+                        "Loan " + safeReference(loan)
+                                + " has collected application fee income that does not match GL account 4100. "
+                                + "operationalCollected=" + applicationFeePaid.toPlainString()
+                                + ", glFeeIncome=" + glApplicationFeeIncome.toPlainString(),
+                        incomeDifference.abs()));
             }
         }
 

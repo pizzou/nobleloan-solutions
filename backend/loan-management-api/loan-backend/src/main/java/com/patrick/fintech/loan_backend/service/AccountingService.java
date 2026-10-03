@@ -802,6 +802,8 @@ public class AccountingService {
 
                 java.util.Set<String> loanTypes = java.util.Set.of(
                                 "LOAN_DISBURSEMENT",
+                                "PROCESSING_FEE",
+                                "LOAN_DISBURSEMENT_FEE_RECONCILIATION",
                                 "LOAN_EXTENSION_FEE",
                                 "PENALTY_ACCRUAL",
                                 "CONTRACTUAL_MONTHLY_INTEREST_ACCRUAL",
@@ -1621,6 +1623,20 @@ public class AccountingService {
 
                 if (existing != null) {
 
+                        /*
+                         * A previous accounting flow posted principal and the
+                         * application fee as separate journals. Do not let the
+                         * current idempotency check hide a legacy fee-less
+                         * journal. Reconcile it before returning, without ever
+                         * mutating a posted journal.
+                         */
+                        repairMissingApplicationFeeAccounting(
+                                        loan,
+                                        existing,
+                                        grossPrincipal,
+                                        applicationFee,
+                                        netCashDisbursed);
+
                         log.info(
                                         "Loan {} disbursement already posted as journal {}",
                                         loan.getId(),
@@ -1750,6 +1766,258 @@ public class AccountingService {
                                 grossPrincipal,
                                 applicationFee,
                                 netCashDisbursed);
+        }
+
+        /**
+         * One-time controlled repair for already-posted disbursements.
+         * Only safe, balanced legacy application-fee gaps are corrected.
+         * Missing principal journals are intentionally not fabricated here.
+         */
+        @Transactional
+        public Map<String, Object> repairApplicationFeeAccountingForOrganization(
+                        Long organizationId,
+                        boolean includeBusinessOwnerOnly) {
+
+                requireOrganizationId(organizationId);
+
+                List<Loan> loans = loanRepo.findReportingByOrganizationId(
+                                organizationId,
+                                includeBusinessOwnerOnly);
+
+                int examined = 0;
+                int repaired = 0;
+                int alreadyConsistent = 0;
+                int withoutDisbursementJournal = 0;
+
+                if (loans != null) {
+                        for (Loan loan : loans) {
+                                if (loan == null || loan.getId() == null) {
+                                        continue;
+                                }
+
+                                BigDecimal disbursed = money(loan.getDisbursedAmountDecimal());
+                                BigDecimal applicationFee = money(loan.getApplicationFeeDecimal());
+                                BigDecimal applicationFeePaid = money(loan.getApplicationFeePaidDecimal());
+
+                                if (disbursed.compareTo(ZERO) <= 0
+                                                || applicationFeePaid.compareTo(ZERO) <= 0) {
+                                        continue;
+                                }
+
+                                examined++;
+
+                                JournalEntry existing = journalRepo
+                                                .findFirstByOrganization_IdAndSourceTypeAndSourceId(
+                                                                organizationId,
+                                                                "LOAN_DISBURSEMENT",
+                                                                String.valueOf(loan.getId()))
+                                                .orElse(null);
+
+                                if (existing == null) {
+                                        withoutDisbursementJournal++;
+                                        continue;
+                                }
+
+                                BigDecimal assessedFee = applicationFee.signum() > 0
+                                                ? applicationFee
+                                                : applicationFeePaid;
+                                if (applicationFeePaid.compareTo(assessedFee) > 0) {
+                                        throw new IllegalStateException(
+                                                        "Application fee paid exceeds assessed fee for loan "
+                                                                        + loan.getId());
+                                }
+                                BigDecimal expectedFee = applicationFeePaid;
+                                BigDecimal expectedCash = money(disbursed.subtract(expectedFee));
+
+                                boolean changed = repairMissingApplicationFeeAccounting(
+                                                loan,
+                                                existing,
+                                                disbursed,
+                                                expectedFee,
+                                                expectedCash);
+
+                                if (changed) {
+                                        repaired++;
+                                } else {
+                                        alreadyConsistent++;
+                                }
+                        }
+                }
+
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("organizationId", organizationId);
+                result.put("examined", examined);
+                result.put("repaired", repaired);
+                result.put("alreadyConsistent", alreadyConsistent);
+                result.put("withoutDisbursementJournal", withoutDisbursementJournal);
+                return result;
+        }
+
+        /**
+         * Repairs a legacy disbursement journal that predates the current
+         * one-journal application-fee accounting model.
+         *
+         * The repair is additive and conservative: posted journals are never
+         * edited or deleted, and a correction is posted only when the missing
+         * fee income is exactly offset by the cash delta.
+         */
+        private boolean repairMissingApplicationFeeAccounting(
+                        Loan loan,
+                        JournalEntry existingDisbursement,
+                        BigDecimal grossPrincipal,
+                        BigDecimal applicationFee,
+                        BigDecimal netCashDisbursed) {
+
+                if (loan == null || existingDisbursement == null
+                                || applicationFee.compareTo(ZERO) <= 0) {
+                        return false;
+                }
+
+                Long organizationId = loan.getOrganization() != null
+                                ? loan.getOrganization().getId()
+                                : null;
+                if (organizationId == null || loan.getId() == null) {
+                        throw new IllegalStateException(
+                                        "Cannot reconcile application-fee accounting without organization and loan IDs");
+                }
+
+                String loanSourceId = String.valueOf(loan.getId());
+                List<JournalEntry> relatedEntries = journalRepo
+                                .findByOrganization_IdAndSourceIdAndSourceTypeInOrderByIdAsc(
+                                                organizationId,
+                                                loanSourceId,
+                                                java.util.List.of(
+                                                                "LOAN_DISBURSEMENT",
+                                                                "PROCESSING_FEE",
+                                                                "LOAN_DISBURSEMENT_FEE_RECONCILIATION"));
+
+                BigDecimal existingCashCredit = ZERO;
+                BigDecimal existingCashDebit = ZERO;
+                BigDecimal existingFeeCredit = ZERO;
+                BigDecimal existingFeeDebit = ZERO;
+                boolean correctionAlreadyPosted = false;
+
+                if (relatedEntries != null) {
+                        for (JournalEntry entry : relatedEntries) {
+                                if (entry == null) {
+                                        continue;
+                                }
+
+                                if ("LOAN_DISBURSEMENT_FEE_RECONCILIATION"
+                                                .equalsIgnoreCase(entry.getSourceType())) {
+                                        correctionAlreadyPosted = true;
+                                }
+
+                                if (entry.getLines() == null) {
+                                        continue;
+                                }
+
+                                for (JournalLine line : entry.getLines()) {
+                                        if (line == null || line.getAccount() == null) {
+                                                continue;
+                                        }
+
+                                        String code = line.getAccount().getCode();
+                                        BigDecimal debit = money(line.getDebitDecimal());
+                                        BigDecimal credit = money(line.getCreditDecimal());
+
+                                        if ("1000".equals(code)) {
+                                                existingCashDebit = existingCashDebit.add(debit);
+                                                existingCashCredit = existingCashCredit.add(credit);
+                                        } else if ("4100".equals(code)) {
+                                                existingFeeDebit = existingFeeDebit.add(debit);
+                                                existingFeeCredit = existingFeeCredit.add(credit);
+                                        }
+                                }
+                        }
+                }
+
+                if (correctionAlreadyPosted) {
+                        return false;
+                }
+
+                BigDecimal expectedFeeCredit = applicationFee;
+                BigDecimal expectedCashCredit = netCashDisbursed;
+
+                BigDecimal feeDelta = money(
+                                expectedFeeCredit
+                                                .subtract(existingFeeCredit)
+                                                .add(existingFeeDebit));
+
+                BigDecimal cashDelta = money(
+                                expectedCashCredit
+                                                .subtract(existingCashCredit)
+                                                .add(existingCashDebit));
+
+                if (feeDelta.compareTo(ZERO) == 0
+                                && cashDelta.compareTo(ZERO) == 0) {
+                        return false;
+                }
+
+                /*
+                 * Typical legacy state:
+                 *   old GL: DR Loans Receivable 10m / CR Cash 10m
+                 *   operational state: fee collected 200k
+                 *
+                 * Correction:
+                 *   DR Cash 200k / CR Fee Income 200k
+                 */
+                if (feeDelta.compareTo(ZERO) > 0
+                                && cashDelta.compareTo(ZERO) < 0
+                                && feeDelta.compareTo(cashDelta.abs()) == 0) {
+
+                        String reference = existingDisbursement.getReference() != null
+                                        && !existingDisbursement.getReference().isBlank()
+                                                        ? existingDisbursement.getReference().trim()
+                                                        : "LOAN-" + loan.getId();
+
+                        List<JournalLine> correctionLines = new ArrayList<>();
+                        correctionLines.add(
+                                        JournalLine.builder()
+                                                        .account(account(loan.getOrganization(), "1000"))
+                                                        .debit(feeDelta)
+                                                        .credit(ZERO)
+                                                        .description(
+                                                                        "Legacy application-fee cash reconciliation — "
+                                                                                        + reference)
+                                                        .build());
+                        correctionLines.add(
+                                        JournalLine.builder()
+                                                        .account(account(loan.getOrganization(), "4100"))
+                                                        .debit(ZERO)
+                                                        .credit(feeDelta)
+                                                        .description(
+                                                                        "Legacy application-fee income reconciliation — "
+                                                                                        + reference)
+                                                        .build());
+
+                        post(
+                                        loan.getOrganization(),
+                                        loan.getBranch(),
+                                        "LOAN_DISBURSEMENT_FEE_RECONCILIATION",
+                                        String.valueOf(loan.getId()),
+                                        reference,
+                                        "Reconcile application-fee accounting for disbursement "
+                                                        + reference
+                                                        + " — gross " + grossPrincipal.toPlainString()
+                                                        + ", fee " + applicationFee.toPlainString(),
+                                        correctionLines);
+
+                        log.warn(
+                                        "Repaired legacy application-fee accounting for loan {}: feeDelta={}, cashDelta={}",
+                                        loan.getId(),
+                                        feeDelta,
+                                        cashDelta);
+                        return true;
+                }
+
+                throw new IllegalStateException(
+                                "Application-fee accounting mismatch for loan " + loan.getId()
+                                                + ": expected fee credit=" + expectedFeeCredit
+                                                + ", existing fee credit=" + existingFeeCredit
+                                                + ", expected cash credit=" + expectedCashCredit
+                                                + ", existing cash credit=" + existingCashCredit
+                                                + ". Automatic repair was not safe because the journal deltas do not balance.");
         }
 
         // ============================================================

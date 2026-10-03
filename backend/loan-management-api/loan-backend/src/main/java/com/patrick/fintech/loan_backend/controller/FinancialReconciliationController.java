@@ -1,8 +1,10 @@
 package com.patrick.fintech.loan_backend.controller;
 
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
+import com.patrick.fintech.loan_backend.service.AccountingService;
 import com.patrick.fintech.loan_backend.service.FinancialReconciliationService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
+import com.patrick.fintech.loan_backend.service.ReportingScopeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -21,6 +23,7 @@ import java.util.List;
 public class FinancialReconciliationController {
 
     private final FinancialReconciliationService reconciliationService;
+    private final AccountingService accountingService;
     private final CurrentUserUtil currentUserUtil;
 
     /**
@@ -36,6 +39,28 @@ public class FinancialReconciliationController {
 
         return ResponseEntity.ok(
                 ApiResponse.safe(reconciliationService.diagnoseLoanSubledger(organizationId)));
+    }
+
+    /**
+     * Controlled repair for legacy disbursement journals that do not yet
+     * contain the one-time application-fee income entry. The accounting
+     * service only creates a correction when the GL deltas are provably
+     * balanced; it never edits or deletes posted journals.
+     */
+    @org.springframework.web.bind.annotation.PostMapping("/repair-application-fees")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> repairApplicationFees() {
+
+        Long organizationId = currentUserUtil.getCurrentOrganizationId();
+        if (organizationId == null || organizationId <= 0) {
+            throw new IllegalStateException("No organization is associated with the current user.");
+        }
+
+        java.util.Map<String, Object> result =
+                accountingService.repairApplicationFeeAccountingForOrganization(
+                        organizationId,
+                        ReportingScopeService.includeBusinessOwnerOnly());
+
+        return ResponseEntity.ok(ApiResponse.safe(result));
     }
 
     @GetMapping

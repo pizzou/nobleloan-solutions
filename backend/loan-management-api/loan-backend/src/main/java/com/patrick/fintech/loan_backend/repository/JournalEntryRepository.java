@@ -226,6 +226,15 @@ public interface JournalEntryRepository
     );
 
 
+    @EntityGraph(attributePaths = {"lines", "lines.account"})
+    List<JournalEntry>
+    findByOrganization_IdAndSourceIdAndSourceTypeInOrderByIdAsc(
+            Long organizationId,
+            String sourceId,
+            java.util.Collection<String> sourceTypes
+    );
+
+
     /*
      * ============================================================
      * ACTIVE SOURCE EVENT LOOKUP
