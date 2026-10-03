@@ -631,16 +631,6 @@ function triggerDownload(blob: Blob, filename: string): void {
  * ============================================================
  */
 
-function sanitizeServerMessage(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (/^<!doctype html/i.test(trimmed) || /^<html[\s>]/i.test(trimmed)) {
-    return null;
-  }
-  return trimmed;
-}
-
 async function getBlobErrorMessage(error: unknown): Promise<string | null> {
   if (!error || typeof error !== "object") {
     return null;
@@ -687,7 +677,17 @@ async function getBlobErrorMessage(error: unknown): Promise<string | null> {
 
           return json.message || json.error || json.detail || null;
         } catch {
-          return sanitizeServerMessage(text);
+          if (/^\s*<!doctype|^\s*<html[\s>]/i.test(text)) {
+            const status = response.status;
+            if (status === 502)
+              return "The service is temporarily unavailable while the server recovers. Please try again shortly.";
+            if (status === 503)
+              return "The service is temporarily busy or restarting. Please try again shortly.";
+            if (status === 504)
+              return "The report request timed out at the gateway. Please retry; the export service is protected from duplicate generation.";
+            return "The server returned an invalid gateway response. Please try again shortly.";
+          }
+          return text;
         }
       } catch {
         return null;
@@ -695,7 +695,7 @@ async function getBlobErrorMessage(error: unknown): Promise<string | null> {
     }
 
     if (typeof responseData === "string") {
-      return sanitizeServerMessage(responseData);
+      return responseData || null;
     }
 
     if (responseData && typeof responseData === "object") {
@@ -747,7 +747,7 @@ async function getBlobErrorMessage(error: unknown): Promise<string | null> {
     return data.message || data.error || data.detail || null;
   }
 
-  return sanitizeServerMessage(value.message);
+  return value.message || null;
 }
 
 /**
@@ -1002,141 +1002,95 @@ export const regulatoryApi = {
     format: ExportFormat,
     params?: CreditBureauReportParams,
   ): Promise<void> {
-    const queryParams = toCreditBureauQueryParams(params);
-
-    console.log("Credit Bureau export request:", {
-      url: "/regulatory/credit-bureau/download",
-
-      format,
-
-      queryParams,
-    });
-
-    try {
-      /**
-       * ------------------------------------------------------
-       * IMPORTANT
-       * ------------------------------------------------------
-       *
-       * We deliberately do NOT manually set the Authorization
-       * header here.
-       *
-       * api.ts request interceptor does that consistently for
-       * both BNR and Credit Bureau.
-       *
-       * ------------------------------------------------------
-       */
-
-      // XLSX generation is asynchronous so a large CRB workbook cannot hold
-      // the Render/Vercel HTTP request open long enough to trigger a gateway
-      // timeout or restart. CSV/PDF retain the existing direct-download path.
-      if (format === "xlsx") {
-        const started = await api.get("/regulatory/credit-bureau/download", {
-          params: {
-            ...queryParams,
-            format,
-          },
-          timeout: 20000,
-          headers: { Accept: "application/json" },
-        });
-
-        const jobId = started?.data?.jobId;
-        if (!jobId || typeof jobId !== "string") {
-          throw new Error("The Credit Bureau export job could not be started.");
-        }
-
-        const deadline = Date.now() + 15 * 60 * 1000;
-
-        while (Date.now() < deadline) {
-          await new Promise((resolve) => window.setTimeout(resolve, 1500));
-
-          const statusResponse = await api.get(
-            `/regulatory/credit-bureau/jobs/${encodeURIComponent(jobId)}`,
-            { timeout: 20000, headers: { Accept: "application/json" } },
-          );
-
-          const status = statusResponse?.data?.status;
-
-          if (status === "COMPLETED") {
-            const response = await api.get(
-              `/regulatory/credit-bureau/jobs/${encodeURIComponent(jobId)}/download`,
-              {
-                responseType: "blob",
-                timeout: 120000,
-                headers: { Accept: getExportAcceptHeader(format) },
-              },
-            );
-
-            const blob =
-              response.data instanceof Blob
-                ? response.data
-                : new Blob([response.data], {
-                    type: getExportContentType(format),
-                  });
-
-            triggerDownload(blob, `credit-bureau-export.${format}`);
-            return;
-          }
-
-          if (status === "FAILED") {
-            throw new Error(
-              statusResponse?.data?.error ||
-                "Credit Bureau export failed while generating the workbook.",
-            );
-          }
-        }
-
-        throw new Error(
-          "Credit Bureau export is still processing. Please check the report again shortly.",
-        );
-      }
-
+    if (format !== "xlsx") {
+      // Keep the existing CSV/PDF contract for the non-workbook endpoint.
       const response = await api.get("/regulatory/credit-bureau/download", {
-        params: {
-          ...queryParams,
-          format,
-        },
+        params: { ...toCreditBureauQueryParams(params), format },
         responseType: "blob",
+        headers: { Accept: getExportAcceptHeader(format) },
         timeout: 120000,
-        headers: {
-          Accept: getExportAcceptHeader(format),
-        },
       });
-
       const blob =
         response.data instanceof Blob
           ? response.data
-          : new Blob([response.data], {
-              type: getExportContentType(format),
-            });
-
+          : new Blob([response.data], { type: getExportContentType(format) });
       triggerDownload(blob, `credit-bureau-export.${format}`);
-    } catch (error) {
-      console.error("Credit Bureau export failed:", error);
+      return;
+    }
 
-      /**
-       * IMPORTANT:
-       *
-       * Because api.ts now preserves AxiosError,
-       * this can inspect:
-       *
-       * error.response.status
-       * error.response.data
-       */
+    const started = await api.get("/regulatory/credit-bureau/download", {
+      params: { ...toCreditBureauQueryParams(params), format: "xlsx" },
+      timeout: 20000,
+      headers: { Accept: "application/json" },
+    });
 
-      const blobMessage = await getBlobErrorMessage(error);
+    const jobId = started?.data?.jobId;
+    if (!jobId || typeof jobId !== "string") {
+      throw new Error("The Credit Bureau export job could not be started.");
+    }
 
-      if (blobMessage) {
-        const enhancedError =
-          error instanceof Error ? error : new Error(blobMessage);
+    const deadline = Date.now() + 15 * 60 * 1000;
 
-        enhancedError.message = blobMessage;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
 
-        throw enhancedError;
+      let statusResponse: any;
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        try {
+          statusResponse = await api.get(
+            `/regulatory/credit-bureau/jobs/${encodeURIComponent(jobId)}`,
+            { timeout: 20000 },
+          );
+          break;
+        } catch (error: any) {
+          const statusCode = error?.response?.status ?? error?.status;
+          const retryable =
+            statusCode === 502 ||
+            statusCode === 503 ||
+            statusCode === 504 ||
+            statusCode === 429 ||
+            statusCode == null;
+          if (!retryable || attempt === 3) throw error;
+          await new Promise((resolve) =>
+            window.setTimeout(resolve, Math.min(8000, 1000 * 2 ** attempt)),
+          );
+        }
       }
 
-      throw error;
+      const status = statusResponse?.data?.status;
+      if (status === "COMPLETED") {
+        const response = await api.get(
+          `/regulatory/credit-bureau/jobs/${encodeURIComponent(jobId)}/download`,
+          {
+            responseType: "blob",
+            timeout: 120000,
+            headers: {
+              Accept: getExportAcceptHeader("xlsx"),
+            },
+          },
+        );
+        const blob =
+          response.data instanceof Blob
+            ? response.data
+            : new Blob([response.data], { type: getExportContentType("xlsx") });
+        triggerDownload(
+          blob,
+          `credit-bureau-export-${new Date().toISOString().slice(0, 10)}.xlsx`,
+        );
+        return;
+      }
+
+      if (status === "FAILED") {
+        throw new Error(
+          statusResponse?.data?.error ||
+            "Credit Bureau export failed while generating the workbook.",
+        );
+      }
     }
+
+    throw new Error(
+      "Credit Bureau export is still processing. Please check the report again shortly.",
+    );
   },
 
   /**
@@ -1311,10 +1265,7 @@ export const regulatoryApi = {
          */
 
         if (typeof response.data === "string" && response.data) {
-          return (
-            sanitizeServerMessage(response.data) ||
-            "The server returned an unexpected gateway error. Please retry."
-          );
+          return response.data;
         }
 
         /**

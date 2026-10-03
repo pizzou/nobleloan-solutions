@@ -12,22 +12,19 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestController
@@ -54,40 +51,26 @@ public class CreditBureauExportController {
             @RequestParam(required = false) Long branchId,
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to) {
-
         Long organizationId = currentUserUtil.getCurrentOrganizationId();
-
         if (organizationId == null) {
-            throw new IllegalStateException(
-                    "Current user is not associated with an organization.");
+            throw new IllegalStateException("Current user is not associated with an organization.");
         }
 
         LocalDate fromDate = parseDate(from);
         LocalDate toDate = parseDate(to);
         validateDateRange(fromDate, toDate);
 
-        List<CreditBureauRecord> records =
-                reportingService.buildCreditBureauExport(
-                        organizationId,
-                        branchId,
-                        fromDate,
-                        toDate);
+        List<CreditBureauRecord> records = reportingService.buildCreditBureauExport(
+                organizationId, branchId, fromDate, toDate);
 
         auditService.log(
                 currentUserUtil.getCurrentUser().getOrganization(),
                 currentUserUtil.getCurrentUser(),
-                "VIEW",
-                "CreditBureauExport",
-                "preview",
-                "Previewed Credit Bureau report | Records: "
-                        + (records == null ? 0 : records.size()),
-                null,
-                null,
-                "Regulatory Reporting");
+                "VIEW", "CreditBureauExport", "preview",
+                "Previewed Credit Bureau report | Records: " + records.size(),
+                null, null, "Regulatory Reporting");
 
-        return ResponseEntity.ok(
-                ApiResponse.ok(records)
-        );
+        return ResponseEntity.ok(ApiResponse.ok(records));
     }
 
     @GetMapping(value = "/download", produces = {
@@ -96,482 +79,201 @@ public class CreditBureauExportController {
             MediaType.TEXT_PLAIN_VALUE,
             "text/csv",
             "application/vnd.ms-excel",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            MediaType.APPLICATION_JSON_VALUE
     })
-    public ResponseEntity<byte[]> export(
+    public ResponseEntity<?> export(
             @RequestParam(defaultValue = "xlsx") String format,
             @RequestParam(required = false) Long branchId,
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to) {
-
         Long organizationId = currentUserUtil.getCurrentOrganizationId();
-
         if (organizationId == null) {
-            throw new IllegalStateException(
-                    "Current user is not associated with an organization.");
+            throw new IllegalStateException("Current user is not associated with an organization.");
         }
 
         LocalDate fromDate = parseDate(from);
         LocalDate toDate = parseDate(to);
         validateDateRange(fromDate, toDate);
 
-        /*
-         * XLSX export uses the existing export job service.
-         *
-         * The previous code returned Map<String,Object> here,
-         * which cannot be returned from ResponseEntity<byte[]>.
-         *
-         * The job is processed first, then its completed file is
-         * returned as byte[] so the method contract remains unchanged.
-         */
         if ("xlsx".equalsIgnoreCase(format)) {
-
             var job = creditBureauExportJobService.create(
-                    organizationId,
-                    branchId,
-                    fromDate,
-                    toDate);
-
-            creditBureauExportJobService.process(job.getId());
-
-            /*
-             * process() must complete the job before the file can
-             * be downloaded through this synchronous endpoint.
-             */
-            var completedJob = creditBureauExportJobService.get(job.getId());
-
-            if (completedJob == null) {
-                throw new IllegalStateException(
-                        "Credit Bureau export job could not be retrieved.");
-            }
-
-            if (completedJob.getStatus()
-                    != CreditBureauExportJobService.Status.COMPLETED) {
-
-                String error = completedJob.getError();
-
-                throw new IllegalStateException(
-                        error != null && !error.isBlank()
-                                ? "Credit Bureau XLSX export failed: " + error
-                                : "Credit Bureau XLSX export did not complete.");
-            }
-
-            Path completedFile =
-                    creditBureauExportJobService.completedFile(completedJob);
-
-            if (completedFile == null
-                    || !Files.exists(completedFile)
-                    || !Files.isRegularFile(completedFile)) {
-
-                throw new IllegalStateException(
-                        "Credit Bureau XLSX export file is not available.");
-            }
-
+                    organizationId, branchId, null, fromDate, toDate);
             try {
-                byte[] fileBytes = Files.readAllBytes(completedFile);
-
-                HttpHeaders headers = new HttpHeaders();
-
-                headers.setContentType(
-                        MediaType.parseMediaType(
-                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
-
-                headers.setContentLength(fileBytes.length);
-
-                headers.setContentDispositionFormData(
-                        "attachment",
-                        "credit_bureau_report_" + LocalDate.now() + ".xlsx");
-
-                headers.setCacheControl(
-                        "no-cache, no-store, must-revalidate");
-
-                headers.setPragma("no-cache");
-
-                auditService.log(
-                        currentUserUtil.getCurrentUser().getOrganization(),
-                        currentUserUtil.getCurrentUser(),
-                        "EXPORT",
-                        "CreditBureauExport",
-                        completedJob.getId(),
-                        "Exported Credit Bureau report as XLSX",
-                        null,
-                        null,
-                        "Regulatory Reporting");
-
-                return ResponseEntity.ok()
-                        .headers(headers)
-                        .body(fileBytes);
-
-            } catch (Exception e) {
+                creditBureauExportJobService.process(job.getId());
+            } catch (java.util.concurrent.RejectedExecutionException ex) {
                 throw new IllegalStateException(
-                        "Failed to read completed Credit Bureau XLSX export.",
-                        e);
+                        "A Credit Bureau report is already being generated. Please wait for it to finish.", ex);
             }
+
+            auditService.log(
+                    currentUserUtil.getCurrentUser().getOrganization(),
+                    currentUserUtil.getCurrentUser(),
+                    "EXPORT_STARTED",
+                    "CreditBureauExport",
+                    job.getId(),
+                    "Started asynchronous Credit Bureau regulatory workbook export",
+                    null, null, "Regulatory Reporting");
+
+            return ResponseEntity.accepted()
+                    .header(HttpHeaders.CACHE_CONTROL, "no-store, no-cache, must-revalidate, max-age=0")
+                    .body(Map.of(
+                            "success", true,
+                            "jobId", job.getId(),
+                            "status", job.getStatus().name()));
         }
 
-        List<CreditBureauRecord> records =
-                reportingService.buildCreditBureauExport(
-                        organizationId,
-                        branchId,
-                        fromDate,
-                        toDate);
+        List<CreditBureauRecord> records = reportingService.buildCreditBureauExport(
+                organizationId, branchId, fromDate, toDate);
 
         byte[] fileBytes;
-        String fileName =
-                "credit_bureau_report_" + LocalDate.now();
-
+        String fileName = "credit_bureau_report_" + LocalDate.now();
         HttpHeaders headers = new HttpHeaders();
 
         try {
-
             if ("csv".equalsIgnoreCase(format)) {
-
+                // ========================================================
+                // NATIVE CSV ENGINE
+                // ========================================================
                 StringBuilder csv = new StringBuilder();
-
-                csv.append(String.join(",", COLUMNS))
-                        .append("\n");
+                csv.append(String.join(",", COLUMNS)).append("\n");
 
                 if (records != null) {
                     for (CreditBureauRecord r : records) {
-
-                        csv.append(String.format(
-                                "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%.2f,%.2f,%d,%d,%s,%s,%s,%s,%s,%s\n",
-                                r.getBorrowerId() != null
-                                        ? String.valueOf(r.getBorrowerId()) : "",
-                                r.getNationalId() != null
-                                        ? r.getNationalId() : "",
-                                r.getFullName() != null
-                                        ? r.getFullName().replace(",", " ") : "",
-                                r.getDateOfBirth() != null
-                                        ? r.getDateOfBirth() : "",
-                                r.getGender() != null
-                                        ? r.getGender() : "",
-                                r.getPhone() != null
-                                        ? r.getPhone() : "",
-                                r.getLoanNumber() != null
-                                        ? r.getLoanNumber() : "",
-                                r.getLoanType() != null
-                                        ? r.getLoanType() : "",
-                                r.getLoanStatus() != null
-                                        ? r.getLoanStatus() : "",
-                                r.getRepaymentClassification() != null
-                                        ? r.getRepaymentClassification() : "",
-                                r.getLoanAmount(),
-                                r.getOutstandingBalance(),
-                                r.getDaysPastDue(),
-                                r.getCreditScore() != null
-                                        ? r.getCreditScore() : 0,
-                                r.getDateOpened() != null
-                                        ? r.getDateOpened() : "",
-                                r.getLastPaymentDate() != null
-                                        ? r.getLastPaymentDate() : "",
-                                r.getMaturityDate() != null
-                                        ? r.getMaturityDate() : "",
-                                r.getDateClosed() != null
-                                        ? r.getDateClosed() : "",
-                                r.getBranchName() != null
-                                        ? r.getBranchName() : "",
-                                r.getCurrency() != null
-                                        ? r.getCurrency() : ""
-                        ));
+                        csv.append(String.format("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%.2f,%.2f,%d,%d,%s,%s,%s,%s,%s,%s\n",
+                                r.getBorrowerId() != null ? String.valueOf(r.getBorrowerId()) : "",
+                                r.getNationalId() != null ? r.getNationalId() : "",
+                                r.getFullName() != null ? r.getFullName().replace(",", " ") : "",
+                                r.getDateOfBirth() != null ? r.getDateOfBirth() : "",
+                                r.getGender() != null ? r.getGender() : "",
+                                r.getPhone() != null ? r.getPhone() : "",
+                                r.getLoanNumber() != null ? r.getLoanNumber() : "",
+                                r.getLoanType() != null ? r.getLoanType() : "",
+                                r.getLoanStatus() != null ? r.getLoanStatus() : "",
+                                r.getRepaymentClassification() != null ? r.getRepaymentClassification() : "",
+                                r.getLoanAmount(), r.getOutstandingBalance(), r.getDaysPastDue(),
+                                r.getCreditScore() != null ? r.getCreditScore() : 0,
+                                r.getDateOpened() != null ? r.getDateOpened() : "",
+                                r.getLastPaymentDate() != null ? r.getLastPaymentDate() : "",
+                                r.getMaturityDate() != null ? r.getMaturityDate() : "",
+                                r.getDateClosed() != null ? r.getDateClosed() : "",
+                                r.getBranchName() != null ? r.getBranchName() : "",
+                                r.getCurrency() != null ? r.getCurrency() : ""));
                     }
                 }
-
-                fileBytes =
-                        csv.toString()
-                                .getBytes(StandardCharsets.UTF_8);
-
-                headers.setContentType(
-                        MediaType.parseMediaType("text/csv"));
-
-                headers.setContentDispositionFormData(
-                        "attachment",
-                        fileName + ".csv");
+                fileBytes = csv.toString().getBytes(StandardCharsets.UTF_8);
+                headers.setContentType(MediaType.parseMediaType("text/csv"));
+                headers.setContentDispositionFormData("attachment", fileName + ".csv");
 
             } else if ("pdf".equalsIgnoreCase(format)) {
-
-                try (ByteArrayOutputStream out =
-                             new ByteArrayOutputStream()) {
-
-                    com.lowagie.text.Document document =
-                            new com.lowagie.text.Document(
-                                    com.lowagie.text.PageSize.A3.rotate());
-
-                    com.lowagie.text.pdf.PdfWriter.getInstance(
-                            document,
-                            out);
-
+                // ========================================================
+                // NATIVE FIXED PDF ENGINE (OpenPDF - Now supports all 20 columns)
+                // ========================================================
+                try (java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+                    // Set Page Size to A3 Rotate (Landscape) to accommodate all 20 columns
+                    // comfortably
+                    com.lowagie.text.Document document = new com.lowagie.text.Document(
+                            com.lowagie.text.PageSize.A3.rotate());
+                    com.lowagie.text.pdf.PdfWriter.getInstance(document, out);
                     document.open();
 
-                    com.lowagie.text.Paragraph title =
-                            new com.lowagie.text.Paragraph(
-                                    "CREDIT BUREAU REGULATORY REPORT\n"
-                                            + "Generated: "
-                                            + LocalDate.now()
-                                            + "\n\n");
-
-                    title.setAlignment(
-                            com.lowagie.text.Element.ALIGN_CENTER);
-
+                    com.lowagie.text.Paragraph title = new com.lowagie.text.Paragraph(
+                            "CREDIT BUREAU REGULATORY REPORT\nGenerated: " + LocalDate.now() + "\n\n");
+                    title.setAlignment(com.lowagie.text.Element.ALIGN_CENTER);
                     document.add(title);
 
-                    com.lowagie.text.Table table =
-                            new com.lowagie.text.Table(20);
-
+                    // Initialize OpenPDF Table with exactly 20 columns to match your DTO
+                    com.lowagie.text.Table table = new com.lowagie.text.Table(20);
                     table.setPadding(3);
                     table.setWidth(100);
 
+                    // Add all 20 headers dynamically from your static COLUMNS configuration
                     for (String columnName : COLUMNS) {
                         table.addCell(columnName);
                     }
 
+                    // Feed Data Rows cleanly with complete properties mapping
                     if (records != null) {
-
                         for (CreditBureauRecord r : records) {
-
-                            table.addCell(
-                                    r.getBorrowerId() != null
-                                            ? String.valueOf(r.getBorrowerId())
-                                            : "");
-
-                            table.addCell(
-                                    r.getNationalId() != null
-                                            ? r.getNationalId()
-                                            : "");
-
-                            table.addCell(
-                                    r.getFullName() != null
-                                            ? r.getFullName()
-                                            : "");
-
-                            table.addCell(
-                                    r.getDateOfBirth() != null
-                                            ? r.getDateOfBirth().toString()
-                                            : "");
-
-                            table.addCell(
-                                    r.getGender() != null
-                                            ? r.getGender()
-                                            : "");
-
-                            table.addCell(
-                                    r.getPhone() != null
-                                            ? r.getPhone()
-                                            : "");
-
-                            table.addCell(
-                                    r.getLoanNumber() != null
-                                            ? r.getLoanNumber()
-                                            : "");
-
-                            table.addCell(
-                                    r.getLoanType() != null
-                                            ? r.getLoanType()
-                                            : "");
-
-                            table.addCell(
-                                    r.getLoanStatus() != null
-                                            ? r.getLoanStatus()
-                                            : "");
-
-                            table.addCell(
-                                    r.getRepaymentClassification() != null
-                                            ? r.getRepaymentClassification()
-                                            : "");
-
-                            table.addCell(
-                                    String.format("%.2f",
-                                            r.getLoanAmount()));
-
-                            table.addCell(
-                                    String.format("%.2f",
-                                            r.getOutstandingBalance()));
-
-                            table.addCell(
-                                    String.valueOf(
-                                            r.getDaysPastDue()));
-
-                            table.addCell(
-                                    r.getCreditScore() != null
-                                            ? String.valueOf(
-                                                    r.getCreditScore())
-                                            : "");
-
-                            table.addCell(
-                                    r.getDateOpened() != null
-                                            ? r.getDateOpened().toString()
-                                            : "");
-
-                            table.addCell(
-                                    r.getLastPaymentDate() != null
-                                            ? r.getLastPaymentDate().toString()
-                                            : "");
-
-                            table.addCell(
-                                    r.getMaturityDate() != null
-                                            ? r.getMaturityDate().toString()
-                                            : "");
-
-                            table.addCell(
-                                    r.getDateClosed() != null
-                                            ? r.getDateClosed().toString()
-                                            : "");
-
-                            table.addCell(
-                                    r.getBranchName() != null
-                                            ? r.getBranchName()
-                                            : "");
-
-                            table.addCell(
-                                    r.getCurrency() != null
-                                            ? r.getCurrency()
-                                            : "");
+                            table.addCell(r.getBorrowerId() != null ? String.valueOf(r.getBorrowerId()) : "");
+                            table.addCell(r.getNationalId() != null ? r.getNationalId() : "");
+                            table.addCell(r.getFullName() != null ? r.getFullName() : "");
+                            table.addCell(r.getDateOfBirth() != null ? r.getDateOfBirth().toString() : "");
+                            table.addCell(r.getGender() != null ? r.getGender() : "");
+                            table.addCell(r.getPhone() != null ? r.getPhone() : "");
+                            table.addCell(r.getLoanNumber() != null ? r.getLoanNumber() : "");
+                            table.addCell(r.getLoanType() != null ? r.getLoanType() : "");
+                            table.addCell(r.getLoanStatus() != null ? r.getLoanStatus() : "");
+                            table.addCell(r.getRepaymentClassification() != null ? r.getRepaymentClassification() : "");
+                            table.addCell(String.format("%.2f", r.getLoanAmount()));
+                            table.addCell(String.format("%.2f", r.getOutstandingBalance()));
+                            table.addCell(String.valueOf(r.getDaysPastDue()));
+                            table.addCell(r.getCreditScore() != null ? String.valueOf(r.getCreditScore()) : "");
+                            table.addCell(r.getDateOpened() != null ? r.getDateOpened().toString() : "");
+                            table.addCell(r.getLastPaymentDate() != null ? r.getLastPaymentDate().toString() : "");
+                            // Add trailing cells to finish out the OpenPDF table matrix
+                            table.addCell(r.getMaturityDate() != null ? r.getMaturityDate().toString() : "");
+                            table.addCell(r.getDateClosed() != null ? r.getDateClosed().toString() : "");
+                            table.addCell(r.getBranchName() != null ? r.getBranchName() : "");
+                            table.addCell(r.getCurrency() != null ? r.getCurrency() : "");
                         }
                     }
 
+                    // Append table to PDF layout and close stream buffers safely
                     document.add(table);
                     document.close();
-
                     fileBytes = out.toByteArray();
                 }
 
-                headers.setContentType(
-                        MediaType.APPLICATION_PDF);
+                headers.setContentType(MediaType.APPLICATION_PDF);
+                headers.setContentDispositionFormData("attachment", fileName + ".pdf");
 
-                headers.setContentDispositionFormData(
-                        "attachment",
-                        fileName + ".pdf");
+            } else {
+                // ========================================================
+                // NATIVE EXCEL (.XLSX) ENGINE
+                // ========================================================
+                try (org.apache.poi.ss.usermodel.Workbook wb = new org.apache.poi.xssf.usermodel.XSSFWorkbook();
+                        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
 
-            } else if ("xlsx".equalsIgnoreCase(format)) {
+                    org.apache.poi.ss.usermodel.Sheet sheet = wb.createSheet("Credit Bureau Report");
+                    org.apache.poi.ss.usermodel.Row headerRow = sheet.createRow(0);
 
-                /*
-                 * Normally XLSX is handled by the job branch above.
-                 * This branch is retained only as a safe fallback.
-                 */
-                try (
-                        org.apache.poi.ss.usermodel.Workbook wb =
-                                new org.apache.poi.xssf.usermodel.XSSFWorkbook();
-
-                        ByteArrayOutputStream out =
-                                new ByteArrayOutputStream()
-                ) {
-
-                    org.apache.poi.ss.usermodel.Sheet sheet =
-                            wb.createSheet("Credit Bureau Report");
-
-                    org.apache.poi.ss.usermodel.Row headerRow =
-                            sheet.createRow(0);
-
-                    for (int i = 0;
-                         i < COLUMNS.size();
-                         i++) {
-
-                        headerRow.createCell(i)
-                                .setCellValue(COLUMNS.get(i));
+                    for (int i = 0; i < COLUMNS.size(); i++) {
+                        headerRow.createCell(i).setCellValue(COLUMNS.get(i));
                     }
 
                     int rowIdx = 1;
-
                     if (records != null) {
-
                         for (CreditBureauRecord r : records) {
+                            org.apache.poi.ss.usermodel.Row row = sheet.createRow(rowIdx++);
 
-                            org.apache.poi.ss.usermodel.Row row =
-                                    sheet.createRow(rowIdx++);
-
-                            row.createCell(0).setCellValue(
-                                    r.getBorrowerId() != null
-                                            ? r.getBorrowerId()
-                                            : 0L);
-
-                            row.createCell(1).setCellValue(
-                                    r.getNationalId() != null
-                                            ? r.getNationalId()
-                                            : "");
-
-                            row.createCell(2).setCellValue(
-                                    r.getFullName() != null
-                                            ? r.getFullName()
-                                            : "");
-
-                            row.createCell(3).setCellValue(
-                                    r.getDateOfBirth() != null
-                                            ? r.getDateOfBirth().toString()
-                                            : "");
-
-                            row.createCell(4).setCellValue(
-                                    r.getGender() != null
-                                            ? r.getGender()
-                                            : "");
-
-                            row.createCell(5).setCellValue(
-                                    r.getPhone() != null
-                                            ? r.getPhone()
-                                            : "");
-
-                            row.createCell(6).setCellValue(
-                                    r.getLoanNumber() != null
-                                            ? r.getLoanNumber()
-                                            : "");
-
-                            row.createCell(7).setCellValue(
-                                    r.getLoanType() != null
-                                            ? r.getLoanType()
-                                            : "");
-
-                            row.createCell(8).setCellValue(
-                                    r.getLoanStatus() != null
-                                            ? r.getLoanStatus()
-                                            : "");
-
+                            // Map all 20 columns cleanly to Excel cell indexes row by row
+                            row.createCell(0).setCellValue(r.getBorrowerId() != null ? r.getBorrowerId() : 0L);
+                            row.createCell(1).setCellValue(r.getNationalId() != null ? r.getNationalId() : "");
+                            row.createCell(2).setCellValue(r.getFullName() != null ? r.getFullName() : "");
+                            row.createCell(3)
+                                    .setCellValue(r.getDateOfBirth() != null ? r.getDateOfBirth().toString() : "");
+                            row.createCell(4).setCellValue(r.getGender() != null ? r.getGender() : "");
+                            row.createCell(5).setCellValue(r.getPhone() != null ? r.getPhone() : "");
+                            row.createCell(6).setCellValue(r.getLoanNumber() != null ? r.getLoanNumber() : "");
+                            row.createCell(7).setCellValue(r.getLoanType() != null ? r.getLoanType() : "");
+                            row.createCell(8).setCellValue(r.getLoanStatus() != null ? r.getLoanStatus() : "");
                             row.createCell(9).setCellValue(
-                                    r.getRepaymentClassification() != null
-                                            ? r.getRepaymentClassification()
-                                            : "");
-
-                            row.createCell(10).setCellValue(
-                                    r.getLoanAmount());
-
-                            row.createCell(11).setCellValue(
-                                    r.getOutstandingBalance());
-
-                            row.createCell(12).setCellValue(
-                                    r.getDaysPastDue());
-
-                            row.createCell(13).setCellValue(
-                                    r.getCreditScore() != null
-                                            ? r.getCreditScore()
-                                            : 0);
-
-                            row.createCell(14).setCellValue(
-                                    r.getDateOpened() != null
-                                            ? r.getDateOpened().toString()
-                                            : "");
-
+                                    r.getRepaymentClassification() != null ? r.getRepaymentClassification() : "");
+                            row.createCell(10).setCellValue(r.getLoanAmount());
+                            row.createCell(11).setCellValue(r.getOutstandingBalance());
+                            row.createCell(12).setCellValue(r.getDaysPastDue());
+                            row.createCell(13).setCellValue(r.getCreditScore() != null ? r.getCreditScore() : 0);
+                            row.createCell(14)
+                                    .setCellValue(r.getDateOpened() != null ? r.getDateOpened().toString() : "");
                             row.createCell(15).setCellValue(
-                                    r.getLastPaymentDate() != null
-                                            ? r.getLastPaymentDate().toString()
-                                            : "");
-
-                            row.createCell(16).setCellValue(
-                                    r.getMaturityDate() != null
-                                            ? r.getMaturityDate().toString()
-                                            : "");
-
-                            row.createCell(17).setCellValue(
-                                    r.getDateClosed() != null
-                                            ? r.getDateClosed().toString()
-                                            : "");
-
-                            row.createCell(18).setCellValue(
-                                    r.getBranchName() != null
-                                            ? r.getBranchName()
-                                            : "");
-
-                            row.createCell(19).setCellValue(
-                                    r.getCurrency() != null
-                                            ? r.getCurrency()
-                                            : "");
+                                    r.getLastPaymentDate() != null ? r.getLastPaymentDate().toString() : "");
+                            row.createCell(16)
+                                    .setCellValue(r.getMaturityDate() != null ? r.getMaturityDate().toString() : "");
+                            row.createCell(17)
+                                    .setCellValue(r.getDateClosed() != null ? r.getDateClosed().toString() : "");
+                            row.createCell(18).setCellValue(r.getBranchName() != null ? r.getBranchName() : "");
+                            row.createCell(19).setCellValue(r.getCurrency() != null ? r.getCurrency() : "");
                         }
                     }
 
@@ -580,65 +282,48 @@ public class CreditBureauExportController {
                 }
 
                 headers.setContentType(
-                        MediaType.parseMediaType(
-                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
-
-                headers.setContentDispositionFormData(
-                        "attachment",
-                        fileName + ".xlsx");
-
-            } else {
-
-                throw new IllegalArgumentException(
-                        "Unsupported Credit Bureau export format: "
-                                + format);
+                        MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+                headers.setContentDispositionFormData("attachment", fileName + ".xlsx");
             }
 
         } catch (Exception e) {
-
-            throw new IllegalStateException(
-                    "Failed to securely generate raw binary export payload",
-                    e);
+            throw new IllegalStateException("Failed to securely generate raw binary export payload", e);
         }
 
-        headers.setCacheControl(
-                "no-cache, no-store, must-revalidate");
+        // Apply strict corporate anti-cache headers
+        headers.setCacheControl("no-cache, no-store, must-revalidate");
 
-        headers.setPragma("no-cache");
-
+        // Commit execution parameters to system audit tables
         auditService.log(
                 currentUserUtil.getCurrentUser().getOrganization(),
                 currentUserUtil.getCurrentUser(),
                 "EXPORT",
                 "CreditBureauExport",
                 "export",
-                "Exported Credit Bureau report as "
-                        + format.toUpperCase(),
+                "Exported Credit Bureau report as " + format.toUpperCase(),
                 null,
                 null,
                 "Regulatory Reporting");
 
+        // Serve raw file transmission bundle down to connection pipeline
         return ResponseEntity.ok()
                 .headers(headers)
                 .body(fileBytes);
     }
 
+    // ============================================================
+    // PRIVATE UTILS
+    // ============================================================
+
     @GetMapping("/jobs/{jobId}")
     public ResponseEntity<Map<String, Object>> exportStatus(
-            @PathVariable String jobId) {
-
+            @org.springframework.web.bind.annotation.PathVariable String jobId) {
         var job = creditBureauExportJobService.get(jobId);
-
-        if (job == null
-                || !organizationMatches(job.getOrganizationId())) {
-
-            throw new IllegalArgumentException(
-                    "Credit Bureau export job not found.");
+        if (job == null || !organizationMatches(job.getOrganizationId())) {
+            throw new IllegalArgumentException("Credit Bureau export job not found.");
         }
 
-        Map<String, Object> body =
-                new LinkedHashMap<>();
-
+        Map<String, Object> body = new LinkedHashMap<>();
         body.put("success", true);
         body.put("jobId", job.getId());
         body.put("status", job.getStatus().name());
@@ -646,97 +331,51 @@ public class CreditBureauExportController {
         body.put("createdAt", job.getCreatedAt());
         body.put("startedAt", job.getStartedAt());
         body.put("completedAt", job.getCompletedAt());
-
-        if (job.getError() != null) {
-            body.put("error", job.getError());
-        }
+        if (job.getError() != null) body.put("error", job.getError());
 
         return ResponseEntity.ok()
-                .header(
-                        HttpHeaders.CACHE_CONTROL,
-                        "no-store, no-cache, must-revalidate, max-age=0")
+                .header(HttpHeaders.CACHE_CONTROL, "no-store, no-cache, must-revalidate, max-age=0")
                 .header("Pragma", "no-cache")
                 .body(body);
     }
 
     @GetMapping("/jobs/{jobId}/download")
     public ResponseEntity<Resource> downloadExport(
-            @PathVariable String jobId) {
-
+            @org.springframework.web.bind.annotation.PathVariable String jobId) {
         var job = creditBureauExportJobService.get(jobId);
-
-        if (job == null
-                || !organizationMatches(job.getOrganizationId())) {
-
-            throw new IllegalArgumentException(
-                    "Credit Bureau export job not found.");
+        if (job == null || !organizationMatches(job.getOrganizationId())) {
+            throw new IllegalArgumentException("Credit Bureau export job not found.");
+        }
+        if (job.getStatus() != CreditBureauExportJobService.Status.COMPLETED) {
+            throw new IllegalStateException("Credit Bureau export is not ready yet.");
         }
 
-        if (job.getStatus()
-                != CreditBureauExportJobService.Status.COMPLETED) {
-
-            throw new IllegalStateException(
-                    "Credit Bureau export is not ready yet.");
-        }
-
-        Path file =
-                creditBureauExportJobService.completedFile(job);
-
+        Path file = creditBureauExportJobService.completedFile(job);
         if (file == null) {
-            throw new IllegalStateException(
-                    "Credit Bureau export file is no longer available.");
+            throw new IllegalStateException("Credit Bureau export file is no longer available.");
         }
-
-        String filename =
-                "credit_bureau_"
-                        + LocalDate.now()
-                        + ".xlsx";
 
         return ResponseEntity.ok()
-                .contentType(
-                        MediaType.parseMediaType(
-                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                 .contentLength(job.getSize())
-                .header(
-                        HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=\""
-                                + filename
-                                + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"credit-bureau-" + LocalDate.now() + ".xlsx\"")
                 .body(new FileSystemResource(file));
     }
 
-    // ============================================================
-    // PRIVATE UTILS
-    // ============================================================
+    private boolean organizationMatches(Long organizationId) {
+        Long current = currentUserUtil.getCurrentOrganizationId();
+        return current != null && organizationId != null && current.equals(organizationId);
+    }
 
     private LocalDate parseDate(String d) {
-
-        return d != null && !d.trim().isEmpty()
-                ? LocalDate.parse(d)
-                : null;
+        return d != null && !d.trim().isEmpty() ? LocalDate.parse(d) : null;
     }
 
-    private void validateDateRange(
-            LocalDate f,
-            LocalDate t) {
-
-        if (f != null
-                && t != null
-                && f.isAfter(t)) {
-
-            throw new IllegalArgumentException(
-                    "From date cannot be after To date.");
+    private void validateDateRange(LocalDate f, LocalDate t) {
+        if (f != null && t != null && f.isAfter(t)) {
+            throw new IllegalArgumentException("From date cannot be after To date.");
         }
-    }
-
-    private boolean organizationMatches(
-            Long organizationId) {
-
-        Long current =
-                currentUserUtil.getCurrentOrganizationId();
-
-        return current != null
-                && organizationId != null
-                && current.equals(organizationId);
     }
 }

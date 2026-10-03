@@ -15,17 +15,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-/**
- * Loads the authoritative application role from the database and converts it
- * into Spring Security authorities.
- *
- * ADMIN and BUSINESS_OWNER are high-authority roles, but they are deliberately
- * kept distinct for confidential reporting scope. ADMIN receives the normal
- * staff authorities needed to operate the application, while BUSINESS_OWNER
- * is the only role that receives ROLE_BUSINESS_OWNER. This distinction is
- * security-critical because ReportingScopeService uses ROLE_BUSINESS_OWNER
- * as the authoritative signal for access to BUSINESS_OWNER_ONLY loans.
- */
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
 
@@ -47,52 +36,80 @@ public class CustomUserDetailsService implements UserDetailsService {
     }
 
     /**
-     * Converts an already-loaded application user without performing another
-     * repository lookup. Used by JwtAuthFilter on every authenticated request.
+     * Converts an already-loaded application User into Spring Security
+     * UserDetails without performing another database query.
+     *
+     * This method is intentionally public because JwtAuthFilter already
+     * loads the authoritative User entity in order to validate:
+     *
+     * - account status
+     * - token version
+     * - tenant/security state
+     *
+     * Reusing that entity avoids a second database lookup on every request.
      */
     public UserDetails fromUser(User user) {
+
         if (user == null) {
             throw new UsernameNotFoundException("User not found");
         }
 
         String roleName = normalizeRole(
-                user.getRole() != null ? user.getRole().getName() : null);
+                user.getRole() != null
+                        ? user.getRole().getName()
+                        : null
+        );
 
         if (roleName == null) {
             throw new UsernameNotFoundException(
-                    "User has no valid security role assigned");
+                    "User has no valid security role assigned"
+            );
         }
 
         Set<String> authorities = new LinkedHashSet<>();
+
         authorities.add("ROLE_" + roleName);
 
-        // ADMIN is the top-level application administrator.  Grant every
-        // defined staff authority so existing endpoint-specific method
-        // security cannot accidentally deny an administrator.
+        /*
+         * ADMIN, INSTITUTION_ADMIN and BUSINESS_OWNER retain the
+         * existing high-authority behavior.
+         *
+         * BUSINESS_OWNER remains deliberately separate because
+         * reporting/security scope depends on ROLE_BUSINESS_OWNER.
+         */
         if ("ADMIN".equals(roleName)
                 || "INSTITUTION_ADMIN".equals(roleName)
                 || "BUSINESS_OWNER".equals(roleName)) {
+
             for (RoleName role : RoleName.values()) {
-                // BUSINESS_OWNER is a confidential reporting authority, not a
-                // generic staff authority. ADMIN must not inherit it, otherwise
-                // ReportingScopeService would correctly interpret the ADMIN
-                // authentication as BUSINESS_OWNER and expose confidential
-                // loans in accounting, dashboard and regulatory reports.
+
+                /*
+                 * ADMIN must NOT inherit BUSINESS_OWNER.
+                 *
+                 * ReportingScopeService uses ROLE_BUSINESS_OWNER
+                 * as the authoritative confidential-reporting signal.
+                 */
                 if ("BUSINESS_OWNER".equals(role.name())
                         && !"BUSINESS_OWNER".equals(roleName)) {
                     continue;
                 }
+
                 authorities.add("ROLE_" + role.name());
             }
 
-            // Kept for compatibility with the existing UserController rule:
-            // hasAnyRole('ADMIN','INSTITUTION_ADMIN').
+            /*
+             * Existing controller compatibility.
+             */
             authorities.add("ROLE_INSTITUTION_ADMIN");
         }
 
-        List<SimpleGrantedAuthority> grantedAuthorities = new ArrayList<>();
+        List<SimpleGrantedAuthority> grantedAuthorities =
+                new ArrayList<>(authorities.size());
+
         for (String authority : authorities) {
-            grantedAuthorities.add(new SimpleGrantedAuthority(authority));
+            grantedAuthorities.add(
+                    new SimpleGrantedAuthority(authority)
+            );
         }
 
         return new org.springframework.security.core.userdetails.User(
@@ -107,6 +124,7 @@ public class CustomUserDetailsService implements UserDetailsService {
     }
 
     private String normalizeRole(String raw) {
+
         if (raw == null || raw.isBlank()) {
             return null;
         }
@@ -117,12 +135,17 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .replace(' ', '_');
 
         for (RoleName role : RoleName.values()) {
+
             if (role.name().equals(normalized)) {
                 return role.name();
             }
         }
 
-        
+        /*
+         * Preserve compatibility with installations where
+         * INSTITUTION_ADMIN exists as a persisted role even if
+         * it is not currently represented in RoleName.
+         */
         if ("INSTITUTION_ADMIN".equals(normalized)) {
             return normalized;
         }

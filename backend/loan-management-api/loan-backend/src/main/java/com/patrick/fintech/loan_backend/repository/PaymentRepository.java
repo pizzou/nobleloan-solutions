@@ -176,6 +176,16 @@ public interface PaymentRepository
         List<Payment> findByLoanIdOrderByDueDateAsc(
                         Long loanId);
 
+        @Query("""
+                SELECT p
+                FROM Payment p
+                WHERE p.loan.id IN :loanIds
+                ORDER BY p.loan.id ASC, p.dueDate ASC
+                """)
+        List<Payment> findByLoanIdInOrderByLoanIdAscDueDateAsc(
+                        @Param("loanIds") List<Long> loanIds);
+
+
         // ============================================================
         // BORROWER PAYMENT HISTORY
         // ============================================================
@@ -355,6 +365,33 @@ public interface PaymentRepository
         BigDecimal sumPenaltyPaidByBorrower(
                         @Param("borrowerId") Long borrowerId,
                         @Param("organizationId") Long organizationId);
+
+        /**
+         * Dashboard payment/overdue aggregate.  This replaces loading every
+         * payment entity merely to calculate three KPI numbers.
+         * Result order: paid total, paid this month, overdue payment rows,
+         * distinct loans with an unpaid payment due before today.
+         */
+        @Query("""
+                        SELECT
+                            COALESCE(SUM(CASE WHEN p.paid = true THEN p.amountPaid ELSE 0 END), 0),
+                            COALESCE(SUM(CASE WHEN p.paid = true AND p.paidDate >= :from AND p.paidDate <= :to
+                                              THEN p.amountPaid ELSE 0 END), 0),
+                            COALESCE(SUM(CASE WHEN p.paid = false AND p.dueDate < :to THEN 1 ELSE 0 END), 0),
+                            COUNT(DISTINCT CASE WHEN p.paid = false AND p.dueDate < :to THEN l.id ELSE NULL END)
+                        FROM Payment p
+                        JOIN p.loan l
+                        WHERE l.organization.id = :organizationId
+                          AND (
+                                :includeBusinessOwnerOnly = true
+                                OR COALESCE(l.businessOwnerOnly, false) = false
+                          )
+                        """)
+        Object[] getDashboardPerformanceAggregate(
+                        @Param("organizationId") Long organizationId,
+                        @Param("from") LocalDate from,
+                        @Param("to") LocalDate to,
+                        @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
 
         // ============================================================
         // COLLECTIONS

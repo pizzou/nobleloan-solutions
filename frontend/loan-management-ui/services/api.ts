@@ -131,32 +131,10 @@ API.interceptors.response.use(
       window.location.href = "/login";
     }
 
-    let message = getAxiosErrorMessage(responseData);
-
-    if (!message && status != null) {
-      if (status === 401)
-        message = "Your session has expired. Please sign in again.";
-      else if (status === 403)
-        message = "You do not have permission to perform this action.";
-      else if (status === 408 || status === 504)
-        message =
-          "The server took too long to complete this request. Please retry.";
-      else if (status === 429)
-        message = "Too many requests. Please wait a moment and retry.";
-      else if (status >= 500)
-        message = "The server could not complete this request. Please retry.";
-    }
-
-    message = message || error.message || "The request could not be completed.";
-    // Guard against an HTML error page already present in Axios' generic
-    // message/data path.
-    if (
-      /^<!doctype html/i.test(message.trim()) ||
-      /^<html[\s>]/i.test(message.trim())
-    ) {
-      message =
-        "The server returned an unexpected gateway error. Please retry.";
-    }
+    const message =
+      getAxiosErrorMessage(responseData, status) ||
+      error.message ||
+      `Request failed with status ${status ?? "unknown"}`;
 
     error.message = message;
 
@@ -172,13 +150,32 @@ API.interceptors.response.use(
   },
 );
 
-function getAxiosErrorMessage(data: unknown): string | null {
+function getAxiosErrorMessage(data: unknown, status?: number): string | null {
   if (!data) {
     return null;
   }
 
   if (typeof data === "string") {
-    return data || null;
+    const text = data.trim();
+    if (!text) return null;
+
+    // Render/Cloudflare can return an HTML gateway page when the backend is
+    // restarting or times out. Never surface that HTML as an application error.
+    if (
+      text.startsWith("<!doctype") ||
+      text.startsWith("<html") ||
+      /<html[\s>]/i.test(text)
+    ) {
+      if (status === 502)
+        return "The service is temporarily unavailable while the server recovers. Please try again shortly.";
+      if (status === 503)
+        return "The service is temporarily busy or restarting. Please try again shortly.";
+      if (status === 504)
+        return "The operation took too long to complete. Please retry; the server is still available.";
+      return "The server returned an invalid gateway response. Please try again shortly.";
+    }
+
+    return text;
   }
 
   if (typeof data === "object") {

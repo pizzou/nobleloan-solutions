@@ -11,7 +11,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -20,11 +19,11 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Durable-in-process CRB workbook export job.
+ * Bounded background execution for large Credit Bureau workbooks.
  *
- * Large regulatory exports must not occupy the HTTP request thread. The
- * generated workbook is written to a temporary file and exposed only after
- * an atomic move has completed.
+ * The job stores only metadata in memory. The generated XLSX is written directly
+ * to the staging filesystem so an export cannot hold a second complete byte[] on
+ * the Render heap or occupy an HTTP request thread.
  */
 @Service
 @RequiredArgsConstructor
@@ -35,12 +34,13 @@ public class CreditBureauExportJobService {
 
     private final CreditBureauRegulatoryExportService exportService;
 
-    @Value("${app.import.staging-dir:${java.io.tmpdir}/loansaas-imports}")
+    @Value("${app.report.staging-dir:${java.io.tmpdir}/loansaas-reports}")
     private String stagingDir;
 
     private final Map<String, Job> jobs = new ConcurrentHashMap<>();
 
-    public Job create(Long organizationId, Long branchId, LocalDate from, LocalDate to) {
+    public Job create(Long organizationId, Long branchId, Long borrowerId,
+                      LocalDate from, LocalDate to) {
         if (organizationId == null || organizationId <= 0) {
             throw new IllegalArgumentException("Organization is required for a Credit Bureau export job.");
         }
@@ -52,6 +52,7 @@ public class CreditBureauExportJobService {
                 UUID.randomUUID().toString(),
                 organizationId,
                 branchId,
+                borrowerId,
                 from,
                 to);
         jobs.put(job.id, job);
@@ -62,11 +63,10 @@ public class CreditBureauExportJobService {
         return jobId == null ? null : jobs.get(jobId);
     }
 
-    @Async("loansaasReportExecutor")
+    @Async("reportAsyncExecutor")
     public void process(String jobId) {
         Job job = jobs.get(jobId);
         if (job == null) {
-            log.warn("Ignoring unknown CRB export jobId={}", jobId);
             return;
         }
 
@@ -79,46 +79,32 @@ public class CreditBureauExportJobService {
         }
 
         Path root = null;
+        Path output = null;
+        Path temporary = null;
         try {
             root = Path.of(stagingDir).toAbsolutePath().normalize();
             Files.createDirectories(root);
 
-            Path output = root.resolve("credit-bureau-export-" + job.id + ".xlsx").normalize();
-            Path temporary = root.resolve(".credit-bureau-export-" + job.id + ".tmp").normalize();
-
+            output = root.resolve("credit-bureau-export-" + job.id + ".xlsx").normalize();
+            temporary = root.resolve(".credit-bureau-export-" + job.id + ".tmp").normalize();
             if (!output.startsWith(root) || !temporary.startsWith(root)) {
                 throw new IllegalStateException("Invalid Credit Bureau export path.");
             }
 
-            byte[] bytes;
-            try (ReportingScopeService.ScopeContext ignored =
-                         ReportingScopeService.useScope(
-                                 ReportingScopeService.includeBusinessOwnerOnly()
-                                         ? ReportingScopeService.Scope.BUSINESS_OWNER
-                                         : ReportingScopeService.Scope.NORMAL)) {
-                bytes = exportService.export(
-                        job.organizationId,
-                        job.branchId,
-                        null,
-                        job.from,
-                        job.to);
-            }
+            exportService.exportToFile(
+                    temporary,
+                    job.organizationId,
+                    job.branchId,
+                    job.borrowerId,
+                    job.from,
+                    job.to);
 
-            if (bytes == null || bytes.length == 0) {
+            if (!Files.isRegularFile(temporary) || Files.size(temporary) == 0) {
                 throw new IllegalStateException("Credit Bureau export produced an empty workbook.");
             }
 
-            Files.write(
-                    temporary,
-                    bytes,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING,
-                    StandardOpenOption.WRITE);
-
             try {
-                Files.move(
-                        temporary,
-                        output,
+                Files.move(temporary, output,
                         StandardCopyOption.ATOMIC_MOVE,
                         StandardCopyOption.REPLACE_EXISTING);
             } catch (java.nio.file.AtomicMoveNotSupportedException ex) {
@@ -126,31 +112,25 @@ public class CreditBureauExportJobService {
             }
 
             job.path = output.toString();
-            job.size = bytes.length;
+            job.size = Files.size(output);
             job.status = Status.COMPLETED;
             job.completedAt = Instant.now();
 
-            log.info(
-                    "CRB export job completed. jobId={}, organizationId={}, branchId={}, bytes={}",
-                    job.id, job.organizationId, job.branchId, job.size);
-
+            log.info("Credit Bureau export completed. jobId={}, organizationId={}, bytes={}",
+                    job.id, job.organizationId, job.size);
         } catch (Exception e) {
-            if (root != null) {
+            if (temporary != null) {
                 try {
-                    Files.deleteIfExists(
-                            root.resolve(".credit-bureau-export-" + job.id + ".tmp").normalize());
-                } catch (Exception cleanupError) {
-                    log.debug("Unable to clean temporary CRB export file. jobId={}", job.id, cleanupError);
+                    Files.deleteIfExists(temporary);
+                } catch (IOException cleanupError) {
+                    log.debug("Unable to clean failed Credit Bureau export", cleanupError);
                 }
             }
-
             job.status = Status.FAILED;
             job.error = safeMessage(e);
             job.completedAt = Instant.now();
-
-            log.error(
-                    "CRB export job failed. jobId={}, organizationId={}, branchId={}",
-                    job.id, job.organizationId, job.branchId, e);
+            log.error("Credit Bureau export failed. jobId={}, organizationId={}",
+                    job.id, job.organizationId, e);
         }
     }
 
@@ -158,37 +138,27 @@ public class CreditBureauExportJobService {
         if (job == null || job.status != Status.COMPLETED || job.path == null) {
             return null;
         }
-
         Path root = Path.of(stagingDir).toAbsolutePath().normalize();
         Path file = Path.of(job.path).toAbsolutePath().normalize();
-
-        if (!file.startsWith(root) || !Files.isRegularFile(file)) {
-            return null;
-        }
-
-        return file;
+        return file.startsWith(root) && Files.isRegularFile(file) ? file : null;
     }
 
     @Scheduled(fixedRateString = "${app.credit-bureau.export.cleanup-ms:600000}")
     public void cleanup() {
         Instant cutoff = Instant.now().minus(JOB_TTL);
-
         jobs.entrySet().removeIf(entry -> {
             Job job = entry.getValue();
             Instant reference = job.completedAt != null ? job.completedAt : job.createdAt;
-
             if (reference.isAfter(cutoff)) {
                 return false;
             }
-
             if (job.path != null) {
                 try {
                     Files.deleteIfExists(Path.of(job.path));
                 } catch (IOException e) {
-                    log.warn("Unable to delete expired CRB export file. jobId={}", job.id, e);
+                    log.debug("Unable to delete expired Credit Bureau export", e);
                 }
             }
-
             return true;
         });
     }
@@ -201,18 +171,16 @@ public class CreditBureauExportJobService {
         return message.length() > 500 ? message.substring(0, 500) : message;
     }
 
-    public enum Status {
-        QUEUED, RUNNING, COMPLETED, FAILED
-    }
+    public enum Status { QUEUED, RUNNING, COMPLETED, FAILED }
 
     public static final class Job {
         private final String id;
         private final Long organizationId;
         private final Long branchId;
+        private final Long borrowerId;
         private final LocalDate from;
         private final LocalDate to;
         private final Instant createdAt = Instant.now();
-
         private volatile Status status = Status.QUEUED;
         private volatile Instant startedAt;
         private volatile Instant completedAt;
@@ -220,10 +188,12 @@ public class CreditBureauExportJobService {
         private volatile long size;
         private volatile String error;
 
-        private Job(String id, Long organizationId, Long branchId, LocalDate from, LocalDate to) {
+        private Job(String id, Long organizationId, Long branchId, Long borrowerId,
+                    LocalDate from, LocalDate to) {
             this.id = id;
             this.organizationId = organizationId;
             this.branchId = branchId;
+            this.borrowerId = borrowerId;
             this.from = from;
             this.to = to;
         }
@@ -231,6 +201,7 @@ public class CreditBureauExportJobService {
         public String getId() { return id; }
         public Long getOrganizationId() { return organizationId; }
         public Long getBranchId() { return branchId; }
+        public Long getBorrowerId() { return borrowerId; }
         public LocalDate getFrom() { return from; }
         public LocalDate getTo() { return to; }
         public Instant getCreatedAt() { return createdAt; }

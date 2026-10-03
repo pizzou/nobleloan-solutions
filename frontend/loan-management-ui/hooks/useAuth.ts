@@ -37,7 +37,7 @@ export function useAuth() {
 }
 
 export function useAuthState() {
-  const [user, setUser] = useState<AuthResponse | null>(() => {
+  const initialUser = (() => {
     if (typeof window === "undefined") return null;
     try {
       const cached = localStorage.getItem("user");
@@ -45,15 +45,24 @@ export function useAuthState() {
     } catch {
       return null;
     }
-  });
-  // A cached user is safe to use for immediate UI hydration; the HttpOnly
-  // session cookie remains the authoritative authentication credential.
-  // Validate it in the background instead of blocking the entire dashboard.
-  const [loading, setLoading] = useState(() => !user);
+  })();
+
+  const [user, setUser] = useState<AuthResponse | null>(initialUser);
+  // A cached authenticated identity is enough to paint the workspace immediately.
+  // The HttpOnly session cookie is still validated by /auth/me in the background.
+  const [loading, setLoading] = useState(!initialUser);
 
   useEffect(() => {
     let mounted = true;
+    // Never make the login screen wait for an unnecessary /auth/me round-trip.
+    // The dashboard still performs background session validation.
+    if (window.location.pathname === "/login") {
+      return () => {
+        mounted = false;
+      };
+    }
 
+    if (!initialUser) setLoading(true);
     (async () => {
       try {
         const me = (await authApi.me()) as AuthResponse;
@@ -63,6 +72,8 @@ export function useAuthState() {
         }
       } catch (error: any) {
         if (mounted) {
+          // Only an explicit authentication rejection means the session is gone.
+          // Network failures and server errors must not log an operator out.
           const status = error?.response?.status ?? error?.status;
           if (status === 401) {
             localStorage.removeItem("user");
@@ -73,7 +84,6 @@ export function useAuthState() {
         if (mounted) setLoading(false);
       }
     })();
-
     return () => {
       mounted = false;
     };

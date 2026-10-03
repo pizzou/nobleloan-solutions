@@ -323,7 +323,7 @@ public class BnrReportController {
         }
 
         @GetMapping("/export")
-        public ResponseEntity<byte[]> exportBnrSummary(
+        public ResponseEntity<?> exportBnrSummary(
 
                         @RequestParam(defaultValue = "xlsx") String format,
 
@@ -353,26 +353,23 @@ public class BnrReportController {
                                         "The BNR regulatory workbook export is available as XLSX.");
                 }
 
-                byte[] bytes = bnrTemplateExportService.export(
-                                organizationId,
-                                branchId,
-                                period,
-                                parseDate(from),
-                                parseDate(to));
+                var job = bnrExportJobService.create(
+                                organizationId, branchId, period, parseDate(from), parseDate(to));
+                try {
+                        bnrExportJobService.process(job.getId());
+                } catch (java.util.concurrent.RejectedExecutionException ex) {
+                        throw new IllegalStateException(
+                                        "A BNR report is already being generated. Please wait for it to finish.", ex);
+                }
 
                 auditExport("BnrReport", period, "xlsx");
 
-                String filename = "BNR-REPORT-"
-                                + LocalDate.now().format(DateTimeFormatter.ISO_DATE)
-                                + ".xlsx";
-
-                return ResponseEntity.ok()
-                                .contentType(MediaType.parseMediaType(
-                                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
-                                .header(
-                                                HttpHeaders.CONTENT_DISPOSITION,
-                                                "attachment; filename=\"" + filename + "\"")
-                                .body(bytes);
+                return ResponseEntity.accepted()
+                                .header(HttpHeaders.CACHE_CONTROL, "no-store, no-cache, must-revalidate, max-age=0")
+                                .body(Map.of(
+                                                "success", true,
+                                                "jobId", job.getId(),
+                                                "status", job.getStatus().name()));
         }
 
         @GetMapping("/financial-statement/export")

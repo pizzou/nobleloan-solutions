@@ -40,23 +40,21 @@ public class AsyncConfig {
                 return executor;
         }
 
-
-
         /**
-         * Dedicated executor for CPU/memory-heavy regulatory report generation.
-         * Keeping report work separate prevents exports from delaying audit,
-         * notification, reconciliation, or import tasks.
+         * Heavy regulatory report executor.  Reports are intentionally isolated
+         * from login, API, import and mail work.  A single worker prevents two
+         * large POI workbooks from exhausting a small Render instance at once.
          */
-        @Bean(name = "loansaasReportExecutor")
-        public Executor loansaasReportExecutor() {
+        @Bean(name = "reportAsyncExecutor")
+        public Executor reportAsyncExecutor() {
                 ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-                executor.setCorePoolSize(2);
-                executor.setMaxPoolSize(2);
-                executor.setQueueCapacity(10);
+                executor.setCorePoolSize(1);
+                executor.setMaxPoolSize(1);
+                executor.setQueueCapacity(2);
                 executor.setThreadNamePrefix("loansaas-report-");
                 executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
                 executor.setWaitForTasksToCompleteOnShutdown(true);
-                executor.setAwaitTerminationSeconds(30);
+                executor.setAwaitTerminationSeconds(120);
                 executor.setAllowCoreThreadTimeOut(false);
                 executor.initialize();
                 return executor;
@@ -64,10 +62,6 @@ public class AsyncConfig {
 
         /**
          * Dedicated executor for external email delivery.
-         *
-         * Login OTP delivery must never wait behind legacy-import, reconciliation,
-         * or audit tasks. A small bounded pool is sufficient because each task is
-         * an outbound HTTPS request and MailService has its own network timeout.
          */
         @Bean(name = "mailAsyncExecutor")
         public Executor mailAsyncExecutor() {

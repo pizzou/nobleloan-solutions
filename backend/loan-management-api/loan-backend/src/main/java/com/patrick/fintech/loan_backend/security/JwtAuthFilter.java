@@ -112,14 +112,17 @@ public class JwtAuthFilter extends OncePerRequestFilter {
              * Leave the request unauthenticated so Spring Security's
              * AuthenticationEntryPoint can return the standard 401.
              */
-            if (!jwtUtils.validateToken(token)) {
-
+            io.jsonwebtoken.Claims claims;
+            try {
+                // Verify the signature/expiry once. The previous filter parsed the
+                // same JWT separately for validation, purpose, email and version.
+                claims = jwtUtils.parseClaims(token);
+            } catch (io.jsonwebtoken.JwtException | IllegalArgumentException ex) {
                 log.debug(
                     "JWT validation failed for request {} {}",
                     request.getMethod(),
                     request.getRequestURI()
                 );
-
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -129,12 +132,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
              * MFA SETUP TOKEN
              * ========================================================
              */
-            if (
-                jwtUtils.isSetupToken(token)
-                    && !request
-                        .getRequestURI()
-                        .startsWith("/api/mfa")
-            ) {
+            if ("mfa-setup".equals(claims.get("purpose"))
+                    && !request.getRequestURI().startsWith("/api/mfa")) {
 
                 response.setStatus(
                     HttpServletResponse.SC_FORBIDDEN
@@ -163,8 +162,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
              * LOAD USER
              * ========================================================
              */
-            String email =
-                jwtUtils.getEmailFromToken(token);
+            String email = claims.getSubject();
 
             if (email == null || email.isBlank()) {
 
@@ -173,7 +171,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             }
 
             com.patrick.fintech.loan_backend.model.User currentUser =
-                userRepository.findByEmailIgnoreCase(email).orElse(null);
+                userRepository.findSecurityUserByEmailIgnoreCase(email).orElse(null);
 
             if (currentUser == null || currentUser.getStatus() != com.patrick.fintech.loan_backend.model.User.UserStatus.ACTIVE) {
                 SecurityContextHolder.clearContext();
@@ -181,7 +179,12 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 return;
             }
 
-            long tokenVersion = jwtUtils.getTokenVersion(token);
+            Object tokenVersionClaim = claims.get("tokenVersion");
+            long tokenVersion = tokenVersionClaim instanceof Number number
+                    ? number.longValue()
+                    : tokenVersionClaim instanceof String text
+                            ? Long.parseLong(text)
+                            : 0L;
             long currentTokenVersion = currentUser.getTokenVersion() == null ? 0L : currentUser.getTokenVersion();
             if (tokenVersion != currentTokenVersion) {
                 log.debug("Rejected revoked JWT for user {}", email);

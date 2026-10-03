@@ -272,6 +272,22 @@ public class GlobalExceptionHandler {
         }
 
         // ============================================================
+        // BACKGROUND QUEUE SATURATION
+        // ============================================================
+
+        @ExceptionHandler(java.util.concurrent.RejectedExecutionException.class)
+        public ResponseEntity<Map<String, Object>> handleRejectedExecution(
+                        java.util.concurrent.RejectedExecutionException ex) {
+
+                log.warn("Background work queue is saturated: {}", ex.getMessage());
+                return json(
+                                HttpStatus.TOO_MANY_REQUESTS,
+                                error(
+                                                "The report service is busy processing another large job. Please retry shortly.",
+                                                null));
+        }
+
+        // ============================================================
         // UNEXPECTED RUNTIME ERROR
         // ============================================================
 

@@ -21,6 +21,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
@@ -75,12 +79,55 @@ public class BnrTemplateExportService {
             "A1.8. Restructured loans",
             "A1.9. Written off");
 
+    /** Per-export cache; ThreadLocal keeps concurrent report jobs isolated. */
+    private final ThreadLocal<ExportCaches> exportCaches = new ThreadLocal<>();
+
     public byte[] export(
             Long organizationId,
             Long branchId,
             RegulatoryReportingService.ReportPeriod period,
             LocalDate from,
             LocalDate to) {
+
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream(256 * 1024)) {
+            writeExport(output, organizationId, branchId, period, from, to);
+            return output.toByteArray();
+        } catch (IOException e) {
+            throw new IllegalStateException("Unable to generate the BNR Excel report", e);
+        }
+    }
+
+    /** Writes the existing BNR workbook directly to disk for background jobs. */
+    public long exportToFile(
+            Path outputFile,
+            Long organizationId,
+            Long branchId,
+            RegulatoryReportingService.ReportPeriod period,
+            LocalDate from,
+            LocalDate to) {
+        if (outputFile == null) {
+            throw new IllegalArgumentException("outputFile is required");
+        }
+        try {
+            Path parent = outputFile.toAbsolutePath().normalize().getParent();
+            if (parent != null) Files.createDirectories(parent);
+            try (OutputStream output = Files.newOutputStream(
+                    outputFile, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+                writeExport(output, organizationId, branchId, period, from, to);
+            }
+            return Files.size(outputFile);
+        } catch (IOException e) {
+            throw new IllegalStateException("Unable to generate the BNR Excel report", e);
+        }
+    }
+
+    private void writeExport(
+            OutputStream output,
+            Long organizationId,
+            Long branchId,
+            RegulatoryReportingService.ReportPeriod period,
+            LocalDate from,
+            LocalDate to) throws IOException {
 
         if (organizationId == null || organizationId <= 0) {
             throw new IllegalArgumentException("organizationId is required");
@@ -91,95 +138,94 @@ public class BnrTemplateExportService {
 
         List<Loan> loans = safeLoans(
                 loanRepository.findVisiblePortfolioAsOfForBnrExport(
-                        organizationId,
-                        branchId,
-                        reportDate.plusDays(1).atStartOfDay(),
+                        organizationId, branchId, reportDate.plusDays(1).atStartOfDay(),
                         ReportingScopeService.includeBusinessOwnerOnly()));
 
-        try (XSSFWorkbook workbook = buildBnrWorkbook();
-                ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-
+        exportCaches.set(buildExportCaches(loans, organizationId));
+        try (XSSFWorkbook workbook = buildBnrWorkbook()) {
             configureWorkbook(workbook);
             populateMetadata(workbook, organizationId, branchId, period, window, loans);
 
             Map<String, List<Loan>> classified = classifyLoans(loans);
-
             for (String sheetName : CLASSIFICATION_SHEETS) {
                 Sheet sheet = workbook.getSheet(sheetName);
                 if (sheet == null) {
                     throw new IllegalStateException(
                             "Internal BNR workbook definition is missing sheet '" + sheetName + "'");
                 }
-
                 if ("A1.9. Written off".equals(sheetName)) {
-                    writeWrittenOffSheet(
-                            sheet,
-                            classified.getOrDefault("WRITTEN_OFF", List.of()),
-                            reportDate);
+                    writeWrittenOffSheet(sheet, classified.getOrDefault("WRITTEN_OFF", List.of()), reportDate);
                 } else {
                     String classification = classificationForSheet(sheetName);
-                    writeLoanSheet(
-                            sheet,
-                            classified.getOrDefault(classification, List.of()),
-                            reportDate,
-                            classification);
+                    writeLoanSheet(sheet, classified.getOrDefault(classification, List.of()), reportDate, classification);
                 }
             }
 
             BnrFinancialStatementReport financialStatement = regulatoryReportingService.buildBnrFinancialStatement(
-                    organizationId,
-                    branchId,
-                    period,
-                    window[0],
-                    window[1]);
+                    organizationId, branchId, period, window[0], window[1]);
 
             populateFinancialStatement(workbook, financialStatement);
             workbook.setForceFormulaRecalculation(true);
             workbook.write(output);
             output.flush();
 
-            byte[] bytes = output.toByteArray();
-            if (bytes.length == 0) {
-                throw new IllegalStateException("Generated BNR workbook is empty");
-            }
-
             long missingBorrowerIds = loans.stream()
                     .filter(Objects::nonNull)
                     .filter(loan -> resolveBorrowerReportingId(loan.getBorrower()) == null)
                     .count();
-
             if (missingBorrowerIds > 0) {
-                log.warn(
-                        "BNR export contains {} loan(s) without a borrower national ID. "
-                                + "The 'ID of the Borrower' field is left blank rather than "
-                                + "using Noble's internal borrower database ID.",
+                log.warn("BNR export contains {} loan(s) without a borrower national ID. "
+                        + "The 'ID of the Borrower' field is left blank rather than using Noble's internal borrower database ID.",
                         missingBorrowerIds);
             }
 
-            log.info(
-                    "BNR XLSX generated successfully. organizationId={}, branchId={}, period={}, from={}, to={}, loans={}, bytes={}",
-                    organizationId,
-                    branchId,
-                    period,
-                    window[0],
-                    window[1],
-                    loans.size(),
-                    bytes.length);
-
-            return bytes;
-
-        } catch (IOException e) {
-            log.error(
-                    "Failed to serialize BNR XLSX template. organizationId={}, branchId={}, period={}",
-                    organizationId,
-                    branchId,
-                    period,
-                    e);
-
-            throw new IllegalStateException(
-                    "Unable to generate the BNR Excel report",
-                    e);
+            log.info("BNR XLSX generated successfully. organizationId={}, branchId={}, period={}, from={}, to={}, loans={}",
+                    organizationId, branchId, period, window[0], window[1], loans.size());
+        } finally {
+            exportCaches.remove();
         }
+    }
+
+    private ExportCaches buildExportCaches(List<Loan> loans, Long organizationId) {
+        ExportCaches caches = new ExportCaches();
+        List<Long> loanIds = loans.stream().map(Loan::getId).filter(Objects::nonNull).toList();
+        for (int start = 0; start < loanIds.size(); start += 500) {
+            List<Long> batch = loanIds.subList(start, Math.min(start + 500, loanIds.size()));
+            for (PaymentSchedule schedule : paymentScheduleRepository.findByLoan_IdInOrderByLoan_IdAscInstallmentNumberAsc(batch)) {
+                if (schedule != null && schedule.getLoan() != null && schedule.getLoan().getId() != null) {
+                    caches.schedules.computeIfAbsent(schedule.getLoan().getId(), ignored -> new ArrayList<>()).add(schedule);
+                }
+            }
+        }
+
+        List<Long> borrowerIds = loans.stream()
+                .map(Loan::getBorrower)
+                .filter(Objects::nonNull)
+                .map(Borrower::getId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        List<LoanStatus> completedStatuses = List.of(LoanStatus.PAID, LoanStatus.CLOSED);
+        for (int start = 0; start < borrowerIds.size(); start += 500) {
+            List<Long> batch = borrowerIds.subList(start, Math.min(start + 500, borrowerIds.size()));
+            for (Loan previous : loanRepository.findVisibleByBorrowerIdInAndOrganizationIdAndStatusIn(
+                    batch,
+                    organizationId,
+                    completedStatuses,
+                    ReportingScopeService.includeBusinessOwnerOnly())) {
+                if (previous != null && previous.getBorrower() != null && previous.getBorrower().getId() != null) {
+                    caches.completedLoansByBorrower
+                            .computeIfAbsent(previous.getBorrower().getId(), ignored -> new ArrayList<>())
+                            .add(previous);
+                }
+            }
+        }
+        return caches;
+    }
+
+    private static final class ExportCaches {
+        private final Map<Long, List<PaymentSchedule>> schedules = new HashMap<>();
+        private final Map<Long, List<Loan>> completedLoansByBorrower = new HashMap<>();
     }
 
     private XSSFWorkbook buildBnrWorkbook() {
@@ -3197,12 +3243,10 @@ public class BnrTemplateExportService {
         BigDecimal provisionRequired = money(
                 netDue.multiply(provisionRate).divide(ONE_HUNDRED, MONEY_SCALE, MONEY_ROUNDING));
 
-        List<PaymentSchedule> schedules = loan.getId() == null
+        ExportCaches caches = exportCaches.get();
+        List<PaymentSchedule> schedules = loan.getId() == null || caches == null
                 ? List.of()
-                : Optional.ofNullable(
-                        paymentScheduleRepository
-                                .findByLoanIdOrderByInstallmentNumberAsc(loan.getId()))
-                        .orElseGet(List::of);
+                : caches.schedules.getOrDefault(loan.getId(), List.of());
 
         int paidInstallments = (int) schedules.stream()
                 .filter(s -> s != null && (s.getStatus() == PaymentSchedule.ScheduleStatus.PAID
@@ -3342,10 +3386,14 @@ public class BnrTemplateExportService {
             return null;
         }
 
-        List<Loan> borrowerLoans = loanRepository.findVisibleByBorrowerIdAndOrganizationId(
-                current.getBorrower().getId(),
-                current.getOrganization().getId(),
-                ReportingScopeService.includeBusinessOwnerOnly());
+        ExportCaches caches = exportCaches.get();
+        List<Loan> borrowerLoans = caches == null
+                ? loanRepository.findVisibleByBorrowerIdAndOrganizationId(
+                        current.getBorrower().getId(),
+                        current.getOrganization().getId(),
+                        ReportingScopeService.includeBusinessOwnerOnly())
+                : caches.completedLoansByBorrower.getOrDefault(
+                        current.getBorrower().getId(), List.of());
 
         boolean hasPrevious = false;
 
