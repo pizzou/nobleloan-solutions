@@ -994,58 +994,84 @@ export const regulatoryApi = {
   ): Promise<void> {
     const queryParams = toCreditBureauQueryParams(params);
 
-    const started = await api.post("/regulatory/credit-bureau/export/jobs", null, {
-      params: { ...queryParams, format },
+    console.log("Credit Bureau export request:", {
+      url: "/regulatory/credit-bureau/download",
+
+      format,
+
+      queryParams,
     });
 
-    const jobId = started?.data?.jobId;
-    if (!jobId || typeof jobId !== "string") {
-      throw new Error("The Credit Bureau export job could not be started.");
-    }
+    try {
+      /**
+       * ------------------------------------------------------
+       * IMPORTANT
+       * ------------------------------------------------------
+       *
+       * We deliberately do NOT manually set the Authorization
+       * header here.
+       *
+       * api.ts request interceptor does that consistently for
+       * both BNR and Credit Bureau.
+       *
+       * ------------------------------------------------------
+       */
 
-    const deadline = Date.now() + 15 * 60 * 1000;
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+      const response = await api.get("/regulatory/credit-bureau/download", {
+        params: {
+          ...queryParams,
+          format,
+        },
 
-      const statusResponse = await api.get(
-        `/regulatory/credit-bureau/export/jobs/${encodeURIComponent(jobId)}`,
-        { timeout: 20000 },
-      );
-      const status = statusResponse?.data?.status;
+        responseType: "blob",
 
-      if (status === "COMPLETED") {
-        const response = await api.get(
-          `/regulatory/credit-bureau/export/jobs/${encodeURIComponent(jobId)}/download`,
-          {
-            responseType: "blob",
-            timeout: 120000,
-            headers: { Accept: getExportAcceptHeader(format) },
-          },
-        );
+        headers: {
+          Accept: getExportAcceptHeader(format),
+        },
+      });
 
-        const blob =
-          response.data instanceof Blob
-            ? response.data
-            : new Blob([response.data], { type: getExportContentType(format) });
+      console.log("Credit Bureau export response:", {
+        status: response.status,
 
-        triggerDownload(
-          blob,
-          `CREDIT-BUREAU-${new Date().toISOString().slice(0, 10)}.${format}`,
-        );
-        return;
+        contentType: response.headers?.["content-type"],
+
+        contentDisposition: response.headers?.["content-disposition"],
+      });
+
+      const blob =
+        response.data instanceof Blob
+          ? response.data
+          : new Blob([response.data], {
+              type: getExportContentType(format),
+            });
+
+      triggerDownload(blob, `credit-bureau-export.${format}`);
+    } catch (error) {
+      console.error("Credit Bureau export failed:", error);
+
+      /**
+       * IMPORTANT:
+       *
+       * Because api.ts now preserves AxiosError,
+       * this can inspect:
+       *
+       * error.response.status
+       * error.response.data
+       */
+
+      const blobMessage = await getBlobErrorMessage(error);
+
+      if (blobMessage) {
+        const enhancedError =
+          error instanceof Error ? error : new Error(blobMessage);
+
+        enhancedError.message = blobMessage;
+
+        throw enhancedError;
       }
 
-      if (status === "FAILED") {
-        throw new Error(
-          statusResponse?.data?.error ||
-            "Credit Bureau export failed while generating the report.",
-        );
-      }
+      throw error;
     }
-
-    throw new Error(
-      "Credit Bureau export is still processing. Please retry the export status shortly.",
-    );
   },
 
   /**
@@ -1216,11 +1242,29 @@ export const regulatoryApi = {
         }
 
         /**
-         * String response
+         * String response. Upstream WAF/proxy services can return an entire
+         * HTML challenge page instead of the expected JSON error. Never put
+         * that HTML into the dashboard alert.
          */
 
         if (typeof response.data === "string" && response.data) {
-          return response.data;
+          return sanitizeRegulatoryErrorText(response.data);
+        }
+
+        /**
+         * Blob response. Download endpoints can also receive an HTML gateway
+         * page when an upstream proxy rejects the request.
+         */
+
+        if (response.data instanceof Blob) {
+          const contentType =
+            typeof response.data.type === "string"
+              ? response.data.type.toLowerCase()
+              : "";
+
+          if (contentType.includes("text/html")) {
+            return gatewayReportError(response.status);
+          }
         }
 
         /**
@@ -1260,5 +1304,46 @@ export const regulatoryApi = {
     return fallback;
   },
 };
+
+function gatewayReportError(status?: number): string {
+  if (status === 429) {
+    return "The report service is temporarily rate-limited. Please wait a moment and retry the export.";
+  }
+
+  if (status === 502 || status === 503 || status === 504) {
+    return "The report service is temporarily unavailable. Please retry the export in a moment.";
+  }
+
+  return "The report service was blocked by a network security gateway. Please retry the export in a moment.";
+}
+
+function sanitizeRegulatoryErrorText(value: string): string {
+  const text = value.trim();
+  if (!text) {
+    return "The report request could not be completed.";
+  }
+
+  const lower = text.toLowerCase();
+  const looksLikeHtml =
+    lower.includes("<!doctype html") ||
+    lower.includes("<html") ||
+    lower.includes("<head") ||
+    lower.includes("<body");
+
+  if (looksLikeHtml) {
+    if (
+      lower.includes("cloudflare") ||
+      lower.includes("just a moment") ||
+      lower.includes("challenge-platform") ||
+      lower.includes("cf_chl_")
+    ) {
+      return gatewayReportError();
+    }
+
+    return "The report service returned an invalid gateway response. Please retry the export in a moment.";
+  }
+
+  return text.length > 1000 ? `${text.slice(0, 1000)}…` : text;
+}
 
 export default regulatoryApi;

@@ -156,16 +156,7 @@ function getAxiosErrorMessage(data: unknown): string | null {
   }
 
   if (typeof data === "string") {
-    const trimmed = data.trim();
-    /*
-     * A reverse proxy/CDN can return an HTML gateway/challenge page when the
-     * backend times out or is temporarily unavailable. Never surface the raw
-     * HTML in the banking dashboard; turn it into a concise actionable error.
-     */
-    if (/^<!doctype\s+html|^<html[\s>]/i.test(trimmed)) {
-      return "The report service did not return a report. The operation may still be processing or the server may be temporarily unavailable. Please retry.";
-    }
-    return trimmed || null;
+    return sanitizeApiErrorText(data);
   }
 
   if (typeof data === "object") {
@@ -189,6 +180,39 @@ function getAxiosErrorMessage(data: unknown): string | null {
   }
 
   return null;
+}
+
+/**
+ * Never expose upstream proxy/WAF HTML to the application UI.
+ * Render/Cloudflare/gateway failures can return an entire HTML document
+ * even though the frontend requested JSON. Treat those responses as a
+ * transport failure and return a stable, human-readable message instead.
+ */
+function sanitizeApiErrorText(value: string): string | null {
+  const text = value.trim();
+  if (!text) return null;
+
+  const lower = text.toLowerCase();
+  const looksLikeHtml =
+    lower.includes("<!doctype html") ||
+    lower.includes("<html") ||
+    lower.includes("<head") ||
+    lower.includes("<body");
+
+  if (looksLikeHtml) {
+    if (
+      lower.includes("cloudflare") ||
+      lower.includes("just a moment") ||
+      lower.includes("challenge-platform") ||
+      lower.includes("cf_chl_")
+    ) {
+      return "The report service is temporarily protected by the network security gateway. Please retry the export in a moment.";
+    }
+
+    return "The report service returned an invalid gateway response. Please retry the export in a moment.";
+  }
+
+  return text;
 }
 
 /**
