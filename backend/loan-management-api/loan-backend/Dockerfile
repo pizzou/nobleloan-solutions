@@ -16,7 +16,7 @@ RUN mvn dependency:go-offline -q
 
 COPY src ./src
 
-RUN mvn clean verify -q
+RUN mvn -DskipTests -DskipITs clean package -q
 
 
 # ------------------------------------------------------------

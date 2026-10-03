@@ -10,8 +10,9 @@ import com.patrick.fintech.loan_backend.dto.regulatory.BnrSummaryReport;
 
 import com.patrick.fintech.loan_backend.service.AuditService;
 import com.patrick.fintech.loan_backend.service.RegulatoryReportingService;
-import com.patrick.fintech.loan_backend.service.RegulatoryReportingService.ReportPeriod;
 import com.patrick.fintech.loan_backend.service.ReportExportService;
+import com.patrick.fintech.loan_backend.service.RegulatoryReportingService.ReportPeriod;
+
 import com.patrick.fintech.loan_backend.service.BnrTemplateExportService;
 import com.patrick.fintech.loan_backend.service.BnrExportJobService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
@@ -256,13 +257,7 @@ public class BnrReportController {
                                 "status", job.getStatus().name()));
         }
 
-        /**
-         * Polling endpoint for asynchronous BNR exports.
-         *
-         * This is deliberately declared with RequestMapping rather than relying
-         * on an implicit GET shortcut so the HTTP method is explicit in the
-         * generated Spring mapping metadata.
-         */
+       
         @RequestMapping(value = "/export/jobs/{jobId}", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
         public ResponseEntity<Map<String, Object>> bnrExportStatus(@PathVariable String jobId) {
                 var job = bnrExportJobService.get(jobId);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, createContext, useContext } from "react";
+import { usePathname } from "next/navigation";
 import { AuthResponse } from "@/types";
 import { authApi } from "@/services/api";
 
@@ -37,7 +38,7 @@ export function useAuth() {
 }
 
 export function useAuthState() {
-  const initialUser = (() => {
+  const [user, setUser] = useState<AuthResponse | null>(() => {
     if (typeof window === "undefined") return null;
     try {
       const cached = localStorage.getItem("user");
@@ -45,24 +46,23 @@ export function useAuthState() {
     } catch {
       return null;
     }
-  })();
-
-  const [user, setUser] = useState<AuthResponse | null>(initialUser);
-  // A cached authenticated identity is enough to paint the workspace immediately.
-  // The HttpOnly session cookie is still validated by /auth/me in the background.
-  const [loading, setLoading] = useState(!initialUser);
+  });
+  const [loading, setLoading] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => {
-    let mounted = true;
-    // Never make the login screen wait for an unnecessary /auth/me round-trip.
-    // The dashboard still performs background session validation.
-    if (window.location.pathname === "/login") {
-      return () => {
-        mounted = false;
-      };
+    /*
+     * The login screen does not need /auth/me when there is no cached user:
+     * it would add a second backend round-trip before the operator can submit
+     * credentials. The authenticated dashboard still validates the HttpOnly
+     * session normally.
+     */
+    if (pathname === "/login" && !user) {
+      setLoading(false);
+      return;
     }
-
-    if (!initialUser) setLoading(true);
+    let mounted = true;
+    setLoading(true);
     (async () => {
       try {
         const me = (await authApi.me()) as AuthResponse;
@@ -87,7 +87,7 @@ export function useAuthState() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [pathname]);
 
   const login = (userData: AuthResponse) => {
     if (

@@ -132,7 +132,7 @@ API.interceptors.response.use(
     }
 
     const message =
-      getAxiosErrorMessage(responseData, status) ||
+      getAxiosErrorMessage(responseData) ||
       error.message ||
       `Request failed with status ${status ?? "unknown"}`;
 
@@ -150,32 +150,22 @@ API.interceptors.response.use(
   },
 );
 
-function getAxiosErrorMessage(data: unknown, status?: number): string | null {
+function getAxiosErrorMessage(data: unknown): string | null {
   if (!data) {
     return null;
   }
 
   if (typeof data === "string") {
-    const text = data.trim();
-    if (!text) return null;
-
-    // Render/Cloudflare can return an HTML gateway page when the backend is
-    // restarting or times out. Never surface that HTML as an application error.
-    if (
-      text.startsWith("<!doctype") ||
-      text.startsWith("<html") ||
-      /<html[\s>]/i.test(text)
-    ) {
-      if (status === 502)
-        return "The service is temporarily unavailable while the server recovers. Please try again shortly.";
-      if (status === 503)
-        return "The service is temporarily busy or restarting. Please try again shortly.";
-      if (status === 504)
-        return "The operation took too long to complete. Please retry; the server is still available.";
-      return "The server returned an invalid gateway response. Please try again shortly.";
+    const trimmed = data.trim();
+    /*
+     * A reverse proxy/CDN can return an HTML gateway/challenge page when the
+     * backend times out or is temporarily unavailable. Never surface the raw
+     * HTML in the banking dashboard; turn it into a concise actionable error.
+     */
+    if (/^<!doctype\s+html|^<html[\s>]/i.test(trimmed)) {
+      return "The report service did not return a report. The operation may still be processing or the server may be temporarily unavailable. Please retry.";
     }
-
-    return text;
+    return trimmed || null;
   }
 
   if (typeof data === "object") {

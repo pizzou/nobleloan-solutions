@@ -23,7 +23,7 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 
 import org.springframework.stereotype.Service;
 
@@ -103,11 +103,15 @@ public class ReportExportService {
                         : rows;
 
 
-        try (
-                Workbook workbook = new XSSFWorkbook();
-                ByteArrayOutputStream output =
-                        new ByteArrayOutputStream()
-        ) {
+       try (
+        SXSSFWorkbook workbook = new SXSSFWorkbook(200);
+        ByteArrayOutputStream output =
+                new ByteArrayOutputStream(128 * 1024)
+) {
+
+    workbook.setCompressTempFiles(true);
+
+    // existing export logic...
 
             // ====================================================
             // SHEET NAME
@@ -310,27 +314,114 @@ public class ReportExportService {
             // COLUMN WIDTHS
             // ====================================================
 
-            // POI autoSizeColumn() scans every populated cell and is extremely
-            // expensive on large regulatory workbooks. Use deterministic widths
-            // instead so export time remains approximately linear in row count.
+            /*
+             * SXSSF intentionally does not auto-size against the full data set.
+             * autoSizeColumn() scans retained row/cell data and becomes an
+             * O(rows * columns) CPU/memory hotspot on regulatory-sized exports.
+             * Use deterministic widths below; specific business columns are
+             * refined by the existing rules immediately afterwards.
+             */
             for (int i = 0; i < safeColumns.size(); i++) {
                 String column = safeColumns.get(i);
                 int width = 4200;
                 if (column != null) {
-                    if ("Full Name".equals(column) || "National ID".equals(column)
-                            || "Loan Number".equals(column) || "Repayment Classification".equals(column)) {
+                    String normalized = column.toLowerCase(java.util.Locale.ROOT);
+                    if (normalized.contains("name")
+                            || normalized.contains("address")
+                            || normalized.contains("classification")
+                            || normalized.contains("description")) {
                         width = 6500;
-                    } else if ("Loan Amount".equals(column) || "Outstanding Balance".equals(column)) {
+                    } else if (normalized.contains("amount")
+                            || normalized.contains("balance")
+                            || normalized.contains("income")
+                            || normalized.contains("expense")) {
                         width = 5000;
-                    } else if ("Phone".equals(column) || "Branch".equals(column)) {
-                        width = 5000;
+                    } else if (normalized.contains("date")) {
+                        width = 4200;
                     }
                 }
-                sheet.setColumnWidth(i, width);
+                sheet.setColumnWidth(i, Math.min(10000, width));
             }
 
 
-            // Column widths are assigned once above; avoid POI auto-sizing/scanning.\n\n            // ====================================================
+            // ====================================================
+            // SPECIFIC COLUMN WIDTHS
+            // ====================================================
+
+            for (
+                    int i = 0;
+                    i < safeColumns.size();
+                    i++
+            ) {
+
+                String column =
+                        safeColumns.get(i);
+
+                if (column == null) {
+                    continue;
+                }
+
+
+                if (
+                        "Full Name".equals(column)
+                                ||
+                        "National ID".equals(column)
+                                ||
+                        "Loan Number".equals(column)
+                                ||
+                        "Repayment Classification".equals(column)
+                ) {
+
+                    sheet.setColumnWidth(
+                            i,
+                            6500
+                    );
+                }
+
+
+                if (
+                        "Loan Amount".equals(column)
+                                ||
+                        "Outstanding Balance".equals(column)
+                ) {
+
+                    sheet.setColumnWidth(
+                            i,
+                            5000
+                    );
+                }
+
+
+                if (
+                        "Borrower ID".equals(column)
+                                ||
+                        "Days Past Due".equals(column)
+                                ||
+                        "Credit Score".equals(column)
+                ) {
+
+                    sheet.setColumnWidth(
+                            i,
+                            4000
+                    );
+                }
+
+
+                if (
+                        "Phone".equals(column)
+                                ||
+                        "Branch".equals(column)
+                ) {
+
+                    sheet.setColumnWidth(
+                            i,
+                            5000
+                    );
+                }
+            }
+
+
+            // ====================================================
             // WRITE WORKBOOK
             // ====================================================
 

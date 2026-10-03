@@ -21,7 +21,7 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -328,41 +328,41 @@ public class CreditBureauRegulatoryExportService {
         );
 
         try (
-                XSSFWorkbook workbook = new XSSFWorkbook();
-                ByteArrayOutputStream output =
-                        new ByteArrayOutputStream(128 * 1024)
-        ) {
+        SXSSFWorkbook workbook = new SXSSFWorkbook(200);
+        ByteArrayOutputStream output =
+                new ByteArrayOutputStream(128 * 1024)
+) {
+        workbook.setCompressTempFiles(true);
 
-            Styles styles = new Styles(workbook);
+        Styles styles = new Styles(workbook);
 
-            Sheet consumer = workbook.createSheet("Consumer");
-            Sheet corporate = workbook.createSheet("Corporate");
-            Sheet shareholders = workbook.createSheet("Shareholders");
-            Sheet directors = workbook.createSheet("Directors");
-            Sheet guarantors = workbook.createSheet("Guarantors");
-            Sheet collateral = workbook.createSheet("Collateral");
-            Sheet bounced = workbook.createSheet("Bounced Cheques");
+        Sheet consumer = workbook.createSheet("Consumer");
+        Sheet corporate = workbook.createSheet("Corporate");
+        Sheet shareholders = workbook.createSheet("Shareholders");
+        Sheet directors = workbook.createSheet("Directors");
+        Sheet guarantors = workbook.createSheet("Guarantors");
+        Sheet collateral = workbook.createSheet("Collateral");
+        Sheet bounced = workbook.createSheet("Bounced Cheques");
 
-            createHeader(consumer, CONSUMER_HEADERS, styles);
-            createHeader(corporate, CORPORATE_HEADERS, styles);
-            createHeader(shareholders, SHAREHOLDER_HEADERS, styles);
-            createHeader(directors, DIRECTOR_HEADERS, styles);
-            createHeader(guarantors, GUARANTOR_HEADERS, styles);
-            createHeader(collateral, COLLATERAL_HEADERS, styles);
-            createHeader(bounced, BOUNCED_CHEQUE_HEADERS, styles);
+        createHeader(consumer, CONSUMER_HEADERS, styles);
+        createHeader(corporate, CORPORATE_HEADERS, styles);
+        createHeader(shareholders, SHAREHOLDER_HEADERS, styles);
+        createHeader(directors, DIRECTOR_HEADERS, styles);
+        createHeader(guarantors, GUARANTOR_HEADERS, styles);
+        createHeader(collateral, COLLATERAL_HEADERS, styles);
+        createHeader(bounced, BOUNCED_CHEQUE_HEADERS, styles);
 
-            /*
-             * The supplied workbook is a seven-sheet submission structure.
-             *
-             * Noble Loan currently has individual Borrower records and does not
-             * have separate corporate/shareholder/director/bounced-cheque entities.
-             *
-             * Those sheets therefore remain structurally present but contain no
-             * fabricated rows.
-             */
-            Map<Long, List<Payment>> paymentCache = new HashMap<>();
-            Map<Long, List<Guarantor>> guarantorCache = new HashMap<>();
-            Map<Long, List<Collateral>> collateralCache = new HashMap<>();
+           
+            List<Long> loanIds = loans.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .map(Loan::getId)
+                    .filter(java.util.Objects::nonNull)
+                    .distinct()
+                    .toList();
+
+            Map<Long, List<Payment>> paymentCache = groupPayments(loanIds);
+            Map<Long, List<Guarantor>> guarantorCache = groupGuarantors(loanIds, organizationId);
+            Map<Long, List<Collateral>> collateralCache = groupCollaterals(loanIds, organizationId);
 
             int consumerRow = 1;
             int guarantorRow = 1;
@@ -376,10 +376,10 @@ public class CreditBureauRegulatoryExportService {
 
                 Borrower borrower = loan.getBorrower();
 
-                List<Payment> payments = paymentCache.computeIfAbsent(
-                        loan.getId(),
-                        id -> safePayments(id, loan)
-                );
+                List<Payment> payments = paymentCache.get(loan.getId());
+                if (payments == null) {
+                    payments = safePayments(loan.getId(), loan);
+                }
 
                 writeConsumerRow(
                         consumer.createRow(consumerRow++),
@@ -400,10 +400,7 @@ public class CreditBureauRegulatoryExportService {
                  * and prevents cross-tenant child-record access.
                  */
                 List<Guarantor> guarantorsForLoan =
-                        guarantorCache.computeIfAbsent(
-                                loan.getId(),
-                                id -> safeGuarantors(id, organizationId)
-                        );
+                        guarantorCache.getOrDefault(loan.getId(), Collections.emptyList());
 
                 for (Guarantor guarantor : guarantorsForLoan) {
 
@@ -429,10 +426,7 @@ public class CreditBureauRegulatoryExportService {
                  * and prevents cross-tenant child-record access.
                  */
                 List<Collateral> collateralsForLoan =
-                        collateralCache.computeIfAbsent(
-                                loan.getId(),
-                                id -> safeCollaterals(id, organizationId)
-                        );
+                        collateralCache.getOrDefault(loan.getId(), Collections.emptyList());
 
                 if (collateralsForLoan.isEmpty()
                         && hasLoanCollateral(loan)) {
@@ -581,6 +575,71 @@ public class CreditBureauRegulatoryExportService {
                                 )
                         )
                         .toList();
+    }
+
+    private Map<Long, List<Payment>> groupPayments(List<Long> loanIds) {
+        if (loanIds == null || loanIds.isEmpty()) return Collections.emptyMap();
+        Map<Long, List<Payment>> grouped = new HashMap<>();
+        try {
+            final int batchSize = 300;
+            for (int start = 0; start < loanIds.size(); start += batchSize) {
+                List<Long> batch = loanIds.subList(start, Math.min(start + batchSize, loanIds.size()));
+                for (Payment row : paymentRepository.findByLoanIdInOrderByLoanIdAscDueDateAsc(batch)) {
+                    if (row != null && row.getLoan() != null && row.getLoan().getId() != null) {
+                        grouped.computeIfAbsent(row.getLoan().getId(), ignored -> new ArrayList<>()).add(row);
+                    }
+                }
+            }
+            return grouped;
+        } catch (RuntimeException ex) {
+            return Collections.emptyMap();
+        }
+    }
+
+    private Map<Long, List<Guarantor>> groupGuarantors(List<Long> loanIds, Long organizationId) {
+        if (loanIds == null || loanIds.isEmpty() || organizationId == null || organizationId <= 0) {
+            return Collections.emptyMap();
+        }
+        try {
+            Map<Long, List<Guarantor>> grouped = new HashMap<>();
+            final int batchSize = 300;
+            for (int start = 0; start < loanIds.size(); start += batchSize) {
+                List<Long> batch = loanIds.subList(start, Math.min(start + batchSize, loanIds.size()));
+                for (Guarantor row : guarantorRepository.findByLoan_IdInAndOrganization_Id(batch, organizationId)) {
+                    if (row != null && row.getLoan() != null && row.getLoan().getId() != null) {
+                        grouped.computeIfAbsent(row.getLoan().getId(), ignored -> new ArrayList<>()).add(row);
+                    }
+                }
+            }
+            return grouped;
+        } catch (RuntimeException ex) {
+            Map<Long, List<Guarantor>> fallback = new HashMap<>();
+            for (Long loanId : loanIds) fallback.put(loanId, safeGuarantors(loanId, organizationId));
+            return fallback;
+        }
+    }
+
+    private Map<Long, List<Collateral>> groupCollaterals(List<Long> loanIds, Long organizationId) {
+        if (loanIds == null || loanIds.isEmpty() || organizationId == null || organizationId <= 0) {
+            return Collections.emptyMap();
+        }
+        try {
+            Map<Long, List<Collateral>> grouped = new HashMap<>();
+            final int batchSize = 300;
+            for (int start = 0; start < loanIds.size(); start += batchSize) {
+                List<Long> batch = loanIds.subList(start, Math.min(start + batchSize, loanIds.size()));
+                for (Collateral row : collateralRepository.findByLoan_IdInAndOrganization_Id(batch, organizationId)) {
+                    if (row != null && row.getLoan() != null && row.getLoan().getId() != null) {
+                        grouped.computeIfAbsent(row.getLoan().getId(), ignored -> new ArrayList<>()).add(row);
+                    }
+                }
+            }
+            return grouped;
+        } catch (RuntimeException ex) {
+            Map<Long, List<Collateral>> fallback = new HashMap<>();
+            for (Long loanId : loanIds) fallback.put(loanId, safeCollaterals(loanId, organizationId));
+            return fallback;
+        }
     }
 
     private List<Payment> safePayments(

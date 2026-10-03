@@ -11,5 +11,8 @@ public interface GuarantorRepository extends JpaRepository<Guarantor, Long> {
 
     List<Guarantor> findByLoan_IdAndOrganization_Id(Long loanId, Long organizationId);
 
+    /** Tenant-scoped batch lookup used by regulatory exports. */
+    List<Guarantor> findByLoan_IdInAndOrganization_Id(List<Long> loanIds, Long organizationId);
+
     List<Guarantor> findByOrganization_Id(Long orgId);
 }

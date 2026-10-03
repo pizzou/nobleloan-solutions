@@ -176,6 +176,9 @@ public interface PaymentRepository
         List<Payment> findByLoanIdOrderByDueDateAsc(
                         Long loanId);
 
+        /** Batch-ordered payments for regulatory exports; avoids one query per loan. */
+        List<Payment> findByLoanIdInOrderByLoanIdAscDueDateAsc(List<Long> loanIds);
+
         // ============================================================
         // BORROWER PAYMENT HISTORY
         // ============================================================

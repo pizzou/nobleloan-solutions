@@ -96,6 +96,53 @@ public class BnrTemplateExportService {
                         reportDate.plusDays(1).atStartOfDay(),
                         ReportingScopeService.includeBusinessOwnerOnly()));
 
+        /*
+         * BNR rows previously loaded every payment schedule and previous-loan
+         * history separately for each loan. Preload both datasets once so the
+         * export uses a bounded number of database round-trips.
+         */
+        List<Long> loanIds = loans.stream()
+                .filter(Objects::nonNull)
+                .map(Loan::getId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        Map<Long, List<PaymentSchedule>> scheduleByLoan = new HashMap<>();
+        if (!loanIds.isEmpty()) {
+            for (PaymentSchedule schedule : paymentScheduleRepository
+                    .findByLoan_IdInOrderByLoan_IdAscInstallmentNumberAsc(loanIds)) {
+                if (schedule != null && schedule.getLoan() != null && schedule.getLoan().getId() != null) {
+                    scheduleByLoan.computeIfAbsent(
+                            schedule.getLoan().getId(), ignored -> new ArrayList<>()).add(schedule);
+                }
+            }
+        }
+
+        List<Long> borrowerIds = loans.stream()
+                .filter(Objects::nonNull)
+                .map(Loan::getBorrower)
+                .filter(Objects::nonNull)
+                .map(Borrower::getId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        Map<Long, List<Loan>> previousLoansByBorrower = new HashMap<>();
+        if (!borrowerIds.isEmpty()) {
+            for (Loan historical : loanRepository.findVisibleByBorrowerIdInAndOrganizationIdAndStatusIn(
+                    borrowerIds,
+                    organizationId,
+                    List.of(LoanStatus.PAID, LoanStatus.CLOSED),
+                    ReportingScopeService.includeBusinessOwnerOnly())) {
+                if (historical != null && historical.getBorrower() != null
+                        && historical.getBorrower().getId() != null) {
+                    previousLoansByBorrower.computeIfAbsent(
+                            historical.getBorrower().getId(), ignored -> new ArrayList<>()).add(historical);
+                }
+            }
+        }
+
         try (XSSFWorkbook workbook = buildBnrWorkbook();
                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
 
@@ -115,14 +162,18 @@ public class BnrTemplateExportService {
                     writeWrittenOffSheet(
                             sheet,
                             classified.getOrDefault("WRITTEN_OFF", List.of()),
-                            reportDate);
+                            reportDate,
+                            scheduleByLoan,
+                            previousLoansByBorrower);
                 } else {
                     String classification = classificationForSheet(sheetName);
                     writeLoanSheet(
                             sheet,
                             classified.getOrDefault(classification, List.of()),
                             reportDate,
-                            classification);
+                            classification,
+                            scheduleByLoan,
+                            previousLoansByBorrower);
                 }
             }
 
@@ -2812,7 +2863,9 @@ public class BnrTemplateExportService {
             Sheet sheet,
             List<Loan> loans,
             LocalDate reportDate,
-            String classification) {
+            String classification,
+            Map<Long, List<PaymentSchedule>> scheduleByLoan,
+            Map<Long, List<Loan>> previousLoansByBorrower) {
 
         int headerRow = findHeaderRow(sheet, "Names of Borrowers");
         if (headerRow < 0) {
@@ -2844,7 +2897,9 @@ public class BnrTemplateExportService {
                     sequence++,
                     loan,
                     reportDate,
-                    classification);
+                    classification,
+                    scheduleByLoan,
+                    previousLoansByBorrower);
             applyClassificationDataStyles(
                     row,
                     sheet,
@@ -2863,7 +2918,9 @@ public class BnrTemplateExportService {
     private void writeWrittenOffSheet(
             Sheet sheet,
             List<Loan> loans,
-            LocalDate reportDate) {
+            LocalDate reportDate,
+            Map<Long, List<PaymentSchedule>> scheduleByLoan,
+            Map<Long, List<Loan>> previousLoansByBorrower) {
 
         int headerRow = findHeaderRow(sheet, "Names of Borrowers");
         if (headerRow < 0) {
@@ -2880,7 +2937,8 @@ public class BnrTemplateExportService {
             }
 
             Row row = getOrCreateRow(sheet, rowNumber++);
-            populateWrittenOffRow(row, sheet, loan, reportDate);
+            populateWrittenOffRow(
+                    row, sheet, loan, reportDate, scheduleByLoan, previousLoansByBorrower);
             applyWrittenOffFormulas(row);
         }
     }
@@ -2943,9 +3001,11 @@ public class BnrTemplateExportService {
             int sequence,
             Loan loan,
             LocalDate reportDate,
-            String classification) {
+            String classification,
+            Map<Long, List<PaymentSchedule>> scheduleByLoan,
+            Map<Long, List<Loan>> previousLoansByBorrower) {
 
-        BnrLoanFacts facts = facts(loan, reportDate);
+        BnrLoanFacts facts = facts(loan, reportDate, scheduleByLoan, previousLoansByBorrower);
 
         int headerRowIndex = findHeaderRow(sheet, "Names of Borrowers");
         Row headerRow = sheet.getRow(headerRowIndex);
@@ -2982,9 +3042,11 @@ public class BnrTemplateExportService {
             Row row,
             Sheet sheet,
             Loan loan,
-            LocalDate reportDate) {
+            LocalDate reportDate,
+            Map<Long, List<PaymentSchedule>> scheduleByLoan,
+            Map<Long, List<Loan>> previousLoansByBorrower) {
 
-        BnrLoanFacts facts = facts(loan, reportDate);
+        BnrLoanFacts facts = facts(loan, reportDate, scheduleByLoan, previousLoansByBorrower);
 
         int headerRow = findHeaderRow(sheet, "Names of Borrowers");
         Row header = sheet.getRow(headerRow);
@@ -3177,7 +3239,11 @@ public class BnrTemplateExportService {
         return null;
     }
 
-    private BnrLoanFacts facts(Loan loan, LocalDate reportDate) {
+    private BnrLoanFacts facts(
+            Loan loan,
+            LocalDate reportDate,
+            Map<Long, List<PaymentSchedule>> scheduleByLoan,
+            Map<Long, List<Loan>> previousLoansByBorrower) {
         Borrower borrower = loan.getBorrower();
 
         BigDecimal outstanding = money(loan.getOutstandingBalanceDecimal()).max(ZERO);
@@ -3199,10 +3265,7 @@ public class BnrTemplateExportService {
 
         List<PaymentSchedule> schedules = loan.getId() == null
                 ? List.of()
-                : Optional.ofNullable(
-                        paymentScheduleRepository
-                                .findByLoanIdOrderByInstallmentNumberAsc(loan.getId()))
-                        .orElseGet(List::of);
+                : scheduleByLoan.getOrDefault(loan.getId(), List.of());
 
         int paidInstallments = (int) schedules.stream()
                 .filter(s -> s != null && (s.getStatus() == PaymentSchedule.ScheduleStatus.PAID
@@ -3226,7 +3289,7 @@ public class BnrTemplateExportService {
                 .min(LocalDate::compareTo)
                 .orElse(null);
 
-        String previousLoansPaidOnTime = previousLoansPaidOnTime(loan);
+        String previousLoansPaidOnTime = previousLoansPaidOnTime(loan, previousLoansByBorrower);
 
         return new BnrLoanFacts(
                 loan.getReferenceNumber(),
@@ -3334,7 +3397,7 @@ public class BnrTemplateExportService {
         return normalized.isBlank() ? null : normalized;
     }
 
-    private String previousLoansPaidOnTime(Loan current) {
+    private String previousLoansPaidOnTime(Loan current, Map<Long, List<Loan>> previousLoansByBorrower) {
         if (current.getBorrower() == null
                 || current.getBorrower().getId() == null
                 || current.getOrganization() == null
@@ -3342,10 +3405,8 @@ public class BnrTemplateExportService {
             return null;
         }
 
-        List<Loan> borrowerLoans = loanRepository.findVisibleByBorrowerIdAndOrganizationId(
-                current.getBorrower().getId(),
-                current.getOrganization().getId(),
-                ReportingScopeService.includeBusinessOwnerOnly());
+        List<Loan> borrowerLoans = previousLoansByBorrower.getOrDefault(
+                current.getBorrower().getId(), List.of());
 
         boolean hasPrevious = false;
 
