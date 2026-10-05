@@ -220,6 +220,56 @@ public class StaffTaskService {
     }
 
     @Transactional
+    public void cancelOpenTasksForEntity(
+            Long organizationId,
+            String entityType,
+            Long entityId,
+            String reason,
+            User actor) {
+
+        if (organizationId == null || entityId == null || entityType == null || entityType.isBlank()) {
+            return;
+        }
+
+        List<StaffTask> tasks = taskRepository.findOpenByEntity(
+                organizationId,
+                entityType,
+                entityId,
+                OPEN_STATUSES);
+
+        if (tasks.isEmpty()) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        String message = reason == null || reason.isBlank()
+                ? "Underlying entity is no longer operationally active."
+                : reason.trim();
+
+        for (StaffTask task : tasks) {
+            task.setStatus("CANCELLED");
+            task.setCancelledAt(now);
+            task.setDescription(
+                    safe(task.getDescription())
+                            + " [Cancelled: " + message + "]");
+            taskRepository.save(task);
+        }
+
+        if (actor != null && actor.getOrganization() != null) {
+            auditService.log(
+                    actor.getOrganization(),
+                    actor,
+                    "STAFF_TASK_CANCELLED",
+                    entityType,
+                    String.valueOf(entityId),
+                    "Cancelled " + tasks.size() + " open staff task(s): " + message,
+                    null,
+                    null,
+                    "Task Management");
+        }
+    }
+
+    @Transactional
     public void completeLoanDisbursementTask(Long loanId, User actor) {
         if (loanId == null || actor == null || actor.getOrganization() == null
                 || actor.getOrganization().getId() == null) {
