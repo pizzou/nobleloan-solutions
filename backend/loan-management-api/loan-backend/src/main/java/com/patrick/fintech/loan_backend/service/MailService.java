@@ -3,6 +3,7 @@ package com.patrick.fintech.loan_backend.service;
 import com.patrick.fintech.loan_backend.model.Borrower;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.User;
+import com.patrick.fintech.loan_backend.model.StaffTask;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
@@ -65,6 +66,9 @@ public class MailService {
 
     @Value("${app.mail.brevo-api-key:}")
     private String brevoApiKey;
+
+    @Value("${app.frontend.base-url:}")
+    private String applicationBaseUrl;
 
     public MailService() {
         SimpleClientHttpRequestFactory factory =
@@ -1073,6 +1077,108 @@ public class MailService {
                         "immediately to avoid further penalization, " +
                         "legal escalation, or collection queue assignment.</p>"
         );
+    }
+
+    @Async("mailAsyncExecutor")
+    public void sendStaffTaskAssigned(User user, StaffTask task) {
+        if (!mailEnabled) {
+            log.info(
+                    "[EMAIL] Staff task notification requested for {} (email delivery disabled)",
+                    user != null ? user.getEmail() : "unknown");
+            return;
+        }
+
+        if (user == null || user.getEmail() == null || user.getEmail().isBlank() || task == null) {
+            return;
+        }
+
+        String organizationName = user.getOrganization() != null
+                ? safe(user.getOrganization().getName())
+                : "LoanSaaS Pro";
+
+        String actionUrl = buildTaskUrl(task);
+
+        send(
+                user.getEmail(),
+                "Action Required: " + safe(task.getTitle()),
+                "<h2 style=\"color:#0B1F3A;\">Action Required</h2>" +
+                        "<p>Dear " + safe(user.getName()) + ",</p>" +
+                        "<p>A work item has been assigned to you by " +
+                        safe(organizationName) + ".</p>" +
+                        "<p><strong>" + safe(task.getTitle()) + "</strong></p>" +
+                        "<p>" + safe(task.getDescription()) + "</p>" +
+                        "<p><strong>Priority:</strong> " + safe(task.getPriority()) +
+                        "<br/><strong>Due:</strong> " +
+                        safe(task.getDueAt() == null ? "No due date" : task.getDueAt().toString()) +
+                        (task.getReference() == null || task.getReference().isBlank()
+                                ? ""
+                                : "<br/><strong>Reference:</strong> " + safe(task.getReference())) +
+                        "</p>" +
+                        (actionUrl.isBlank()
+                                ? ""
+                                : "<p><a href=\"" + safeAttribute(actionUrl) +
+                                  "\" style=\"background:#0B1F3A;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;\">Open Task</a></p>") +
+                        "<p>Please complete the task through the staff portal.</p>"
+        );
+    }
+
+    @Async("mailAsyncExecutor")
+    public void sendStaffTaskReminder(User user, StaffTask task, boolean overdue) {
+        if (!mailEnabled) {
+            log.info(
+                    "[EMAIL] Staff task reminder requested for {} (email delivery disabled)",
+                    user != null ? user.getEmail() : "unknown");
+            return;
+        }
+
+        if (user == null || user.getEmail() == null || user.getEmail().isBlank() || task == null) {
+            return;
+        }
+
+        String actionUrl = buildTaskUrl(task);
+        String subject = overdue
+                ? "OVERDUE: " + safe(task.getTitle())
+                : "Reminder: " + safe(task.getTitle());
+
+        send(
+                user.getEmail(),
+                subject,
+                "<h2 style=\"color:#991B1B;\">" +
+                        (overdue ? "Overdue Task" : "Task Reminder") +
+                        "</h2>" +
+                        "<p>Dear " + safe(user.getName()) + ",</p>" +
+                        "<p>This operational task requires your attention:</p>" +
+                        "<p><strong>" + safe(task.getTitle()) + "</strong></p>" +
+                        "<p>" + safe(task.getDescription()) + "</p>" +
+                        "<p><strong>Due:</strong> " +
+                        safe(task.getDueAt() == null ? "No due date" : task.getDueAt().toString()) +
+                        "</p>" +
+                        (actionUrl.isBlank()
+                                ? ""
+                                : "<p><a href=\"" + safeAttribute(actionUrl) +
+                                  "\" style=\"background:#0B1F3A;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;\">Open Task</a></p>")
+        );
+    }
+
+    private String buildTaskUrl(StaffTask task) {
+        if (task == null) {
+            return "";
+        }
+
+        String baseUrl = applicationBaseUrl == null ? "" : applicationBaseUrl.trim();
+        String path;
+
+        if ("LOAN".equalsIgnoreCase(task.getEntityType()) && task.getEntityId() != null) {
+            path = "/dashboard/loans/" + task.getEntityId();
+        } else {
+            path = "/dashboard/notifications";
+        }
+
+        if (baseUrl.isBlank()) {
+            return path;
+        }
+
+        return baseUrl.replaceAll("/+$", "") + path;
     }
 
     private String humanizeDocType(String type) {
