@@ -48,6 +48,7 @@ public class LoanAdministrationService {
     private final LoanRepository loanRepository;
     private final EntityManager entityManager;
     private final AuditService auditService;
+    private final StaffTaskService staffTaskService;
 
     @Transactional
     public void deleteWithConfirmation(
@@ -128,6 +129,13 @@ public class LoanAdministrationService {
                 loanId,
                 reference,
                 now);
+
+        staffTaskService.cancelOpenTasksForEntity(
+                organizationId,
+                "LOAN",
+                loanId,
+                "Loan moved to the recycle bin.",
+                actor);
 
         auditService.log(
                 loan.getOrganization(),
@@ -250,6 +258,14 @@ public class LoanAdministrationService {
                 .setParameter("loanId", loanId)
                 .executeUpdate();
 
+        // Restoring an APPROVED loan creates a new active disbursement task.
+        // The old task was cancelled when the loan entered the recycle bin.
+        loanRepository.findByIdForUpdate(loanId).ifPresent(restoredLoan -> {
+            if (restoredLoan.getStatus() == LoanStatus.APPROVED) {
+                staffTaskService.createLoanDisbursementTask(restoredLoan, actor);
+            }
+        });
+
         auditService.log(
                 actor.getOrganization(),
                 actor,
@@ -310,6 +326,13 @@ public class LoanAdministrationService {
         Object[] row = rows.get(0);
         Long organizationId = ((Number) row[1]).longValue();
         String reference = row[2] == null ? String.valueOf(loanId) : String.valueOf(row[2]);
+
+        staffTaskService.cancelOpenTasksForEntity(
+                organizationId,
+                "LOAN",
+                loanId,
+                "Loan permanently purged after the 30-day recycle period.",
+                null);
 
         /*
          * Credit-bureau correction records can self-reference one another.
