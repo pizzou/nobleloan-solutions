@@ -82,6 +82,7 @@ public class LoanService {
     private final PaymentTransactionRepository paymentTransactionRepo;
         private final DashboardService dashboardService;
         private final LoanAdministrationService loanAdministrationService;
+        private final StaffTaskService staffTaskService;
 
         @Value("${app.environment:development}")
         private String applicationEnvironment;
@@ -1255,6 +1256,12 @@ public class LoanService {
                                                 + " Credit quality is CURRENT.",
                                 "success");
 
+                // Persist the operator work item in the same approval transaction.
+                // Notifications are dispatched by StaffTaskService only after this transaction commits.
+                staffTaskService.createLoanDisbursementTask(
+                                saved,
+                                approvedBy);
+
                 webhookService.dispatch(
                                 saved.getOrganization(),
                                 "LOAN_APPROVED",
@@ -1414,6 +1421,14 @@ public class LoanService {
                         Long loanId,
                         User officer,
                         String disbursementMethod) {
+
+                if (officer == null
+                                || officer.getRole() == null
+                                || officer.getRole().getName() == null
+                                || !"BUSINESS_OWNER".equalsIgnoreCase(officer.getRole().getName())) {
+                        throw new org.springframework.security.access.AccessDeniedException(
+                                        "Only the BUSINESS_OWNER can perform loan disbursement");
+                }
 
                 if (officer == null
                                 || officer.getOrganization() == null
@@ -1701,6 +1716,12 @@ public class LoanService {
 
                 accountingService.postDisbursement(
                                 saved);
+
+                // Successful accounting completion closes the persisted work item.
+                // If accounting throws, the transaction rolls back and the task remains OPEN.
+                staffTaskService.completeLoanDisbursementTask(
+                                saved.getId(),
+                                officer);
 
                 // ============================================================
                 // POST-COMMIT SIDE EFFECTS
