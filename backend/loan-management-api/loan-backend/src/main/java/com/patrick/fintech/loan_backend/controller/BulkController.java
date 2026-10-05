@@ -8,7 +8,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
-@RestController @RequestMapping("/api/bulk") @RequiredArgsConstructor @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+@RestController @RequestMapping("/api/bulk") @RequiredArgsConstructor @PreAuthorize("hasRole('BUSINESS_OWNER')")
 public class BulkController {
     private final BulkDisbursementService bulkService;
     private final CurrentUserUtil currentUserUtil;
