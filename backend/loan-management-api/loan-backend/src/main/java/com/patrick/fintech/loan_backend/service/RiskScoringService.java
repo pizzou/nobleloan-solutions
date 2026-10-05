@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
+import java.util.Optional;
 import java.util.Locale;
 
 @Service
@@ -291,9 +292,18 @@ public class RiskScoringService {
 
                         if (borrower.getId() != null) {
 
-                                var bureauCheck = creditBureauCheckRepo
-                                                .findFirstByBorrower_IdOrderByCreatedAtDesc(
-                                                                borrower.getId())
+                                /*
+                                 * Repository contracts return Optional, but mocked
+                                 * repositories and a few legacy adapters may return
+                                 * null.  Treat null exactly like Optional.empty()
+                                 * rather than allowing risk scoring to fail with an
+                                 * NPE in production or tests.
+                                 */
+                                Optional<CreditBureauCheck> bureauCheck = Optional.ofNullable(
+                                                creditBureauCheckRepo
+                                                                .findFirstByBorrower_IdOrderByCreatedAtDesc(
+                                                                                borrower.getId()))
+                                                .orElse(Optional.empty())
                                                 .filter(
                                                                 check -> check != null
                                                                                 && !check.isExpired())
