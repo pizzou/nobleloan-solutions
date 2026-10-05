@@ -70,7 +70,7 @@ public class UserController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','BUSINESS_OWNER')")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getAll() {
 
         Long organizationId = requireCurrentOrganizationId();
@@ -94,7 +94,7 @@ public class UserController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','BUSINESS_OWNER')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getById(
             @PathVariable Long id) {
 
