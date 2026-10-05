@@ -1,7 +1,17 @@
 package com.patrick.fintech.loan_backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.patrick.fintech.loan_backend.dto.LendingActionRequest;
+import com.patrick.fintech.loan_backend.model.BankAccount;
+import com.patrick.fintech.loan_backend.model.BankStatementLine;
+import com.patrick.fintech.loan_backend.model.Borrower;
+import com.patrick.fintech.loan_backend.model.BorrowerFile;
+import com.patrick.fintech.loan_backend.model.CollectionCase;
 import com.patrick.fintech.loan_backend.model.Loan;
+import com.patrick.fintech.loan_backend.model.LoanStatus;
+import com.patrick.fintech.loan_backend.model.LendingFeatureRecord;
+import com.patrick.fintech.loan_backend.model.Organization;
+import com.patrick.fintech.loan_backend.model.Payment;
 import com.patrick.fintech.loan_backend.repository.BankAccountRepository;
 import com.patrick.fintech.loan_backend.repository.BankStatementLineRepository;
 import com.patrick.fintech.loan_backend.repository.BorrowerFileRepository;
@@ -12,7 +22,6 @@ import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
-
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
