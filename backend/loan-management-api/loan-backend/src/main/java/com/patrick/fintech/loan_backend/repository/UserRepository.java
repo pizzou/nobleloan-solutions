@@ -118,4 +118,16 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     @EntityGraph(attributePaths = {"role", "organization", "branch"})
     List<User> findByOrganization_Id(Long organizationId);
+
+    @EntityGraph(attributePaths = {"role", "organization", "branch"})
+    List<User> findByOrganization_IdAndDeletedAtIsNull(Long organizationId);
+
+    @EntityGraph(attributePaths = {"role", "organization", "branch"})
+    List<User> findByOrganization_IdAndDeletedAtIsNotNullOrderByDeletedAtDesc(Long organizationId);
+
+    @EntityGraph(attributePaths = {"role", "organization", "branch"})
+    List<User> findByOrganization_IdAndRole_NameAndStatus(
+            Long organizationId,
+            String roleName,
+            User.UserStatus status);
 }
