@@ -34,6 +34,7 @@ type NavItem = {
   label: string;
   adminOnly?: boolean;
   accountingOnly?: boolean;
+  businessOwnerOnly?: boolean;
 };
 
 type NavSection = {
@@ -152,6 +153,26 @@ const NAV_STAFF: NavSection[] = [
         icon: "📒",
         label: "Accounting",
         accountingOnly: true,
+      },
+
+      {
+        href: "/dashboard/tasks",
+        icon: "✅",
+        label: "My Tasks",
+      },
+
+      {
+        href: "/dashboard/loans/recycle-bin",
+        icon: "♻️",
+        label: "Loan Recycle Bin",
+        businessOwnerOnly: true,
+      },
+
+      {
+        href: "/dashboard/users/recycle-bin",
+        icon: "🗑️",
+        label: "User Recycle Bin",
+        businessOwnerOnly: true,
       },
 
       {
@@ -571,7 +592,8 @@ export default function Sidebar() {
               .filter(
                 (item) =>
                   (!item.adminOnly || isSuperUser) &&
-                  (!item.accountingOnly || canSeeAccounting),
+                  (!item.accountingOnly || canSeeAccounting) &&
+                  (!item.businessOwnerOnly || isBusinessOwner),
               )
               .map((item) => {
                 const active = isActive(item.href);
