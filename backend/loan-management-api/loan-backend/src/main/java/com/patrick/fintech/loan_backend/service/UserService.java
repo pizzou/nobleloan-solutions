@@ -41,7 +41,7 @@ public class UserService {
     @Transactional(readOnly = true)
     public List<User> getAll(Long organizationId) {
         requireOrganizationId(organizationId);
-        return userRepository.findByOrganization_Id(organizationId);
+        return userRepository.findByOrganization_IdAndDeletedAtIsNull(organizationId);
     }
 
     /**
@@ -317,6 +317,10 @@ public class UserService {
     @Transactional
     public User reactivate(Long id, Long organizationId) {
         User user = getById(id, organizationId);
+        if (user.getDeletedAt() != null) {
+            throw new IllegalStateException(
+                    "This user is in the recycle bin. Use the Business Owner restore workflow.");
+        }
         user.setStatus(User.UserStatus.ACTIVE);
         return userRepository.save(user);
     }
