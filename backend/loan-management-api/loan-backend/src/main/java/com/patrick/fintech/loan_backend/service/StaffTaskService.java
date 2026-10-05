@@ -502,6 +502,14 @@ public class StaffTaskService {
                 User.UserStatus.ACTIVE);
     }
 
+    @Transactional(readOnly = true)
+    public StaffTaskResponse toResponseForController(StaffTask task) {
+        if (task == null) {
+            throw new IllegalArgumentException("Task is required.");
+        }
+        return toResponse(task, LocalDateTime.now());
+    }
+
     private StaffTaskResponse toResponse(StaffTask task, LocalDateTime now) {
         boolean overdue = task.getDueAt() != null
                 && task.getDueAt().isBefore(now)
