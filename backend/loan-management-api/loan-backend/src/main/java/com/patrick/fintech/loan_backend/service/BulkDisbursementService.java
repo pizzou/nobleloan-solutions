@@ -47,7 +47,14 @@ public class BulkDisbursementService {
         if (orgId == null) {
             throw new IllegalArgumentException("Organization ID is required");
         }
-        if (officer == null || officer.getOrganization() == null
+        if (officer == null
+                || officer.getRole() == null
+                || officer.getRole().getName() == null
+                || !"BUSINESS_OWNER".equalsIgnoreCase(officer.getRole().getName())) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Only the BUSINESS_OWNER can perform loan disbursement");
+        }
+        if (officer.getOrganization() == null
                 || !orgId.equals(officer.getOrganization().getId())) {
             throw new IllegalStateException("Officer does not belong to the selected organization");
         }
