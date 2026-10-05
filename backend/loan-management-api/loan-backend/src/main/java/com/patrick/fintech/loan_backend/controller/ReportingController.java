@@ -5,6 +5,8 @@ import com.patrick.fintech.loan_backend.service.ReportingScopeService;
 import com.patrick.fintech.loan_backend.model.JournalEntry;
 import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.repository.JournalEntryRepository;
+import com.patrick.fintech.loan_backend.repository.LoanRepository;
+import com.patrick.fintech.loan_backend.repository.PaymentRepository;
 import com.patrick.fintech.loan_backend.service.AccountingService;
 import com.patrick.fintech.loan_backend.service.ReportingService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
@@ -40,6 +42,8 @@ public class ReportingController {
         private final AccountingService accountingService;
         private final CurrentUserUtil currentUserUtil;
         private final JournalEntryRepository journalEntryRepository;
+        private final LoanRepository loanRepository;
+        private final PaymentRepository paymentRepository;
         private static final MediaType EXCEL_MEDIA_TYPE = MediaType.parseMediaType(
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 
@@ -72,6 +76,31 @@ public class ReportingController {
 
                 return ResponseEntity.ok(
                                 reportingService.paymentReport(orgId));
+        }
+
+        // ============================================================
+        // LIGHTWEIGHT OPERATIONAL REPORT SUMMARY
+        //
+        // Kept separate from the full accounting/reporting endpoints so the
+        // dashboard can load small aggregate datasets without hydrating the
+        // entire loan portfolio. All repository queries explicitly exclude
+        // recycled loans.
+        // ============================================================
+
+        @GetMapping("/operational-summary")
+        public ResponseEntity<Map<String, Object>> operationalSummary() {
+                Long orgId = currentUserUtil.getCurrentOrganizationId();
+                if (orgId == null) {
+                        throw new IllegalStateException("Current organization could not be determined.");
+                }
+
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("loanProducts", loanRepository.getReportLoanProductBreakdown(orgId));
+                result.put("creditQuality", loanRepository.getReportCreditQualityBreakdown(orgId));
+                result.put("borrowerGender", loanRepository.getReportBorrowerGenderBreakdown(orgId));
+                result.put("overduePenalties", paymentRepository.sumOverduePenaltiesForReport(
+                                orgId, LocalDate.now()));
+                return ResponseEntity.ok(result);
         }
 
         // ============================================================
