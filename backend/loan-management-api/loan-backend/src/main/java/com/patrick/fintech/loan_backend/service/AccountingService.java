@@ -281,28 +281,72 @@ public class AccountingService {
                 for (String[] definition : DEFAULT_ACCOUNTS) {
 
                         String code = definition[0];
+                        ChartOfAccount.AccountType expectedType =
+                                        ChartOfAccount.AccountType.valueOf(definition[2]);
+                        ChartOfAccount.NormalBalance expectedNormalBalance =
+                                        ChartOfAccount.NormalBalance.valueOf(definition[3]);
 
-                        if (existingCodes.contains(
-                                        code)) {
+                        ChartOfAccount existingAccount = existing == null
+                                        ? null
+                                        : existing.stream()
+                                                        .filter(account -> account != null
+                                                                        && code.equals(account.getCode() == null
+                                                                                        ? null
+                                                                                        : account.getCode().trim()))
+                                                        .findFirst()
+                                                        .orElse(null);
 
+                        if (existingAccount == null) {
+                                coaRepo.save(
+                                                ChartOfAccount.builder()
+                                                                .organization(org)
+                                                                .code(code)
+                                                                .name(definition[1])
+                                                                .type(expectedType)
+                                                                .normalBalance(expectedNormalBalance)
+                                                                .active(true)
+                                                                .build());
                                 continue;
                         }
 
-                        coaRepo.save(
-                                        ChartOfAccount.builder()
-                                                        .organization(org)
-                                                        .code(code)
-                                                        .name(definition[1])
-                                                        .type(
-                                                                        ChartOfAccount.AccountType
-                                                                                        .valueOf(
-                                                                                                        definition[2]))
-                                                        .normalBalance(
-                                                                        ChartOfAccount.NormalBalance
-                                                                                        .valueOf(
-                                                                                                        definition[3]))
-                                                        .active(true)
-                                                        .build());
+                        /*
+                         * System accounts are part of the accounting contract.
+                         * Merely checking that the code exists is not sufficient:
+                         * an old database can contain account 4100 with ASSET/DEBIT
+                         * classification. That causes an application-fee credit
+                         * to disappear from the P&L and appear as an asset.
+                         *
+                         * Repair the classification in-place so every financial
+                         * statement uses the same bank-grade chart of accounts.
+                         * The journal lines themselves remain immutable.
+                         */
+                        boolean classificationChanged = existingAccount.getType() != expectedType
+                                        || existingAccount.getNormalBalance() != expectedNormalBalance;
+
+                        if (classificationChanged) {
+                                log.warn(
+                                                "Repairing system GL classification for organizationId={}, code={}, oldType={}, oldNormalBalance={}, expectedType={}, expectedNormalBalance={}",
+                                                org.getId(),
+                                                code,
+                                                existingAccount.getType(),
+                                                existingAccount.getNormalBalance(),
+                                                expectedType,
+                                                expectedNormalBalance);
+                                existingAccount.setType(expectedType);
+                                existingAccount.setNormalBalance(expectedNormalBalance);
+                        }
+
+                        if (existingAccount.getName() == null || existingAccount.getName().isBlank()) {
+                                existingAccount.setName(definition[1]);
+                        }
+
+                        if (existingAccount.getActive() == null) {
+                                existingAccount.setActive(true);
+                        }
+
+                        if (classificationChanged) {
+                                coaRepo.save(existingAccount);
+                        }
                 }
 
                 log.info(
@@ -802,6 +846,7 @@ public class AccountingService {
 
                 java.util.Set<String> loanTypes = java.util.Set.of(
                                 "LOAN_DISBURSEMENT",
+                                "APPLICATION_FEE_INCOME_RECLASSIFICATION",
                                 "LOAN_EXTENSION_FEE",
                                 "PENALTY_ACCRUAL",
                                 "CONTRACTUAL_MONTHLY_INTEREST_ACCRUAL",
@@ -1598,6 +1643,13 @@ public class AccountingService {
 
                         throw new IllegalStateException(
                                         "Net loan disbursement must be greater than zero");
+                }
+
+                ChartOfAccount applicationFeeIncomeAccount = account(org, "4100");
+                if (applicationFeeIncomeAccount.getType() != ChartOfAccount.AccountType.INCOME
+                                || applicationFeeIncomeAccount.getNormalBalance() != ChartOfAccount.NormalBalance.CREDIT) {
+                        throw new IllegalStateException(
+                                        "GL account 4100 must be classified as INCOME/CREDIT before loan disbursement");
                 }
 
                 String sourceId = String.valueOf(
@@ -4289,6 +4341,7 @@ public class AccountingService {
 
                 BigDecimal openingCash = ZERO;
                 BigDecimal operatingInflows = ZERO;
+                BigDecimal applicationFeeCashInflows = ZERO;
                 BigDecimal operatingOutflows = ZERO;
                 BigDecimal lendingOutflows = ZERO;
                 BigDecimal financingInflows = ZERO;
@@ -4320,7 +4373,6 @@ public class AccountingService {
                                                 case "PAYMENT_RECEIVED" ->
                                                         operatingInflows = operatingInflows.add(movement);
                                                 case "REFUND_PAYMENT" -> otherOutflows = otherOutflows.add(movement);
-                                                case "LOAN_DISBURSEMENT" -> otherInflows = otherInflows.add(movement);
                                                 case "EQUITY_CONTRIBUTION", "OWNER_CONTRIBUTION", "CAPITAL_INJECTION",
                                                                 "DEPOSIT_RECEIVED" ->
                                                         financingInflows = financingInflows.add(movement);
@@ -4329,8 +4381,38 @@ public class AccountingService {
                                 } else {
                                         BigDecimal outflow = movement.negate();
                                         switch (source) {
-                                                case "LOAN_DISBURSEMENT" ->
-                                                        lendingOutflows = lendingOutflows.add(outflow);
+                                                case "LOAN_DISBURSEMENT" -> {
+                                                        /*
+                                                         * Present a loan disbursement on a gross basis and
+                                                         * show a separately collected application fee. The
+                                                         * actual cash movement remains net, so the statement
+                                                         * still reconciles to GL 1000.
+                                                         */
+                                                        BigDecimal grossPrincipal = ZERO;
+                                                        BigDecimal feeIncome = ZERO;
+                                                        if (entry.getLines() != null) {
+                                                                for (JournalLine journalLine : entry.getLines()) {
+                                                                        if (journalLine == null || journalLine.getAccount() == null)
+                                                                                continue;
+                                                                        if ("1100".equals(journalLine.getAccount().getCode())) {
+                                                                                grossPrincipal = grossPrincipal.add(
+                                                                                                money(journalLine.getDebitDecimal())
+                                                                                                                .subtract(money(journalLine.getCreditDecimal())));
+                                                                        } else if ("4100".equals(journalLine.getAccount().getCode())) {
+                                                                                feeIncome = feeIncome.add(
+                                                                                                money(journalLine.getCreditDecimal())
+                                                                                                                .subtract(money(journalLine.getDebitDecimal())));
+                                                                        }
+                                                                }
+                                                        }
+                                                        BigDecimal presentedLendingOutflow = grossPrincipal.compareTo(ZERO) > 0
+                                                                        ? grossPrincipal
+                                                                        : outflow;
+                                                        lendingOutflows = lendingOutflows.add(presentedLendingOutflow);
+                                                        BigDecimal collectedFee = feeIncome.max(ZERO);
+                                                        operatingInflows = operatingInflows.add(collectedFee);
+                                                        applicationFeeCashInflows = applicationFeeCashInflows.add(collectedFee);
+                                                }
                                                 case "EXPENSE", "OPERATING_EXPENSE" ->
                                                         operatingOutflows = operatingOutflows.add(outflow);
                                                 case "REFUND_PAYMENT" ->
@@ -4380,7 +4462,7 @@ public class AccountingService {
                 result.put("reconciliationDifference", reconciliationDifference);
                 result.put("reconciles", reconciliationDifference.compareTo(ZERO) == 0);
                 // Backward-compatible keys.
-                result.put("cashFromFees", ZERO);
+                result.put("cashFromFees", normalize(applicationFeeCashInflows));
                 result.put("cashRefundedToBorrowers", normalize(otherOutflows));
                 result.put("otherCashMovement", normalize(otherNet));
                 return result;
@@ -4405,22 +4487,30 @@ public class AccountingService {
                                         k -> new BigDecimal[] { ZERO, ZERO, ZERO, ZERO });
 
                         for (JournalLine line : entry.getLines()) {
-                                if (line == null || line.getAccount() == null ||
-                                                !"1000".equals(line.getAccount().getCode()))
+                                if (line == null || line.getAccount() == null)
                                         continue;
                                 BigDecimal debit = money(line.getDebitDecimal());
                                 BigDecimal credit = money(line.getCreditDecimal());
                                 String source = entry.getSourceType() == null ? "" : entry.getSourceType();
 
-                                switch (source) {
-                                        case "LOAN_DISBURSEMENT" ->
-                                                totals[0] = totals[0].add(credit.subtract(debit).max(ZERO));
-                                        case "PAYMENT_RECEIVED" ->
-                                                totals[1] = totals[1].add(debit.subtract(credit).max(ZERO));
-                                        case "REFUND_PAYMENT" ->
-                                                totals[3] = totals[3].add(credit.subtract(debit).max(ZERO));
-                                        default -> {
+                                if ("1000".equals(line.getAccount().getCode())) {
+                                        switch (source) {
+                                                case "LOAN_DISBURSEMENT" ->
+                                                        totals[0] = totals[0].add(credit.subtract(debit).max(ZERO));
+                                                case "PAYMENT_RECEIVED" ->
+                                                        totals[1] = totals[1].add(debit.subtract(credit).max(ZERO));
+                                                case "REFUND_PAYMENT" ->
+                                                        totals[3] = totals[3].add(credit.subtract(debit).max(ZERO));
+                                                default -> {
+                                                }
                                         }
+                                }
+
+                                // Application fees collected at disbursement are
+                                // income and are reported by branch from the GL,
+                                // never from an operational KPI.
+                                if ("4100".equals(line.getAccount().getCode())) {
+                                        totals[2] = totals[2].add(credit.subtract(debit));
                                 }
                         }
                 }
