@@ -87,6 +87,62 @@ public class StaffTaskService {
         return saved;
     }
 
+    @Transactional
+    public StaffTask createDirectTask(
+            User creator,
+            Long assigneeUserId,
+            String taskType,
+            String entityType,
+            Long entityId,
+            String reference,
+            String title,
+            String description,
+            String priority,
+            LocalDateTime dueAt) {
+
+        requireActor(creator);
+
+        if (assigneeUserId == null || assigneeUserId <= 0) {
+            throw new IllegalArgumentException("Assignee is required.");
+        }
+
+        User assignee = userRepository.findByIdAndOrganizationId(
+                        assigneeUserId,
+                        creator.getOrganization().getId())
+                .orElseThrow(() -> new IllegalArgumentException("Assignee not found."));
+
+        if (assignee.getDeletedAt() != null
+                || assignee.getStatus() != User.UserStatus.ACTIVE) {
+            throw new IllegalStateException("The selected user is not an active staff member.");
+        }
+
+        if (title == null || title.isBlank()) {
+            throw new IllegalArgumentException("Task title is required.");
+        }
+
+        StaffTask task = StaffTask.builder()
+                .organization(creator.getOrganization())
+                .assignee(assignee)
+                .assignedRole(assignee.getRole() != null ? assignee.getRole().getName() : null)
+                .taskType(nonBlank(taskType, "GENERAL"))
+                .entityType(entityType)
+                .entityId(entityId)
+                .reference(reference)
+                .title(title.trim())
+                .description(description == null ? null : description.trim())
+                .priority(normalizePriority(priority))
+                .status("OPEN")
+                .dueAt(dueAt)
+                .createdBy(creator)
+                .reminderCount(0)
+                .build();
+
+        StaffTask saved = taskRepository.save(task);
+
+        scheduleNotification(saved);
+        return saved;
+    }
+
     @Transactional(readOnly = true)
     public StaffTaskDashboardResponse getDashboard(User actor) {
         requireActor(actor);
