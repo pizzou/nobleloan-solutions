@@ -224,6 +224,7 @@ public class BnrFinancialStatementService {
                 BigDecimal totalEquity = ZERO;
 
                 BigDecimal totalIncome = ZERO;
+                BigDecimal applicationFeeIncome = ZERO;
 
                 BigDecimal totalExpenses = ZERO;
 
@@ -423,6 +424,12 @@ public class BnrFinancialStatementService {
                                         totalIncome = add(
                                                         totalIncome,
                                                         periodIncome);
+
+                                        if ("4100".equals(account.getCode())) {
+                                                applicationFeeIncome = add(
+                                                                applicationFeeIncome,
+                                                                periodIncome);
+                                        }
 
                                         income.add(row);
                                 }
@@ -635,6 +642,10 @@ public class BnrFinancialStatementService {
                 incomeStatement.put(
                                 "totalIncome",
                                 totalIncome);
+
+                incomeStatement.put(
+                                "applicationFeeIncome",
+                                applicationFeeIncome);
 
                 incomeStatement.put(
                                 "totalExpenses",

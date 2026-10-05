@@ -102,6 +102,13 @@ private BigDecimal currentPeriodNetIncome;
     @JsonProperty("totalIncome")
 private BigDecimal totalIncome;
 
+    /**
+     * One-time application-fee income recognized in GL 4100 for the
+     * selected reporting period. This is a component of totalIncome.
+     */
+    @JsonProperty("applicationFeeIncome")
+private BigDecimal applicationFeeIncome;
+
     
 
     @JsonProperty("totalExpenses")
@@ -452,6 +459,7 @@ private BigDecimal netChangeInCash;
         private BigDecimal totalEquity;
         private BigDecimal totalExpenses;
         private BigDecimal totalIncome;
+        private BigDecimal applicationFeeIncome;
         private BigDecimal totalLiabilities;
         private BigDecimal trialBalanceCredit;
         private BigDecimal trialBalanceDebit;
@@ -494,6 +502,15 @@ private BigDecimal netChangeInCash;
         }
         public BnrFinancialStatementReportBuilder totalIncome(BigDecimal value) {
             this.totalIncome = value;
+            return this;
+        }
+        public BnrFinancialStatementReportBuilder applicationFeeIncome(Double value) {
+            this.applicationFeeIncome = value == null ? null : BigDecimal.valueOf(value);
+            return this;
+        }
+
+        public BnrFinancialStatementReportBuilder applicationFeeIncome(BigDecimal value) {
+            this.applicationFeeIncome = value;
             return this;
         }
         public BnrFinancialStatementReportBuilder totalExpenses(Double value) {

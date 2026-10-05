@@ -246,6 +246,8 @@ export interface BnrFinancialStatementReport {
   expenses?: FinancialStatementRow[];
 
   totalIncome?: number;
+  /** One-time application fees recognized in GL 4100 for the selected period. */
+  applicationFeeIncome?: number;
   totalExpenses?: number;
 
   netIncome?: number;

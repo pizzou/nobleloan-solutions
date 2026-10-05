@@ -673,6 +673,12 @@ function FinancialStatement({
             currency,
           )}
         />
+
+        <Metric
+          label="Application Fee Income"
+          value={formatMoney(report.applicationFeeIncome, currency)}
+          secondary="One-time application fees recognized in GL 4100."
+        />
       </div>
 
       <div className="mt-6 grid gap-5 xl:grid-cols-3">

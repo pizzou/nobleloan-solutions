@@ -231,9 +231,9 @@ public class LoanProduct {
                         applicationFeePercent = DEFAULT_APPLICATION_FEE_PERCENT;
                 }
 
-                if (managementFeePercent == null) {
-                        managementFeePercent = DEFAULT_MANAGEMENT_FEE_PERCENT;
-                }
+                // Management fee is an institutional rule, not a product
+                // negotiation. Always normalize it to 5% per month.
+                managementFeePercent = DEFAULT_MANAGEMENT_FEE_PERCENT;
 
                 if (penaltyPercent == null) {
                         penaltyPercent = DEFAULT_PENALTY_PERCENT;
@@ -303,10 +303,10 @@ public class LoanProduct {
                 }
 
                 if (managementFeePercent == null
-                                || managementFeePercent.signum() < 0) {
+                                || managementFeePercent.compareTo(DEFAULT_MANAGEMENT_FEE_PERCENT) != 0) {
 
                         throw new IllegalStateException(
-                                        "Management fee cannot be negative.");
+                                        "Management fee is fixed at 5.00% per month on outstanding principal.");
                 }
 
                 if (penaltyPercent == null

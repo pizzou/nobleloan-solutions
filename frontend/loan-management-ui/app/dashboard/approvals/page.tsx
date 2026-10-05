@@ -101,15 +101,23 @@ export default function ApprovalsPage() {
       return;
     }
 
-    if (interestRate !== 5) {
-      toast("error", "Interest rate is fixed at 5% per month.");
+    if (
+      !Number.isFinite(interestRate) ||
+      interestRate < 0 ||
+      interestRate > 100
+    ) {
+      toast("error", "Interest rate must be between 0% and 100% per month.");
       return;
     }
 
-    if (applicationFeeRate !== 2) {
+    if (
+      !Number.isFinite(applicationFeeRate) ||
+      applicationFeeRate < 0 ||
+      applicationFeeRate > 100
+    ) {
       toast(
         "error",
-        "Application fee is fixed at 2% and is charged once at disbursement.",
+        "Application fee must be between 0% and 100% and is charged once at disbursement.",
       );
       return;
     }

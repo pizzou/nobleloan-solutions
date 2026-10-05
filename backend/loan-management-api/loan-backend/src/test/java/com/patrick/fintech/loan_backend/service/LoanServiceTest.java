@@ -217,6 +217,58 @@ class LoanServiceTest {
                 .save(any(Loan.class));
     }
 
+    @Test
+    void approveLoan_shouldPreserveNegotiatedInterestAndApplicationFee_butForceManagementFeeToFivePercent() {
+
+        Loan loan = new Loan();
+        loan.setId(2L);
+        loan.setReferenceNumber("LN-TEST-0002");
+        loan.setStatus(LoanStatus.PENDING);
+        loan.setAmount(new BigDecimal("500000.00"));
+        loan.setRequestedAmount(new BigDecimal("500000.00"));
+        loan.setInterestRate(new BigDecimal("7.00"));
+        loan.setManagementFeeRate(new BigDecimal("9.00"));
+        loan.setApplicationFeeRate(new BigDecimal("1.00"));
+        loan.setProcessingFeeRate(new BigDecimal("1.00"));
+        loan.setInterestRateType("MONTHLY");
+        loan.setDurationMonths(6);
+        loan.setStartDate(LocalDate.of(2026, 1, 1));
+        loan.setBorrower(borrower);
+        loan.setOrganization(org);
+        loan.setCurrency("USD");
+
+        when(loanRepository.findVisibleByIdForUpdate(2L, 1L, true))
+                .thenReturn(Optional.of(loan));
+        when(fileService.getMissingDocumentTypes(any(Long.class), any()))
+                .thenReturn(List.of());
+        when(loanRepository.save(any(Loan.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(paymentRepository.findByLoanId(2L))
+                .thenReturn(List.of());
+        lenient().when(holidayService.adjustToBusinessDay(anyLong(), any(LocalDate.class)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+
+        Loan result = loanService.approveLoan(
+                2L,
+                officer,
+                "Negotiated commercial terms",
+                7.00,
+                1.00);
+
+        assertThat(result.getInterestRateDecimal())
+                .isEqualByComparingTo("7.00");
+        assertThat(result.getManagementFeeRateDecimal())
+                .isEqualByComparingTo("5.00");
+        assertThat(result.getApplicationFeeRateDecimal())
+                .isEqualByComparingTo("1.00");
+        assertThat(result.getApplicationFeeDecimal())
+                .isEqualByComparingTo("5000.00");
+        assertThat(result.getTotalInterestDecimal())
+                .isEqualByComparingTo("122500.00");
+        assertThat(result.getManagementFeeDecimal())
+                .isEqualByComparingTo("87500.00");
+    }
+
     // ============================================================
     // BORROWER NOT FOUND
     // ============================================================

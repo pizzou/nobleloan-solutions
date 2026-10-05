@@ -4183,6 +4183,7 @@ public class AccountingService {
                 List<Map<String, Object>> income = new ArrayList<>();
                 List<Map<String, Object>> expenses = new ArrayList<>();
                 BigDecimal totalIncome = ZERO;
+                BigDecimal applicationFeeIncome = ZERO;
                 BigDecimal totalExpense = ZERO;
 
                 for (AccountReportTotal total : totals.values()) {
@@ -4198,6 +4199,9 @@ public class AccountingService {
                         if (total.type == ChartOfAccount.AccountType.INCOME) {
                                 income.add(row);
                                 totalIncome = totalIncome.add(amount);
+                                if ("4100".equals(total.code)) {
+                                        applicationFeeIncome = normalize(applicationFeeIncome.add(amount));
+                                }
                         } else {
                                 expenses.add(row);
                                 totalExpense = totalExpense.add(amount);
@@ -4222,6 +4226,7 @@ public class AccountingService {
                 result.put("expenses", expenses);
                 result.put("expense", expenses); // backward compatibility
                 result.put("totalIncome", totalIncome);
+                result.put("applicationFeeIncome", normalize(applicationFeeIncome));
                 result.put("totalExpense", totalExpense);
                 result.put("netIncome", netProfit); // backward compatibility
                 result.put("netProfit", netProfit);

@@ -50,6 +50,7 @@ interface ProfitAndLossReport {
   income?: AccountingAccountRow[];
   expense?: AccountingAccountRow[];
   totalIncome?: Numeric;
+  applicationFeeIncome?: Numeric;
   totalExpense?: Numeric;
   totalExpenses?: Numeric;
   netIncome?: Numeric;
@@ -1671,7 +1672,7 @@ export default function ReportsPage() {
           />
 
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-            <div className="grid divide-y divide-slate-200 lg:grid-cols-3 lg:divide-x lg:divide-y-0">
+            <div className="grid divide-y divide-slate-200 lg:grid-cols-4 lg:divide-x lg:divide-y-0">
               <div className="p-6">
                 <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
                   Total income
@@ -1683,6 +1684,20 @@ export default function ReportsPage() {
 
                 <p className="mt-2 text-xs text-slate-500">
                   Revenue recognized during the reporting period.
+                </p>
+              </div>
+
+              <div className="p-6">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                  Application fee income
+                </p>
+
+                <p className="mt-3 text-2xl font-bold tracking-tight text-slate-950">
+                  {fmt(profitAndLoss?.applicationFeeIncome)}
+                </p>
+
+                <p className="mt-2 text-xs text-slate-500">
+                  One-time fees recognized as income through GL 4100.
                 </p>
               </div>
 

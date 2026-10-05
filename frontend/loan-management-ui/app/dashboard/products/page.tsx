@@ -203,13 +203,16 @@ export default function LoanProductsPage() {
 
       loanType: product.loanType ?? "PERSONAL",
 
-      interestRate: DEFAULT_INTEREST_RATE,
+      interestRate: numberValue(product.interestRate, DEFAULT_INTEREST_RATE),
 
       interestRateType: "MONTHLY",
 
       managementFeePercent: DEFAULT_MANAGEMENT_FEE,
 
-      applicationFeePercent: DEFAULT_PROCESSING_FEE,
+      applicationFeePercent: numberValue(
+        product.applicationFeePercent,
+        DEFAULT_PROCESSING_FEE,
+      ),
 
       penaltyPercent: DEFAULT_PENALTY_RATE,
 
@@ -267,9 +270,9 @@ export default function LoanProductsPage() {
 
     if (
       !Number.isFinite(editing.managementFeePercent) ||
-      editing.managementFeePercent < 0
+      editing.managementFeePercent !== DEFAULT_MANAGEMENT_FEE
     ) {
-      return "Management fee cannot be negative.";
+      return "Management fee is fixed at 5% per month.";
     }
 
     if (
@@ -359,13 +362,16 @@ export default function LoanProductsPage() {
 
       loanType: editing.loanType,
 
-      interestRate: DEFAULT_INTEREST_RATE,
+      interestRate: numberValue(editing.interestRate, DEFAULT_INTEREST_RATE),
 
       interestRateType: "MONTHLY" as const,
 
       managementFeePercent: DEFAULT_MANAGEMENT_FEE,
 
-      applicationFeePercent: DEFAULT_PROCESSING_FEE,
+      applicationFeePercent: numberValue(
+        editing.applicationFeePercent,
+        DEFAULT_PROCESSING_FEE,
+      ),
 
       penaltyPercent: DEFAULT_PENALTY_RATE,
 
@@ -789,8 +795,7 @@ export default function LoanProductsPage() {
                   />
 
                   <p className="mt-2 text-xs text-blue-700">
-                    Fixed institutional policy: 5% per month on outstanding
-                    principal.
+                    Negotiable monthly rate applied to outstanding principal.
                   </p>
                 </div>
 
@@ -804,13 +809,9 @@ export default function LoanProductsPage() {
                     step="0.01"
                     min="0"
                     className="mt-2 w-full rounded-xl border border-purple-200 bg-white p-3 text-lg font-bold outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
-                    value={editing.managementFeePercent ?? 0}
-                    onChange={(event) =>
-                      updateField(
-                        "managementFeePercent",
-                        numberValue(event.target.value),
-                      )
-                    }
+                    value={DEFAULT_MANAGEMENT_FEE}
+                    readOnly
+                    aria-readonly="true"
                   />
 
                   <p className="mt-2 text-xs text-purple-700">

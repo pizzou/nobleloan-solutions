@@ -33,12 +33,12 @@ import java.util.Objects;
 public class LoanProductController {
 
         /*
-         * Noble's current defaults.
+         * Noble pricing policy.
          *
-         * These are DEFAULTS for newly created products only.
-         *
-         * They are NOT global mandatory rates. Each organization may
-         * configure its own product interest rate and management fee.
+         * Interest and the one-time application fee are configurable per
+         * product/loan so the commercial team can negotiate them. The
+         * management fee is institutional policy and MUST remain 5% per
+         * month on outstanding principal.
          */
         private static final BigDecimal MINIMUM_LOAN_AMOUNT = new BigDecimal("500000.00");
 
@@ -629,34 +629,14 @@ public class LoanProductController {
                 // ----------------------------------------------------
                 // MANAGEMENT FEE
                 //
-                // Organization/product-specific.
-                //
-                // Noble default = 5.00%.
+                // Institutional policy: ALWAYS 5.00% per month on
+                // outstanding principal. It is deliberately not editable.
+                // Any client-supplied value is ignored and the persisted
+                // product is normalized back to the contractual rate.
                 // ----------------------------------------------------
 
-                if (creating
-                                || body.containsKey(
-                                                "managementFeePercent")) {
-
-                        BigDecimal requestedManagementFee = body.containsKey(
-                                        "managementFeePercent")
-                                                        ? decimalValue(
-                                                                        body.get(
-                                                                                        "managementFeePercent"),
-                                                                        "managementFeePercent")
-                                                        : DEFAULT_MANAGEMENT_FEE_PERCENT;
-
-                        if (requestedManagementFee.compareTo(
-                                        BigDecimal.ZERO) < 0) {
-
-                                throw new IllegalArgumentException(
-                                                "Management fee percentage cannot be negative.");
-                        }
-
-                        product.setManagementFeePercent(
-                                        normalizePercent(
-                                                        requestedManagementFee));
-                }
+                product.setManagementFeePercent(
+                                DEFAULT_MANAGEMENT_FEE_PERCENT);
 
                 // ----------------------------------------------------
                 // MINIMUM TERM
@@ -956,24 +936,11 @@ public class LoanProductController {
 
                 BigDecimal managementFee = product.getManagementFeePercentDecimal();
 
-                if (managementFee == null) {
+                if (managementFee == null
+                                || managementFee.compareTo(DEFAULT_MANAGEMENT_FEE_PERCENT) != 0) {
 
                         throw new IllegalArgumentException(
-                                        "Management fee percentage is required.");
-                }
-
-                if (managementFee.compareTo(
-                                BigDecimal.ZERO) < 0) {
-
-                        throw new IllegalArgumentException(
-                                        "Management fee percentage cannot be negative.");
-                }
-
-                if (managementFee.compareTo(
-                                new BigDecimal("100.0000")) > 0) {
-
-                        throw new IllegalArgumentException(
-                                        "Management fee percentage cannot exceed 100% per month.");
+                                        "Management fee is fixed at 5.00% per month on outstanding principal.");
                 }
 
                 // ----------------------------------------------------

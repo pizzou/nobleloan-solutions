@@ -1548,6 +1548,23 @@ public class RegulatoryReportingService {
                                 incomeStatement.get(
                                                 "totalExpenses"));
 
+                // GL 4100 is the authoritative application-fee income account.
+                // Derive this from the same period income rows used to calculate
+                // totalIncome so the BNR card cannot drift from accounting.
+                BigDecimal applicationFeeIncome = ZERO;
+                for (Map<String, Object> row : getList(
+                                incomeStatement,
+                                "income")) {
+                        if (row == null) {
+                                continue;
+                        }
+                        Object code = row.get("code");
+                        if (code != null && "4100".equals(String.valueOf(code))) {
+                                applicationFeeIncome = applicationFeeIncome.add(
+                                                decimalValue(row.get("periodAmount")));
+                        }
+                }
+
                 BigDecimal netIncome = decimalValue(
                                 incomeStatement.get(
                                                 "netIncome"));
@@ -1676,6 +1693,9 @@ public class RegulatoryReportingService {
 
                                 .totalIncome(
                                                 totalIncome)
+
+                                .applicationFeeIncome(
+                                                applicationFeeIncome)
 
                                 .totalExpenses(
                                                 totalExpenses)
