@@ -55,6 +55,22 @@ public interface StaffTaskRepository extends JpaRepository<StaffTask, Long> {
         SELECT t
         FROM StaffTask t
         WHERE t.organization.id = :organizationId
+          AND t.entityType = :entityType
+          AND t.entityId = :entityId
+          AND t.status IN :statuses
+        ORDER BY t.createdAt DESC
+        """)
+    List<StaffTask> findOpenByEntity(
+            @Param("organizationId") Long organizationId,
+            @Param("entityType") String entityType,
+            @Param("entityId") Long entityId,
+            @Param("statuses") Collection<String> statuses);
+
+    @EntityGraph(attributePaths = {"assignee", "createdBy", "organization"})
+    @Query("""
+        SELECT t
+        FROM StaffTask t
+        WHERE t.organization.id = :organizationId
           AND t.taskType = :taskType
           AND t.entityType = :entityType
           AND t.entityId = :entityId
