@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { loanApi } from "@/services/api";
+import DashboardTaskPanel from "@/components/DashboardTaskPanel";
 import { DashboardStats, Loan } from "@/types";
 
 import { StatCard, Card, CardHeader, CardBody } from "@/components/ui/Card";
@@ -359,6 +360,7 @@ export default function DashboardPage() {
   return (
     <main className="min-h-full bg-[#F8FAFC] pb-12">
       <div className="space-y-7">
+        <DashboardTaskPanel />
         {/* ====================================================
             REFRESH ERROR
             ==================================================== */}
