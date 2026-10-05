@@ -298,61 +298,6 @@ public final class FinancialPolicy {
     }
 
     /**
-     * Calculates the maximum cumulative penalty allowed by the
-     * existing financial policy.
-     *
-     * Interest plus penalty must not exceed outstanding principal.
-     */
-    public static BigDecimal penaltyCeiling(
-            BigDecimal outstandingPrincipal,
-            BigDecimal qualifyingInterest) {
-
-        BigDecimal principal =
-                money(outstandingPrincipal);
-
-        BigDecimal interest =
-                money(qualifyingInterest);
-
-        if (principal.signum() <= 0) {
-            return money(BigDecimal.ZERO);
-        }
-
-        return money(
-                principal
-                        .subtract(interest)
-                        .max(BigDecimal.ZERO));
-    }
-
-    /**
-     * Applies the cumulative penalty ceiling to a newly calculated
-     * penalty amount.
-     */
-    public static BigDecimal capPenalty(
-            BigDecimal outstandingPrincipal,
-            BigDecimal qualifyingInterest,
-            BigDecimal alreadyAssessedPenalty,
-            BigDecimal newlyCalculatedPenalty) {
-
-        BigDecimal ceiling =
-                penaltyCeiling(
-                        outstandingPrincipal,
-                        qualifyingInterest);
-
-        BigDecimal assessed =
-                money(alreadyAssessedPenalty);
-
-        BigDecimal fresh =
-                money(newlyCalculatedPenalty);
-
-        BigDecimal room =
-                ceiling
-                        .subtract(assessed)
-                        .max(BigDecimal.ZERO);
-
-        return money(fresh.min(room));
-    }
-
-    /**
      * Calculates historical penalty using the actual principal balance
      * that existed on each individual chargeable date.
      *

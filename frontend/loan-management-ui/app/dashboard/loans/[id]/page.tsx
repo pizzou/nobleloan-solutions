@@ -3604,23 +3604,10 @@ export default function LoanDetailPage() {
                   <FormGroup
                     label={`Interest Rate ${loan.interestRateType === "MONTHLY" ? "(monthly)" : "(annual)"}`}
                   >
-                    <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      value={stForm.interestRate}
-                      onChange={(e) =>
-                        setStForm((f) => ({
-                          ...f,
-                          interestRate: e.target.value,
-                        }))
-                      }
-                    />
-                    <p className="mt-1.5 text-[11px] text-slate-500">
-                      Editable contractual interest rate. Noble's standard is 5%
-                      monthly, but an authorized approver may set the final rate
-                      for this loan.
+                    <Input type="number" value="5.00" disabled readOnly />
+                    <p className="mt-1.5 text-[11px] font-semibold text-blue-700">
+                      Locked institutional policy — 5% monthly on outstanding
+                      principal.
                     </p>
                   </FormGroup>
 
@@ -3633,22 +3620,10 @@ export default function LoanDetailPage() {
                   </FormGroup>
 
                   <FormGroup label="Application Fee (one-time)">
-                    <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      value={stForm.applicationFeeRate}
-                      onChange={(e) =>
-                        setStForm((f) => ({
-                          ...f,
-                          applicationFeeRate: e.target.value,
-                        }))
-                      }
-                    />
-                    <p className="mt-1.5 text-[11px] text-slate-500">
-                      "Manager/Admin may change the one-time application fee
-                      rate. The backend enforces this role restriction."
+                    <Input type="number" value="2.00" disabled readOnly />
+                    <p className="mt-1.5 text-[11px] font-semibold text-blue-700">
+                      Locked institutional policy — 2% charged once at
+                      disbursement.
                     </p>
                   </FormGroup>
                 </div>

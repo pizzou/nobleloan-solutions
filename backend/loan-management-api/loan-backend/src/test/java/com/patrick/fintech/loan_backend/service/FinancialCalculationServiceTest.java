@@ -33,7 +33,7 @@ class FinancialCalculationServiceTest {
     }
 
     @Test
-    void paymentAllocationAlwaysAppliesPenaltyThenInterestThenPrincipal() {
+    void legacyPaymentAllocationAppliesInterestBeforePrincipal() {
         FinancialCalculationService.Allocation allocation =
                 service.allocatePayment(
                         new BigDecimal("100.00"),
@@ -41,17 +41,9 @@ class FinancialCalculationServiceTest {
                         new BigDecimal("30.00"),
                         new BigDecimal("500.00"));
 
-        assertEquals(
-                new BigDecimal("30.00"),
-                allocation.interestPaid());
-
-        assertEquals(
-                new BigDecimal("60.00"),
-                allocation.principalPaid());
-
-        assertEquals(
-                new BigDecimal("440.00"),
-                allocation.newPrincipalBalance());
+        assertEquals(new BigDecimal("30.00"), allocation.interestPaid());
+        assertEquals(new BigDecimal("70.00"), allocation.principalPaid());
+        assertEquals(new BigDecimal("430.00"), allocation.newPrincipalBalance());
     }
 
     @Test

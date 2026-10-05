@@ -651,12 +651,6 @@ public class PublicPortalService {
                                                 return money(reconstructed);
                                         }));
 
-                        BigDecimal qualifyingInterest = money(existingCycleInterestRemaining);
-                        BigDecimal remainingPenaltyRoom = money(FinancialPolicy.penaltyCeiling(
-                                        currentBalance, qualifyingInterest))
-                                        .subtract(penaltyAlreadyRecorded)
-                                        .max(ZERO);
-                        newPenalty = newPenalty.min(remainingPenaltyRoom);
                 }
 
                 BigDecimal totalPenalty = money(

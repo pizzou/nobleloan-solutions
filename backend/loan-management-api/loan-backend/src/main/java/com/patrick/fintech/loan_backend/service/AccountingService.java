@@ -4521,7 +4521,7 @@ public class AccountingService {
                         row.put("branch", entry.getKey());
                         row.put("disbursed", normalize(entry.getValue()[0]));
                         row.put("collected", normalize(entry.getValue()[1]));
-                        row.put("feeIncome", ZERO);
+                        row.put("feeIncome", normalize(entry.getValue()[2]));
                         row.put("refunded", normalize(entry.getValue()[3]));
                         rows.add(row);
                 }

@@ -122,4 +122,38 @@ class FinalFinancialPolicyInvariantTest {
         assertEquals(new BigDecimal("100000.00"), management);
         assertEquals(new BigDecimal("0.00"), balance);
     }
+    @Test
+    void paymentAllocationChargesInterestAndManagementBeforePrincipal() {
+        PaymentAllocationService service = new PaymentAllocationService();
+
+        PaymentAllocationService.Allocation allocation = service.allocate(
+                new BigDecimal("1200000.00"),
+                new BigDecimal("100000.00"),
+                new BigDecimal("200000.00"),
+                new BigDecimal("500000.00"),
+                new BigDecimal("500000.00"),
+                new BigDecimal("10000000.00"));
+
+        assertEquals(new BigDecimal("500000.00"), allocation.interest());
+        assertEquals(new BigDecimal("500000.00"), allocation.managementFee());
+        assertEquals(new BigDecimal("200000.00"), allocation.principal());
+        assertEquals(new BigDecimal("0.00"), allocation.extensionFee());
+        assertEquals(new BigDecimal("0.00"), allocation.penalty());
+        assertEquals(new BigDecimal("0.00"), allocation.overpayment());
+    }
+
+    @Test
+    void extensionFeeDoesNotIncreasePrincipalOrFutureMonthlyCharges() {
+        BigDecimal principal = new BigDecimal("800000.00");
+        BigDecimal extensionFee = FinancialPolicy.extensionFee(principal);
+
+        assertEquals(new BigDecimal("80000.00"), extensionFee);
+        assertEquals(new BigDecimal("40000.00"),
+                FinancialPolicy.contractualMonthlyCharge(
+                        principal, FinancialPolicy.MONTHLY_INTEREST_RATE));
+        assertEquals(new BigDecimal("40000.00"),
+                FinancialPolicy.contractualMonthlyCharge(
+                        principal, FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE));
+    }
+
 }

@@ -596,18 +596,24 @@ public class PaymentService {
                 long elapsedDays = calculateActualInterestDays(
                                 interestStartDateTime, now, firstInterestCalculation, loanId);
 
+                boolean cycleIsDue = !cycleDueDate.isAfter(today);
+
                 BigDecimal contractualMonthlyInterest = existingCycleInterestDue.signum() > 0
                                 ? existingCycleInterestDue
-                                : FinancialPolicy.contractualMonthlyCharge(
-                                                currentBalance,
-                                                moneyRatePercent(loan.getInterestRateDecimal(), MONTHLY_INTEREST_RATE));
+                                : (cycleIsDue
+                                                ? FinancialPolicy.contractualMonthlyCharge(
+                                                                currentBalance,
+                                                                moneyRatePercent(loan.getInterestRateDecimal(), MONTHLY_INTEREST_RATE))
+                                                : ZERO);
 
                 BigDecimal contractualMonthlyManagementFee = existingCycleManagementFeeDue.signum() > 0
                                 ? existingCycleManagementFeeDue
-                                : FinancialPolicy.contractualMonthlyCharge(
-                                                currentBalance,
-                                                moneyRatePercent(loan.getManagementFeeRateDecimal(),
-                                                                MONTHLY_MANAGEMENT_FEE_RATE));
+                                : (cycleIsDue
+                                                ? FinancialPolicy.contractualMonthlyCharge(
+                                                                currentBalance,
+                                                                moneyRatePercent(loan.getManagementFeeRateDecimal(),
+                                                                                MONTHLY_MANAGEMENT_FEE_RATE))
+                                                : ZERO);
 
                 BigDecimal newlyAccruedInterest = existingCycleInterestDue.signum() > 0
                                 ? ZERO
@@ -709,17 +715,14 @@ public class PaymentService {
                                         : calculateHistoricalPenaltyToDate(
                                                         loan, currentBalance, earliestPenaltyDate, today);
 
-                        BigDecimal qualifyingInterest = calculateQualifyingInterestDue(loan, today);
-                        BigDecimal remainingPenaltyRoom = FinancialPolicy.penaltyCeiling(
-                                        currentBalance, qualifyingInterest)
-                                        .subtract(loanPenaltyAssessedBeforePayment)
-                                        .max(ZERO);
-
+                        // Contractual penalty is 10% per month, prorated daily
+                        // after the 3-day grace period. There is no separate
+                        // cumulative cap beyond the outstanding principal used
+                        // for each daily accrual.
                         newlyCalculatedPenalty = roundMoney(
                                         requiredPenaltyToDate
                                                         .subtract(loanPenaltyAssessedBeforePayment)
-                                                        .max(ZERO)
-                                                        .min(remainingPenaltyRoom));
+                                                        .max(ZERO));
 
                         newPenaltyDays = newlyCalculatedPenalty.compareTo(ZERO) > 0
                                         ? currentlyChargeablePenaltyDays
@@ -748,10 +751,10 @@ public class PaymentService {
                 // ============================================================
                 // PAYMENT ALLOCATION — CANONICAL ORDER
                 // ============================================================
-                // Penalty -> extension fee -> interest -> management fee -> principal.
-                // This is the single operational allocation order used by the
-                // lending engine. Principal is never reduced while an older
-                // penalty/fee/contractual charge remains unpaid.
+                // Interest -> management fee -> principal -> extension fee -> penalty.
+                // Interest and management fee are the first contractual charges.
+                // Principal is then reduced from the remaining payment. Extension
+                // fees and penalties stay separate and never increase principal.
 
                 PaymentAllocationService.Allocation allocation = paymentAllocationService.allocate(
                                 amount,

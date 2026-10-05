@@ -12,7 +12,6 @@ import { formatInterestRate } from "../../../lib/utils";
 import { PageSpinner } from "../../../components/ui/Skeleton";
 import { toast } from "../../../hooks/useToast";
 import DocumentsPanel from "../../../components/DocumentsPanel";
-import { useAuth } from "@/hooks/useAuth";
 
 type ApprovalDraft = {
   approvedAmount: string;
@@ -23,8 +22,6 @@ type ApprovalDraft = {
 };
 
 export default function ApprovalsPage() {
-  const { user } = useAuth();
-
   const [loans, setLoans] = useState<Loan[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<number | null>(null);
@@ -39,8 +36,6 @@ export default function ApprovalsPage() {
     notes: "",
     businessOwnerOnly: false,
   });
-
-  const isManagerOrAdmin = ["MANAGER", "ADMIN", "BUSINESS_OWNER"].includes(user?.role || "");
 
   const getMsg = (err: unknown) =>
     err instanceof Error ? err.message : "Something went wrong";
@@ -106,22 +101,16 @@ export default function ApprovalsPage() {
       return;
     }
 
-    if (!Number.isFinite(interestRate) || interestRate < 0) {
-      toast("error", "Enter a valid monthly interest rate.");
+    if (interestRate !== 5) {
+      toast("error", "Interest rate is fixed at 5% per month.");
       return;
     }
 
-    if (
-      !Number.isFinite(applicationFeeRate) ||
-      applicationFeeRate < 0 ||
-      applicationFeeRate > 100
-    ) {
-      toast("error", "Enter a valid application fee rate between 0% and 100%.");
-      return;
-    }
-
-    if (!isManagerOrAdmin && applicationFeeRate !== 2) {
-      toast("error", "Only a Manager or Admin may change the application fee.");
+    if (applicationFeeRate !== 2) {
+      toast(
+        "error",
+        "Application fee is fixed at 2% and is charged once at disbursement.",
+      );
       return;
     }
 
@@ -394,10 +383,8 @@ export default function ApprovalsPage() {
                 <RateField
                   label="Interest rate"
                   suffix="% monthly"
-                  value={draft.interestRate}
-                  onChange={(value) =>
-                    setDraft((d) => ({ ...d, interestRate: value }))
-                  }
+                  value="5"
+                  disabled
                 />
 
                 <RateField
@@ -410,11 +397,8 @@ export default function ApprovalsPage() {
                 <RateField
                   label="Application fee"
                   suffix="% one-time"
-                  value={draft.applicationFeeRate}
-                  disabled={!isManagerOrAdmin}
-                  onChange={(value) =>
-                    setDraft((d) => ({ ...d, applicationFeeRate: value }))
-                  }
+                  value="2"
+                  disabled
                 />
               </div>
 
@@ -427,35 +411,59 @@ export default function ApprovalsPage() {
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">Reporting visibility</p>
+                    <p className="text-sm font-semibold text-slate-900">
+                      Reporting visibility
+                    </p>
                     <p className="mt-1 text-xs leading-5 text-slate-500">
-                      Choose whether this approved loan belongs to the normal reporting population or is restricted to the Business Owner scope. This classification controls portfolio, accounting, financial, general, BNR and CRB reporting.
+                      Choose whether this approved loan belongs to the normal
+                      reporting population or is restricted to the Business
+                      Owner scope. This classification controls portfolio,
+                      accounting, financial, general, BNR and CRB reporting.
                     </p>
                   </div>
-                  <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">Approval control</span>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    Approval control
+                  </span>
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <label className={`cursor-pointer rounded-xl border p-3 ${!draft.businessOwnerOnly ? "border-slate-900 bg-white" : "border-slate-200 bg-white"}`}>
+                  <label
+                    className={`cursor-pointer rounded-xl border p-3 ${!draft.businessOwnerOnly ? "border-slate-900 bg-white" : "border-slate-200 bg-white"}`}
+                  >
                     <input
                       type="radio"
                       name="reportingVisibility"
                       className="sr-only"
                       checked={!draft.businessOwnerOnly}
-                      onChange={() => setDraft((d) => ({ ...d, businessOwnerOnly: false }))}
+                      onChange={() =>
+                        setDraft((d) => ({ ...d, businessOwnerOnly: false }))
+                      }
                     />
-                    <span className="text-sm font-semibold text-slate-900">Normal reporting</span>
-                    <span className="mt-1 block text-xs text-slate-500">Included in the ordinary portfolio and reporting scope.</span>
+                    <span className="text-sm font-semibold text-slate-900">
+                      Normal reporting
+                    </span>
+                    <span className="mt-1 block text-xs text-slate-500">
+                      Included in the ordinary portfolio and reporting scope.
+                    </span>
                   </label>
-                  <label className={`cursor-pointer rounded-xl border p-3 ${draft.businessOwnerOnly ? "border-slate-900 bg-white" : "border-slate-200 bg-white"}`}>
+                  <label
+                    className={`cursor-pointer rounded-xl border p-3 ${draft.businessOwnerOnly ? "border-slate-900 bg-white" : "border-slate-200 bg-white"}`}
+                  >
                     <input
                       type="radio"
                       name="reportingVisibility"
                       className="sr-only"
                       checked={draft.businessOwnerOnly}
-                      onChange={() => setDraft((d) => ({ ...d, businessOwnerOnly: true }))}
+                      onChange={() =>
+                        setDraft((d) => ({ ...d, businessOwnerOnly: true }))
+                      }
                     />
-                    <span className="text-sm font-semibold text-slate-900">Business Owner only</span>
-                    <span className="mt-1 block text-xs text-slate-500">Excluded from normal users' financial population and visible in the Business Owner scope.</span>
+                    <span className="text-sm font-semibold text-slate-900">
+                      Business Owner only
+                    </span>
+                    <span className="mt-1 block text-xs text-slate-500">
+                      Excluded from normal users' financial population and
+                      visible in the Business Owner scope.
+                    </span>
                   </label>
                 </div>
               </div>

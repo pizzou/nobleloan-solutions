@@ -270,26 +270,6 @@ class FinancialPolicyTest {
     }
 
     @Test
-    void penaltyCeilingKeepsInterestPlusPenaltyWithinOutstandingPrincipal() {
-        BigDecimal ceiling =
-                FinancialPolicy.penaltyCeiling(
-                        new BigDecimal("1000000.00"),
-                        new BigDecimal("100000.00"));
-
-        assertEquals(
-                new BigDecimal("900000.00"),
-                ceiling);
-
-        assertEquals(
-                new BigDecimal("100000.00"),
-                FinancialPolicy.capPenalty(
-                        new BigDecimal("1000000.00"),
-                        new BigDecimal("100000.00"),
-                        new BigDecimal("800000.00"),
-                        new BigDecimal("500000.00")));
-    }
-
-    @Test
     void historicalPenaltyUsesThePrincipalBalanceThatExistedOnEachChargeableDay() {
         LocalDate firstChargeable =
                 LocalDate.of(2026, 1, 5);

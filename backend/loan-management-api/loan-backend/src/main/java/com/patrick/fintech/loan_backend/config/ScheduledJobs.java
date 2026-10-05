@@ -185,15 +185,8 @@ public class ScheduledJobs {
                                                                 BigDecimal toDate = calculateHistoricalPenalty(
                                                                                 loan, outstanding, penaltyStart, accrualDate);
                                                                 BigDecimal alreadyAssessed = money(loan.getPenaltiesAssessedDecimal());
-                                                                BigDecimal qualifyingInterest = dueInstallments.stream()
-                                                                                .map(p -> money(p.getCycleInterestRemainingDecimal()))
-                                                                                .reduce(ZERO, BigDecimal::add);
-                                                                BigDecimal room = FinancialPolicy.penaltyCeiling(
-                                                                                outstanding, qualifyingInterest)
-                                                                                .subtract(alreadyAssessed)
-                                                                                .max(ZERO);
                                                                 BigDecimal newPenalty = toDate.subtract(alreadyAssessed)
-                                                                                .max(ZERO).min(room)
+                                                                                .max(ZERO)
                                                                                 .setScale(MONEY_SCALE, MONEY_ROUNDING);
 
                                                                 if (newPenalty.compareTo(ZERO) > 0) {

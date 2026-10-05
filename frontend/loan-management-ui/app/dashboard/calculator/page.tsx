@@ -208,7 +208,8 @@ export default function CalculatorPage() {
               min="0"
               step="0.001"
               value={interestRate}
-              onChange={(e) => setInterestRate(e.target.value)}
+              disabled
+              readOnly
               className="mt-2 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
             />
           </label>
@@ -219,7 +220,8 @@ export default function CalculatorPage() {
               min="0"
               step="0.001"
               value={managementRate}
-              onChange={(e) => setManagementRate(e.target.value)}
+              disabled
+              readOnly
               className="mt-2 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
             />
           </label>
@@ -230,7 +232,8 @@ export default function CalculatorPage() {
               min="0"
               step="0.001"
               value={applicationRate}
-              onChange={(e) => setApplicationRate(e.target.value)}
+              disabled
+              readOnly
               className="mt-2 w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm"
             />
           </label>

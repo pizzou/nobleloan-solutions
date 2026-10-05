@@ -195,15 +195,9 @@ public class LoanRestructuringService {
                  * An extension changes maturity; it must not silently
                  * reprice the existing contract.
                  */
-                if (loan.getInterestRateDecimal() == null
-                                || loan.getInterestRateDecimal().compareTo(ZERO) <= 0) {
-                        loan.setInterestRate(MONTHLY_INTEREST_RATE);
-                }
-
-                if (loan.getManagementFeeRateDecimal() == null
-                                || loan.getManagementFeeRateDecimal().compareTo(ZERO) < 0) {
-                        loan.setManagementFeeRate(MONTHLY_MANAGEMENT_FEE_RATE);
-                }
+                loan.setInterestRate(MONTHLY_INTEREST_RATE);
+                loan.setManagementFeeRate(MONTHLY_MANAGEMENT_FEE_RATE);
+                loan.setPenaltyRate(FinancialPolicy.MONTHLY_PENALTY_RATE);
 
                 loan.setInterestRateType(
                                 "MONTHLY");
@@ -213,10 +207,7 @@ public class LoanRestructuringService {
                  *
                  * NEVER recalculate 2% here.
                  */
-                loan.setApplicationFeeRate(
-                                loan.getApplicationFeeRateDecimal() != null
-                                                ? loan.getApplicationFeeRateDecimal()
-                                                : APPLICATION_FEE_RATE);
+                loan.setApplicationFeeRate(APPLICATION_FEE_RATE);
 
                 /*
                  * Extend maturity and next due date.
@@ -1040,16 +1031,10 @@ public class LoanRestructuringService {
                 loan.setStatus(
                                 LoanStatus.ACTIVE);
 
-                if (loan.getInterestRateDecimal() == null
-                                || loan.getInterestRateDecimal().compareTo(ZERO) <= 0) {
-                        loan.setInterestRate(MONTHLY_INTEREST_RATE);
-                }
-
-                if (loan.getManagementFeeRateDecimal() == null
-                                || loan.getManagementFeeRateDecimal().compareTo(ZERO) < 0) {
-                        loan.setManagementFeeRate(MONTHLY_MANAGEMENT_FEE_RATE);
-                }
-
+                loan.setInterestRate(MONTHLY_INTEREST_RATE);
+                loan.setManagementFeeRate(MONTHLY_MANAGEMENT_FEE_RATE);
+                loan.setPenaltyRate(FinancialPolicy.MONTHLY_PENALTY_RATE);
+                loan.setApplicationFeeRate(APPLICATION_FEE_RATE);
                 loan.setInterestRateType(
                                 "MONTHLY");
 

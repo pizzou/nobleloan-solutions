@@ -73,20 +73,15 @@ const LOAN_TYPES = [
 ] as const;
 
 /**
- * These are defaults for creating a new product.
- *
- * They are NOT platform-enforced pricing rules.
- * The organization admin may change these before saving.
- *
- * Noble's current default:
- * 5% monthly interest
- * 5% monthly management fee
- * 2% application fee
+ * Institutional pricing is fixed by the lending contract. Products may differ
+ * by name, amount and term, but not by the core financial rates.
+ * 5% monthly interest, 5% monthly management fee, 2% one-time application fee
+ * and 10% monthly penalty prorated daily after the 3-day grace period.
  */
 const DEFAULT_INTEREST_RATE = 5;
 const DEFAULT_MANAGEMENT_FEE = 5;
 const DEFAULT_PROCESSING_FEE = 2;
-const DEFAULT_PENALTY_RATE = 15;
+const DEFAULT_PENALTY_RATE = 10;
 const DEFAULT_MIN_AMOUNT = 500000;
 const DEFAULT_MIN_TERM = 1;
 const DEFAULT_MAX_TERM = 6;
@@ -208,21 +203,15 @@ export default function LoanProductsPage() {
 
       loanType: product.loanType ?? "PERSONAL",
 
-      interestRate: numberValue(product.interestRate, DEFAULT_INTEREST_RATE),
+      interestRate: DEFAULT_INTEREST_RATE,
 
       interestRateType: "MONTHLY",
 
-      managementFeePercent: numberValue(
-        product.managementFeePercent,
-        DEFAULT_MANAGEMENT_FEE,
-      ),
+      managementFeePercent: DEFAULT_MANAGEMENT_FEE,
 
-      applicationFeePercent: numberValue(
-        product.applicationFeePercent,
-        DEFAULT_PROCESSING_FEE,
-      ),
+      applicationFeePercent: DEFAULT_PROCESSING_FEE,
 
-      penaltyPercent: numberValue(product.penaltyPercent, DEFAULT_PENALTY_RATE),
+      penaltyPercent: DEFAULT_PENALTY_RATE,
 
       minAmount: numberValue(product.minAmount, DEFAULT_MIN_AMOUNT),
 
@@ -370,15 +359,15 @@ export default function LoanProductsPage() {
 
       loanType: editing.loanType,
 
-      interestRate: numberValue(editing.interestRate),
+      interestRate: DEFAULT_INTEREST_RATE,
 
       interestRateType: "MONTHLY" as const,
 
-      managementFeePercent: numberValue(editing.managementFeePercent),
+      managementFeePercent: DEFAULT_MANAGEMENT_FEE,
 
-      applicationFeePercent: numberValue(editing.applicationFeePercent),
+      applicationFeePercent: DEFAULT_PROCESSING_FEE,
 
-      penaltyPercent: numberValue(editing.penaltyPercent),
+      penaltyPercent: DEFAULT_PENALTY_RATE,
 
       minAmount: numberValue(editing.minAmount),
 
@@ -800,8 +789,8 @@ export default function LoanProductsPage() {
                   />
 
                   <p className="mt-2 text-xs text-blue-700">
-                    Example: 5 means 5% per month. This is
-                    organization-specific.
+                    Fixed institutional policy: 5% per month on outstanding
+                    principal.
                   </p>
                 </div>
 
@@ -825,8 +814,8 @@ export default function LoanProductsPage() {
                   />
 
                   <p className="mt-2 text-xs text-purple-700">
-                    Example: 5 means 5% per month. It is charged separately from
-                    interest.
+                    Fixed institutional policy: 5% per month on outstanding
+                    principal.
                   </p>
                 </div>
               </div>
