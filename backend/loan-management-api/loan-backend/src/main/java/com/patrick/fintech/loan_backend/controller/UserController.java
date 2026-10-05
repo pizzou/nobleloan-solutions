@@ -7,6 +7,7 @@ import com.patrick.fintech.loan_backend.repository.RoleRepository;
 import com.patrick.fintech.loan_backend.service.AuditService;
 import com.patrick.fintech.loan_backend.service.AuthService;
 import com.patrick.fintech.loan_backend.service.UserService;
+import com.patrick.fintech.loan_backend.service.UserAdministrationService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +26,7 @@ import java.util.Map;
 public class UserController {
 
     private final UserService userService;
+    private final UserAdministrationService userAdministrationService;
     private final AuthService authService;
     private final RoleRepository roleRepository;
     private final CurrentUserUtil currentUserUtil;
@@ -369,63 +371,67 @@ public class UserController {
 
         validateUserId(id);
 
-        Long currentUserId =
-                currentUserUtil.getCurrentUserId();
-
+        Long currentUserId = currentUserUtil.getCurrentUserId();
         if (id.equals(currentUserId)) {
-            throw new IllegalArgumentException(
-                    "Cannot delete your own account"
-            );
+            throw new IllegalArgumentException("Cannot delete your own account");
         }
 
         Long organizationId = requireCurrentOrganizationId();
 
-        User target = userService.getById(
-                id,
-                organizationId
-        );
-
-        assertSameOrganization(
-                target,
-                organizationId
-        );
+        User target = userService.getById(id, organizationId);
+        assertSameOrganization(target, organizationId);
 
         String confirmation = body == null ? null : body.get("confirmation");
-        String expected = "sudo " + target.getName();
-        if (!expected.equals(confirmation)) {
-            throw new IllegalArgumentException(
-                    "High-risk deletion confirmation failed. Type exactly: " + expected
-            );
-        }
+        String reason = body == null ? null : body.get("reason");
 
-        userService.deleteWithConfirmation(
+        userAdministrationService.recycleUser(
                 id,
                 confirmation,
-                organizationId,
-                currentUserUtil.getCurrentUser()
-        );
+                reason,
+                currentUserUtil.getCurrentUser());
 
         auditService.log(
                 target.getOrganization(),
                 currentUserUtil.getCurrentUser(),
-                "USER_DELETED",
+                "USER_RECYCLED",
                 "USER",
                 String.valueOf(id),
-                "Deleted user (account disabled; history preserved) "
-                        + target.getName()
-                        + " ("
-                        + target.getEmail()
-                        + ")",
+                "User moved to the 30-day recycle bin: " + target.getName(),
                 null,
                 null,
-                "User Management"
-        );
+                "User Management");
 
         return ResponseEntity.ok(
                 ApiResponse.ok(
-                        "User deactivated — their login is disabled and their history is preserved"
-                )
-        );
+                        "User moved to the recycle bin for 30 days. The login is disabled and historical identity is preserved."));
+    }
+
+    @GetMapping("/recycle-bin")
+    @PreAuthorize("hasRole('BUSINESS_OWNER')")
+    public ResponseEntity<ApiResponse<List<UserAdministrationService.UserRecycleBinItem>>> recycleBin() {
+        return ResponseEntity.ok(
+                ApiResponse.ok(
+                        userAdministrationService.listRecycleBin(
+                                currentUserUtil.getCurrentUser())));
+    }
+
+    @PutMapping("/{id}/restore")
+    @PreAuthorize("hasRole('BUSINESS_OWNER')")
+    public ResponseEntity<ApiResponse<Void>> restore(
+            @PathVariable Long id,
+            @RequestBody(required = false) Map<String, String> body) {
+
+        validateUserId(id);
+
+        String confirmation = body == null ? null : body.get("confirmation");
+
+        userAdministrationService.restoreWithConfirmation(
+                id,
+                confirmation,
+                currentUserUtil.getCurrentUser());
+
+        return ResponseEntity.ok(
+                ApiResponse.ok("User restored from the recycle bin"));
     }
 
     @PutMapping("/{id}/reactivate")
@@ -604,6 +610,11 @@ public class UserController {
                         ? u.getStatus().name()
                         : "ACTIVE"
         );
+
+        m.put("deletedAt", u.getDeletedAt());
+        m.put("purgeAfter", u.getPurgeAfter());
+        m.put("deletionReason", u.getDeletionReason());
+        m.put("permanentlyRetiredAt", u.getPermanentlyRetiredAt());
 
         return m;
     }
