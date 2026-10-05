@@ -113,17 +113,11 @@ public Allocation allocatePayment(
     BigDecimal interest = nonNegative(remainingInterest);
     BigDecimal principal = nonNegative(principalBalance);
 
-    /*
-     * Compatibility allocation for callers that only model interest and
-     * principal.  The production PaymentService uses PaymentAllocationService,
-     * which is the canonical allocator and includes management fee,
-     * extension fee and penalty buckets.
-     *
-     * The contractual ordering is never penalty-first: interest is settled
-     * first, then principal.  Penalty is deliberately left unapplied here
-     * because this legacy method has no management/extension/penalty ledger
-     * buckets in its return type.
-     */
+    // Contractual payment order: interest first, then principal.
+    // Penalty is a separate receivable and must never reduce the amount
+    // available to settle contractual interest or principal in this
+    // legacy allocation API. The canonical PaymentAllocationService
+    // additionally handles management fee, extension fee and penalty.
     BigDecimal interestPaid =
             amount.min(interest)
                     .setScale(MoneyMath.SCALE, ROUNDING);
@@ -141,16 +135,14 @@ public Allocation allocatePayment(
                     .max(BigDecimal.ZERO)
                     .setScale(MoneyMath.SCALE, ROUNDING);
 
-    BigDecimal unapplied =
-            principalAvailable.subtract(principalPaid)
-                    .max(BigDecimal.ZERO)
-                    .setScale(MoneyMath.SCALE, ROUNDING);
-
     return new Allocation(
             interestPaid,
             principalPaid,
             newBalance,
-            unapplied);
+            principalAvailable
+                    .subtract(principalPaid)
+                    .max(BigDecimal.ZERO)
+                    .setScale(MoneyMath.SCALE, ROUNDING));
 }
 
 public BigDecimal nonNegative(BigDecimal value) {

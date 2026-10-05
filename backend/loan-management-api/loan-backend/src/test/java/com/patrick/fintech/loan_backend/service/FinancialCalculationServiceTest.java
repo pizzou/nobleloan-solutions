@@ -33,7 +33,7 @@ class FinancialCalculationServiceTest {
     }
 
     @Test
-    void paymentAllocationAppliesInterestBeforePrincipal() {
+    void legacyPaymentAllocationAppliesInterestBeforePrincipal() {
         FinancialCalculationService.Allocation allocation =
                 service.allocatePayment(
                         new BigDecimal("100.00"),
