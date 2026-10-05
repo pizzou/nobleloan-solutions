@@ -87,6 +87,13 @@ public class User {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
+    /** Business-owner recycle-bin metadata. The identity row remains for audit/history. */
+    private LocalDateTime deletedAt;
+    private String deletionReason;
+    private Long deletedBy;
+    private LocalDateTime purgeAfter;
+    private LocalDateTime permanentlyRetiredAt;
+
     @JsonIgnore
     @OneToMany(mappedBy = "user", fetch = FetchType.LAZY)
     @ToString.Exclude
