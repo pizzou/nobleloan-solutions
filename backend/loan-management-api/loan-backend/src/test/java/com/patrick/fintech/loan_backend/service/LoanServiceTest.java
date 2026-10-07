@@ -42,488 +42,489 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class LoanServiceTest {
 
-    @Mock
-    LoanRepository loanRepository;
-
-    @Mock
-    OrganizationRepository organizationRepository;
+        @Mock
+        LoanRepository loanRepository;
 
-    @Mock
-    PaymentRepository paymentRepository;
+        @Mock
+        OrganizationRepository organizationRepository;
+
+        @Mock
+        PaymentRepository paymentRepository;
 
-    @Mock
-    BorrowerRepository borrowerRepository;
-
-    @Mock
-    RiskScoringService riskScoringService;
-
-    @Mock
-    NotificationService notificationService;
-
-    @Mock
-    AuditLogRepository auditLogRepository;
+        @Mock
+        BorrowerRepository borrowerRepository;
 
-    @Mock
-    WebhookService webhookService;
-
-    @Mock
-    LoanProductRepository loanProductRepo;
-
-    @Mock
-    BorrowerFileService fileService;
-
-    @Mock
-    AuditService auditService;
-
-    @Mock
-    MailService mailService;
-
-    @Mock
-    SmsService smsService;
-
-    @Mock
-    HolidayService holidayService;
-
-    @Mock
-    CreditBureauService creditBureauService;
-
-    @Mock
-    PaymentScheduleService paymentScheduleService;
-
-    @InjectMocks
-    LoanService loanService;
-
-    private Organization org;
-    private Borrower borrower;
-    private User officer;
-
-    @BeforeEach
-    void setUp() {
-
-        org = new Organization();
-        org.setId(1L);
-        org.setName("TestOrg");
-        org.setDefaultCurrency("USD");
-
-        borrower = new Borrower();
-        borrower.setId(1L);
-        borrower.setFirstName("John");
-        borrower.setLastName("Doe");
-        borrower.setKycStatus("VERIFIED");
-        borrower.setCreditScore(750);
-        borrower.setOrganization(org);
-
-        officer = new User();
-        officer.setId(1L);
-        officer.setName("Test Officer");
-        officer.setOrganization(org);
-
-        /*
-         * Do not globally stub HolidayService here.
-         *
-         * Mockito strict stubbing requires each stub to be relevant to the
-         * individual test that executes the corresponding business path.
-         */
-    }
-
-    // ============================================================
-    // CREATE LOAN
-    // ============================================================
-
-    @Test
-    void createLoan_shouldSaveLoan_withAllFields() {
-
-        LoanRequest req = LoanRequest.builder()
-                .borrowerId(1L)
-                .amount(new BigDecimal("500000.00"))
-                .interestRate(new BigDecimal("5.00"))
-                .interestRateType("MONTHLY")
-                .durationMonths(6)
-                .currency("USD")
-                .startDate("2026-01-01")
-                .collateralValue(new BigDecimal("15000.00"))
-                .collateralDescription("Land title")
-                .build();
-
-        Loan savedLoan = new Loan();
-
-        savedLoan.setId(1L);
-        savedLoan.setReferenceNumber("LN-TEST-0001");
-        savedLoan.setBorrower(borrower);
-        savedLoan.setOrganization(org);
-        savedLoan.setAmount(new BigDecimal("500000.00"));
-        savedLoan.setDurationMonths(6);
-        savedLoan.setInterestRate(new BigDecimal("5.00"));
-        savedLoan.setStatus(LoanStatus.PENDING);
-
-        when(organizationRepository.findById(1L))
-                .thenReturn(Optional.of(org));
-
-        when(borrowerRepository.findById(1L))
-                .thenReturn(Optional.of(borrower));
-
-        when(loanProductRepo
-                .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
-                        anyLong(),
-                        any(Loan.LoanType.class)))
-                .thenReturn(Optional.empty());
-
-        /*
-         * Business Owner Scope:
-         *
-         * createLoan now evaluates the borrower's existing facilities through
-         * the scope-aware repository query.
-         *
-         * The test represents the full-scope/background calculation used by
-         * the current service.
-         */
-        when(loanRepository.findVisibleByBorrowerIdAndOrganizationId(
-                1L,
-                1L,
-                true))
-                .thenReturn(List.of());
-
-        when(loanRepository.save(any(Loan.class)))
-                .thenReturn(savedLoan);
-
-        when(riskScoringService.score(any(Loan.class)))
-                .thenReturn(
-                        new RiskScoringService.RiskResult(
-                                80.0,
-                                "LOW"));
-
-        /*
-         * Only this test needs business-day adjustment.
-         */
-        lenient().when(
-                holidayService.adjustToBusinessDay(
-                        anyLong(),
-                        any(LocalDate.class)))
-                .thenAnswer(
-                        invocation -> invocation.getArgument(1));
-
-        Loan result = loanService.createLoan(
-                req,
-                1L,
-                officer);
-
-        assertThat(result)
-                .isNotNull();
-
-        assertThat(result.getStatus())
-                .isEqualTo(LoanStatus.PENDING);
-
-        verify(loanRepository, atLeastOnce())
-                .save(any(Loan.class));
-    }
-
-    @Test
-    void approveLoan_shouldPreserveNegotiatedInterestAndApplicationFee_butForceManagementFeeToFivePercent() {
-
-        Loan loan = new Loan();
-        loan.setId(2L);
-        loan.setReferenceNumber("LN-TEST-0002");
-        loan.setStatus(LoanStatus.PENDING);
-        loan.setAmount(new BigDecimal("500000.00"));
-        loan.setRequestedAmount(new BigDecimal("500000.00"));
-        loan.setInterestRate(new BigDecimal("7.00"));
-        loan.setManagementFeeRate(new BigDecimal("9.00"));
-        loan.setApplicationFeeRate(new BigDecimal("1.00"));
-        loan.setProcessingFeeRate(new BigDecimal("1.00"));
-        loan.setInterestRateType("MONTHLY");
-        loan.setDurationMonths(6);
-        loan.setStartDate(LocalDate.of(2026, 1, 1));
-        loan.setBorrower(borrower);
-        loan.setOrganization(org);
-        loan.setCurrency("USD");
-
-        when(loanRepository.findVisibleByIdForUpdate(2L, 1L, true))
-                .thenReturn(Optional.of(loan));
-        when(fileService.getMissingDocumentTypes(any(Long.class), any()))
-                .thenReturn(List.of());
-        when(loanRepository.save(any(Loan.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-        when(paymentRepository.findByLoanId(2L))
-                .thenReturn(List.of());
-        lenient().when(holidayService.adjustToBusinessDay(anyLong(), any(LocalDate.class)))
-                .thenAnswer(invocation -> invocation.getArgument(1));
-
-        Loan result = loanService.approveLoan(
-                2L,
-                officer,
-                "Negotiated commercial terms",
-                7.00,
-                1.00);
-
-        assertThat(result.getInterestRateDecimal())
-                .isEqualByComparingTo("7.00");
-        assertThat(result.getManagementFeeRateDecimal())
-                .isEqualByComparingTo("5.00");
-        assertThat(result.getApplicationFeeRateDecimal())
-                .isEqualByComparingTo("1.00");
-        assertThat(result.getApplicationFeeDecimal())
-                .isEqualByComparingTo("5000.00");
-        assertThat(result.getTotalInterestDecimal())
-                .isEqualByComparingTo("122500.00");
-        assertThat(result.getManagementFeeDecimal())
-                .isEqualByComparingTo("87500.00");
-    }
-
-    // ============================================================
-    // BORROWER NOT FOUND
-    // ============================================================
-
-    @Test
-    void createLoan_shouldThrow_whenBorrowerNotFound() {
-
-        LoanRequest req = LoanRequest.builder()
-                .borrowerId(99L)
-                .amount(new BigDecimal("500000.00"))
-                .interestRate(new BigDecimal("5.00"))
-                .interestRateType("MONTHLY")
-                .durationMonths(6)
-                .currency("USD")
-                .startDate("2026-01-01")
-                .build();
-
-        when(organizationRepository.findById(1L))
-                .thenReturn(Optional.of(org));
-
-        when(borrowerRepository.findById(99L))
-                .thenReturn(Optional.empty());
-
-        assertThatThrownBy(
-                () -> loanService.createLoan(
-                        req,
-                        1L,
-                        officer))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("Borrower not found");
-    }
-
-    // ============================================================
-    // APPROVE LOAN
-    // ============================================================
-
-    @Test
-    void approveLoan_shouldSetStatusApproved_andGenerateSchedule() {
-
-        Loan loan = new Loan();
-
-        loan.setId(1L);
-        loan.setReferenceNumber("LN-TEST-0001");
-        loan.setStatus(LoanStatus.PENDING);
-        loan.setAmount(new BigDecimal("500000.00"));
-        loan.setInterestRate(new BigDecimal("5.00"));
-        loan.setManagementFeeRate(new BigDecimal("5.00"));
-        loan.setProcessingFeeRate(new BigDecimal("2.00"));
-        loan.setInterestRateType("MONTHLY");
-        loan.setDurationMonths(6);
-        loan.setStartDate(
-                LocalDate.of(2026, 1, 1));
-        loan.setBorrower(borrower);
-        loan.setOrganization(org);
-        loan.setCurrency("USD");
-
-        /*
-         * Business Owner-aware row locking.
-         *
-         * This must match the production LoanService implementation.
-         */
-        when(loanRepository.findVisibleByIdForUpdate(
-                1L,
-                1L,
-                true))
-                .thenReturn(Optional.of(loan));
-
-        when(fileService.getMissingDocumentTypes(
-                any(Long.class),
-                any()))
-                .thenReturn(List.of());
-
-        when(loanRepository.save(any(Loan.class)))
-                .thenAnswer(
-                        invocation -> invocation.getArgument(0));
-
-        when(paymentRepository.save(any()))
-                .thenAnswer(
-                        invocation -> invocation.getArgument(0));
-
-        when(paymentRepository.findByLoanId(1L))
-                .thenReturn(List.of());
-
-        /*
-         * Current LoanService generates repayment dates through
-         * HolidayService.
-         */
-        lenient().when(
-                holidayService.adjustToBusinessDay(
-                        anyLong(),
-                        any(LocalDate.class)))
-                .thenAnswer(
-                        invocation -> invocation.getArgument(1));
-
-        Loan result = loanService.approveLoan(
-                1L,
-                officer,
-                null,
-                null);
-
-        assertThat(result)
-                .isNotNull();
-
-        assertThat(result.getStatus())
-                .isEqualTo(LoanStatus.APPROVED);
-
-        assertThat(result.getTotalInterestDecimal())
-                .isEqualByComparingTo("87500.00");
-
-        assertThat(result.getInterestPaidDecimal())
-                .isEqualByComparingTo("0.00");
-
-        assertThat(result.getInterestOutstandingDecimal())
-                .isEqualByComparingTo("87500.00");
-
-        assertThat(result.getManagementFeeDecimal())
-                .isEqualByComparingTo("87500.00");
-
-        assertThat(result.getManagementFeePaidDecimal())
-                .isEqualByComparingTo("0.00");
-
-        assertThat(result.getManagementFeeOutstandingDecimal())
-                .isEqualByComparingTo("87500.00");
-
-        assertThat(result.getApplicationFeeDecimal())
-                .isEqualByComparingTo("10000.00");
-
-        assertThat(result.getTotalRepayableDecimal())
-                .isEqualByComparingTo("675000.00");
-
-        verify(paymentRepository, times(6))
-                .save(any());
-    }
-
-    // ============================================================
-    // APPROVAL PRINCIPAL AMENDMENT / FINANCIAL INVARIANT
-    // ============================================================
-
-    @Test
-    void approveLoan_shouldSynchronizeOutstandingBalance_whenApprovedPrincipalIsReduced() {
-
-        Loan loan = new Loan();
-
-        loan.setId(3L);
-        loan.setReferenceNumber("LN-TEST-REDUCED-PRINCIPAL");
-        loan.setStatus(LoanStatus.PENDING);
-        loan.setAmount(new BigDecimal("10000000.00"));
-        loan.setRequestedAmount(new BigDecimal("10000000.00"));
-        loan.setOutstandingBalance(new BigDecimal("10000000.00"));
-        loan.setInterestRate(new BigDecimal("5.00"));
-        loan.setManagementFeeRate(new BigDecimal("5.00"));
-        loan.setApplicationFeeRate(new BigDecimal("2.00"));
-        loan.setPenaltyRate(new BigDecimal("10.00"));
-        loan.setInterestRateType("MONTHLY");
-        loan.setDurationMonths(1);
-        loan.setStartDate(LocalDate.of(2026, 9, 30));
-        loan.setBorrower(borrower);
-        loan.setOrganization(org);
-        loan.setCurrency("RWF");
-
-        User admin = new User();
-        admin.setId(4L);
-        admin.setName("Test Admin");
-        admin.setOrganization(org);
-
-        Role adminRole = new Role();
-        adminRole.setName("ADMIN");
-        admin.setRole(adminRole);
-
-        when(loanRepository.findVisibleByIdForUpdate(
-                3L,
-                1L,
-                true))
-                .thenReturn(Optional.of(loan));
-
-        when(fileService.getMissingDocumentTypes(
-                any(Long.class),
-                any()))
-                .thenReturn(List.of());
-
-        when(loanRepository.save(any(Loan.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        when(paymentRepository.save(any()))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        when(paymentRepository.findByLoanId(3L))
-                .thenReturn(List.of());
-
-        lenient().when(
-                holidayService.adjustToBusinessDay(
-                        anyLong(),
-                        any(LocalDate.class)))
-                .thenAnswer(invocation -> invocation.getArgument(1));
-
-        Loan result = loanService.approveLoan(
-                3L,
-                admin,
-                "Approved below requested amount",
-                null,
-                null,
-                new BigDecimal("9000000.00"));
-
-        assertThat(result.getAmountDecimal())
-                .isEqualByComparingTo("9000000.00");
-
-        assertThat(result.getPrincipalPaidDecimal())
-                .isEqualByComparingTo("0.00");
-
-        assertThat(result.getOutstandingBalanceDecimal())
-                .isEqualByComparingTo("9000000.00");
-
-        assertThat(result.getTotalInterestDecimal())
-                .isEqualByComparingTo("450000.00");
-
-        assertThat(result.getManagementFeeDecimal())
-                .isEqualByComparingTo("450000.00");
-
-        assertThat(result.getPrincipalPaidDecimal()
-                        .add(result.getOutstandingBalanceDecimal())
-                        .compareTo(result.getAmountDecimal()))
-                .isZero();
-    }
-
-
-    // ============================================================
-    // ALREADY APPROVED
-    // ============================================================
-
-    @Test
-    void approveLoan_shouldThrow_whenAlreadyApproved() {
-
-        Loan loan = new Loan();
-
-        loan.setId(1L);
-        loan.setReferenceNumber("LN-TEST-0001");
-        loan.setStatus(LoanStatus.APPROVED);
-        loan.setOrganization(org);
-        loan.setBorrower(borrower);
-
-        when(loanRepository.findVisibleByIdForUpdate(
-                1L,
-                1L,
-                true))
-                .thenReturn(Optional.of(loan));
-
-        assertThatThrownBy(
-                () -> loanService.approveLoan(
-                        1L,
-                        officer,
-                        null,
-                        null))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining(
-                        "Cannot approve a loan that is APPROVED");
-    }
+        @Mock
+        RiskScoringService riskScoringService;
+
+        @Mock
+        NotificationService notificationService;
+
+        @Mock
+        AuditLogRepository auditLogRepository;
+
+        @Mock
+        WebhookService webhookService;
+
+        @Mock
+        LoanProductRepository loanProductRepo;
+
+        @Mock
+        BorrowerFileService fileService;
+
+        @Mock
+        AuditService auditService;
+
+        @Mock
+        MailService mailService;
+
+        @Mock
+        SmsService smsService;
+
+        @Mock
+        HolidayService holidayService;
+
+        @Mock
+        CreditBureauService creditBureauService;
+
+        @Mock
+        PaymentScheduleService paymentScheduleService;
+
+        @Mock
+        WorkflowTaskService workflowTaskService;
+
+        @InjectMocks
+        LoanService loanService;
+
+        private Organization org;
+        private Borrower borrower;
+        private User officer;
+
+        @BeforeEach
+        void setUp() {
+
+                org = new Organization();
+                org.setId(1L);
+                org.setName("TestOrg");
+                org.setDefaultCurrency("USD");
+
+                borrower = new Borrower();
+                borrower.setId(1L);
+                borrower.setFirstName("John");
+                borrower.setLastName("Doe");
+                borrower.setKycStatus("VERIFIED");
+                borrower.setCreditScore(750);
+                borrower.setOrganization(org);
+
+                officer = new User();
+                officer.setId(1L);
+                officer.setName("Test Officer");
+                officer.setOrganization(org);
+
+                /*
+                 * Do not globally stub HolidayService here.
+                 *
+                 * Mockito strict stubbing requires each stub to be relevant to the
+                 * individual test that executes the corresponding business path.
+                 */
+        }
+
+        // ============================================================
+        // CREATE LOAN
+        // ============================================================
+
+        @Test
+        void createLoan_shouldSaveLoan_withAllFields() {
+
+                LoanRequest req = LoanRequest.builder()
+                                .borrowerId(1L)
+                                .amount(new BigDecimal("500000.00"))
+                                .interestRate(new BigDecimal("5.00"))
+                                .interestRateType("MONTHLY")
+                                .durationMonths(6)
+                                .currency("USD")
+                                .startDate("2026-01-01")
+                                .collateralValue(new BigDecimal("15000.00"))
+                                .collateralDescription("Land title")
+                                .build();
+
+                Loan savedLoan = new Loan();
+
+                savedLoan.setId(1L);
+                savedLoan.setReferenceNumber("LN-TEST-0001");
+                savedLoan.setBorrower(borrower);
+                savedLoan.setOrganization(org);
+                savedLoan.setAmount(new BigDecimal("500000.00"));
+                savedLoan.setDurationMonths(6);
+                savedLoan.setInterestRate(new BigDecimal("5.00"));
+                savedLoan.setStatus(LoanStatus.PENDING);
+
+                when(organizationRepository.findById(1L))
+                                .thenReturn(Optional.of(org));
+
+                when(borrowerRepository.findById(1L))
+                                .thenReturn(Optional.of(borrower));
+
+                when(loanProductRepo
+                                .findFirstByOrganization_IdAndLoanTypeAndActiveTrue(
+                                                anyLong(),
+                                                any(Loan.LoanType.class)))
+                                .thenReturn(Optional.empty());
+
+                /*
+                 * Business Owner Scope:
+                 *
+                 * createLoan now evaluates the borrower's existing facilities through
+                 * the scope-aware repository query.
+                 *
+                 * The test represents the full-scope/background calculation used by
+                 * the current service.
+                 */
+                when(loanRepository.findVisibleByBorrowerIdAndOrganizationId(
+                                1L,
+                                1L,
+                                true))
+                                .thenReturn(List.of());
+
+                when(loanRepository.save(any(Loan.class)))
+                                .thenReturn(savedLoan);
+
+                when(riskScoringService.score(any(Loan.class)))
+                                .thenReturn(
+                                                new RiskScoringService.RiskResult(
+                                                                80.0,
+                                                                "LOW"));
+
+                /*
+                 * Only this test needs business-day adjustment.
+                 */
+                lenient().when(
+                                holidayService.adjustToBusinessDay(
+                                                anyLong(),
+                                                any(LocalDate.class)))
+                                .thenAnswer(
+                                                invocation -> invocation.getArgument(1));
+
+                Loan result = loanService.createLoan(
+                                req,
+                                1L,
+                                officer);
+
+                assertThat(result)
+                                .isNotNull();
+
+                assertThat(result.getStatus())
+                                .isEqualTo(LoanStatus.PENDING);
+
+                verify(loanRepository, atLeastOnce())
+                                .save(any(Loan.class));
+        }
+
+        @Test
+        void approveLoan_shouldPreserveNegotiatedInterestAndApplicationFee_butForceManagementFeeToFivePercent() {
+
+                Loan loan = new Loan();
+                loan.setId(2L);
+                loan.setReferenceNumber("LN-TEST-0002");
+                loan.setStatus(LoanStatus.PENDING);
+                loan.setAmount(new BigDecimal("500000.00"));
+                loan.setRequestedAmount(new BigDecimal("500000.00"));
+                loan.setInterestRate(new BigDecimal("7.00"));
+                loan.setManagementFeeRate(new BigDecimal("9.00"));
+                loan.setApplicationFeeRate(new BigDecimal("1.00"));
+                loan.setProcessingFeeRate(new BigDecimal("1.00"));
+                loan.setInterestRateType("MONTHLY");
+                loan.setDurationMonths(6);
+                loan.setStartDate(LocalDate.of(2026, 1, 1));
+                loan.setBorrower(borrower);
+                loan.setOrganization(org);
+                loan.setCurrency("USD");
+
+                when(loanRepository.findVisibleByIdForUpdate(2L, 1L, true))
+                                .thenReturn(Optional.of(loan));
+                when(fileService.getMissingDocumentTypes(any(Long.class), any()))
+                                .thenReturn(List.of());
+                when(loanRepository.save(any(Loan.class)))
+                                .thenAnswer(invocation -> invocation.getArgument(0));
+                when(paymentRepository.findByLoanId(2L))
+                                .thenReturn(List.of());
+                lenient().when(holidayService.adjustToBusinessDay(anyLong(), any(LocalDate.class)))
+                                .thenAnswer(invocation -> invocation.getArgument(1));
+
+                Loan result = loanService.approveLoan(
+                                2L,
+                                officer,
+                                "Negotiated commercial terms",
+                                7.00,
+                                1.00);
+
+                assertThat(result.getInterestRateDecimal())
+                                .isEqualByComparingTo("7.00");
+                assertThat(result.getManagementFeeRateDecimal())
+                                .isEqualByComparingTo("5.00");
+                assertThat(result.getApplicationFeeRateDecimal())
+                                .isEqualByComparingTo("1.00");
+                assertThat(result.getApplicationFeeDecimal())
+                                .isEqualByComparingTo("5000.00");
+                assertThat(result.getTotalInterestDecimal())
+                                .isEqualByComparingTo("122500.00");
+                assertThat(result.getManagementFeeDecimal())
+                                .isEqualByComparingTo("87500.00");
+        }
+
+        // ============================================================
+        // BORROWER NOT FOUND
+        // ============================================================
+
+        @Test
+        void createLoan_shouldThrow_whenBorrowerNotFound() {
+
+                LoanRequest req = LoanRequest.builder()
+                                .borrowerId(99L)
+                                .amount(new BigDecimal("500000.00"))
+                                .interestRate(new BigDecimal("5.00"))
+                                .interestRateType("MONTHLY")
+                                .durationMonths(6)
+                                .currency("USD")
+                                .startDate("2026-01-01")
+                                .build();
+
+                when(organizationRepository.findById(1L))
+                                .thenReturn(Optional.of(org));
+
+                when(borrowerRepository.findById(99L))
+                                .thenReturn(Optional.empty());
+
+                assertThatThrownBy(
+                                () -> loanService.createLoan(
+                                                req,
+                                                1L,
+                                                officer))
+                                .isInstanceOf(RuntimeException.class)
+                                .hasMessageContaining("Borrower not found");
+        }
+
+        // ============================================================
+        // APPROVE LOAN
+        // ============================================================
+
+        @Test
+        void approveLoan_shouldSetStatusApproved_andGenerateSchedule() {
+
+                Loan loan = new Loan();
+
+                loan.setId(1L);
+                loan.setReferenceNumber("LN-TEST-0001");
+                loan.setStatus(LoanStatus.PENDING);
+                loan.setAmount(new BigDecimal("500000.00"));
+                loan.setInterestRate(new BigDecimal("5.00"));
+                loan.setManagementFeeRate(new BigDecimal("5.00"));
+                loan.setProcessingFeeRate(new BigDecimal("2.00"));
+                loan.setInterestRateType("MONTHLY");
+                loan.setDurationMonths(6);
+                loan.setStartDate(
+                                LocalDate.of(2026, 1, 1));
+                loan.setBorrower(borrower);
+                loan.setOrganization(org);
+                loan.setCurrency("USD");
+
+                /*
+                 * Business Owner-aware row locking.
+                 *
+                 * This must match the production LoanService implementation.
+                 */
+                when(loanRepository.findVisibleByIdForUpdate(
+                                1L,
+                                1L,
+                                true))
+                                .thenReturn(Optional.of(loan));
+
+                when(fileService.getMissingDocumentTypes(
+                                any(Long.class),
+                                any()))
+                                .thenReturn(List.of());
+
+                when(loanRepository.save(any(Loan.class)))
+                                .thenAnswer(
+                                                invocation -> invocation.getArgument(0));
+
+                when(paymentRepository.save(any()))
+                                .thenAnswer(
+                                                invocation -> invocation.getArgument(0));
+
+                when(paymentRepository.findByLoanId(1L))
+                                .thenReturn(List.of());
+
+                /*
+                 * Current LoanService generates repayment dates through
+                 * HolidayService.
+                 */
+                lenient().when(
+                                holidayService.adjustToBusinessDay(
+                                                anyLong(),
+                                                any(LocalDate.class)))
+                                .thenAnswer(
+                                                invocation -> invocation.getArgument(1));
+
+                Loan result = loanService.approveLoan(
+                                1L,
+                                officer,
+                                null,
+                                null);
+
+                assertThat(result)
+                                .isNotNull();
+
+                assertThat(result.getStatus())
+                                .isEqualTo(LoanStatus.APPROVED);
+
+                assertThat(result.getTotalInterestDecimal())
+                                .isEqualByComparingTo("87500.00");
+
+                assertThat(result.getInterestPaidDecimal())
+                                .isEqualByComparingTo("0.00");
+
+                assertThat(result.getInterestOutstandingDecimal())
+                                .isEqualByComparingTo("87500.00");
+
+                assertThat(result.getManagementFeeDecimal())
+                                .isEqualByComparingTo("87500.00");
+
+                assertThat(result.getManagementFeePaidDecimal())
+                                .isEqualByComparingTo("0.00");
+
+                assertThat(result.getManagementFeeOutstandingDecimal())
+                                .isEqualByComparingTo("87500.00");
+
+                assertThat(result.getApplicationFeeDecimal())
+                                .isEqualByComparingTo("10000.00");
+
+                assertThat(result.getTotalRepayableDecimal())
+                                .isEqualByComparingTo("675000.00");
+
+                verify(paymentRepository, times(6))
+                                .save(any());
+        }
+
+        // ============================================================
+        // APPROVAL PRINCIPAL AMENDMENT / FINANCIAL INVARIANT
+        // ============================================================
+
+        @Test
+        void approveLoan_shouldSynchronizeOutstandingBalance_whenApprovedPrincipalIsReduced() {
+
+                Loan loan = new Loan();
+
+                loan.setId(3L);
+                loan.setReferenceNumber("LN-TEST-REDUCED-PRINCIPAL");
+                loan.setStatus(LoanStatus.PENDING);
+                loan.setAmount(new BigDecimal("10000000.00"));
+                loan.setRequestedAmount(new BigDecimal("10000000.00"));
+                loan.setOutstandingBalance(new BigDecimal("10000000.00"));
+                loan.setInterestRate(new BigDecimal("5.00"));
+                loan.setManagementFeeRate(new BigDecimal("5.00"));
+                loan.setApplicationFeeRate(new BigDecimal("2.00"));
+                loan.setPenaltyRate(new BigDecimal("10.00"));
+                loan.setInterestRateType("MONTHLY");
+                loan.setDurationMonths(1);
+                loan.setStartDate(LocalDate.of(2026, 9, 30));
+                loan.setBorrower(borrower);
+                loan.setOrganization(org);
+                loan.setCurrency("RWF");
+
+                User admin = new User();
+                admin.setId(4L);
+                admin.setName("Test Admin");
+                admin.setOrganization(org);
+
+                Role adminRole = new Role();
+                adminRole.setName("ADMIN");
+                admin.setRole(adminRole);
+
+                when(loanRepository.findVisibleByIdForUpdate(
+                                3L,
+                                1L,
+                                true))
+                                .thenReturn(Optional.of(loan));
+
+                when(fileService.getMissingDocumentTypes(
+                                any(Long.class),
+                                any()))
+                                .thenReturn(List.of());
+
+                when(loanRepository.save(any(Loan.class)))
+                                .thenAnswer(invocation -> invocation.getArgument(0));
+
+                when(paymentRepository.save(any()))
+                                .thenAnswer(invocation -> invocation.getArgument(0));
+
+                when(paymentRepository.findByLoanId(3L))
+                                .thenReturn(List.of());
+
+                lenient().when(
+                                holidayService.adjustToBusinessDay(
+                                                anyLong(),
+                                                any(LocalDate.class)))
+                                .thenAnswer(invocation -> invocation.getArgument(1));
+
+                Loan result = loanService.approveLoan(
+                                3L,
+                                admin,
+                                "Approved below requested amount",
+                                null,
+                                null,
+                                new BigDecimal("9000000.00"));
+
+                assertThat(result.getAmountDecimal())
+                                .isEqualByComparingTo("9000000.00");
+
+                assertThat(result.getPrincipalPaidDecimal())
+                                .isEqualByComparingTo("0.00");
+
+                assertThat(result.getOutstandingBalanceDecimal())
+                                .isEqualByComparingTo("9000000.00");
+
+                assertThat(result.getTotalInterestDecimal())
+                                .isEqualByComparingTo("450000.00");
+
+                assertThat(result.getManagementFeeDecimal())
+                                .isEqualByComparingTo("450000.00");
+
+                assertThat(result.getPrincipalPaidDecimal()
+                                .add(result.getOutstandingBalanceDecimal())
+                                .compareTo(result.getAmountDecimal()))
+                                .isZero();
+        }
+
+        // ============================================================
+        // ALREADY APPROVED
+        // ============================================================
+
+        @Test
+        void approveLoan_shouldThrow_whenAlreadyApproved() {
+
+                Loan loan = new Loan();
+
+                loan.setId(1L);
+                loan.setReferenceNumber("LN-TEST-0001");
+                loan.setStatus(LoanStatus.APPROVED);
+                loan.setOrganization(org);
+                loan.setBorrower(borrower);
+
+                when(loanRepository.findVisibleByIdForUpdate(
+                                1L,
+                                1L,
+                                true))
+                                .thenReturn(Optional.of(loan));
+
+                assertThatThrownBy(
+                                () -> loanService.approveLoan(
+                                                1L,
+                                                officer,
+                                                null,
+                                                null))
+                                .isInstanceOf(RuntimeException.class)
+                                .hasMessageContaining(
+                                                "Cannot approve a loan that is APPROVED");
+        }
 }
-
