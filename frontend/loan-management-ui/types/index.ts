@@ -733,6 +733,32 @@ export type BorrowerDetailsResponse = BorrowerDetails;
 // DASHBOARD STATS
 // ============================================================
 
+export interface WorkflowTaskKpi {
+  openTasks: number;
+  overdueTasks: number;
+  urgentTasks: number;
+}
+
+export interface WorkflowTask {
+  id: number;
+  assigneeId?: number | null;
+  assigneeName?: string | null;
+  title: string;
+  description?: string | null;
+  taskType: string;
+  entityType?: string | null;
+  entityId?: number | null;
+  referenceNumber?: string | null;
+  status: "OPEN" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | string;
+  priority: "LOW" | "NORMAL" | "HIGH" | "URGENT" | string;
+  dueAt?: string | null;
+  createdAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  overdue: boolean;
+  link?: string | null;
+}
+
 export interface DashboardStats {
   totalLoans: number;
 
@@ -780,6 +806,10 @@ export interface DashboardStats {
   }[];
 
   portfolioAtRiskAmount?: number;
+
+  myOpenTasks?: number;
+  myOverdueTasks?: number;
+  myUrgentTasks?: number;
 }
 
 // ============================================================

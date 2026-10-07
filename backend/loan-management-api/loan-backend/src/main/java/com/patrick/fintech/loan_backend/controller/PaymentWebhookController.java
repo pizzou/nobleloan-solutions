@@ -54,7 +54,7 @@ public class PaymentWebhookController {
         @Value("${flutterwave.webhook-secret:}")
         private String flutterwaveWebhookSecret;
 
-        @Value("${mtn.mobile-money.webhook-secret:}")
+        @Value("${mtn.momo.webhook-secret:}")
         private String mtnWebhookSecret;
 
         @Value("${airtel.money.webhook-secret:}")

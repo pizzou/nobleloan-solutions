@@ -68,6 +68,7 @@ public class LoanService {
         private final RiskScoringService riskService;
         private final NotificationService notifService;
         private final MailService mailService;
+        private final WorkflowTaskService workflowTaskService;
         private final SmsService smsService;
         private final AuditLogRepository auditRepo;
         private final WebhookService webhookService;
@@ -79,7 +80,7 @@ public class LoanService {
         private final CreditBureauService creditBureauService;
         private final ComplianceService complianceService;
         private final PaymentScheduleService paymentScheduleService;
-    private final PaymentTransactionRepository paymentTransactionRepo;
+        private final PaymentTransactionRepository paymentTransactionRepo;
         private final DashboardService dashboardService;
         private final LoanAdministrationService loanAdministrationService;
 
@@ -1103,8 +1104,8 @@ public class LoanService {
                 // CONTRACTUAL INTEREST / MANAGEMENT-FEE RECONCILIATION
                 // ============================================================
                 // The database financial invariant requires:
-                //   interestPaid + interestOutstanding = totalInterest
-                //   managementFeePaid + managementFeeOutstanding = managementFee
+                // interestPaid + interestOutstanding = totalInterest
+                // managementFeePaid + managementFeeOutstanding = managementFee
                 // Approval is a real contractual state, so all four values must
                 // be populated BEFORE the first loan save. Previously approval
                 // left interestOutstanding at zero while totalInterest already
@@ -1116,12 +1117,11 @@ public class LoanService {
                 BigDecimal contractualBalance = normalizePrincipal(principal);
 
                 for (int i = 1; i <= durationMonths; i++) {
-                        FinancialPolicy.ScheduleLine line =
-                                        FinancialPolicy.contractualScheduleLine(
-                                                        contractualBalance,
-                                                        durationMonths - i + 1,
-                                                        interestRate,
-                                                        managementFeeRate);
+                        FinancialPolicy.ScheduleLine line = FinancialPolicy.contractualScheduleLine(
+                                        contractualBalance,
+                                        durationMonths - i + 1,
+                                        interestRate,
+                                        managementFeeRate);
 
                         contractualInterest = money(
                                         contractualInterest.add(line.interest()));
@@ -1259,6 +1259,11 @@ public class LoanService {
                                 saved.getOrganization(),
                                 "LOAN_APPROVED",
                                 saved);
+
+                // Durable task is created inside the same approval transaction.
+                // Its email/in-app notification is emitted only AFTER_COMMIT, so a
+                // rolled-back approval can never leave a false disbursement alert.
+                workflowTaskService.createDisbursementTask(saved, approvedBy);
 
                 return saved;
         }
@@ -1408,6 +1413,13 @@ public class LoanService {
         // ================================================================
         // DISBURSE LOAN
         // ================================================================
+        private void requireBusinessOwnerForDisbursement(User officer) {
+                String role = officer.getRole() == null ? null : officer.getRole().getName();
+                if (role == null || !"BUSINESS_OWNER".equalsIgnoreCase(role.trim())) {
+                        throw new org.springframework.security.access.AccessDeniedException(
+                                        "Only the BUSINESS_OWNER may disburse loans.");
+                }
+        }
 
         @Transactional
         public Loan disburseLoan(
@@ -1422,6 +1434,8 @@ public class LoanService {
                         throw new RuntimeException(
                                         "Disbursing officer must belong to an organization");
                 }
+
+                requireBusinessOwnerForDisbursement(officer);
 
                 Loan loan = loanRepo.findVisibleByIdForUpdate(
                                 loanId,
@@ -1496,7 +1510,8 @@ public class LoanService {
                 // closed when an external compliance provider is not configured.
                 if (isProductionEnvironment()
                                 && (loan.getBorrower() == null
-                                                || !complianceService.isKycCurrentlyClear(loan.getBorrower().getId()))) {
+                                                || !complianceService
+                                                                .isKycCurrentlyClear(loan.getBorrower().getId()))) {
                         throw new IllegalStateException(
                                         "Cannot disburse this loan — the borrower does not have a current, provider-backed KYC/AML clearance.");
                 }
@@ -1702,6 +1717,12 @@ public class LoanService {
                 accountingService.postDisbursement(
                                 saved);
 
+                // The financial transaction succeeded inside this same database
+                // transaction, so the owner-facing operational task can be closed
+                // atomically. If anything later rolls back, the task completion
+                // rolls back with the loan/accounting mutation.
+                workflowTaskService.completeDisbursementTaskForLoan(saved.getId(), officer);
+
                 // ============================================================
                 // POST-COMMIT SIDE EFFECTS
                 // ============================================================
@@ -1714,10 +1735,13 @@ public class LoanService {
         // ================================================================
         // FINANCIAL RECONCILIATION GUARD
 
-        /** Rebuilds contractual outstanding interest/fee from total less paid.
-         * This also repairs stale values on legacy rows when they are next updated. */
+        /**
+         * Rebuilds contractual outstanding interest/fee from total less paid.
+         * This also repairs stale values on legacy rows when they are next updated.
+         */
         private void reconcileContractualOutstandingBalances(Loan loan) {
-                if (loan == null) throw new IllegalArgumentException("Loan is required");
+                if (loan == null)
+                        throw new IllegalArgumentException("Loan is required");
 
                 BigDecimal totalInterest = money(moneyValue(loan.getTotalInterestDecimal()));
                 BigDecimal interestPaid = money(moneyValue(loan.getInterestPaidDecimal()));
@@ -1739,9 +1763,12 @@ public class LoanService {
                 loan.setManagementFeeOutstanding(money(totalManagementFee.subtract(managementFeePaid)));
         }
 
-        /** Execute disbursement notifications only after the loan transaction commits. */
+        /**
+         * Execute disbursement notifications only after the loan transaction commits.
+         */
         private void runDisbursementSideEffectsAfterCommit(Loan saved, String disbursementMethod) {
-                if (saved == null) return;
+                if (saved == null)
+                        return;
 
                 Runnable action = () -> {
                         try {
@@ -1756,11 +1783,14 @@ public class LoanService {
                         }
                         notifyOfficer(saved, null, "Loan Disbursed",
                                         "Loan " + saved.getReferenceNumber() + " (" + saved.getCurrency() + " "
-                                                        + saved.getDisbursedAmountDecimal() + ") has been disbursed via "
+                                                        + saved.getDisbursedAmountDecimal()
+                                                        + ") has been disbursed via "
                                                         + (disbursementMethod != null && !disbursementMethod.isBlank()
-                                                                        ? disbursementMethod : "unspecified")
+                                                                        ? disbursementMethod
+                                                                        : "unspecified")
                                                         + ". Monthly interest is " + saved.getInterestRateDecimal()
-                                                        + "% and monthly management fee is " + saved.getManagementFeeRateDecimal()
+                                                        + "% and monthly management fee is "
+                                                        + saved.getManagementFeeRateDecimal()
                                                         + "%. Credit quality is CURRENT.",
                                         "success");
                         try {
@@ -1773,7 +1803,10 @@ public class LoanService {
 
                 if (TransactionSynchronizationManager.isSynchronizationActive()) {
                         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                                @Override public void afterCommit() { action.run(); }
+                                @Override
+                                public void afterCommit() {
+                                        action.run();
+                                }
                         });
                 } else {
                         log.warn("No active transaction synchronization for {}; executing side effects immediately.",
@@ -1816,12 +1849,13 @@ public class LoanService {
                                         ? loan.getBorrower().getFullName()
                                         : "—";
 
-                        String loanInfo =
-                                        " Borrower: " + borrowerName
-                                                        + " | Amount: " + loan.getCurrency() + " " + loan.getAmountDecimal()
-                                                        + " | Duration: " + loan.getDurationMonths() + " months"
-                                                        + " | Outstanding: " + loan.getCurrency() + " " + loan.getOutstandingBalanceDecimal()
-                                                        + " | Next due: " + (loan.getNextDueDate() == null ? "—" : loan.getNextDueDate());
+                        String loanInfo = " Borrower: " + borrowerName
+                                        + " | Amount: " + loan.getCurrency() + " " + loan.getAmountDecimal()
+                                        + " | Duration: " + loan.getDurationMonths() + " months"
+                                        + " | Outstanding: " + loan.getCurrency() + " "
+                                        + loan.getOutstandingBalanceDecimal()
+                                        + " | Next due: "
+                                        + (loan.getNextDueDate() == null ? "—" : loan.getNextDueDate());
 
                         notifService.notifyUsers(
                                         List.of(officer),
@@ -1843,30 +1877,28 @@ public class LoanService {
         // CREDIT QUALITY
         // ================================================================
 
-    
-    
-    @Transactional
-    public void deleteWithConfirmation(
-            Long loanId,
-            String confirmation,
-            Long organizationId,
-            User actor) {
+        @Transactional
+        public void deleteWithConfirmation(
+                        Long loanId,
+                        String confirmation,
+                        Long organizationId,
+                        User actor) {
 
-        if (organizationId == null || actor == null
-                || actor.getOrganization() == null
-                || !organizationId.equals(actor.getOrganization().getId())) {
-            throw new org.springframework.security.access.AccessDeniedException(
-                    "Loan deletion organization does not match the authenticated user");
+                if (organizationId == null || actor == null
+                                || actor.getOrganization() == null
+                                || !organizationId.equals(actor.getOrganization().getId())) {
+                        throw new org.springframework.security.access.AccessDeniedException(
+                                        "Loan deletion organization does not match the authenticated user");
+                }
+
+                loanAdministrationService.deleteWithConfirmation(
+                                loanId,
+                                confirmation,
+                                "Legacy LoanService deletion path delegated to the controlled Business Owner recycle-bin workflow.",
+                                actor);
         }
 
-        loanAdministrationService.deleteWithConfirmation(
-                loanId,
-                confirmation,
-                "Legacy LoanService deletion path delegated to the controlled Business Owner recycle-bin workflow.",
-                actor);
-    }
-
-    public Loan updateCreditQuality(
+        public Loan updateCreditQuality(
                         Long loanId,
                         Long organizationId) {
 
@@ -2438,7 +2470,6 @@ public class LoanService {
                                 ReportingScopeService.includeBusinessOwnerOnly());
         }
 
-       
         private Loan getLoanForOrgForUpdate(
                         Long loanId,
                         Long orgId) {
@@ -2710,11 +2741,9 @@ public class LoanService {
                         throw new IllegalArgumentException("Organization is required");
                 }
 
-                
                 return dashboardService.getStats(org.getId());
         }
 
-       
         @Transactional
         public void regenerateRepaymentScheduleAfterDisbursement(Loan loan) {
 
@@ -3012,7 +3041,6 @@ public class LoanService {
                 }
         }
 
-    
         private BigDecimal calculateContractualTotalRepayable(
                         BigDecimal principal,
                         BigDecimal monthlyInterestRate,
@@ -3113,7 +3141,6 @@ public class LoanService {
 
                 validateRateType(rateType);
 
-                
                 return rate.divide(
                                 ONE_HUNDRED,
                                 16,
@@ -3416,7 +3443,6 @@ public class LoanService {
                                         .toUpperCase();
                 }
 
-               
                 String random = UUID.randomUUID().toString().replace("-", "")
                                 .substring(0, 12).toUpperCase(Locale.ROOT);
 

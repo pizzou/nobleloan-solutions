@@ -311,6 +311,15 @@ export const authApi = {
   logout: () => post("/auth/logout"),
 };
 
+export const taskApi = {
+  mine: (limit = 25) =>
+    get(`/tasks/mine?limit=${Math.max(1, Math.min(limit, 50))}`),
+  kpi: () => get("/tasks/mine/kpi"),
+  create: (data: unknown) => post("/tasks", data),
+  start: (id: number) => post(`/tasks/${id}/start`, {}),
+  complete: (id: number) => post(`/tasks/${id}/complete`, {}),
+};
+
 /**
  * ============================================================
  * LOAN API

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { loanApi } from "@/services/api";
 import { useAuth } from "@/hooks/useAuth";
@@ -28,10 +28,12 @@ export default function LoanRecycleBinPage() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const [confirmation, setConfirmation] = useState("");
+  const [query, setQuery] = useState("");
 
   const isBusinessOwner =
-    String((user as { role?: { name?: string } } | null)?.role?.name ?? "")
-      .toUpperCase() === "BUSINESS_OWNER";
+    String(
+      (user as { role?: { name?: string } } | null)?.role?.name ?? "",
+    ).toUpperCase() === "BUSINESS_OWNER";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -40,7 +42,9 @@ export default function LoanRecycleBinPage() {
       const response = await loanApi.recycleBin();
       setItems(Array.isArray(response?.data) ? response.data : []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to load the recycle bin.");
+      setError(
+        e instanceof Error ? e.message : "Unable to load the recycle bin.",
+      );
     } finally {
       setLoading(false);
     }
@@ -50,6 +54,21 @@ export default function LoanRecycleBinPage() {
     if (isBusinessOwner) void load();
     else setLoading(false);
   }, [isBusinessOwner, load]);
+
+  const filteredItems = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return items;
+    return items.filter((item) =>
+      [item.referenceNumber, item.status, item.deletionReason]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalized)),
+    );
+  }, [items, query]);
+
+  const daysRemaining = (purgeAfter: string) => {
+    const ms = new Date(purgeAfter).getTime() - Date.now();
+    return Math.max(0, Math.ceil(ms / 86_400_000));
+  };
 
   const restore = async (item: RecycleItem) => {
     const expected = `sudo ${item.referenceNumber}`;
@@ -88,10 +107,13 @@ export default function LoanRecycleBinPage() {
           <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
             Loan administration
           </p>
-          <h1 className="text-2xl font-black text-slate-900">Loan recycle bin</h1>
+          <h1 className="text-2xl font-black text-slate-900">
+            Loan recycle bin
+          </h1>
           <p className="mt-1 text-sm text-slate-500">
             Recycled loans remain restorable for 30 days. After the retention
-            period, operational loan records are permanently purged automatically.
+            period, operational loan records are permanently purged
+            automatically.
           </p>
         </div>
         <Link
@@ -109,15 +131,34 @@ export default function LoanRecycleBinPage() {
       ) : null}
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        {!loading && items.length > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4">
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              {items.length} recycled loan{items.length === 1 ? "" : "s"} ·{" "}
+              {filteredItems.length} shown
+            </div>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search reference, status, reason…"
+              className="w-full max-w-md rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+              aria-label="Search recycle bin"
+            />
+          </div>
+        ) : null}
         {loading ? (
           <div className="p-8 text-sm text-slate-500">Loading recycle bin…</div>
         ) : items.length === 0 ? (
           <div className="p-8 text-sm text-slate-500">
             No loans are currently in the recycle bin.
           </div>
+        ) : filteredItems.length === 0 ? (
+          <div className="p-8 text-sm text-slate-500">
+            No recycled loans match your search.
+          </div>
         ) : (
           <div className="divide-y divide-slate-100">
-            {items.map((item) => (
+            {filteredItems.map((item) => (
               <div key={item.id} className="p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
@@ -131,7 +172,10 @@ export default function LoanRecycleBinPage() {
                       Recycled: {formatDate(item.deletedAt)}
                     </div>
                     <div className="mt-1 text-xs font-semibold text-amber-700">
-                      Purge after: {formatDate(item.purgeAfter)}
+                      Purge after: {formatDate(item.purgeAfter)} ·{" "}
+                      {daysRemaining(item.purgeAfter)} day
+                      {daysRemaining(item.purgeAfter) === 1 ? "" : "s"}{" "}
+                      remaining
                     </div>
                   </div>
                   <button

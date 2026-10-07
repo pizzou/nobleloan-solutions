@@ -580,7 +580,8 @@ export default function UsersPage() {
                             </button>
                           ) : null}
 
-                          {u.status === "SUSPENDED" && isAdmin ? (
+                          {u.status === "SUSPENDED" &&
+                          (isAdmin || isBusinessOwner) ? (
                             <button
                               onClick={() => handleReactivate(u.id)}
                               className="

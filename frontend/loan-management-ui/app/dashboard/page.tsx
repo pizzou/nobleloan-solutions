@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { loanApi } from "@/services/api";
-import { DashboardStats, Loan } from "@/types";
+import { loanApi, taskApi } from "@/services/api";
+import { DashboardStats, Loan, WorkflowTaskKpi } from "@/types";
 
 import { StatCard, Card, CardHeader, CardBody } from "@/components/ui/Card";
 import { StatusBadge, RiskBadge } from "@/components/ui/Badge";
@@ -115,6 +115,11 @@ export default function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [taskKpi, setTaskKpi] = useState<WorkflowTaskKpi>({
+    openTasks: 0,
+    overdueTasks: 0,
+    urgentTasks: 0,
+  });
 
   /* ==========================================================
      FORMATTERS
@@ -167,6 +172,18 @@ export default function DashboardPage() {
       const data = await loanApi.dashboard();
 
       setStats(normalizeDashboardResponse(data));
+
+      try {
+        const taskData = await taskApi.kpi();
+        setTaskKpi({
+          openTasks: safeNumber(taskData?.openTasks),
+          overdueTasks: safeNumber(taskData?.overdueTasks),
+          urgentTasks: safeNumber(taskData?.urgentTasks),
+        });
+      } catch {
+        // The financial dashboard must remain usable if the operational task
+        // service is temporarily unavailable.
+      }
       setLastUpdated(new Date());
     } catch (e: any) {
       console.error("Dashboard loading failed:", e);
@@ -534,6 +551,59 @@ export default function DashboardPage() {
               value={fc(portfolio.outstandingBalance)}
               sub="Current portfolio balance"
               color={BRAND.yellowDark}
+            />
+          </div>
+        </section>
+
+        {/* ====================================================
+            MY WORK QUEUE
+            ==================================================== */}
+
+        <section>
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-sm font-black uppercase tracking-[0.10em] text-[#0B1F3A]">
+                My work queue
+              </h2>
+              <p className="mt-1 text-xs text-slate-400">
+                Server-tracked actions assigned to your account.
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              onClick={() => router.push("/dashboard/tasks")}
+            >
+              Open task centre →
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <StatCard
+              icon="✓"
+              label="Open Tasks"
+              value={fn(taskKpi.openTasks)}
+              sub={taskKpi.openTasks > 0 ? "Action required" : "No open work"}
+              color={taskKpi.openTasks > 0 ? BRAND.navy : BRAND.green}
+            />
+            <StatCard
+              icon="!"
+              label="Overdue Tasks"
+              value={fn(taskKpi.overdueTasks)}
+              sub={
+                taskKpi.overdueTasks > 0
+                  ? "Needs immediate attention"
+                  : "Nothing overdue"
+              }
+              color={taskKpi.overdueTasks > 0 ? BRAND.red : BRAND.green}
+            />
+            <StatCard
+              icon="⚡"
+              label="Urgent Tasks"
+              value={fn(taskKpi.urgentTasks)}
+              sub={
+                taskKpi.urgentTasks > 0 ? "Priority work" : "No urgent tasks"
+              }
+              color={taskKpi.urgentTasks > 0 ? BRAND.amber : BRAND.navy}
             />
           </div>
         </section>

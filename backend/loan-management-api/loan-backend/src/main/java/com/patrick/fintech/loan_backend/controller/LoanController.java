@@ -209,9 +209,9 @@ public class LoanController {
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
                                                 ResponseDtoMapper.loans(
-                                                loanService.getLoansByBorrowerForOrg(
-                                                                borrowerId,
-                                                                organizationId))));
+                                                                loanService.getLoansByBorrowerForOrg(
+                                                                                borrowerId,
+                                                                                organizationId))));
         }
 
         // ================================================================
@@ -246,7 +246,8 @@ public class LoanController {
                 String notes = body != null
                                 ? firstNonBlank(
                                                 body.get("notes") == null ? null : String.valueOf(body.get("notes")),
-                                                body.get("comments") == null ? null : String.valueOf(body.get("comments")))
+                                                body.get("comments") == null ? null
+                                                                : String.valueOf(body.get("comments")))
                                 : null;
 
                 Double newInterestRate = parseDouble(body, "interestRate",
@@ -277,7 +278,8 @@ public class LoanController {
                 if (decisionRecord != null
                                 && decisionRecord.getLoan() != null
                                 && Boolean.TRUE.equals(decisionRecord.getLoan().getBusinessOwnerOnly())
-                                && !com.patrick.fintech.loan_backend.service.ReportingScopeService.includeBusinessOwnerOnly()) {
+                                && !com.patrick.fintech.loan_backend.service.ReportingScopeService
+                                                .includeBusinessOwnerOnly()) {
                         return ResponseEntity.ok(
                                         ApiResponse.ok(
                                                         "Loan approval decision recorded",
@@ -435,7 +437,7 @@ public class LoanController {
         }
 
         @PostMapping("/{id}/disburse")
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+        @PreAuthorize("hasRole('BUSINESS_OWNER')")
         public ResponseEntity<ApiResponse<LoanResponse>> disburseLoan(
                         @PathVariable Long id,
                         @RequestBody(required = false) Map<String, String> body,

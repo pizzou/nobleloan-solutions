@@ -1013,9 +1013,14 @@ export default function LoanDetailPage() {
 
   const router = useRouter();
 
-  const { currency, locale, isOfficer } = useAuth();
+  const { currency, locale, isOfficer, user } = useAuth();
 
   const fc = (n?: number) => formatCurrency(n, currency, locale);
+
+  const isBusinessOwner =
+    String(
+      (user as { role?: { name?: string } } | null)?.role?.name ?? "",
+    ).toUpperCase() === "BUSINESS_OWNER";
 
   // ==========================================================
   // LOAN
@@ -3530,7 +3535,9 @@ export default function LoanDetailPage() {
 
                     WRITTEN_OFF: ["CLOSED"],
                   };
-                  const options = VALID_FROM[loan.status] ?? [];
+                  const options = (VALID_FROM[loan.status] ?? []).filter(
+                    (status) => status !== "DISBURSED" || isBusinessOwner,
+                  );
 
                   if (options.length === 0) {
                     return (
