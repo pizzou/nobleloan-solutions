@@ -17,6 +17,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.hibernate.LazyInitializationException;
 import com.patrick.fintech.loan_backend.service.IdempotencyService;
 
@@ -272,6 +273,19 @@ public class GlobalExceptionHandler {
         }
 
         // ============================================================
+        // MISSING API/STATIC RESOURCE
+        // ============================================================
+
+        @ExceptionHandler(NoResourceFoundException.class)
+        public ResponseEntity<Map<String, Object>> handleNoResource(NoResourceFoundException ex) {
+                String path = ex.getResourcePath() == null ? "" : ex.getResourcePath();
+                log.warn("Resource not found: {}", path);
+                return json(
+                                HttpStatus.NOT_FOUND,
+                                error("The requested resource was not found.", null));
+        }
+
+        // ============================================================
         // UNEXPECTED RUNTIME ERROR
         // ============================================================
 
@@ -291,6 +305,15 @@ public class GlobalExceptionHandler {
 
                 // Legacy business code still uses RuntimeException. Classify the common
                 // expected cases safely while treating everything else as a server defect.
+                if (normalized.contains("no stored file content")
+                                || normalized.contains("stored file content is unavailable")) {
+                        log.warn("Document content unavailable: {}", message);
+                        return json(HttpStatus.GONE,
+                                        error(safeClientMessage(message,
+                                                        "The stored document content is unavailable. Please upload the document again."),
+                                                        null));
+                }
+
                 if (normalized.contains("access denied") || normalized.contains("forbidden")) {
                         log.warn("Access denied: {}", message);
                         return json(HttpStatus.FORBIDDEN, error("Access denied", null));

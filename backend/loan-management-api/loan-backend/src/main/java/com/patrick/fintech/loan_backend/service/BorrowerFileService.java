@@ -89,6 +89,7 @@ public class BorrowerFileService {
         borrowerFile.setFileType(file.getContentType());
         borrowerFile.setFileSize(file.getSize());
         borrowerFile.setData(file.getBytes());
+        borrowerFile.setContentAvailable(borrowerFile.getData() != null && borrowerFile.getData().length > 0);
 
         borrowerFile.setDocumentType(
                 documentType != null
@@ -126,6 +127,7 @@ public class BorrowerFileService {
     /**
      * Metadata only.
      */
+    @Transactional(readOnly = true)
     public List<BorrowerFile> getByBorrowerMetadataOnly(Long borrowerId) {
 
         List<BorrowerFile> files = fileRepository.findByBorrowerId(borrowerId);
@@ -141,7 +143,9 @@ public class BorrowerFileService {
          * Detach first, then remove the bytes only from the response object.
          */
         for (BorrowerFile file : files) {
+            boolean available = file.getData() != null && file.getData().length > 0;
             entityManager.detach(file);
+            file.setContentAvailable(available);
             file.setData(null);
         }
 
@@ -245,6 +249,7 @@ public class BorrowerFileService {
         current.setFileType(file.getContentType());
         current.setFileSize(file.getSize());
         current.setData(file.getBytes());
+        current.setContentAvailable(current.getData() != null && current.getData().length > 0);
         current.setDocumentType(effectiveType);
         current.setUploadedByApplicant(true);
         current.setVerificationStatus(VerificationStatus.PENDING);
@@ -311,6 +316,7 @@ public class BorrowerFileService {
         replacementFile.setFileType(replacement.getContentType());
         replacementFile.setFileSize(replacement.getSize());
         replacementFile.setData(replacement.getBytes());
+        replacementFile.setContentAvailable(replacementFile.getData() != null && replacementFile.getData().length > 0);
         replacementFile.setDocumentType(effectiveType);
         replacementFile.setUploadedByApplicant(true);
         replacementFile.setVerificationStatus(VerificationStatus.PENDING);
@@ -338,6 +344,7 @@ public class BorrowerFileService {
 
         Set<DocumentType> uploaded = fileRepository.findByBorrowerId(borrowerId)
                 .stream()
+                .filter(f -> f.getData() != null && f.getData().length > 0)
                 .map(BorrowerFile::getDocumentType)
                 .collect(Collectors.toSet());
 
@@ -359,6 +366,7 @@ public class BorrowerFileService {
 
         Set<DocumentType> verified = fileRepository.findByBorrowerId(borrowerId)
                 .stream()
+                .filter(f -> f.getData() != null && f.getData().length > 0)
                 .filter(f -> f.getVerificationStatus() == VerificationStatus.VERIFIED)
                 .map(BorrowerFile::getDocumentType)
                 .collect(Collectors.toSet());

@@ -79,6 +79,10 @@ public class BorrowerFile {
     @Column(columnDefinition = "bytea")
     private byte[] data;
 
+    /** True when the database row contains non-empty binary content. */
+    @Transient
+    private boolean contentAvailable;
+
     private LocalDateTime uploadedAt;
 
     @PrePersist

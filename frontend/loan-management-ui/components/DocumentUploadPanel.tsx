@@ -11,6 +11,7 @@ interface DocItem {
   fileSize: number;
   verificationStatus?: string;
   uploadedByApplicant?: boolean;
+  contentAvailable?: boolean;
   officerComment?: string;
 }
 
@@ -225,6 +226,41 @@ export default function DocumentUploadPanel({
     } finally {
       setUploadingType(null);
     }
+  };
+
+  const openDocument = (doc: DocItem, mode: "preview" | "download") => {
+    if (!doc.id || doc.uploadedByApplicant === false) {
+      setError("This document is not available through the borrower portal.");
+      return;
+    }
+
+    if (doc.contentAvailable === false) {
+      setError(
+        "The document record exists, but the stored file content is unavailable. Please upload it again.",
+      );
+      return;
+    }
+
+    const url = publicApi.documentContentUrl(reference, phone, doc.id, mode);
+
+    if (mode === "preview") {
+      const previewWindow = window.open(url, "_blank", "noopener,noreferrer");
+      if (!previewWindow) {
+        setError(
+          "Your browser blocked the preview window. Please allow pop-ups and retry.",
+        );
+      }
+      return;
+    }
+
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = doc.fileName || "document";
+    anchor.rel = "noopener";
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
   };
 
   const handleDelete = async (doc: DocItem) => {
@@ -476,6 +512,27 @@ export default function DocumentUploadPanel({
                     </span>
 
                     <div className="flex items-center gap-2 shrink-0">
+                      {f.uploadedByApplicant !== false && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => openDocument(f, "preview")}
+                            disabled={f.contentAvailable === false}
+                            className="text-blue-700 hover:text-blue-900 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Preview
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openDocument(f, "download")}
+                            disabled={f.contentAvailable === false}
+                            className="text-blue-700 hover:text-blue-900 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Download
+                          </button>
+                        </>
+                      )}
+
                       {f.verificationStatus === "VERIFIED" && (
                         <span className="text-green-600 font-semibold">
                           Verified
@@ -640,6 +697,27 @@ export default function DocumentUploadPanel({
                     </span>
 
                     <div className="flex items-center gap-2 shrink-0">
+                      {f.uploadedByApplicant !== false && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => openDocument(f, "preview")}
+                            disabled={f.contentAvailable === false}
+                            className="text-blue-700 hover:text-blue-900 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Preview
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openDocument(f, "download")}
+                            disabled={f.contentAvailable === false}
+                            className="text-blue-700 hover:text-blue-900 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Download
+                          </button>
+                        </>
+                      )}
+
                       {f.verificationStatus === "VERIFIED" && (
                         <span className="text-green-600 font-semibold">
                           Verified

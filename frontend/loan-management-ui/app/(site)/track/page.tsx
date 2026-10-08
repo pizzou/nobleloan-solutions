@@ -54,6 +54,11 @@ interface UploadedDoc {
   fileSize: number;
   uploadedAt: string;
   verificationStatus: string;
+  uploadedByApplicant?: boolean;
+  contentAvailable?: boolean;
+  officerComment?: string;
+  verifiedByName?: string;
+  verifiedAt?: string;
 }
 
 interface StatusResult {
@@ -795,23 +800,8 @@ export default function TrackPage() {
       return;
     }
 
-    const baseUrl = (
-      process.env.NEXT_PUBLIC_API_URL ||
-      process.env.NEXT_PUBLIC_API_BASE_URL ||
-      ""
-    ).replace(/\/+$/, "");
-
-    if (!baseUrl) {
-      toast(
-        "error",
-        "The document service is not configured. Please contact support.",
-      );
-      return;
-    }
-
     const url =
-      `${baseUrl}/api/public/applications/` +
-      `${encodeURIComponent(ref)}/documents/` +
+      `/api/public/applications/${encodeURIComponent(ref)}/documents/` +
       `${doc}.pdf?phone=${encodeURIComponent(ph)}`;
 
     setDownloadingDoc(doc);
@@ -847,6 +837,67 @@ export default function TrackPage() {
         setDownloadingDoc(null);
       }, 1000);
     }
+  };
+
+  const handleApplicantDocument = (
+    doc: UploadedDoc,
+    mode: "preview" | "download",
+  ) => {
+    if (!result) return;
+
+    if (doc.uploadedByApplicant !== true) {
+      toast(
+        "error",
+        "This document is not available through the borrower portal.",
+      );
+      return;
+    }
+
+    if (doc.contentAvailable === false) {
+      toast(
+        "error",
+        "The document record exists, but the stored file content is unavailable. Please upload the document again.",
+      );
+      return;
+    }
+
+    const ref = (result.referenceNumber || result.reference || reference)
+      .trim()
+      .toUpperCase();
+    const ph = phone.trim();
+
+    if (!ref || !ph || !Number.isSafeInteger(doc.id) || doc.id <= 0) {
+      toast(
+        "error",
+        "The document could not be opened. Please run the application lookup again.",
+      );
+      return;
+    }
+
+    const url = publicApi.documentContentUrl(ref, ph, doc.id, mode);
+
+    if (mode === "preview") {
+      const previewWindow = window.open(url, "_blank", "noopener,noreferrer");
+      if (!previewWindow) {
+        toast(
+          "error",
+          "Your browser blocked the preview window. Please allow pop-ups and retry.",
+        );
+        return;
+      }
+      toast("success", `${docLabel(doc.documentType)} opened successfully.`);
+      return;
+    }
+
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = doc.fileName || "document";
+    anchor.rel = "noopener";
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    toast("success", `${docLabel(doc.documentType)} download started.`);
   };
 
   /*
@@ -1675,8 +1726,51 @@ export default function TrackPage() {
                                           : "Reviewing"}
                                     </span>
                                   </div>
+                                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                                    {doc.uploadedByApplicant === true ? (
+                                      <>
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            doc.contentAvailable === false
+                                          }
+                                          onClick={() =>
+                                            handleApplicantDocument(
+                                              doc,
+                                              "preview",
+                                            )
+                                          }
+                                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                        >
+                                          Preview
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            doc.contentAvailable === false
+                                          }
+                                          onClick={() =>
+                                            handleApplicantDocument(
+                                              doc,
+                                              "download",
+                                            )
+                                          }
+                                          className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-black text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                        >
+                                          Download
+                                        </button>
+                                        {doc.contentAvailable === false ? (
+                                          <span className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700">
+                                            File content unavailable — upload
+                                            again
+                                          </span>
+                                        ) : null}
+                                      </>
+                                    ) : null}
+                                  </div>
+
                                   {rejected ? (
-                                    <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-red-600 px-3.5 py-2.5 text-[10px] font-black text-white shadow-sm">
+                                    <label className="mt-2 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-red-600 px-3.5 py-2.5 text-[10px] font-black text-white shadow-sm">
                                       <input
                                         type="file"
                                         accept="image/*,application/pdf"

@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
  * state: completing a task acknowledges work, but never performs the financial
  * operation itself.
  */
-@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+@JsonIgnoreProperties({ "hibernateLazyInitializer", "handler" })
 @Entity
 @Table(name = "workflow_tasks", indexes = {
         @Index(name = "idx_workflow_tasks_assignee_status", columnList = "organization_id,assigned_to,status,due_at"),

@@ -11,6 +11,7 @@ import com.patrick.fintech.loan_backend.service.MailService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.*;
+import org.springframework.http.MediaTypeFactory;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -18,6 +19,8 @@ import com.patrick.fintech.loan_backend.model.VerificationStatus;
 import com.patrick.fintech.loan_backend.model.DocumentType;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Staff-side KYC document endpoints. Every read/write here is scoped to the
@@ -95,7 +98,7 @@ public class BorrowerFileController {
                                 .orElseThrow(() -> new RuntimeException("Borrower not found: " + borrowerId));
                 if (!borrower.getOrganization().getId().equals(user.getOrganization().getId()))
                         throw new RuntimeException("Access denied");
-                return ResponseEntity.ok(ApiResponse.safe(fileService.getByBorrower(borrowerId)));
+                return ResponseEntity.ok(ApiResponse.safe(fileService.getByBorrowerMetadataOnly(borrowerId)));
         }
 
         /** Attachment download — forces "Save As". */
@@ -129,13 +132,92 @@ public class BorrowerFileController {
                                 action, "BORROWER_FILE", String.valueOf(fileId),
                                 verb + " " + file.getDocumentType() + " (" + file.getFileName() + ")",
                                 null, null, "Documents & KYC");
+                String fileName = safeFileName(file.getFileName());
+                MediaType mediaType = resolveMediaType(file, data);
+                ContentDisposition contentDisposition = ContentDisposition
+                                .builder(disposition)
+                                .filename(fileName, StandardCharsets.UTF_8)
+                                .build();
+
                 return ResponseEntity.ok()
-                                .contentType(MediaType.parseMediaType(
-                                                file.getFileType() != null ? file.getFileType()
-                                                                : "application/octet-stream"))
-                                .header(HttpHeaders.CONTENT_DISPOSITION,
-                                                disposition + "; filename=\"" + file.getFileName() + "\"")
+                                .contentType(mediaType)
+                                .contentLength(data.length)
+                                .cacheControl(CacheControl.noStore().mustRevalidate())
+                                .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition.toString())
+                                .header("Content-Security-Policy",
+                                                "default-src 'none'; frame-ancestors 'none'")
+                                .header("X-Content-Type-Options", "nosniff")
                                 .body(data);
+        }
+
+        private MediaType resolveMediaType(BorrowerFile file, byte[] data) {
+                MediaType detected = detectStoredMediaType(data);
+                if (detected != null) {
+                        return detected;
+                }
+
+                String declared = file.getFileType();
+                if (declared != null && !declared.isBlank()) {
+                        try {
+                                String normalized = declared.split(";", 2)[0].trim().toLowerCase(java.util.Locale.ROOT);
+                                MediaType candidate = MediaType.parseMediaType(normalized);
+                                if (Set.of(
+                                                MediaType.APPLICATION_PDF_VALUE,
+                                                MediaType.IMAGE_JPEG_VALUE,
+                                                MediaType.IMAGE_PNG_VALUE,
+                                                "image/webp").contains(candidate.toString())) {
+                                        return candidate;
+                                }
+                        } catch (IllegalArgumentException ignored) {
+                                // Fall back to the filename extension below.
+                        }
+                }
+                return MediaTypeFactory.getMediaType(file.getFileName())
+                                .filter(type -> Set.of(
+                                                MediaType.APPLICATION_PDF,
+                                                MediaType.IMAGE_JPEG,
+                                                MediaType.IMAGE_PNG,
+                                                MediaType.valueOf("image/webp")).contains(type))
+                                .orElse(MediaType.APPLICATION_OCTET_STREAM);
+        }
+
+        private MediaType detectStoredMediaType(byte[] data) {
+                if (data == null || data.length == 0) {
+                        return null;
+                }
+                if (startsWith(data, new byte[] { 0x25, 0x50, 0x44, 0x46 })) {
+                        return MediaType.APPLICATION_PDF;
+                }
+                if (startsWith(data, new byte[] { (byte) 0xff, (byte) 0xd8, (byte) 0xff })) {
+                        return MediaType.IMAGE_JPEG;
+                }
+                if (startsWith(data, new byte[] { (byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a })) {
+                        return MediaType.IMAGE_PNG;
+                }
+                if (data.length >= 12
+                                && data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46
+                                && data[8] == 0x57 && data[9] == 0x45 && data[10] == 0x42 && data[11] == 0x50) {
+                        return MediaType.valueOf("image/webp");
+                }
+                return null;
+        }
+
+        private boolean startsWith(byte[] value, byte[] prefix) {
+                if (value.length < prefix.length) {
+                        return false;
+                }
+                for (int i = 0; i < prefix.length; i++) {
+                        if (value[i] != prefix[i]) {
+                                return false;
+                        }
+                }
+                return true;
+        }
+
+        private String safeFileName(String value) {
+                String name = value == null || value.isBlank() ? "document" : value.trim();
+                String sanitized = name.replaceAll("[\\/\"\r\n]", "_");
+                return sanitized.isBlank() ? "document" : sanitized.substring(0, Math.min(255, sanitized.length()));
         }
 
         /**

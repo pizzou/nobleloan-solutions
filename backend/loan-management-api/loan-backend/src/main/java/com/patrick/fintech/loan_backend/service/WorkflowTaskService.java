@@ -31,8 +31,7 @@ public class WorkflowTaskService {
 
     private static final Set<String> OPEN_STATUSES = Set.of("OPEN", "IN_PROGRESS");
     private static final Set<String> PRIORITIES = Set.of("LOW", "NORMAL", "HIGH", "URGENT");
-    private static final DateTimeFormatter EMAIL_DATE =
-            DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm");
+    private static final DateTimeFormatter EMAIL_DATE = DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm");
 
     private final WorkflowTaskRepository taskRepository;
     private final UserRepository userRepository;
@@ -44,10 +43,10 @@ public class WorkflowTaskService {
         Long organizationId = organizationId(actor);
         int safeLimit = Math.max(1, Math.min(limit, 50));
         return taskRepository.findMine(
-                        organizationId,
-                        actor.getId(),
-                        OPEN_STATUSES,
-                        PageRequest.of(0, safeLimit))
+                organizationId,
+                actor.getId(),
+                OPEN_STATUSES,
+                PageRequest.of(0, safeLimit))
                 .stream()
                 .map(task -> WorkflowTaskResponse.from(task, LocalDateTime.now()))
                 .toList();
@@ -78,7 +77,7 @@ public class WorkflowTaskService {
         }
 
         User assignee = userRepository.findByIdAndOrganizationId(
-                        request.getAssigneeId(), organizationId)
+                request.getAssigneeId(), organizationId)
                 .orElseThrow(() -> new IllegalArgumentException("Assigned user was not found in this organization"));
 
         requireActiveAssignee(assignee);
@@ -301,7 +300,8 @@ public class WorkflowTaskService {
             throw new IllegalArgumentException("Invalid task id");
         }
         return taskRepository.findMineById(taskId, organizationId, actor.getId())
-                .orElseThrow(() -> new AccessDeniedException("Task not found or not assigned to the authenticated user"));
+                .orElseThrow(
+                        () -> new AccessDeniedException("Task not found or not assigned to the authenticated user"));
     }
 
     private void publishAssignmentEvent(WorkflowTask task, String link) {

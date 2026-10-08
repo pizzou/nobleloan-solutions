@@ -53,6 +53,8 @@ import org.springframework.beans.factory.annotation.Value;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.MediaTypeFactory;
+import org.springframework.http.ContentDisposition;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -66,6 +68,7 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import java.util.Locale;
+import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -423,6 +426,9 @@ public class PublicController {
                 result.put(
                                 "fileSize",
                                 saved.getFileSize());
+                result.put("verificationStatus", saved.getVerificationStatus());
+                result.put("uploadedByApplicant", saved.isUploadedByApplicant());
+                result.put("contentAvailable", saved.isContentAvailable());
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
@@ -493,6 +499,7 @@ public class PublicController {
                 result.put("fileSize", saved.getFileSize());
                 result.put("verificationStatus", saved.getVerificationStatus());
                 result.put("uploadedByApplicant", saved.isUploadedByApplicant());
+                result.put("contentAvailable", saved.isContentAvailable());
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok("Replacement document uploaded", result));
@@ -556,6 +563,10 @@ public class PublicController {
                                                                         f.isUploadedByApplicant());
 
                                                         m.put(
+                                                                        "contentAvailable",
+                                                                        f.isContentAvailable());
+
+                                                        m.put(
                                                                         "officerComment",
                                                                         f.getOfficerComment());
 
@@ -574,6 +585,146 @@ public class PublicController {
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
                                                 docs));
+        }
+
+        // ============================================================
+        // APPLICANT DOCUMENT CONTENT
+        // ============================================================
+
+        @GetMapping("/applications/{reference}/documents/{fileId}/preview")
+        @Transactional
+        public ResponseEntity<byte[]> previewApplicationDocument(
+                        @PathVariable String reference,
+                        @PathVariable Long fileId,
+                        @RequestParam String phone) {
+                return serveApplicantDocument(reference, phone, fileId, "inline", "APPLICANT_DOCUMENT_PREVIEWED");
+        }
+
+        @GetMapping("/applications/{reference}/documents/{fileId}/download")
+        @Transactional
+        public ResponseEntity<byte[]> downloadApplicationDocument(
+                        @PathVariable String reference,
+                        @PathVariable Long fileId,
+                        @RequestParam String phone) {
+                return serveApplicantDocument(reference, phone, fileId, "attachment", "APPLICANT_DOCUMENT_DOWNLOADED");
+        }
+
+        private ResponseEntity<byte[]> serveApplicantDocument(
+                        String reference,
+                        String phone,
+                        Long fileId,
+                        String disposition,
+                        String auditAction) {
+                Loan loan = verifyOwnership(reference, phone);
+                if (loan.getBorrower() == null) {
+                        throw new IllegalArgumentException("This application has no borrower associated with it.");
+                }
+
+                BorrowerFile file = fileService.getById(fileId);
+                if (file == null || file.getBorrower() == null
+                                || !loan.getBorrower().getId().equals(file.getBorrower().getId())
+                                || !file.isUploadedByApplicant()) {
+                        throw new RuntimeException("Document not found.");
+                }
+
+                byte[] data = file.getData();
+                if (data == null || data.length == 0) {
+                        throw new IllegalStateException(
+                                        "The requested document has no stored file content. Please upload the document again.");
+                }
+
+                String fileName = safeDocumentFilename(file.getFileName());
+                MediaType mediaType = resolveDocumentMediaType(file, data);
+                ContentDisposition contentDisposition = ContentDisposition.builder(disposition)
+                                .filename(fileName, StandardCharsets.UTF_8)
+                                .build();
+
+                auditService.log(
+                                loan.getBorrower().getOrganization(),
+                                null,
+                                auditAction,
+                                "BORROWER_FILE",
+                                String.valueOf(fileId),
+                                "Applicant document access for " + loan.getReferenceNumber() + " (" + fileName + ")");
+
+                return ResponseEntity.ok()
+                                .contentType(mediaType)
+                                .contentLength(data.length)
+                                .cacheControl(org.springframework.http.CacheControl.noStore().mustRevalidate())
+                                .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition.toString())
+                                .header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+                                .header("X-Content-Type-Options", "nosniff")
+                                .body(data);
+        }
+
+        private MediaType resolveDocumentMediaType(BorrowerFile file, byte[] data) {
+                MediaType detected = detectStoredMediaType(data);
+                if (detected != null) {
+                        return detected;
+                }
+
+                String declared = file.getFileType();
+                if (declared != null && !declared.isBlank()) {
+                        try {
+                                MediaType candidate = MediaType.parseMediaType(
+                                                declared.split(";", 2)[0].trim().toLowerCase(Locale.ROOT));
+                                if (Set.of(
+                                                MediaType.APPLICATION_PDF,
+                                                MediaType.IMAGE_JPEG,
+                                                MediaType.IMAGE_PNG,
+                                                MediaType.valueOf("image/webp")).contains(candidate)) {
+                                        return candidate;
+                                }
+                        } catch (IllegalArgumentException ignored) {
+                                // Use the filename extension below.
+                        }
+                }
+                return MediaTypeFactory.getMediaType(file.getFileName())
+                                .filter(type -> Set.of(
+                                                MediaType.APPLICATION_PDF,
+                                                MediaType.IMAGE_JPEG,
+                                                MediaType.IMAGE_PNG,
+                                                MediaType.valueOf("image/webp")).contains(type))
+                                .orElse(MediaType.APPLICATION_OCTET_STREAM);
+        }
+
+        private MediaType detectStoredMediaType(byte[] data) {
+                if (data == null || data.length == 0) {
+                        return null;
+                }
+                if (startsWith(data, new byte[] { 0x25, 0x50, 0x44, 0x46 })) {
+                        return MediaType.APPLICATION_PDF;
+                }
+                if (startsWith(data, new byte[] { (byte) 0xff, (byte) 0xd8, (byte) 0xff })) {
+                        return MediaType.IMAGE_JPEG;
+                }
+                if (startsWith(data, new byte[] { (byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a })) {
+                        return MediaType.IMAGE_PNG;
+                }
+                if (data.length >= 12
+                                && data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46
+                                && data[8] == 0x57 && data[9] == 0x45 && data[10] == 0x42 && data[11] == 0x50) {
+                        return MediaType.valueOf("image/webp");
+                }
+                return null;
+        }
+
+        private boolean startsWith(byte[] value, byte[] prefix) {
+                if (value.length < prefix.length) {
+                        return false;
+                }
+                for (int i = 0; i < prefix.length; i++) {
+                        if (value[i] != prefix[i]) {
+                                return false;
+                        }
+                }
+                return true;
+        }
+
+        private String safeDocumentFilename(String value) {
+                String name = value == null || value.isBlank() ? "document" : value.trim();
+                String sanitized = name.replaceAll("[\\/\"\r\n]", "_");
+                return sanitized.isBlank() ? "document" : sanitized.substring(0, Math.min(255, sanitized.length()));
         }
 
         // ============================================================
@@ -765,7 +916,8 @@ public class PublicController {
                                 || "prod".equalsIgnoreCase(applicationEnvironment)) {
                         response.put("received", false);
                         response.put("status", "REJECTED");
-                        response.put("message", "This legacy MTN webhook endpoint is disabled in production. Use /api/public/webhooks/mtn-momo.");
+                        response.put("message",
+                                        "This legacy MTN webhook endpoint is disabled in production. Use /api/public/webhooks/mtn-momo.");
                         return ResponseEntity.status(404).body(response);
                 }
 
@@ -1174,7 +1326,8 @@ public class PublicController {
                                                 new TypeReference<ApiResponse<Map<String, Object>>>() {
                                                 });
                                 return ResponseEntity.status(
-                                                idempotency.cachedStatusCode() == null ? 200 : idempotency.cachedStatusCode())
+                                                idempotency.cachedStatusCode() == null ? 200
+                                                                : idempotency.cachedStatusCode())
                                                 .body(cached);
                         } catch (Exception e) {
                                 throw new IllegalStateException(
@@ -2567,7 +2720,8 @@ public class PublicController {
                 Map<String, Object> body;
                 try {
                         body = objectMapper.readValue(applicationJson,
-                                        new TypeReference<Map<String, Object>>() {});
+                                        new TypeReference<Map<String, Object>>() {
+                                        });
                 } catch (Exception ex) {
                         throw new IllegalArgumentException("Invalid loan application data.", ex);
                 }
@@ -2783,9 +2937,9 @@ public class PublicController {
                  * - phone + National ID must identify the SAME borrower;
                  * - when they match, reuse that borrower and create a new loan;
                  * - never overwrite the borrower's stored KYC/contact data from
-                 *   the public repeat-loan application;
+                 * the public repeat-loan application;
                  * - if either identifier belongs to a different borrower, stop
-                 *   the request rather than linking the loan to the wrong person.
+                 * the request rather than linking the loan to the wrong person.
                  */
                 Borrower borrowerByPhone = borrowerRepo
                                 .findByPhoneHashAndOrganization_Id(
@@ -2829,122 +2983,122 @@ public class PublicController {
                                         .organization(org)
                                         .build();
 
-                borrower.setFirstName(
-                                firstName);
+                        borrower.setFirstName(
+                                        firstName);
 
-                borrower.setLastName(
-                                str(
-                                                body.get(
-                                                                "lastName")));
+                        borrower.setLastName(
+                                        str(
+                                                        body.get(
+                                                                        "lastName")));
 
-                borrower.setPhone(
-                                phone);
+                        borrower.setPhone(
+                                        phone);
 
-                borrower.setEmail(
-                                inputEmail.trim());
+                        borrower.setEmail(
+                                        inputEmail.trim());
 
-                borrower.setNationalId(
-                                nationalId);
+                        borrower.setNationalId(
+                                        nationalId);
 
-                borrower.setDateOfBirth(
-                                date(
-                                                body.get(
-                                                                "dateOfBirth")));
+                        borrower.setDateOfBirth(
+                                        date(
+                                                        body.get(
+                                                                        "dateOfBirth")));
 
-                borrower.setGender(
-                                gender);
+                        borrower.setGender(
+                                        gender);
 
-                borrower.setMaritalStatus(
-                                maritalStatus);
+                        borrower.setMaritalStatus(
+                                        maritalStatus);
 
-                borrower.setNationality(nationality);
-                borrower.setPlaceOfBirth(placeOfBirth);
+                        borrower.setNationality(nationality);
+                        borrower.setPlaceOfBirth(placeOfBirth);
 
-                borrower.setSingleCertificateNumber(
-                                str(
-                                                body.get(
-                                                                "singleCertificateNumber")));
+                        borrower.setSingleCertificateNumber(
+                                        str(
+                                                        body.get(
+                                                                        "singleCertificateNumber")));
 
-                borrower.setSpouseFullName(
-                                str(
-                                                body.get(
-                                                                "spouseFullName")));
+                        borrower.setSpouseFullName(
+                                        str(
+                                                        body.get(
+                                                                        "spouseFullName")));
 
-                borrower.setSpouseNationalId(
-                                str(
-                                                body.get(
-                                                                "spouseNationalId")));
+                        borrower.setSpouseNationalId(
+                                        str(
+                                                        body.get(
+                                                                        "spouseNationalId")));
 
-                borrower.setSpousePhone(
-                                spousePhone);
+                        borrower.setSpousePhone(
+                                        spousePhone);
 
-                borrower.setSpouseConsent(
-                                body.get(
-                                                "spouseConsent") != null
-                                                                ? Boolean.parseBoolean(
-                                                                                body.get(
-                                                                                                "spouseConsent")
-                                                                                                .toString())
-                                                                : null);
+                        borrower.setSpouseConsent(
+                                        body.get(
+                                                        "spouseConsent") != null
+                                                                        ? Boolean.parseBoolean(
+                                                                                        body.get(
+                                                                                                        "spouseConsent")
+                                                                                                        .toString())
+                                                                        : null);
 
-                borrower.setAddress(
-                                str(
-                                                body.get(
-                                                                "address")));
+                        borrower.setAddress(
+                                        str(
+                                                        body.get(
+                                                                        "address")));
 
-                borrower.setAddressLine1(
-                                str(
-                                                body.get(
-                                                                "address")));
+                        borrower.setAddressLine1(
+                                        str(
+                                                        body.get(
+                                                                        "address")));
 
-                borrower.setCity(
-                                str(
-                                                body.get(
-                                                                "city")));
+                        borrower.setCity(
+                                        str(
+                                                        body.get(
+                                                                        "city")));
 
-                borrower.setStateProvince(
-                                physicalAddressProvince);
+                        borrower.setStateProvince(
+                                        physicalAddressProvince);
 
-                borrower.setPhysicalAddressProvince(
-                                physicalAddressProvince);
-                borrower.setPhysicalAddressDistrict(
-                                physicalAddressDistrict);
-                borrower.setPhysicalAddressSector(
-                                physicalAddressSector);
-                borrower.setPhysicalAddressCell(
-                                physicalAddressCell);
-                borrower.setPhysicalAddressVillage(
-                                str(body.get("village")));
+                        borrower.setPhysicalAddressProvince(
+                                        physicalAddressProvince);
+                        borrower.setPhysicalAddressDistrict(
+                                        physicalAddressDistrict);
+                        borrower.setPhysicalAddressSector(
+                                        physicalAddressSector);
+                        borrower.setPhysicalAddressCell(
+                                        physicalAddressCell);
+                        borrower.setPhysicalAddressVillage(
+                                        str(body.get("village")));
 
-                borrower.setCountry(country);
+                        borrower.setCountry(country);
 
-                borrower.setEmploymentType(
-                                str(
-                                                body.get(
-                                                                "employmentType")));
+                        borrower.setEmploymentType(
+                                        str(
+                                                        body.get(
+                                                                        "employmentType")));
 
-                borrower.setEmployerName(
-                                str(
-                                                body.get(
-                                                                "employerName")));
+                        borrower.setEmployerName(
+                                        str(
+                                                        body.get(
+                                                                        "employerName")));
 
-                borrower.setJobTitle(
-                                str(
-                                                body.get(
-                                                                "jobTitle")));
+                        borrower.setJobTitle(
+                                        str(
+                                                        body.get(
+                                                                        "jobTitle")));
 
-                borrower.setMonthlyIncome(
-                                num(
-                                                body.get(
-                                                                "monthlyIncome")));
+                        borrower.setMonthlyIncome(
+                                        num(
+                                                        body.get(
+                                                                        "monthlyIncome")));
 
-                borrower.setMonthlyExpenses(
-                                num(
-                                                body.get(
-                                                                "monthlyExpenses")));
+                        borrower.setMonthlyExpenses(
+                                        num(
+                                                        body.get(
+                                                                        "monthlyExpenses")));
 
-                borrower = borrowerRepo.save(
-                                borrower);
+                        borrower = borrowerRepo.save(
+                                        borrower);
                 }
 
                 // ========================================================
@@ -3257,9 +3411,12 @@ public class PublicController {
                                                                                                 : "💰");
 
                                                                 /*
-                                                                 * The public portal must expose the exact product configuration
-                                                                 * used by the loan-application service. Never publish a hardcoded
-                                                                 * rate, term or amount range that can drift from the underwriting
+                                                                 * The public portal must expose the exact product
+                                                                 * configuration
+                                                                 * used by the loan-application service. Never publish a
+                                                                 * hardcoded
+                                                                 * rate, term or amount range that can drift from the
+                                                                 * underwriting
                                                                  * rules.
                                                                  */
                                                                 m.put(
@@ -3336,7 +3493,8 @@ public class PublicController {
                 try {
                         Map<String, Object> parsed = objectMapper.readValue(
                                         json,
-                                        new TypeReference<Map<String, Object>>() {});
+                                        new TypeReference<Map<String, Object>>() {
+                                        });
                         return parsed == null ? Map.of() : parsed;
                 } catch (Exception e) {
                         log.warn("Ignoring invalid websiteContentJson for public site", e);
@@ -4178,9 +4336,9 @@ public class PublicController {
                 final BorrowerFile saved;
                 try {
                         saved = fileService.upsertApplicantDocumentForNewApplication(
-                                borrowerId,
-                                file,
-                                documentType);
+                                        borrowerId,
+                                        file,
+                                        documentType);
                 } catch (java.io.IOException ex) {
                         throw new IllegalStateException(
                                         "Failed to persist mandatory " + documentType.name() + " document.", ex);
@@ -4405,7 +4563,6 @@ public class PublicController {
                         return null;
                 }
         }
-
 
         private void requirePublicCrbField(
                         String value,

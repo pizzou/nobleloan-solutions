@@ -1016,6 +1016,26 @@ export const publicApi = {
     ),
 
   /**
+   * Builds the same-origin public document URL. Next.js proxies /api/* to the
+   * configured backend, so the borrower can open a binary response directly
+   * without requiring Axios to expose a cross-origin Blob to the browser.
+   */
+  documentContentUrl: (
+    reference: string,
+    phone: string,
+    fileId: number,
+    mode: "preview" | "download",
+  ) => {
+    if (!Number.isSafeInteger(fileId) || fileId <= 0) {
+      throw new Error("Invalid document ID.");
+    }
+
+    return `/api/public/applications/${encodeURIComponent(
+      reference.trim().toUpperCase(),
+    )}/documents/${fileId}/${mode}?phone=${encodeURIComponent(phone.trim())}`;
+  },
+
+  /**
    * Get the document requirements for a submitted public
    * loan application.
    *
