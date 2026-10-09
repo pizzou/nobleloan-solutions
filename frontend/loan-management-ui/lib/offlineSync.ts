@@ -1,6 +1,5 @@
 import { TENANT_SLUG } from "./tenant";
 import { API_BASE_URL } from "./apiBase";
-import { OFFLINE_FINANCIAL_MUTATIONS_ENABLED } from "./offlineDb";
 import {
   bumpAttempt,
   getPendingActions,
@@ -164,10 +163,6 @@ export async function checkBackendHealth(): Promise<boolean> {
 export async function drainOfflineQueue(
   authHeader: () => Record<string, string>,
 ): Promise<SyncResult> {
-  if (!OFFLINE_FINANCIAL_MUTATIONS_ENABLED) {
-    return { succeeded: [], failed: [] };
-  }
-
   if (syncInProgress) {
     return { succeeded: [], failed: [] };
   }

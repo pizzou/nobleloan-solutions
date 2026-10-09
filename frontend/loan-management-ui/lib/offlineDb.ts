@@ -4,6 +4,9 @@ const DB_VERSION = 6;
 const STORE_QUEUE = "pendingActions";
 const STORE_CACHE = "cache";
 
+/** Browser-side financial mutation queue is intentionally disabled for real-money safety. */
+export const OFFLINE_FINANCIAL_MUTATIONS_ENABLED = false as const;
+
 export type PendingActionStatus = "PENDING" | "FAILED";
 
 /**
