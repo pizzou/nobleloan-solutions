@@ -57,8 +57,7 @@ public class AuthController {
                 "success", true,
                 "headerName", token.getHeaderName(),
                 "parameterName", token.getParameterName(),
-                "token", token.getToken()
-        ));
+                "token", token.getToken()));
     }
 
     @PostMapping("/register")
@@ -71,7 +70,6 @@ public class AuthController {
         return ResponseEntity.ok(safe(created));
     }
 
-   
     private static final java.util.Set<String> EMAIL_OTP_ROLES = java.util.Set.of("ADMIN", "MANAGER", "BUSINESS_OWNER");
 
     private static final int MAX_FAILED_ATTEMPTS = 5;
@@ -136,7 +134,6 @@ public class AuthController {
 
         boolean emailOtpRequired = isEmailOtpRole(user);
 
-       
         if (emailOtpRequired) {
             if (req.getOtp() == null || req.getOtp().isBlank()) {
                 String challengeToken = jwtUtils.generateLoginOtpChallengeToken(user);
@@ -189,7 +186,6 @@ public class AuthController {
                 && EMAIL_OTP_ROLES.contains(user.getRole().getName().trim().toUpperCase());
     }
 
-   
     @PostMapping("/send-login-otp")
     public ResponseEntity<Map<String, Object>> sendLoginOtp(@RequestBody LoginRequest req) {
         if (req == null || req.getOtpChallengeToken() == null || req.getOtpChallengeToken().isBlank()) {
@@ -267,13 +263,11 @@ public class AuthController {
         return successfulLogin(user);
     }
 
-
     private void verifyLoginOtp(User user, String submittedOtp, java.time.LocalDateTime now) {
         if (user == null || user.getId() == null) {
             throw new RuntimeException("User account not found");
         }
 
-      
         User current = userRepository.findById(user.getId())
                 .orElseThrow(() -> new RuntimeException("User account not found"));
 
@@ -302,7 +296,8 @@ public class AuthController {
         int consumed = userRepository.consumeLoginOtp(
                 current.getId(), current.getLoginOtpHash(), now, java.time.LocalDateTime.now());
         if (consumed != 1) {
-            throw new RuntimeException("This verification code has already been used. Please sign in again to get a new one.");
+            throw new RuntimeException(
+                    "This verification code has already been used. Please sign in again to get a new one.");
         }
 
         auditService.logAuthenticationAsync(current.getOrganization(), current, "LOGIN_OTP_VERIFIED", "AUTH",
@@ -340,6 +335,7 @@ public class AuthController {
         if (auth == null || auth.getName() == null || auth.getName().isBlank()) {
             return ResponseEntity.ok()
                     .header("Set-Cookie", sessionCookie("", true).toString())
+                    .header("Clear-Site-Data", "\"cache\", \"storage\"")
                     .body(Map.of("success", true));
         }
 
@@ -352,6 +348,7 @@ public class AuthController {
         }
         return ResponseEntity.ok()
                 .header("Set-Cookie", sessionCookie("", true).toString())
+                .header("Clear-Site-Data", "\"cache\", \"storage\"")
                 .body(Map.of("success", true));
     }
 
@@ -371,9 +368,12 @@ public class AuthController {
             return "None";
         }
         String normalized = value.trim();
-        if ("strict".equalsIgnoreCase(normalized)) return "Strict";
-        if ("lax".equalsIgnoreCase(normalized)) return "Lax";
-        if ("none".equalsIgnoreCase(normalized)) return "None";
+        if ("strict".equalsIgnoreCase(normalized))
+            return "Strict";
+        if ("lax".equalsIgnoreCase(normalized))
+            return "Lax";
+        if ("none".equalsIgnoreCase(normalized))
+            return "None";
         throw new IllegalStateException(
                 "Invalid AUTH_COOKIE_SAME_SITE value. Use Strict, Lax, or None.");
     }
@@ -385,8 +385,7 @@ public class AuthController {
             return ResponseEntity.status(401).body(Map.of(
                     "success", false,
                     "authenticated", false,
-                    "message", "Authentication required"
-            ));
+                    "message", "Authentication required"));
         }
 
         User user = userRepository.findByEmailIgnoreCase(auth.getName()).orElse(null);
@@ -394,8 +393,7 @@ public class AuthController {
             return ResponseEntity.status(401).body(Map.of(
                     "success", false,
                     "authenticated", false,
-                    "message", "Authentication required"
-            ));
+                    "message", "Authentication required"));
         }
 
         return ResponseEntity.ok(safe(user));

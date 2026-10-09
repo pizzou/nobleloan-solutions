@@ -1,5 +1,5 @@
 const DB_NAME = "loansaas-offline";
-const DB_VERSION = 3;
+const DB_VERSION = 6;
 
 const STORE_QUEUE = "pendingActions";
 const STORE_CACHE = "cache";
@@ -7,14 +7,9 @@ const STORE_CACHE = "cache";
 export type PendingActionStatus = "PENDING" | "FAILED";
 
 /**
- * Durable client-side mutation.
- *
- * IMPORTANT FOR FINANCIAL OPERATIONS:
- * - the id is generated once and never changes;
- * - Idempotency-Key, when present, is persisted with the action;
- * - retryAt prevents aggressive retry loops;
- * - FAILED actions are retained for manual recovery but are no longer
- *   reported as silently "waiting to sync".
+ * Legacy queue types are kept for source compatibility with the old sync UI.
+ * Production financial mutations are deliberately not persisted or replayed
+ * from browser storage; the functions below fail closed and return no queue.
  */
 export interface PendingAction {
   id: string;
@@ -62,6 +57,15 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_CACHE)) {
         db.createObjectStore(STORE_CACHE, { keyPath: "url" });
       }
+
+      // This release deliberately removes all legacy client-side financial
+      // mutations and cached borrower/loan data. Replaying a stale queued write
+      // can move money or change loan state without current server review.
+      const transaction = request.transaction;
+      if (transaction) {
+        transaction.objectStore(STORE_QUEUE).clear();
+        transaction.objectStore(STORE_CACHE).clear();
+      }
     };
 
     request.onsuccess = () => {
@@ -84,64 +88,6 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-function withStore<T>(
-  storeName: string,
-  mode: IDBTransactionMode,
-  operation: (store: IDBObjectStore) => IDBRequest | void,
-): Promise<T> {
-  return new Promise(async (resolve, reject) => {
-    let db: IDBDatabase | null = null;
-
-    try {
-      db = await openDb();
-      const transaction = db.transaction(storeName, mode);
-      const store = transaction.objectStore(storeName);
-      let request: IDBRequest | void;
-
-      try {
-        request = operation(store);
-      } catch (error) {
-        db.close();
-        reject(error);
-        return;
-      }
-
-      let result: unknown;
-
-      if (request) {
-        request.onsuccess = () => {
-          result = request.result;
-        };
-        request.onerror = () => {
-          reject(request.error || new Error("IndexedDB operation failed."));
-        };
-      }
-
-      transaction.oncomplete = () => {
-        db?.close();
-        resolve(result as T);
-      };
-
-      transaction.onerror = () => {
-        const error =
-          transaction.error || new Error("IndexedDB transaction failed.");
-        db?.close();
-        reject(error);
-      };
-
-      transaction.onabort = () => {
-        const error =
-          transaction.error || new Error("IndexedDB transaction was aborted.");
-        db?.close();
-        reject(error);
-      };
-    } catch (error) {
-      db?.close();
-      reject(error);
-    }
-  });
-}
-
 export function createIdempotencyKey(): string {
   if (
     typeof crypto !== "undefined" &&
@@ -156,253 +102,124 @@ export function createIdempotencyKey(): string {
 }
 
 export async function queueAction(
-  action: Omit<PendingAction, "id" | "createdAt" | "attempts">,
+  _action: Omit<PendingAction, "id" | "createdAt" | "attempts">,
 ): Promise<PendingAction> {
-  const normalizedUrl = String(action.url || "").toLowerCase();
-
-  // Public loan applications are intentionally NOT offline-queueable. They
-  // are a two-stage workflow (application -> required document upload), and
-  // replaying the application later can create a loan without the applicant
-  // being present to complete the document step.
-  if (normalizedUrl.includes("/public/loan-application")) {
-    throw new Error(
-      "Public loan applications require a live connection and cannot be queued for background synchronization.",
-    );
-  }
-
-  const actionId = createIdempotencyKey();
-
-  const fullAction: PendingAction = {
-    ...action,
-    id: actionId,
-    headers: {
-      ...(action.headers || {}),
-      "Idempotency-Key": action.headers?.["Idempotency-Key"] || actionId,
-    },
-    createdAt: new Date().toISOString(),
-    attempts: 0,
-    status: action.status ?? "PENDING",
-  };
-
-  await withStore(STORE_QUEUE, "readwrite", (store) => store.put(fullAction));
-  return fullAction;
+  // Real-money writes must be checked against current balances, loan state,
+  // role permissions, and idempotency records on the server. Never persist or
+  // replay money movement/loan workflow mutations from a browser device.
+  throw new Error(
+    "This financial action requires a live connection and was not saved. Reconnect and submit it again after checking the current server state.",
+  );
 }
 
 export async function getPendingActions(): Promise<PendingAction[]> {
-  const actions = await withStore<PendingAction[]>(
-    STORE_QUEUE,
-    "readonly",
-    (store) => store.getAll(),
-  );
-
-  const now = Date.now();
-
-  return (actions || [])
-    .map((action) => ({
-      ...action,
-      status: action.status ?? "PENDING",
-    }))
-    .filter((action) => {
-      if (action.status !== "PENDING") return false;
-      if (!action.retryAt) return true;
-      return new Date(action.retryAt).getTime() <= now;
-    })
-    .sort(
-      (a, b) =>
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-    );
+  return [];
 }
 
 export async function getAllPendingActions(): Promise<PendingAction[]> {
-  const actions = await withStore<PendingAction[]>(
-    STORE_QUEUE,
-    "readonly",
-    (store) => store.getAll(),
-  );
-
-  return (actions || [])
-    .map((action) => ({
-      ...action,
-      status: action.status ?? "PENDING",
-    }))
-    .sort(
-      (a, b) =>
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-    );
+  return [];
 }
 
 export async function pendingCount(): Promise<number> {
-  const actions = await getAllPendingActions();
-  return actions.filter((action) => (action.status ?? "PENDING") === "PENDING")
-    .length;
+  return 0;
 }
 
 export async function failedCount(): Promise<number> {
-  const actions = await getAllPendingActions();
-  return actions.filter((action) => action.status === "FAILED").length;
+  return 0;
 }
 
-export async function removePendingAction(id: string): Promise<void> {
-  await withStore(STORE_QUEUE, "readwrite", (store) => store.delete(id));
+export async function removePendingAction(_id: string): Promise<void> {
+  // Offline financial writes are disabled in this release.
 }
 
 export async function updatePendingAction(
-  action: PendingAction,
+  _action: PendingAction,
 ): Promise<void> {
-  await withStore(STORE_QUEUE, "readwrite", (store) => store.put(action));
+  // Offline financial writes are disabled in this release.
 }
 
 export async function bumpAttempt(
-  id: string,
-  lastError?: string,
-  retryAt?: string,
+  _id: string,
+  _lastError?: string,
+  _retryAt?: string,
 ): Promise<PendingAction | null> {
-  const action = await withStore<PendingAction | undefined>(
-    STORE_QUEUE,
-    "readonly",
-    (store) => store.get(id),
-  );
-
-  if (!action) return null;
-
-  const updated: PendingAction = {
-    ...action,
-    attempts: Number.isFinite(action.attempts) ? action.attempts + 1 : 1,
-    status: "PENDING",
-    ...(lastError ? { lastError } : {}),
-    ...(retryAt ? { retryAt } : {}),
-  };
-
-  await updatePendingAction(updated);
-  return updated;
+  return null;
 }
 
 export async function markPendingActionFailed(
-  id: string,
-  lastError: string,
+  _id: string,
+  _lastError: string,
 ): Promise<PendingAction | null> {
-  const action = await withStore<PendingAction | undefined>(
-    STORE_QUEUE,
-    "readonly",
-    (store) => store.get(id),
-  );
-
-  if (!action) return null;
-
-  const updated: PendingAction = {
-    ...action,
-    status: "FAILED",
-    lastError,
-    retryAt: undefined,
-  };
-
-  await updatePendingAction(updated);
-  return updated;
+  return null;
 }
 
-/**
- * Makes every pending action immediately eligible for synchronization.
- *
- * This is intentionally used when the backend transitions from unavailable
- * to healthy. A previous exponential backoff must not delay a financial
- * mutation after connectivity has genuinely returned. The action id and
- * idempotency key remain unchanged.
- */
 export async function releasePendingActionsForImmediateSync(): Promise<number> {
-  const actions = await getAllPendingActions();
-  const pending = actions.filter(
-    (action) => (action.status ?? "PENDING") === "PENDING",
-  );
-
-  for (const action of pending) {
-    await updatePendingAction({
-      ...action,
-      retryAt: undefined,
-    });
-  }
-
-  return pending.length;
+  return 0;
 }
 
-/**
- * Removes legacy public-loan application mutations queued by older frontend
- * versions. Those mutations are unsafe to replay because application
- * creation must be followed by applicant-controlled document upload.
- */
 export async function purgeQueuedPublicLoanApplications(): Promise<number> {
-  const actions = await getAllPendingActions();
-  const legacyPublicApplications = actions.filter((action) =>
-    String(action.url || "")
-      .toLowerCase()
-      .includes("/public/loan-application"),
-  );
-
-  for (const action of legacyPublicApplications) {
-    await removePendingAction(action.id);
-  }
-
-  return legacyPublicApplications.length;
+  return 0;
 }
 
 export async function retryFailedAction(
-  id: string,
+  _id: string,
 ): Promise<PendingAction | null> {
-  const action = await withStore<PendingAction | undefined>(
-    STORE_QUEUE,
-    "readonly",
-    (store) => store.get(id),
-  );
-
-  if (!action) return null;
-
-  const updated: PendingAction = {
-    ...action,
-    status: "PENDING",
-    retryAt: new Date().toISOString(),
-    lastError: undefined,
-  };
-
-  await updatePendingAction(updated);
-  return updated;
+  return null;
 }
 
 export async function retryAllFailedActions(): Promise<number> {
-  const actions = await getAllPendingActions();
-  const failed = actions.filter((action) => action.status === "FAILED");
-
-  for (const action of failed) {
-    await retryFailedAction(action.id);
-  }
-
-  return failed.length;
+  return 0;
 }
 
-export async function cacheSet<T>(url: string, data: T): Promise<void> {
-  const cached: CachedResponse<T> = {
-    url,
-    data,
-    cachedAt: new Date().toISOString(),
-  };
+/** Clear legacy client-side copies of borrower data and queued financial writes. */
+export async function clearSensitiveOfflineData(): Promise<void> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) return;
 
-  await withStore(STORE_CACHE, "readwrite", (store) => store.put(cached));
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    let transaction: IDBTransaction;
+    try {
+      transaction = db.transaction([STORE_QUEUE, STORE_CACHE], "readwrite");
+      transaction.objectStore(STORE_QUEUE).clear();
+      transaction.objectStore(STORE_CACHE).clear();
+    } catch (error) {
+      db.close();
+      reject(error);
+      return;
+    }
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      const error =
+        transaction.error || new Error("Unable to clear offline data.");
+      db.close();
+      reject(error);
+    };
+    transaction.onabort = () => {
+      const error =
+        transaction.error || new Error("Offline data cleanup was aborted.");
+      db.close();
+      reject(error);
+    };
+  });
+}
+
+export async function cacheSet<T>(_url: string, _data: T): Promise<void> {
+  // No customer/financial response is persisted in browser storage.
 }
 
 export async function cacheGet<T>(
-  url: string,
+  _url: string,
 ): Promise<CachedResponse<T> | null> {
-  const result = await withStore<CachedResponse<T> | undefined>(
-    STORE_CACHE,
-    "readonly",
-    (store) => store.get(url),
-  );
-
-  return result || null;
+  return null;
 }
 
-export async function cacheDelete(url: string): Promise<void> {
-  await withStore(STORE_CACHE, "readwrite", (store) => store.delete(url));
+export async function cacheDelete(_url: string): Promise<void> {
+  // No cached financial response is maintained.
 }
 
 export async function cacheClear(): Promise<void> {
-  await withStore(STORE_CACHE, "readwrite", (store) => store.clear());
+  await clearSensitiveOfflineData();
 }

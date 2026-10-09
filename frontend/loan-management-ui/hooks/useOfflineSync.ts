@@ -4,6 +4,7 @@ import {
   getAllPendingActions,
   queueAction as queueDurableAction,
   removePendingAction,
+  OFFLINE_FINANCIAL_MUTATIONS_ENABLED,
 } from "@/lib/offlineDb";
 
 export type OfflineActionType = string;
@@ -39,8 +40,13 @@ function assertOfflineSafeUrl(url: string): void {
 export async function queueAction(
   action: Parameters<typeof queueDurableAction>[0],
 ): Promise<void> {
-  assertOfflineSafeUrl(action.url);
+  if (!OFFLINE_FINANCIAL_MUTATIONS_ENABLED) {
+    throw new Error(
+      "Offline financial operations are disabled in production. Please retry when the server connection is available.",
+    );
+  }
 
+  assertOfflineSafeUrl(action.url);
   await queueDurableAction(action);
 }
 

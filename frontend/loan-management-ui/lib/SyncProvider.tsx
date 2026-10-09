@@ -208,13 +208,13 @@ export default function SyncProvider() {
 
         {offline ? (
           <span>
-            Offline mode — {pending} saved change{pending === 1 ? "" : "s"} will
-            synchronize automatically when connectivity returns.
+            Offline — financial changes are not stored on this device. Reconnect
+            before recording or approving financial transactions.
           </span>
         ) : !backendOnline && pending > 0 ? (
           <span>
-            Noble Loan server unavailable — {pending} saved change
-            {pending === 1 ? "" : "s"} are securely queued on this device.
+            Noble Loan server unavailable — financial changes require a live
+            connection and were not queued on this device.
           </span>
         ) : failed > 0 ? (
           <span>Some saved changes could not be synchronized.</span>

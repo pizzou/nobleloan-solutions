@@ -1,4 +1,5 @@
 import { authApi } from "@/services/api";
+import { clearSensitiveClientState } from "@/lib/securityCleanup";
 import { AuthResponse } from "@/types";
 
 /** Browser authentication uses an HttpOnly NLS_SESSION cookie. The JWT is never
@@ -19,10 +20,8 @@ export async function logout(): Promise<void> {
   try {
     await authApi.logout();
   } finally {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("user");
-      window.location.href = "/login";
-    }
+    await clearSensitiveClientState();
+    if (typeof window !== "undefined") window.location.replace("/login");
   }
 }
 

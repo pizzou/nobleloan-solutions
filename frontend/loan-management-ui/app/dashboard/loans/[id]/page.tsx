@@ -56,7 +56,6 @@ import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
 import {
   createIdempotencyKey,
-  queueAction,
   cacheGet,
   cacheSet,
 } from "@/lib/offlineDb";
@@ -1256,7 +1255,7 @@ export default function LoanDetailPage() {
 
           setMsg({
             type: "error",
-            text: "You're offline — showing the last saved version of this loan.",
+            text: "You're offline. No cached loan record is available; reconnect before making a financial decision.",
           });
         } else {
           setLoan(null);
@@ -1543,40 +1542,12 @@ export default function LoanDetailPage() {
 
     const idempotencyKey = createIdempotencyKey();
     const body = { ...payForm, amount };
-    const label = `Payment — ${loan?.borrower?.firstName ?? "Loan"} ${
-      loan?.referenceNumber ?? ""
-    } (${payForm.amount})`;
-
-    const saveForLater = async () => {
-      await queueAction({
-        url: `/loans/${loanId}/payments`,
-        method: "POST",
-        body,
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": idempotencyKey,
-        },
-        label,
-      });
-
-      setMsg({
-        type: "success",
-        text: "Payment securely saved on this device. It will be submitted automatically when the Noble Loan server is available again.",
-      });
-      setPayOpen(false);
-    };
-
     if (!online) {
-      try {
-        await saveForLater();
-      } catch (err: any) {
-        setMsg({
-          type: "error",
-          text: "Could not save offline: " + (err?.message ?? "Unknown error"),
-        });
-      } finally {
-        setPaying(false);
-      }
+      setMsg({
+        type: "error",
+        text: "You are offline. The payment was NOT recorded or saved on this device. Reconnect, refresh the loan and payment history, then submit again only after confirming the current status.",
+      });
+      setPaying(false);
       return;
     }
 
@@ -1591,23 +1562,12 @@ export default function LoanDetailPage() {
       setPayOpen(false);
       await load();
     } catch (err: any) {
-      if (isRetryableRequestError(err)) {
-        try {
-          await saveForLater();
-        } catch (queueError: any) {
-          setMsg({
-            type: "error",
-            text:
-              "The server is unavailable and the payment could not be saved locally: " +
-              (queueError?.message ?? "Unknown error"),
-          });
-        }
-      } else {
-        setMsg({
-          type: "error",
-          text: err?.message ?? "Unable to record payment.",
-        });
-      }
+      setMsg({
+        type: "error",
+        text: isRetryableRequestError(err)
+          ? `The server could not confirm whether this payment was recorded. Do not submit again until you refresh and verify the loan's payment history. Reference: ${idempotencyKey}`
+          : (err?.message ?? "Unable to record payment."),
+      });
     } finally {
       setPaying(false);
     }
@@ -1782,8 +1742,8 @@ export default function LoanDetailPage() {
         if (transportFailure && isRetryableRequestError(error)) {
           throw new Error(
             stForm.status === "DISBURSED"
-              ? "The Noble Loan server could not confirm the disbursement. No offline disbursement was created; please verify the server connection and retry."
-              : "The Noble Loan server could not confirm this loan status change. No offline status change was created; please verify the server connection and retry.",
+              ? "The server could not confirm whether disbursement completed. No offline disbursement was created. Refresh the loan and verify the transaction/status before attempting another disbursement."
+              : "The server could not confirm whether this status change completed. No offline status change was created. Refresh the loan and verify its current status before trying again.",
           );
         }
 

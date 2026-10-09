@@ -1,3 +1,4 @@
+import { clearSensitiveClientState } from "@/lib/securityCleanup";
 import axios, {
   AxiosError,
   AxiosHeaders,
@@ -22,6 +23,8 @@ const API: AxiosInstance = axios.create({
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    Pragma: "no-cache",
   },
 });
 
@@ -134,16 +137,23 @@ API.interceptors.response.use(
       typeof window !== "undefined" &&
       window.location.pathname !== "/login"
     ) {
-      localStorage.removeItem("user");
-      window.location.href = "/login";
+      void clearSensitiveClientState().finally(() => {
+        if (window.location.pathname !== "/login") window.location.replace("/login");
+      });
     }
 
-    const message =
-      getAxiosErrorMessage(responseData) ||
-      error.message ||
-      `Request failed with status ${status ?? "unknown"}`;
+    const requestId = String(error.response?.headers?.["x-request-id"] || "").trim();
+    const htmlError = isHtmlErrorPayload(responseData);
+    const message = htmlError
+      ? `The server or security proxy returned an HTML error page instead of JSON. Please retry.${requestId ? ` Reference: ${requestId}` : " If the problem continues, contact support with the time of the error."}`
+      : getAxiosErrorMessage(responseData) || error.message || `Request failed with status ${status ?? "unknown"}`;
 
     error.message = message;
+    if (htmlError && error.response) {
+      // Ensure callers inspecting error.response.data also cannot accidentally
+      // render/log a full Cloudflare/proxy HTML challenge document.
+      error.response.data = { message };
+    }
 
     const enhancedError = error as AxiosError<unknown> & {
       status?: number;
@@ -151,19 +161,28 @@ API.interceptors.response.use(
     };
 
     enhancedError.status = status;
-    enhancedError.data = responseData;
+    // Never copy a full HTML challenge/error document into view-model state or
+    // application logging. Keep only its safe diagnostic message.
+    enhancedError.data = htmlError ? { message } : responseData;
 
     return Promise.reject(enhancedError);
   },
 );
 
+function isHtmlErrorPayload(data: unknown): boolean {
+  if (typeof data !== "string") return false;
+  const sample = data.trimStart().slice(0, 1000).toLowerCase();
+  return sample.startsWith("<!doctype html") || sample.startsWith("<html") ||
+    sample.includes("<title>just a moment") || sample.includes("cloudflare") && sample.includes("challenge");
+}
+
 function getAxiosErrorMessage(data: unknown): string | null {
-  if (!data) {
-    return null;
-  }
+  if (!data) return null;
 
   if (typeof data === "string") {
-    return data || null;
+    if (isHtmlErrorPayload(data)) return "The server returned an HTML error page instead of JSON. Please retry.";
+    // Avoid presenting very large plain-text proxy/exception bodies in the UI.
+    return data.length > 1000 ? `${data.slice(0, 1000)}…` : data || null;
   }
 
   if (typeof data === "object") {
