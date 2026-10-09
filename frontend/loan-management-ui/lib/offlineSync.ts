@@ -163,6 +163,12 @@ export async function checkBackendHealth(): Promise<boolean> {
 export async function drainOfflineQueue(
   authHeader: () => Record<string, string>,
 ): Promise<SyncResult> {
+  // Production releases never replay browser-stored mutations. This guard is
+  // intentionally independent of the service worker and IndexedDB migration.
+  if (process.env.NODE_ENV === "production") {
+    return { succeeded: [], failed: [] };
+  }
+
   if (syncInProgress) {
     return { succeeded: [], failed: [] };
   }
