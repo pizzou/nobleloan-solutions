@@ -1,5 +1,5 @@
 const DB_NAME = "loansaas-offline";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const STORE_QUEUE = "pendingActions";
 const STORE_CACHE = "cache";
@@ -52,8 +52,10 @@ function openDb(): Promise<IDBDatabase> {
 
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const db = request.result;
+      const transaction = request.transaction;
+      const oldVersion = event.oldVersion;
 
       if (!db.objectStoreNames.contains(STORE_QUEUE)) {
         db.createObjectStore(STORE_QUEUE, { keyPath: "id" });
@@ -61,6 +63,14 @@ function openDb(): Promise<IDBDatabase> {
 
       if (!db.objectStoreNames.contains(STORE_CACHE)) {
         db.createObjectStore(STORE_CACHE, { keyPath: "url" });
+      }
+
+      // Security migration: purge previously queued business mutations and
+      // potentially sensitive cached responses. Old queue items must never be
+      // replayed by the new release using stale authorization/business state.
+      if (oldVersion < 4 && transaction) {
+        transaction.objectStore(STORE_QUEUE).clear();
+        transaction.objectStore(STORE_CACHE).clear();
       }
     };
 
@@ -158,6 +168,17 @@ export function createIdempotencyKey(): string {
 export async function queueAction(
   action: Omit<PendingAction, "id" | "createdAt" | "attempts">,
 ): Promise<PendingAction> {
+  // Real-money mutations must be evaluated against current server state.
+  // Offline replay remains opt-in only for non-production development work.
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.NEXT_PUBLIC_ENABLE_OFFLINE_MUTATIONS !== "true"
+  ) {
+    throw new Error(
+      "Offline changes are disabled for financial safety. Reconnect and submit this action to the server.",
+    );
+  }
+
   const normalizedUrl = String(action.url || "").toLowerCase();
 
   // Public loan applications are intentionally NOT offline-queueable. They
@@ -377,26 +398,18 @@ export async function retryAllFailedActions(): Promise<number> {
   return failed.length;
 }
 
-export async function cacheSet<T>(url: string, data: T): Promise<void> {
-  const cached: CachedResponse<T> = {
-    url,
-    data,
-    cachedAt: new Date().toISOString(),
-  };
-
-  await withStore(STORE_CACHE, "readwrite", (store) => store.put(cached));
+/**
+ * API response persistence is intentionally disabled. Cache only public static
+ * files through the service worker; never persist borrower/loan/payment payloads.
+ */
+export async function cacheSet<T>(_url: string, _data: T): Promise<void> {
+  return;
 }
 
 export async function cacheGet<T>(
-  url: string,
+  _url: string,
 ): Promise<CachedResponse<T> | null> {
-  const result = await withStore<CachedResponse<T> | undefined>(
-    STORE_CACHE,
-    "readonly",
-    (store) => store.get(url),
-  );
-
-  return result || null;
+  return null;
 }
 
 export async function cacheDelete(url: string): Promise<void> {
@@ -405,4 +418,13 @@ export async function cacheDelete(url: string): Promise<void> {
 
 export async function cacheClear(): Promise<void> {
   await withStore(STORE_CACHE, "readwrite", (store) => store.clear());
+}
+
+/** Purge all persisted offline data during logout/security cleanup. */
+export async function clearOfflineData(): Promise<void> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) return;
+  await Promise.all([
+    withStore(STORE_QUEUE, "readwrite", (store) => store.clear()),
+    withStore(STORE_CACHE, "readwrite", (store) => store.clear()),
+  ]);
 }
