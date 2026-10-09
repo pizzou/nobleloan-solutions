@@ -134,8 +134,17 @@ API.interceptors.response.use(
       typeof window !== "undefined" &&
       window.location.pathname !== "/login"
     ) {
-      localStorage.removeItem("user");
-      window.location.href = "/login";
+      void import("@/lib/clientSecurity")
+        .then(({ clearSensitiveClientState }) => clearSensitiveClientState())
+        .catch(() => {
+          try { window.localStorage.clear(); } catch { /* best effort */ }
+          try { window.sessionStorage.clear(); } catch { /* best effort */ }
+        })
+        .finally(() => {
+          if (window.location.pathname !== "/login") {
+            window.location.replace("/login");
+          }
+        });
     }
 
     const message =
@@ -163,7 +172,18 @@ function getAxiosErrorMessage(data: unknown): string | null {
   }
 
   if (typeof data === "string") {
-    return data || null;
+    const trimmed = data.trim();
+    if (!trimmed) return null;
+    // Reverse proxies sometimes return HTML challenge/error pages to JSON clients.
+    // Never expose a full challenge page as a user-facing API error.
+    if (
+      /^<!doctype\s+html/i.test(trimmed) ||
+      /^<html[\s>]/i.test(trimmed) ||
+      /cloudflare|just a moment|attention required/i.test(trimmed.slice(0, 2000))
+    ) {
+      return "The service is temporarily unavailable. Please retry shortly.";
+    }
+    return trimmed.slice(0, 500);
   }
 
   if (typeof data === "object") {
