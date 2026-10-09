@@ -1,9 +1,4 @@
-/*
- * Production-safe service worker for Noble Loan Solutions.
- * Customer, authenticated, and server-rendered HTML is never cached. Only
- * immutable/public static assets may be cached; all API and dynamic requests
- * always pass directly through to the server.
- */
+
 const CACHE_NAME = "noble-public-v5";
 
 function isNeverCachePath(pathname) {
