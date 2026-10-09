@@ -1,5 +1,6 @@
 import { authApi } from "@/services/api";
 import { AuthResponse } from "@/types";
+import { clearSensitiveClientState } from "@/lib/clientSecurity";
 
 /** Browser authentication uses an HttpOnly NLS_SESSION cookie. The JWT is never
  * exposed to JavaScript or persisted in localStorage. */
@@ -19,9 +20,9 @@ export async function logout(): Promise<void> {
   try {
     await authApi.logout();
   } finally {
+    await clearSensitiveClientState();
     if (typeof window !== "undefined") {
-      localStorage.removeItem("user");
-      window.location.href = "/login";
+      window.location.replace("/login");
     }
   }
 }
