@@ -15,9 +15,9 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.hibernate.LazyInitializationException;
 import com.patrick.fintech.loan_backend.service.IdempotencyService;
@@ -123,23 +123,20 @@ public class GlobalExceptionHandler {
         }
 
         // ============================================================
-        // INVALID PATH / QUERY PARAMETER TYPES
+        // INVALID PATH / QUERY PARAMETER TYPE
         // ============================================================
 
-        /**
-         * A malformed path/query parameter (for example an ID of "NaN") is a client
-         * request error. Return a stable JSON 400 response instead of exposing Spring's
-         * conversion message or allowing it to be classified as an internal failure.
-         * This is defense in depth; the frontend must still prevent invalid IDs.
-         */
         @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-        public ResponseEntity<Map<String, Object>> handleTypeMismatch(
+        public ResponseEntity<Map<String, Object>> handleArgumentTypeMismatch(
                         MethodArgumentTypeMismatchException ex) {
-                String parameter = ex.getName() == null ? "parameter" : ex.getName();
-                log.warn("Rejected request with invalid {} parameter", parameter);
-                return json(
-                                HttpStatus.BAD_REQUEST,
-                                error("Invalid " + parameter + ". Please provide a valid value.", null));
+                Map<String, Object> detail = new LinkedHashMap<>();
+                detail.put("parameter", ex.getName());
+                detail.put("value", ex.getValue() == null ? null : String.valueOf(ex.getValue()));
+                detail.put("expectedType", ex.getRequiredType() == null
+                                ? "valid value"
+                                : ex.getRequiredType().getSimpleName());
+                return json(HttpStatus.BAD_REQUEST,
+                                error("Invalid request parameter", detail));
         }
 
         // ============================================================

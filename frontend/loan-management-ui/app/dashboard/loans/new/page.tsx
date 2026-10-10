@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import {
   loanApi,
+  borrowerApi,
   paymentApi,
   creditBureauApi,
   esignatureApi,
@@ -992,7 +993,7 @@ function CreditBureauReport({
 // MAIN PAGE
 // ============================================================
 
-export default function LoanDetailPage() {
+function LegacyLoanDetailPage() {
   const { id } = useParams<{ id: string }>();
 
   const router = useRouter();
@@ -2965,5 +2966,485 @@ export default function LoanDetailPage() {
         </Modal>
       </div>
     </div>
+  );
+}
+
+// Keep the original loan-detail implementation above intact for reference and
+// compatibility, but this route is /dashboard/loans/new and must create loans.
+// It must never read a loan ID or render the loan-detail "Loan not found" state.
+void LegacyLoanDetailPage;
+
+function NewLoanForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [borrowers, setBorrowers] = useState<
+    Array<{
+      id: number;
+      firstName?: string;
+      lastName?: string;
+      borrowerName?: string;
+      name?: string;
+      phone?: string;
+    }>
+  >([]);
+  const [loadingBorrowers, setLoadingBorrowers] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [borrowerId, setBorrowerId] = useState(
+    searchParams.get("borrowerId") ?? "",
+  );
+  const [amount, setAmount] = useState("");
+  const [interestRate, setInterestRate] = useState("5");
+  const [interestRateType, setInterestRateType] = useState<
+    "MONTHLY" | "ANNUAL"
+  >("MONTHLY");
+  const [durationMonths, setDurationMonths] = useState("12");
+  const [currency, setCurrency] = useState("RWF");
+  const [startDate, setStartDate] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
+  const [notes, setNotes] = useState("");
+  const [collateralValue, setCollateralValue] = useState("");
+  const [collateralDescription, setCollateralDescription] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setLoadingBorrowers(true);
+    borrowerApi
+      .list(0, 200)
+      .then((result: unknown) => {
+        if (!active) return;
+        const data = result as unknown;
+        const record =
+          data && typeof data === "object" && !Array.isArray(data)
+            ? (data as {
+                content?: unknown[];
+                items?: unknown[];
+                data?: unknown[];
+              })
+            : null;
+        const list = Array.isArray(data)
+          ? data
+          : Array.isArray(record?.content)
+            ? record.content
+            : Array.isArray(record?.items)
+              ? record.items
+              : Array.isArray(record?.data)
+                ? record.data
+                : [];
+        setBorrowers(
+          list
+            .filter(
+              (
+                item,
+              ): item is {
+                id: number;
+                firstName?: string;
+                lastName?: string;
+                borrowerName?: string;
+                name?: string;
+                phone?: string;
+              } =>
+                !!item &&
+                typeof item === "object" &&
+                Number.isFinite(Number((item as { id?: unknown }).id)),
+            )
+            .map((item) => ({
+              ...(item as object),
+              id: Number((item as { id: number }).id),
+            })),
+        );
+      })
+      .catch((err: unknown) => {
+        if (active)
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Unable to load borrowers. Please retry.",
+          );
+      })
+      .finally(() => {
+        if (active) setLoadingBorrowers(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const monthlyPayment = (() => {
+    const principal = Number(amount);
+    const months = Number(durationMonths);
+    const rate =
+      Number(interestRate) / (interestRateType === "MONTHLY" ? 100 : 1200);
+    if (
+      !(principal > 0) ||
+      !(months > 0) ||
+      !(rate >= 0) ||
+      !Number.isFinite(rate)
+    )
+      return null;
+    if (rate === 0) return principal / months;
+    const factor = Math.pow(1 + rate, months);
+    return Number.isFinite(factor) && factor > 1
+      ? (principal * rate * factor) / (factor - 1)
+      : null;
+  })();
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    if (!borrowerId || !Number.isSafeInteger(Number(borrowerId))) {
+      setError("Please select a valid borrower.");
+      return;
+    }
+    if (!(Number(amount) > 0) || !Number.isFinite(Number(amount))) {
+      setError("Loan amount must be greater than zero.");
+      return;
+    }
+    if (
+      !(Number(interestRate) >= 0) ||
+      !Number.isFinite(Number(interestRate))
+    ) {
+      setError("Enter a valid interest rate.");
+      return;
+    }
+    if (
+      !(Number(durationMonths) > 0) ||
+      !Number.isInteger(Number(durationMonths))
+    ) {
+      setError("Duration must be a positive whole number of months.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await loanApi.create({
+        borrowerId: Number(borrowerId),
+        amount: Number(amount),
+        interestRate: Number(interestRate),
+        interestRateType,
+        durationMonths: Number(durationMonths),
+        currency,
+        startDate,
+        notes: notes.trim() || undefined,
+        collateralValue: collateralValue.trim()
+          ? Number(collateralValue)
+          : undefined,
+        collateralDescription: collateralDescription.trim() || undefined,
+      });
+      router.push("/dashboard/loans");
+      router.refresh();
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Loan creation failed. Please check the details and try again.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-4xl p-4 sm:p-6 lg:p-8">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-600">
+            Loan portfolio
+          </p>
+          <h1 className="mt-1 text-2xl font-bold text-slate-900">
+            New Loan Application
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Enter the borrower and proposed loan details for review.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => router.push("/dashboard/loans")}
+          className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          Back to loans
+        </button>
+      </div>
+      {error && (
+        <div
+          role="alert"
+          className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+        >
+          {error}
+        </div>
+      )}
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7"
+      >
+        <section>
+          <h2 className="mb-4 text-base font-bold text-slate-900">
+            Borrower details
+          </h2>
+          <label
+            htmlFor="new-loan-borrower"
+            className="mb-1.5 block text-sm font-semibold text-slate-700"
+          >
+            Borrower <span className="text-red-600">*</span>
+          </label>
+          <select
+            id="new-loan-borrower"
+            required
+            value={borrowerId}
+            disabled={loadingBorrowers || submitting}
+            onChange={(event) => setBorrowerId(event.target.value)}
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm text-slate-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+          >
+            <option value="">
+              {loadingBorrowers ? "Loading borrowers…" : "Select a borrower"}
+            </option>
+            {borrowers.map((borrower) => (
+              <option key={borrower.id} value={borrower.id}>
+                {[borrower.firstName, borrower.lastName]
+                  .filter(Boolean)
+                  .join(" ") ||
+                  borrower.borrowerName ||
+                  borrower.name ||
+                  `Borrower #${borrower.id}`}
+                {borrower.phone ? ` — ${borrower.phone}` : ""}
+              </option>
+            ))}
+          </select>
+          {!loadingBorrowers && borrowers.length === 0 && (
+            <p className="mt-2 text-sm text-amber-700">
+              No borrowers were returned. Create or activate a borrower before
+              submitting a loan.
+            </p>
+          )}
+        </section>
+        <section className="border-t border-slate-100 pt-5">
+          <h2 className="mb-4 text-base font-bold text-slate-900">
+            Loan terms
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label
+                htmlFor="new-loan-currency"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
+                Currency
+              </label>
+              <select
+                id="new-loan-currency"
+                value={currency}
+                onChange={(event) => setCurrency(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm"
+              >
+                <option>RWF</option>
+                <option>USD</option>
+                <option>EUR</option>
+                <option>KES</option>
+                <option>GBP</option>
+                <option>UGX</option>
+                <option>TZS</option>
+              </select>
+            </div>
+            <div>
+              <label
+                htmlFor="new-loan-amount"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
+                Principal amount <span className="text-red-600">*</span>
+              </label>
+              <input
+                id="new-loan-amount"
+                type="number"
+                min="1"
+                step="any"
+                required
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder="Enter amount"
+                className="w-full rounded-lg border border-slate-300 px-3 py-3 text-sm"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="new-loan-rate-type"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
+                Interest rate basis
+              </label>
+              <select
+                id="new-loan-rate-type"
+                value={interestRateType}
+                onChange={(event) =>
+                  setInterestRateType(
+                    event.target.value as "MONTHLY" | "ANNUAL",
+                  )
+                }
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm"
+              >
+                <option value="MONTHLY">Monthly (%)</option>
+                <option value="ANNUAL">Annual (%)</option>
+              </select>
+            </div>
+            <div>
+              <label
+                htmlFor="new-loan-rate"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
+                Interest rate (%) <span className="text-red-600">*</span>
+              </label>
+              <input
+                id="new-loan-rate"
+                type="number"
+                min="0"
+                step="0.01"
+                required
+                value={interestRate}
+                onChange={(event) => setInterestRate(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-3 text-sm"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="new-loan-duration"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
+                Duration (months) <span className="text-red-600">*</span>
+              </label>
+              <input
+                id="new-loan-duration"
+                type="number"
+                min="1"
+                step="1"
+                required
+                value={durationMonths}
+                onChange={(event) => setDurationMonths(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-3 text-sm"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="new-loan-start-date"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
+                Proposed start date <span className="text-red-600">*</span>
+              </label>
+              <input
+                id="new-loan-start-date"
+                type="date"
+                required
+                value={startDate}
+                onChange={(event) => setStartDate(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-3 text-sm"
+              />
+            </div>
+          </div>
+          {monthlyPayment !== null && (
+            <div className="mt-4 rounded-xl bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Indicative monthly instalment
+              </p>
+              <p className="mt-1 text-xl font-bold text-slate-900">
+                {new Intl.NumberFormat("en", {
+                  style: "currency",
+                  currency,
+                  maximumFractionDigits: currency === "RWF" ? 0 : 2,
+                }).format(monthlyPayment)}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Illustrative estimate only; the approved repayment schedule and
+                fees are calculated by the server.
+              </p>
+            </div>
+          )}
+        </section>
+        <section className="border-t border-slate-100 pt-5">
+          <h2 className="mb-4 text-base font-bold text-slate-900">
+            Additional information
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label
+                htmlFor="new-loan-collateral-value"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
+                Collateral value (optional)
+              </label>
+              <input
+                id="new-loan-collateral-value"
+                type="number"
+                min="0"
+                step="any"
+                value={collateralValue}
+                onChange={(event) => setCollateralValue(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-3 text-sm"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="new-loan-collateral-description"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
+                Collateral description
+              </label>
+              <input
+                id="new-loan-collateral-description"
+                value={collateralDescription}
+                onChange={(event) =>
+                  setCollateralDescription(event.target.value)
+                }
+                maxLength={1000}
+                className="w-full rounded-lg border border-slate-300 px-3 py-3 text-sm"
+              />
+            </div>
+          </div>
+          <label
+            htmlFor="new-loan-notes"
+            className="mb-1.5 mt-4 block text-sm font-semibold text-slate-700"
+          >
+            Application notes
+          </label>
+          <textarea
+            id="new-loan-notes"
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            rows={4}
+            maxLength={5000}
+            placeholder="Purpose of the loan or other relevant notes"
+            className="w-full rounded-lg border border-slate-300 px-3 py-3 text-sm"
+          />
+        </section>
+        <div className="flex flex-wrap justify-end gap-3 border-t border-slate-100 pt-5">
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => router.push("/dashboard/loans")}
+            className="rounded-lg border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={submitting || loadingBorrowers || borrowers.length === 0}
+            className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {submitting ? "Submitting…" : "Submit loan application"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+export default function NewLoanPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-6 text-sm text-slate-500">
+          Loading loan application…
+        </div>
+      }
+    >
+      <NewLoanForm />
+    </Suspense>
   );
 }

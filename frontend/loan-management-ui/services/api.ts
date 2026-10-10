@@ -138,15 +138,20 @@ API.interceptors.response.use(
       window.location.pathname !== "/login"
     ) {
       void clearSensitiveClientState().finally(() => {
-        if (window.location.pathname !== "/login") window.location.replace("/login");
+        if (window.location.pathname !== "/login")
+          window.location.replace("/login");
       });
     }
 
-    const requestId = String(error.response?.headers?.["x-request-id"] || "").trim();
+    const requestId = String(
+      error.response?.headers?.["x-request-id"] || "",
+    ).trim();
     const htmlError = isHtmlErrorPayload(responseData);
     const message = htmlError
       ? `The server or security proxy returned an HTML error page instead of JSON. Please retry.${requestId ? ` Reference: ${requestId}` : " If the problem continues, contact support with the time of the error."}`
-      : getAxiosErrorMessage(responseData) || error.message || `Request failed with status ${status ?? "unknown"}`;
+      : getAxiosErrorMessage(responseData) ||
+        error.message ||
+        `Request failed with status ${status ?? "unknown"}`;
 
     error.message = message;
     if (htmlError && error.response) {
@@ -172,15 +177,20 @@ API.interceptors.response.use(
 function isHtmlErrorPayload(data: unknown): boolean {
   if (typeof data !== "string") return false;
   const sample = data.trimStart().slice(0, 1000).toLowerCase();
-  return sample.startsWith("<!doctype html") || sample.startsWith("<html") ||
-    sample.includes("<title>just a moment") || sample.includes("cloudflare") && sample.includes("challenge");
+  return (
+    sample.startsWith("<!doctype html") ||
+    sample.startsWith("<html") ||
+    sample.includes("<title>just a moment") ||
+    (sample.includes("cloudflare") && sample.includes("challenge"))
+  );
 }
 
 function getAxiosErrorMessage(data: unknown): string | null {
   if (!data) return null;
 
   if (typeof data === "string") {
-    if (isHtmlErrorPayload(data)) return "The server returned an HTML error page instead of JSON. Please retry.";
+    if (isHtmlErrorPayload(data))
+      return "The server returned an HTML error page instead of JSON. Please retry.";
     // Avoid presenting very large plain-text proxy/exception bodies in the UI.
     return data.length > 1000 ? `${data.slice(0, 1000)}…` : data || null;
   }
@@ -364,7 +374,14 @@ export const loanApi = {
   restore: (id: number, confirmation: string) =>
     post(`/loans/${id}/restore`, { confirmation }),
 
-  create: (data: unknown) => post("/loans", data),
+  create: (data: unknown, idempotencyKey?: string) =>
+    post(
+      "/loans",
+      data,
+      idempotencyKey
+        ? { headers: { "Idempotency-Key": idempotencyKey } }
+        : undefined,
+    ),
 
   approve: (
     id: number,
