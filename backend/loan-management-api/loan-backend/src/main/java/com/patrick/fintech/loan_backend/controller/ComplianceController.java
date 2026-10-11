@@ -27,13 +27,17 @@ public class ComplianceController {
     }
 
     @GetMapping("/borrowers/{id}/history")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','CREDIT_ANALYST')")
     public ResponseEntity<ApiResponse<Object>> history(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.safe(complianceService.getHistoryForBorrower(id)));
+        return ResponseEntity.ok(ApiResponse.safe(complianceService.getHistoryForBorrower(
+                id, currentUserUtil.getCurrentOrganizationId())));
     }
 
     @GetMapping("/borrowers/{id}/status")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','CREDIT_ANALYST')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> status(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.safe(Map.of("kycClear", complianceService.isKycCurrentlyClear(id))));
+        return ResponseEntity.ok(ApiResponse.safe(Map.of("kycClear", complianceService.isKycCurrentlyClear(
+                id, currentUserUtil.getCurrentOrganizationId()))));
     }
 
     @GetMapping("/pending-reviews")
@@ -47,8 +51,15 @@ public class ComplianceController {
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER','CREDIT_ANALYST')")
     public ResponseEntity<ApiResponse<Object>> decide(@PathVariable Long checkId,
             @RequestBody Map<String, String> body) {
-        return ResponseEntity.ok(ApiResponse.safe(complianceService.manualReview(checkId,
-                currentUserUtil.getCurrentUser().getName(), KycCheck.CheckResult.valueOf(body.get("decision")),
+        String decisionValue = body == null ? null : body.get("decision");
+        if (decisionValue == null || decisionValue.isBlank()) {
+            throw new IllegalArgumentException("A KYC review decision is required.");
+        }
+        return ResponseEntity.ok(ApiResponse.safe(complianceService.manualReview(
+                checkId,
+                currentUserUtil.getCurrentOrganizationId(),
+                currentUserUtil.getCurrentUser().getName(),
+                KycCheck.CheckResult.valueOf(decisionValue.trim().toUpperCase(java.util.Locale.ROOT)),
                 body.getOrDefault("notes", ""))));
     }
 }

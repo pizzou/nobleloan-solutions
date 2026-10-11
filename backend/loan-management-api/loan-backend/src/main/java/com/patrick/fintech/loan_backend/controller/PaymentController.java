@@ -272,6 +272,7 @@ public class PaymentController {
          * This endpoint is intended for sandbox/local testing only.
          */
         @PostMapping("/mtn/sandbox/confirm")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','TELLER')")
         public ResponseEntity<ApiResponse<PaymentResponse>> confirmMtnSandboxPayment(
                         @PathVariable Long loanId,
                         @RequestBody Map<String, Object> body) {
@@ -487,6 +488,7 @@ public class PaymentController {
          * DO NOT call PaymentService.recordPayment() separately here.
          */
         @PostMapping("/mtn/webhook")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','ACCOUNTANT','TELLER')")
         public ResponseEntity<ApiResponse<PaymentResponse>> mtnWebhook(
                         @PathVariable Long loanId,
                         @RequestBody Map<String, Object> body) {

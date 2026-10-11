@@ -53,7 +53,7 @@ public class CreditBureauController {
         // ============================================================
 
         @PostMapping("/borrowers/{borrowerId}/check")
-        @PreAuthorize("isAuthenticated()")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','CREDIT_ANALYST','AUDITOR')")
         public ResponseEntity<CreditBureauCheckResponse> runCheck(
 
                         @PathVariable Long borrowerId
@@ -98,7 +98,7 @@ public class CreditBureauController {
         // ============================================================
 
         @GetMapping("/borrowers/{borrowerId}/latest")
-        @PreAuthorize("isAuthenticated()")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','CREDIT_ANALYST','AUDITOR')")
         public ResponseEntity<CreditBureauCheckResponse> getLatest(
 
                         @PathVariable Long borrowerId
@@ -141,7 +141,7 @@ public class CreditBureauController {
         // ============================================================
 
         @GetMapping("/borrowers/{borrowerId}/history")
-        @PreAuthorize("isAuthenticated()")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','CREDIT_ANALYST','AUDITOR')")
         public ResponseEntity<List<CreditBureauCheckResponse>> getHistory(
 
                         @PathVariable Long borrowerId
@@ -193,7 +193,7 @@ public class CreditBureauController {
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         MediaType.APPLICATION_PDF_VALUE
         })
-        @PreAuthorize("isAuthenticated()")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','CREDIT_ANALYST','AUDITOR')")
         public ResponseEntity<?> export(
 
                         @RequestParam(defaultValue = "xlsx") String format,

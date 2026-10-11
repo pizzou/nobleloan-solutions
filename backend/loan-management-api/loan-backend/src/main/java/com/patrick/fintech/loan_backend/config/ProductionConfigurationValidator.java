@@ -69,6 +69,8 @@ public class ProductionConfigurationValidator {
         private String mtnWebhookSecret;
         @Value("${app.auth.cookie.same-site:Lax}")
         private String authCookieSameSite;
+        @Value("${app.auth.cookie.secure:true}")
+        private boolean authCookieSecure;
         @Value("${app.mail.enabled:false}")
         private boolean mailEnabled;
         @Value("${app.mail.brevo-api-key:}")
@@ -107,56 +109,105 @@ public class ProductionConfigurationValidator {
         private String flutterwaveSecretKey;
         @Value("${flutterwave.webhook-secret:}")
         private String flutterwaveWebhookSecret;
-        @Value("${app.regulatory.provision.current:0}") private String provisionCurrent;
-        @Value("${app.regulatory.provision.watch:0}") private String provisionWatch;
-        @Value("${app.regulatory.provision.substandard:0}") private String provisionSubstandard;
-        @Value("${app.regulatory.provision.doubtful:0}") private String provisionDoubtful;
-        @Value("${app.regulatory.provision.written-off:0}") private String provisionWrittenOff;
-        @Value("${app.regulatory.provision.policy-approved:false}") private boolean provisioningPolicyApproved;
-        @Value("${PROD_GATE_PENTEST_APPROVED:false}") private boolean pentestApproved;
-        @Value("${PROD_GATE_IDOR_AUDIT_APPROVED:false}") private boolean idorAuditApproved;
-        @Value("${PROD_GATE_CORS_VERIFIED:false}") private boolean corsVerified;
-        @Value("${PROD_GATE_SECRET_MANAGER_CONFIGURED:false}") private boolean secretManagerConfigured;
-        @Value("${PROD_GATE_BNR_LICENSE_CONFIRMED:false}") private boolean bnrLicenseConfirmed;
-        @Value("${PROD_GATE_REGULATION_MAPPING_APPROVED:false}") private boolean regulationMappingApproved;
-        @Value("${PROD_GATE_LEGAL_DISCLOSURES_APPROVED:false}") private boolean legalDisclosuresApproved;
-        @Value("${PROD_GATE_PENALTY_POLICY_APPROVED:false}") private boolean penaltyPolicyApproved;
-        @Value("${PROD_GATE_DPO_REGISTERED:false}") private boolean dpoRegistered;
-        @Value("${PROD_GATE_DPO_APPOINTED:false}") private boolean dpoAppointed;
-        @Value("${PROD_GATE_RECORDS_PROCESSING_APPROVED:false}") private boolean recordsProcessingApproved;
-        @Value("${PROD_GATE_DPIA_APPROVED:false}") private boolean dpiaApproved;
-        @Value("${PROD_GATE_RETENTION_APPROVED:false}") private boolean retentionApproved;
-        @Value("${PROD_GATE_BREACH_PLAN_APPROVED:false}") private boolean breachPlanApproved;
-        @Value("${PROD_GATE_BACKUP_RESTORE_DRILL_APPROVED:false}") private boolean backupRestoreDrillApproved;
-        @Value("${PROD_GATE_POSTGRES_HA_APPROVED:false}") private boolean postgresHaApproved;
-        @Value("${PROD_GATE_UPTIME_MONITORING_APPROVED:false}") private boolean uptimeMonitoringApproved;
-        @Value("${PROD_GATE_CENTRAL_ALERTING_APPROVED:false}") private boolean centralAlertingApproved;
-        @Value("${PROD_GATE_ACCOUNTING_CLOSE_APPROVED:false}") private boolean accountingCloseApproved;
-        @Value("${PROD_GATE_COA_APPROVED:false}") private boolean coaApproved;
-        @Value("${PROD_GATE_BANK_RECON_APPROVED:false}") private boolean bankReconApproved;
-        @Value("${PROD_GATE_SUBLEDGER_RECON_APPROVED:false}") private boolean subledgerReconApproved;
-        @Value("${PROD_GATE_REVENUE_POLICY_APPROVED:false}") private boolean revenuePolicyApproved;
-        @Value("${PROD_GATE_GOLDEN_SCENARIOS_APPROVED:false}") private boolean goldenScenariosApproved;
-        @Value("${PROD_GATE_CONCURRENCY_TESTED:false}") private boolean concurrencyTested;
-        @Value("${PROD_GATE_PRODUCTION_POSTGRES_TESTED:false}") private boolean productionPostgresTested;
-        @Value("${PROD_GATE_REGULATORY_GOLDEN_APPROVED:false}") private boolean regulatoryGoldenApproved;
+        @Value("${app.regulatory.provision.current:0}")
+        private String provisionCurrent;
+        @Value("${app.regulatory.provision.watch:0}")
+        private String provisionWatch;
+        @Value("${app.regulatory.provision.substandard:0}")
+        private String provisionSubstandard;
+        @Value("${app.regulatory.provision.doubtful:0}")
+        private String provisionDoubtful;
+        @Value("${app.regulatory.provision.written-off:0}")
+        private String provisionWrittenOff;
+        @Value("${app.regulatory.provision.policy-approved:false}")
+        private boolean provisioningPolicyApproved;
+        @Value("${PROD_GATE_PENTEST_APPROVED:false}")
+        private boolean pentestApproved;
+        @Value("${PROD_GATE_IDOR_AUDIT_APPROVED:false}")
+        private boolean idorAuditApproved;
+        @Value("${PROD_GATE_CORS_VERIFIED:false}")
+        private boolean corsVerified;
+        @Value("${PROD_GATE_SECRET_MANAGER_CONFIGURED:false}")
+        private boolean secretManagerConfigured;
+        @Value("${PROD_GATE_BNR_LICENSE_CONFIRMED:false}")
+        private boolean bnrLicenseConfirmed;
+        @Value("${PROD_GATE_REGULATION_MAPPING_APPROVED:false}")
+        private boolean regulationMappingApproved;
+        @Value("${PROD_GATE_LEGAL_DISCLOSURES_APPROVED:false}")
+        private boolean legalDisclosuresApproved;
+        @Value("${PROD_GATE_PENALTY_POLICY_APPROVED:false}")
+        private boolean penaltyPolicyApproved;
+        @Value("${PROD_GATE_DPO_REGISTERED:false}")
+        private boolean dpoRegistered;
+        @Value("${PROD_GATE_DPO_APPOINTED:false}")
+        private boolean dpoAppointed;
+        @Value("${PROD_GATE_RECORDS_PROCESSING_APPROVED:false}")
+        private boolean recordsProcessingApproved;
+        @Value("${PROD_GATE_DPIA_APPROVED:false}")
+        private boolean dpiaApproved;
+        @Value("${PROD_GATE_RETENTION_APPROVED:false}")
+        private boolean retentionApproved;
+        @Value("${PROD_GATE_BREACH_PLAN_APPROVED:false}")
+        private boolean breachPlanApproved;
+        @Value("${PROD_GATE_BACKUP_RESTORE_DRILL_APPROVED:false}")
+        private boolean backupRestoreDrillApproved;
+        @Value("${PROD_GATE_POSTGRES_HA_APPROVED:false}")
+        private boolean postgresHaApproved;
+        @Value("${PROD_GATE_UPTIME_MONITORING_APPROVED:false}")
+        private boolean uptimeMonitoringApproved;
+        @Value("${PROD_GATE_CENTRAL_ALERTING_APPROVED:false}")
+        private boolean centralAlertingApproved;
+        @Value("${PROD_GATE_ACCOUNTING_CLOSE_APPROVED:false}")
+        private boolean accountingCloseApproved;
+        @Value("${PROD_GATE_COA_APPROVED:false}")
+        private boolean coaApproved;
+        @Value("${PROD_GATE_BANK_RECON_APPROVED:false}")
+        private boolean bankReconApproved;
+        @Value("${PROD_GATE_SUBLEDGER_RECON_APPROVED:false}")
+        private boolean subledgerReconApproved;
+        @Value("${PROD_GATE_REVENUE_POLICY_APPROVED:false}")
+        private boolean revenuePolicyApproved;
+        @Value("${PROD_GATE_GOLDEN_SCENARIOS_APPROVED:false}")
+        private boolean goldenScenariosApproved;
+        @Value("${PROD_GATE_CONCURRENCY_TESTED:false}")
+        private boolean concurrencyTested;
+        @Value("${PROD_GATE_PRODUCTION_POSTGRES_TESTED:false}")
+        private boolean productionPostgresTested;
+        @Value("${PROD_GATE_REGULATORY_GOLDEN_APPROVED:false}")
+        private boolean regulatoryGoldenApproved;
 
-        @Value("${BOOTSTRAP_ADMIN_EMAIL:}") private String bootstrapAdminEmail;
-        @Value("${BOOTSTRAP_ADMIN_PASSWORD:}") private String bootstrapAdminPassword;
-        @Value("${BOOTSTRAP_ADMIN_NAME:}") private String bootstrapAdminName;
-        @Value("${BOOTSTRAP_ADMIN_PHONE:}") private String bootstrapAdminPhone;
-        @Value("${BOOTSTRAP_ORG_NAME:}") private String bootstrapOrgName;
-        @Value("${BOOTSTRAP_ORG_COUNTRY:}") private String bootstrapOrgCountry;
-        @Value("${BOOTSTRAP_ORG_CURRENCY:}") private String bootstrapOrgCurrency;
-        @Value("${BOOTSTRAP_ORG_TIMEZONE:}") private String bootstrapOrgTimezone;
-        @Value("${BOOTSTRAP_ORG_LOCALE:}") private String bootstrapOrgLocale;
-        @Value("${BOOTSTRAP_ORG_SLUG:nobleloansolutions}") private String bootstrapOrgSlug;
-        @Value("${BOOTSTRAP_ORG_PUBLIC_DOMAIN:}") private String bootstrapOrgPublicDomain;
-        @Value("${BOOTSTRAP_ORG_WEBSITE:}") private String bootstrapOrgWebsite;
-        @Value("${BOOTSTRAP_ORG_CONTACT_EMAIL:}") private String bootstrapOrgContactEmail;
-        @Value("${BOOTSTRAP_ORG_CONTACT_PHONE:}") private String bootstrapOrgContactPhone;
-        @Value("${BOOTSTRAP_ORG_ADDRESS:}") private String bootstrapOrgAddress;
-        @Value("${BOOTSTRAP_ORG_REGISTRATION_NUMBER:}") private String bootstrapOrgRegistrationNumber;
+        @Value("${BOOTSTRAP_ADMIN_EMAIL:}")
+        private String bootstrapAdminEmail;
+        @Value("${BOOTSTRAP_ADMIN_PASSWORD:}")
+        private String bootstrapAdminPassword;
+        @Value("${BOOTSTRAP_ADMIN_NAME:}")
+        private String bootstrapAdminName;
+        @Value("${BOOTSTRAP_ADMIN_PHONE:}")
+        private String bootstrapAdminPhone;
+        @Value("${BOOTSTRAP_ORG_NAME:}")
+        private String bootstrapOrgName;
+        @Value("${BOOTSTRAP_ORG_COUNTRY:}")
+        private String bootstrapOrgCountry;
+        @Value("${BOOTSTRAP_ORG_CURRENCY:}")
+        private String bootstrapOrgCurrency;
+        @Value("${BOOTSTRAP_ORG_TIMEZONE:}")
+        private String bootstrapOrgTimezone;
+        @Value("${BOOTSTRAP_ORG_LOCALE:}")
+        private String bootstrapOrgLocale;
+        @Value("${BOOTSTRAP_ORG_SLUG:nobleloansolutions}")
+        private String bootstrapOrgSlug;
+        @Value("${BOOTSTRAP_ORG_PUBLIC_DOMAIN:}")
+        private String bootstrapOrgPublicDomain;
+        @Value("${BOOTSTRAP_ORG_WEBSITE:}")
+        private String bootstrapOrgWebsite;
+        @Value("${BOOTSTRAP_ORG_CONTACT_EMAIL:}")
+        private String bootstrapOrgContactEmail;
+        @Value("${BOOTSTRAP_ORG_CONTACT_PHONE:}")
+        private String bootstrapOrgContactPhone;
+        @Value("${BOOTSTRAP_ORG_ADDRESS:}")
+        private String bootstrapOrgAddress;
+        @Value("${BOOTSTRAP_ORG_REGISTRATION_NUMBER:}")
+        private String bootstrapOrgRegistrationNumber;
 
         @PostConstruct
         public void validate() {
@@ -193,11 +244,18 @@ public class ProductionConfigurationValidator {
                 requireNonPlaceholder(bootstrapOrgRegistrationNumber, "BOOTSTRAP_ORG_REGISTRATION_NUMBER");
 
                 if (!"Lax".equalsIgnoreCase(authCookieSameSite) && !"Strict".equalsIgnoreCase(authCookieSameSite)) {
-                        throw new IllegalStateException("AUTH_COOKIE_SAME_SITE must be Lax or Strict in production. Use the same-origin Next.js /api proxy rather than cross-site browser cookies.");
+                        throw new IllegalStateException(
+                                        "AUTH_COOKIE_SAME_SITE must be Lax or Strict in production. Use the same-origin Next.js /api proxy rather than cross-site browser cookies.");
+                }
+
+                if (!authCookieSecure) {
+                        throw new IllegalStateException(
+                                        "AUTH_COOKIE_SECURE must be true in production; session cookies must never be sent over HTTP");
                 }
 
                 if (jwtExpirationMs <= 0 || jwtExpirationMs > 30 * 60 * 1000L) {
-                        throw new IllegalStateException("JWT_EXPIRATION_MS must be between 1 second and 30 minutes in production");
+                        throw new IllegalStateException(
+                                        "JWT_EXPIRATION_MS must be between 1 second and 30 minutes in production");
                 }
 
                 if (mtnEnabled) {
@@ -206,7 +264,8 @@ public class ProductionConfigurationValidator {
                 }
 
                 if (!mailEnabled || isPlaceholder(brevoApiKey)) {
-                        throw new IllegalStateException("MAIL_ENABLED=true and a real BREVO_API_KEY are required in production");
+                        throw new IllegalStateException(
+                                        "MAIL_ENABLED=true and a real BREVO_API_KEY are required in production");
                 }
                 requireEmail(mailFrom, "MAIL_FROM");
 
@@ -230,11 +289,13 @@ public class ProductionConfigurationValidator {
                                 && atUsername != null && !atUsername.isBlank()
                                 && atSenderId != null && !atSenderId.isBlank();
                 if (!smsEnabled || (!twilioConfigured && !africasTalkingConfigured)) {
-                        throw new IllegalStateException("SMS_ENABLED=true and at least one complete production SMS provider configuration are required because ADMIN/MANAGER login requires SMS OTP");
+                        throw new IllegalStateException(
+                                        "SMS_ENABLED=true and at least one complete production SMS provider configuration are required because ADMIN/MANAGER login requires SMS OTP");
                 }
 
                 if (!provisioningPolicyApproved) {
-                        throw new IllegalStateException("PROVISIONING_POLICY_APPROVED must be true in production after finance/compliance approval of the provisioning methodology");
+                        throw new IllegalStateException(
+                                        "PROVISIONING_POLICY_APPROVED must be true in production after finance/compliance approval of the provisioning methodology");
                 }
                 validateProvisionRate(provisionCurrent, "PROVISION_RATE_CURRENT");
                 validateProvisionRate(provisionWatch, "PROVISION_RATE_WATCH");
@@ -243,7 +304,8 @@ public class ProductionConfigurationValidator {
                 validateProvisionRate(provisionWrittenOff, "PROVISION_RATE_WRITTEN_OFF");
 
                 if (!externalComplianceEnabled) {
-                        throw new IllegalStateException("COMPLIANCE_EXTERNAL_PROVIDER_ENABLED must be true in production; provider-backed KYC/AML is a mandatory disbursement control");
+                        throw new IllegalStateException(
+                                        "COMPLIANCE_EXTERNAL_PROVIDER_ENABLED must be true in production; provider-backed KYC/AML is a mandatory disbursement control");
                 }
                 requireNonPlaceholder(complianceProvider, "COMPLIANCE_PROVIDER");
                 requireHttpsUrl(complianceBaseUrl, "COMPLIANCE_BASE_URL");
@@ -272,7 +334,8 @@ public class ProductionConfigurationValidator {
                 if (openInView)
                         throw new IllegalStateException("spring.jpa.open-in-view must be false in production");
                 if (!"none".equalsIgnoreCase(forwardHeadersStrategy))
-                        throw new IllegalStateException("server.forward-headers-strategy must be none in production unless a trusted proxy model has been explicitly configured");
+                        throw new IllegalStateException(
+                                        "server.forward-headers-strategy must be none in production unless a trusted proxy model has been explicitly configured");
                 if (exposeH2)
                         throw new IllegalStateException("H2 console must remain disabled in production");
                 if (exposeApiDocs)
@@ -283,7 +346,6 @@ public class ProductionConfigurationValidator {
 
                 assertProductionEvidenceGates();
         }
-
 
         private void assertProductionEvidenceGates() {
                 requireApproved(pentestApproved, "PROD_GATE_PENTEST_APPROVED");
@@ -372,14 +434,17 @@ public class ProductionConfigurationValidator {
         private void requireNonPlaceholder(String value, String variable) {
                 requireNonBlank(value, variable);
                 if (isPlaceholder(value)) {
-                        throw new IllegalStateException(variable + " contains a placeholder value; configure the real production value");
+                        throw new IllegalStateException(variable
+                                        + " contains a placeholder value; configure the real production value");
                 }
         }
 
         private void requireSecret(String value, String variable, int minimumLength) {
                 requireNonBlank(value, variable);
                 if (value.length() < minimumLength || isPlaceholder(value) || isWeak(value)) {
-                        throw new IllegalStateException(variable + " must be a strong non-placeholder secret of at least " + minimumLength + " characters in production");
+                        throw new IllegalStateException(
+                                        variable + " must be a strong non-placeholder secret of at least "
+                                                        + minimumLength + " characters in production");
                 }
         }
 
@@ -394,7 +459,8 @@ public class ProductionConfigurationValidator {
                 requireNonPlaceholder(value, variable);
                 long digits = value.chars().filter(Character::isDigit).count();
                 if (digits < 8) {
-                        throw new IllegalStateException(variable + " must contain a valid telephone number in production");
+                        throw new IllegalStateException(
+                                        variable + " must contain a valid telephone number in production");
                 }
         }
 
@@ -402,7 +468,8 @@ public class ProductionConfigurationValidator {
                 requireNonPlaceholder(value, variable);
                 try {
                         URI uri = URI.create(value.trim());
-                        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || uri.getHost().isBlank()) {
+                        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null
+                                        || uri.getHost().isBlank()) {
                                 throw new IllegalStateException(variable + " must be a valid HTTPS URL in production");
                         }
                 } catch (IllegalArgumentException e) {

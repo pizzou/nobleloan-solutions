@@ -29,6 +29,7 @@ public class BranchController {
     private final AuditService auditService;
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','ACCOUNTANT','BUSINESS_OWNER')")
     public ResponseEntity<ApiResponse<Object>> list() {
         Long orgId = currentUserUtil.getCurrentOrganizationId();
         return ResponseEntity.ok(ApiResponse.safe(branchRepo.findByOrganization_Id(orgId)));

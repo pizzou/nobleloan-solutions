@@ -107,6 +107,7 @@ public class LoanController {
         // GET LOANS
         // ================================================================
 
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','ACCOUNTANT','BUSINESS_OWNER','CREDIT_ANALYST','AUDITOR')")
         @GetMapping
         public ResponseEntity<ApiResponse<Page<LoanResponse>>> getLoans(
                         @RequestParam(defaultValue = "0") int page,
@@ -138,6 +139,7 @@ public class LoanController {
         // GET SINGLE LOAN
         // ================================================================
 
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','ACCOUNTANT','BUSINESS_OWNER','CREDIT_ANALYST','AUDITOR')")
         @GetMapping("/{id}")
         public ResponseEntity<ApiResponse<LoanResponse>> getLoan(
                         @PathVariable Long id) {
@@ -156,6 +158,7 @@ public class LoanController {
         // GET LOAN SCHEDULE
         // ================================================================
 
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','ACCOUNTANT','BUSINESS_OWNER','CREDIT_ANALYST','AUDITOR')")
         @GetMapping("/{id}/schedule")
         public ResponseEntity<ApiResponse<List<com.patrick.fintech.loan_backend.dto.PaymentResponse>>> getSchedule(
                         @PathVariable Long id) {
@@ -181,6 +184,7 @@ public class LoanController {
         // DOCUMENT REQUIREMENTS
         // ================================================================
 
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','ACCOUNTANT','BUSINESS_OWNER','CREDIT_ANALYST','AUDITOR')")
         @GetMapping("/{id}/document-requirements")
         public ResponseEntity<ApiResponse<Map<String, Object>>> getDocumentRequirements(
                         @PathVariable Long id) {
@@ -199,6 +203,7 @@ public class LoanController {
         // GET LOANS BY BORROWER
         // ================================================================
 
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','ACCOUNTANT','BUSINESS_OWNER','CREDIT_ANALYST','AUDITOR')")
         @GetMapping("/borrower/{borrowerId}")
         public ResponseEntity<ApiResponse<List<LoanResponse>>> getByBorrower(
                         @PathVariable Long borrowerId) {
@@ -218,6 +223,7 @@ public class LoanController {
         // RISK SCORE
         // ================================================================
 
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','ACCOUNTANT','BUSINESS_OWNER','CREDIT_ANALYST','AUDITOR')")
         @GetMapping("/{id}/risk")
         public ResponseEntity<ApiResponse<RiskScoringService.RiskResult>> getRisk(
                         @PathVariable Long id) {
@@ -624,6 +630,7 @@ public class LoanController {
         // DASHBOARD
         // ================================================================
 
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','ACCOUNTANT','BUSINESS_OWNER','CREDIT_ANALYST','AUDITOR')")
         @GetMapping("/dashboard")
         public ResponseEntity<ApiResponse<DashboardStats>> getDashboard() {
                 Organization organization = currentUserUtil.getCurrentUser().getOrganization();
@@ -830,6 +837,7 @@ public class LoanController {
                                                                 ResponseDtoMapper.loanComment(comment)));
         }
 
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
         @GetMapping("/{id}/comments")
         @Transactional(readOnly = true)
         public ResponseEntity<ApiResponse<List<LoanCommentResponse>>> getComments(

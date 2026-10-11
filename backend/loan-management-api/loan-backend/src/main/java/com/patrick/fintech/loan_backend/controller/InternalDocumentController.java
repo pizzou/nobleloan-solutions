@@ -26,6 +26,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/internal-documents")
 @RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('ADMIN','BUSINESS_OWNER','MANAGER','LOAN_OFFICER','ACCOUNTANT','TELLER','AUDITOR','CREDIT_ANALYST')")
 public class InternalDocumentController {
 
     private final InternalDocumentService docService;
@@ -81,10 +82,20 @@ public class InternalDocumentController {
     public ResponseEntity<byte[]> download(@PathVariable Long id) {
         Long orgId = currentUserUtil.getCurrentOrganizationId();
         InternalDocument doc = docService.getByIdForOrg(id, orgId);
+        String safeContentType = doc.getFileType() != null
+                ? doc.getFileType()
+                : MediaType.APPLICATION_OCTET_STREAM_VALUE;
+        org.springframework.http.ContentDisposition disposition = org.springframework.http.ContentDisposition
+                .attachment()
+                .filename(doc.getFileName() == null ? "document" : doc.getFileName(),
+                        java.nio.charset.StandardCharsets.UTF_8)
+                .build();
         return ResponseEntity.ok()
-                .contentType(MediaType
-                        .parseMediaType(doc.getFileType() != null ? doc.getFileType() : "application/octet-stream"))
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + doc.getFileName() + "\"")
+                .contentType(MediaType.parseMediaType(safeContentType))
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header("X-Content-Type-Options", "nosniff")
+                .header(HttpHeaders.CACHE_CONTROL, "no-store, no-cache, must-revalidate, max-age=0")
+                .header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
                 .body(doc.getData());
     }
 

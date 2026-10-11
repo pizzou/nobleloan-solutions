@@ -20,38 +20,40 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ESignatureController {
 
-    private final ESignatureService esignatureService;
-    private final LoanService loanService;
-    private final CurrentUserUtil currentUserUtil;
+        private final ESignatureService esignatureService;
+        private final LoanService loanService;
+        private final CurrentUserUtil currentUserUtil;
 
-    @PostMapping("/initiate")
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> initiate(
-            @PathVariable Long loanId, @RequestBody(required = false) Map<String, String> body) {
-        loanService.getLoanForOrg(
-                loanId,
-                currentUserUtil.getCurrentOrganizationId());
+        @PostMapping("/initiate")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
+        public ResponseEntity<ApiResponse<Map<String, Object>>> initiate(
+                        @PathVariable Long loanId, @RequestBody(required = false) Map<String, String> body) {
+                loanService.getLoanForOrg(
+                                loanId,
+                                currentUserUtil.getCurrentOrganizationId());
 
-        String docType = body != null ? body.getOrDefault("documentType", "LOAN_AGREEMENT") : "LOAN_AGREEMENT";
-        ESignatureRequest req = esignatureService.initiate(loanId, docType, currentUserUtil.getCurrentUser().getName());
-        // signingToken is deliberately the only borrower-facing identifier — never
-        // expose the OTP hash
-        return ResponseEntity.ok(ApiResponse.safe("Signing link sent to borrower's phone", Map.of(
-                "id", req.getId(),
-                "status", req.getStatus(),
-                "signingToken", req.getSigningToken(),
-                "expiresAt", req.getExpiresAt())));
-    }
+                String docType = body != null ? body.getOrDefault("documentType", "LOAN_AGREEMENT") : "LOAN_AGREEMENT";
+                ESignatureRequest req = esignatureService.initiate(loanId, docType,
+                                currentUserUtil.getCurrentUser().getName());
+                // signingToken is deliberately the only borrower-facing identifier — never
+                // expose the OTP hash
+                return ResponseEntity.ok(ApiResponse.safe("Signing link sent to borrower's phone", Map.of(
+                                "id", req.getId(),
+                                "status", req.getStatus(),
+                                "signingToken", req.getSigningToken(),
+                                "expiresAt", req.getExpiresAt())));
+        }
 
-    @GetMapping
-    public ResponseEntity<ApiResponse<Object>> history(@PathVariable Long loanId) {
-        loanService.getLoanForOrg(
-                loanId,
-                currentUserUtil.getCurrentOrganizationId());
+        @GetMapping
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
+        public ResponseEntity<ApiResponse<Object>> history(@PathVariable Long loanId) {
+                loanService.getLoanForOrg(
+                                loanId,
+                                currentUserUtil.getCurrentOrganizationId());
 
-        return ResponseEntity.ok(ApiResponse.safe(
-                esignatureService.history(
-                        loanId,
-                        currentUserUtil.getCurrentOrganizationId())));
-    }
+                return ResponseEntity.ok(ApiResponse.safe(
+                                esignatureService.history(
+                                                loanId,
+                                                currentUserUtil.getCurrentOrganizationId())));
+        }
 }
