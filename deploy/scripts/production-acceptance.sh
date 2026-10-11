@@ -4,7 +4,7 @@ set -euo pipefail
 BASE_URL="${BASE_URL:?BASE_URL is required}"
 ORIGIN="${ORIGIN:?ORIGIN is required}"
 TENANT_SLUG="${TENANT_SLUG:-nobleloansolutions}"
-TOKEN="${ACCEPTANCE_JWT:-}"
+TOKEN="${ACCEPTANCE_JWT:?ACCEPTANCE_JWT is required for mandatory authenticated financial checks}"
 FAILED=0
 
 pass() { echo "[ACCEPTANCE PASS] $1"; }
@@ -31,25 +31,42 @@ grep -Eqi 'access-control-allow-headers:.*x-tenant-slug' <<<"$cors" \
   && pass "Tenant header accepted by CORS" \
   || fail "Tenant header rejected by CORS"
 
-if [[ -n "$TOKEN" ]]; then
-  auth_header="Authorization: Bearer $TOKEN"
-  reconciliation_code="$(curl -sS -o /tmp/noble-reconciliation.json -w '%{http_code}' \
-    -H "$auth_header" \
-    -H "X-Tenant-Slug: $TENANT_SLUG" \
-    "${BASE_URL%/}/api/accounting/reconciliation")"
+auth_header="Authorization: Bearer $TOKEN"
+reconciliation_code="$(curl -sS -o /tmp/noble-reconciliation.json -w '%{http_code}' \
+  --max-time 30 \
+  -H "$auth_header" \
+  -H "X-Tenant-Slug: $TENANT_SLUG" \
+  "${BASE_URL%/}/api/accounting/reconciliation")"
 
-  if [[ "$reconciliation_code" == "200" ]]; then
-    grep -Eq '"balanced"[[:space:]]*:[[:space:]]*true' /tmp/noble-reconciliation.json \
-      && pass "Financial reconciliation endpoint is balanced" \
-      || fail "Financial reconciliation endpoint returned a non-balanced report"
-  else
-    fail "Financial reconciliation endpoint returned HTTP $reconciliation_code"
-  fi
-
-  rm -f /tmp/noble-reconciliation.json
+if [[ "$reconciliation_code" == "200" ]]; then
+  grep -Eq '"balanced"[[:space:]]*:[[:space:]]*true' /tmp/noble-reconciliation.json \
+    && pass "Financial reconciliation endpoint is balanced" \
+    || fail "Financial reconciliation endpoint returned a non-balanced report"
 else
-  echo "[ACCEPTANCE INFO] ACCEPTANCE_JWT not supplied; authenticated financial checks were skipped."
+  fail "Financial reconciliation endpoint returned HTTP $reconciliation_code"
 fi
+rm -f /tmp/noble-reconciliation.json
+
+# These routes must never disclose private customer or accounting data without
+# authentication. A 404 is not accepted: it can hide a missing security test.
+assert_private_endpoint() {
+  local path="$1"
+  local code
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "${BASE_URL%/}${path}")" || {
+    fail "Unauthenticated request to $path could not be completed"
+    return
+  }
+  if [[ "$code" == "401" || "$code" == "403" ]]; then
+    pass "Unauthenticated access blocked: $path ($code)"
+  else
+    fail "Private endpoint $path returned HTTP $code without credentials (expected 401/403)"
+  fi
+}
+assert_private_endpoint "/api/loans"
+assert_private_endpoint "/api/borrowers"
+assert_private_endpoint "/api/users"
+assert_private_endpoint "/api/accounting/trial-balance"
+assert_private_endpoint "/api/reports/operational-summary"
 
 # The final acceptance test must never silently certify provider integrations.
 for required in \

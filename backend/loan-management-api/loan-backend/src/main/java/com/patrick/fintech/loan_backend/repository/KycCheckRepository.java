@@ -5,8 +5,8 @@ import org.springframework.stereotype.Repository;
 import java.util.*;
 @Repository
 public interface KycCheckRepository extends JpaRepository<KycCheck,Long> {
-    List<KycCheck> findByBorrower_IdAndOrganization_Id(Long borrowerId, Long organizationId);
+    List<KycCheck> findByBorrower_Id(Long borrowerId);
     List<KycCheck> findByOrganization_Id(Long orgId);
-    Optional<KycCheck> findFirstByBorrower_IdAndOrganization_IdAndCheckTypeOrderByCreatedAtDesc(Long borrowerId, Long organizationId, KycCheck.CheckType checkType);
+    Optional<KycCheck> findFirstByBorrower_IdAndCheckTypeOrderByCreatedAtDesc(Long borrowerId,KycCheck.CheckType checkType);
     List<KycCheck> findByOrganization_IdAndResult(Long orgId,KycCheck.CheckResult result);
 }

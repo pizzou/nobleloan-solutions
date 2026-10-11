@@ -164,13 +164,11 @@ public class ComplianceService {
         @Transactional
         public KycCheck manualReview(
                         Long checkId,
-                        Long organizationId,
                         String reviewer,
                         KycCheck.CheckResult decision,
                         String notes) {
 
                 validateId(checkId, "checkId");
-                validateId(organizationId, "organizationId");
 
                 String normalizedReviewer = requireText(
                                 reviewer,
@@ -183,13 +181,6 @@ public class ComplianceService {
                 KycCheck check = kycRepo.findById(checkId)
                                 .orElseThrow(() -> new IllegalArgumentException(
                                                 "KYC check not found: " + checkId));
-
-                if (check.getOrganization() == null
-                                || check.getOrganization().getId() == null
-                                || !organizationId.equals(check.getOrganization().getId())) {
-                        throw new org.springframework.security.access.AccessDeniedException(
-                                        "KYC check does not belong to your organization");
-                }
 
                 /*
                  * A manual review should not silently turn a historical
@@ -206,10 +197,6 @@ public class ComplianceService {
                 }
 
                 Borrower borrower = check.getBorrower();
-
-                if (borrower != null) {
-                        validateOrganizationOwnership(borrower, organizationId);
-                }
 
                 if (borrower == null) {
                         throw new IllegalStateException(
@@ -308,24 +295,23 @@ public class ComplianceService {
         /**
          * Returns the KYC history for a borrower.
          *
-         * Organization ownership is checked here as well as at the controller
-         * boundary so future callers cannot accidentally reintroduce an IDOR.
+         * IMPORTANT:
+         * The caller/controller should also enforce organization ownership.
+         * This method can additionally validate the borrower exists.
          */
         @Transactional(readOnly = true)
         public List<KycCheck> getHistoryForBorrower(
-                        Long borrowerId,
-                        Long organizationId) {
+                        Long borrowerId) {
 
                 validateId(borrowerId, "borrowerId");
-                validateId(organizationId, "organizationId");
 
-                Borrower borrower = borrowerRepo.findById(borrowerId)
-                                .orElseThrow(() -> new IllegalArgumentException(
-                                                "Borrower not found: " + borrowerId));
-                validateOrganizationOwnership(borrower, organizationId);
+                if (!borrowerRepo.existsById(borrowerId)) {
+                        throw new IllegalArgumentException(
+                                        "Borrower not found: " + borrowerId);
+                }
 
-                return kycRepo.findByBorrower_IdAndOrganization_Id(
-                                borrowerId, organizationId);
+                return kycRepo.findByBorrower_Id(
+                                borrowerId);
         }
 
         /**
@@ -334,23 +320,17 @@ public class ComplianceService {
          */
         @Transactional(readOnly = true)
         public boolean isKycCurrentlyClear(
-                        Long borrowerId,
-                        Long organizationId) {
+                        Long borrowerId) {
 
-                validateId(borrowerId, "borrowerId");
-                validateId(organizationId, "organizationId");
-
-                Borrower borrower = borrowerRepo.findById(borrowerId)
-                                .orElseThrow(() -> new IllegalArgumentException(
-                                                "Borrower not found: " + borrowerId));
-                validateOrganizationOwnership(borrower, organizationId);
+                validateId(
+                                borrowerId,
+                                "borrowerId");
 
                 return kycRepo
-                                .findFirstByBorrower_IdAndOrganization_IdAndCheckTypeOrderByCreatedAtDesc(
+                                .findFirstByBorrower_IdAndCheckTypeOrderByCreatedAtDesc(
                                                 borrowerId,
-                                                organizationId,
                                                 KycCheck.CheckType.SANCTIONS_SCREENING)
-                .filter(
+                                .filter(
                                                 check -> check.getResult() == KycCheck.CheckResult.CLEAR)
                                 .filter(
                                                 check -> !check.isExpired())
