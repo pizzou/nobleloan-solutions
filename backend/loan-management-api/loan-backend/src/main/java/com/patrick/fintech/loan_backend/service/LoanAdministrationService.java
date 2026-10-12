@@ -98,10 +98,25 @@ public class LoanAdministrationService {
          * fee, penalty, repayment schedule and payment allocation.
          */
         ensureNoPendingPaymentTransaction(loanId);
-        ensureNoFinancialOrProtectedHistory(organizationId, loanId, reference);
 
         LocalDateTime now = LocalDateTime.now();
+        boolean originalBusinessOwnerOnly = Boolean.TRUE.equals(loan.getBusinessOwnerOnly());
 
+        /*
+         * Recycle is a visibility/lifecycle operation, not a reversal of the
+         * loan. Keep immutable journal history, but move the related journals
+         * and settlements into the BUSINESS_OWNER-only reporting scope for the
+         * recovery window. The original scope is stored per row so restore is
+         * lossless even when individual historical rows had their own scope.
+         */
+        upsertTombstone(
+                organizationId,
+                loanId,
+                reference,
+                now,
+                originalBusinessOwnerOnly);
+        restrictLoanAccountingToBusinessOwner(organizationId, loanId, reference);
+        loan.setBusinessOwnerOnly(true);
         loan.setDeletedAt(now);
         loan.setDeletionReason(normalizedReason);
         loan.setDeletedBy(actor.getId());
@@ -114,16 +129,10 @@ public class LoanAdministrationService {
         loanRepository.saveAndFlush(loan);
 
         /*
-         * This is only an operational recycle-bin action. Financial activity
-         * was rejected above; no journal rows are hidden or modified here.
-         * Tombstones remain for audit/history only and never suppress reports.
+         * Financial amounts and loan status are unchanged. Normal-scope reports
+         * exclude the recycled loan's related journals/settlements; the
+         * BUSINESS_OWNER retains full visibility and can restore the loan.
          */
-        upsertTombstone(
-                organizationId,
-                loanId,
-                reference,
-                now);
-
         auditService.log(
                 loan.getOrganization(),
                 actor,
@@ -217,7 +226,13 @@ public class LoanAdministrationService {
                 SET deleted_at = NULL,
                     deletion_reason = NULL,
                     deleted_by = NULL,
-                    purge_after = NULL
+                    purge_after = NULL,
+                    business_owner_only = COALESCE((
+                        SELECT t.original_business_owner_only
+                        FROM loan_deletion_tombstones t
+                        WHERE t.organization_id = :organizationId
+                          AND t.loan_id = :loanId
+                    ), FALSE)
                 WHERE id = :loanId
                   AND organization_id = :organizationId
                   AND deleted_at IS NOT NULL
@@ -235,6 +250,8 @@ public class LoanAdministrationService {
                 .setParameter("organizationId", organizationId)
                 .setParameter("loanId", loanId)
                 .executeUpdate();
+
+        restoreLoanAccountingScope(organizationId, loanId);
 
         entityManager.createNativeQuery("""
                 DELETE FROM loan_deletion_tombstones
@@ -598,27 +615,142 @@ public class LoanAdministrationService {
         }
     }
 
+    private void restrictLoanAccountingToBusinessOwner(
+            Long organizationId,
+            Long loanId,
+            String reference) {
+        String loanIdText = String.valueOf(loanId);
+
+        entityManager.createNativeQuery("""
+                WITH related_entries AS (
+                    SELECT je.id
+                    FROM journal_entries je
+                    WHERE je.organization_id = :organizationId
+                      AND (
+                        je.reference = :reference
+                        OR (
+                            je.source_type IN (
+                                'LOAN_DISBURSEMENT', 'LOAN_PAYMENT', 'LOAN_EXTENSION_FEE',
+                                'LOAN_EXTENSION_FEE_COLLECTION', 'PENALTY_ACCRUAL',
+                                'INTEREST_ACCRUAL', 'MANAGEMENT_FEE_ACCRUAL',
+                                'SCHEDULED_INTEREST_ACCRUAL', 'SCHEDULED_MANAGEMENT_FEE_ACCRUAL',
+                                'CONTRACTUAL_MONTHLY_INTEREST_ACCRUAL',
+                                'CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL',
+                                'HISTORICAL_LOAN_OPENING', 'LEGACY_LOAN_OPENING',
+                                'LEGACY_LOAN_RECONCILIATION', 'LEGACY_LOAN_OPENING_DATE_REPAIR',
+                                'WRITE_OFF', 'APPLICATION_FEE_INCOME_RECLASSIFICATION'
+                            )
+                            AND regexp_replace(trim(COALESCE(je.source_id, '')), '^LOAN:', '')
+                                ~ ( '^' || :loanIdText || '($|[-:])' )
+                        )
+                        OR (
+                            je.source_type IN ('PAYMENT_RECEIVED', 'REFUND_PAYMENT',
+                                'PAYMENT_REFUND', 'PAYMENT_REVERSAL', 'OVERPAYMENT_REFUND_PAYABLE')
+                            AND je.source_id IN (SELECT p.id::text FROM payments p WHERE p.loan_id = :loanId)
+                        )
+                        OR (
+                            je.source_type IN ('SCHEDULED_INTEREST_ACCRUAL', 'SCHEDULED_MANAGEMENT_FEE_ACCRUAL')
+                            AND je.source_id IN (
+                                SELECT 'PAYMENT-' || p.id::text FROM payments p WHERE p.loan_id = :loanId
+                            )
+                        )
+                        OR (
+                            je.source_type = 'REVERSAL'
+                            AND je.source_id IN (
+                                SELECT original.id::text
+                                FROM journal_entries original
+                                WHERE original.organization_id = :organizationId
+                                  AND (
+                                    original.reference = :reference
+                                    OR regexp_replace(trim(COALESCE(original.source_id, '')), '^LOAN:', '')
+                                        ~ ( '^' || :loanIdText || '($|[-:])' )
+                                    OR original.source_id IN (
+                                        SELECT p.id::text FROM payments p WHERE p.loan_id = :loanId
+                                    )
+                                )
+                            )
+                        )
+                      )
+                )
+                UPDATE journal_entries je
+                SET recycle_original_business_owner_only = COALESCE(
+                        je.recycle_original_business_owner_only, je.business_owner_only, FALSE),
+                    recycle_loan_id = :loanId,
+                    business_owner_only = TRUE
+                WHERE je.id IN (SELECT id FROM related_entries)
+                """)
+                .setParameter("organizationId", organizationId)
+                .setParameter("loanId", loanId)
+                .setParameter("loanIdText", loanIdText)
+                .setParameter("reference", reference)
+                .executeUpdate();
+
+        entityManager.createNativeQuery("""
+                UPDATE payment_settlements ps
+                SET recycle_original_business_owner_only = COALESCE(
+                        ps.recycle_original_business_owner_only, ps.business_owner_only, FALSE),
+                    recycle_loan_id = :loanId,
+                    business_owner_only = TRUE
+                WHERE ps.organization_id = :organizationId
+                  AND ps.internal_payment_reference IN (
+                      SELECT p.payment_reference FROM payments p WHERE p.loan_id = :loanId
+                  )
+                """)
+                .setParameter("organizationId", organizationId)
+                .setParameter("loanId", loanId)
+                .executeUpdate();
+    }
+
+    private void restoreLoanAccountingScope(Long organizationId, Long loanId) {
+        entityManager.createNativeQuery("""
+                UPDATE journal_entries je
+                SET business_owner_only = COALESCE(je.recycle_original_business_owner_only, FALSE),
+                    recycle_original_business_owner_only = NULL,
+                    recycle_loan_id = NULL
+                WHERE je.organization_id = :organizationId
+                  AND je.recycle_loan_id = :loanId
+                """)
+                .setParameter("organizationId", organizationId)
+                .setParameter("loanId", loanId)
+                .executeUpdate();
+
+        entityManager.createNativeQuery("""
+                UPDATE payment_settlements ps
+                SET business_owner_only = COALESCE(ps.recycle_original_business_owner_only, FALSE),
+                    recycle_original_business_owner_only = NULL,
+                    recycle_loan_id = NULL
+                WHERE ps.organization_id = :organizationId
+                  AND ps.recycle_loan_id = :loanId
+                """)
+                .setParameter("organizationId", organizationId)
+                .setParameter("loanId", loanId)
+                .executeUpdate();
+    }
+
     private void upsertTombstone(
             Long organizationId,
             Long loanId,
             String reference,
-            LocalDateTime deletedAt) {
+            LocalDateTime deletedAt,
+            boolean originalBusinessOwnerOnly) {
 
         entityManager.createNativeQuery("""
                 INSERT INTO loan_deletion_tombstones
-                    (organization_id, loan_id, reference_number, deleted_at)
+                    (organization_id, loan_id, reference_number, deleted_at, original_business_owner_only)
                 VALUES
-                    (:organizationId, :loanId, :reference, :deletedAt)
+                    (:organizationId, :loanId, :reference, :deletedAt, :originalBusinessOwnerOnly)
                 ON CONFLICT (organization_id, loan_id)
                 DO UPDATE SET
                     reference_number = EXCLUDED.reference_number,
                     deleted_at = EXCLUDED.deleted_at,
+                    original_business_owner_only = EXCLUDED.original_business_owner_only,
                     purged_at = NULL
                 """)
                 .setParameter("organizationId", organizationId)
                 .setParameter("loanId", loanId)
                 .setParameter("reference", reference)
                 .setParameter("deletedAt", deletedAt)
+                .setParameter("originalBusinessOwnerOnly", originalBusinessOwnerOnly)
                 .executeUpdate();
     }
 
