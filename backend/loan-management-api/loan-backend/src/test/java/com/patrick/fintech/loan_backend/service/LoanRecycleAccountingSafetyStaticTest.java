@@ -24,7 +24,7 @@ class LoanRecycleAccountingSafetyStaticTest {
         String service = Files.readString(source("service/LoanAdministrationService.java"), StandardCharsets.UTF_8);
         String journal = Files.readString(source("model/JournalEntry.java"), StandardCharsets.UTF_8);
         String repository = Files.readString(source("repository/JournalLineRepository.java"), StandardCharsets.UTF_8);
-        String migration = Files.readString(Path.of("src/main/resources/db/migration/V113__preserve_ledger_history_for_recycled_loans.sql"), StandardCharsets.UTF_8).toLowerCase();
+        String migration = Files.readString(Path.of("src/main/resources/db/migration/V115__preserve_ledger_history_for_recycled_loans.sql"), StandardCharsets.UTF_8).toLowerCase();
 
         assertTrue(service.contains("ensureNoFinancialOrProtectedHistory(organizationId, loanId, reference)"),
                 "Loans with posted financial history must not use ordinary recycle/delete");

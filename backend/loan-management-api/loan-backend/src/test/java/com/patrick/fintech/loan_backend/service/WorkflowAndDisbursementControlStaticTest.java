@@ -1,5 +1,4 @@
 package com.patrick.fintech.loan_backend.service;
-
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
