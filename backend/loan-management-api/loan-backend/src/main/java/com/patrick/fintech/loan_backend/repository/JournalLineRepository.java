@@ -340,6 +340,12 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
             WHERE je.organization_id = :organizationId
               AND je.reversed = false
               AND je.entry_date BETWEEN :historicalFrom AND :toDate
+              AND NOT public.loan_journal_is_recycled(
+                    je.organization_id,
+                    je.source_type,
+                    je.source_id,
+                    je.reference
+              )
               AND (
                     :includeBusinessOwnerOnly = true
                     OR (
@@ -376,6 +382,12 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
             WHERE je.organization_id = :organizationId
               AND je.reversed = false
               AND je.entry_date BETWEEN :fromDate AND :toDate
+              AND NOT public.loan_journal_is_recycled(
+                    je.organization_id,
+                    je.source_type,
+                    je.source_id,
+                    je.reference
+              )
             GROUP BY je.id
             HAVING COUNT(jl.id) = 0
                 OR SUM(CASE WHEN jl.debit < 0 OR jl.credit < 0 THEN 1 ELSE 0 END) > 0

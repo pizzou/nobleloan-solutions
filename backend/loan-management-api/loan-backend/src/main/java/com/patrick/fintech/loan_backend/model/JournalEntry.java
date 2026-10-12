@@ -8,8 +8,10 @@ import lombok.*;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import org.hibernate.annotations.SQLRestriction;
 
 @Entity
+@SQLRestriction("hidden_loan_id IS NULL AND NOT public.loan_journal_is_recycled(organization_id, source_type, source_id, reference)")
 @Table(name = "journal_entries")
 @Getter
 @Setter
@@ -72,18 +74,16 @@ public class JournalEntry {
     private Boolean reversed = false;
 
     /**
-     * Existing deployment visibility scope. This is distinct from recycle-bin
-     * state; journal rows must remain available to accounting and audit queries.
+     * Reporting visibility inherited from the originating loan.
+     *
+     * FALSE = NORMAL_SCOPE.
+     * TRUE = BUSINESS_OWNER_SCOPE only.
      */
     @Column(name = "business_owner_only", nullable = false)
     @Builder.Default
     @JsonIgnore
     private Boolean businessOwnerOnly = false;
 
-    /**
-     * Legacy compatibility column. New code never populates this field and
-     * migration V113 clears legacy markers so posted ledger rows are not hidden.
-     */
     @Column(name = "hidden_loan_id")
     @JsonIgnore
     private Long hiddenLoanId;

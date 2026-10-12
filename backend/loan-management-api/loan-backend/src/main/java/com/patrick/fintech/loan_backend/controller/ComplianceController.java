@@ -1,6 +1,7 @@
 package com.patrick.fintech.loan_backend.controller;
 
 import com.patrick.fintech.loan_backend.dto.ApiResponse;
+import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.KycCheck;
 import com.patrick.fintech.loan_backend.service.ComplianceService;
 import com.patrick.fintech.loan_backend.util.CurrentUserUtil;
@@ -8,7 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -26,15 +27,13 @@ public class ComplianceController {
     }
 
     @GetMapping("/borrowers/{id}/history")
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','CREDIT_ANALYST')")
     public ResponseEntity<ApiResponse<Object>> history(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.safe(complianceService.getHistoryForBorrower(id, currentUserUtil.getCurrentOrganizationId())));
+        return ResponseEntity.ok(ApiResponse.safe(complianceService.getHistoryForBorrower(id)));
     }
 
     @GetMapping("/borrowers/{id}/status")
-    @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','CREDIT_ANALYST')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> status(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.safe(Map.of("kycClear", complianceService.isKycCurrentlyClear(id, currentUserUtil.getCurrentOrganizationId()))));
+        return ResponseEntity.ok(ApiResponse.safe(Map.of("kycClear", complianceService.isKycCurrentlyClear(id))));
     }
 
     @GetMapping("/pending-reviews")
@@ -49,7 +48,6 @@ public class ComplianceController {
     public ResponseEntity<ApiResponse<Object>> decide(@PathVariable Long checkId,
             @RequestBody Map<String, String> body) {
         return ResponseEntity.ok(ApiResponse.safe(complianceService.manualReview(checkId,
-                currentUserUtil.getCurrentOrganizationId(),
                 currentUserUtil.getCurrentUser().getName(), KycCheck.CheckResult.valueOf(body.get("decision")),
                 body.getOrDefault("notes", ""))));
     }
