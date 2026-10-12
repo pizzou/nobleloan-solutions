@@ -28,9 +28,9 @@ public class MfaController {
         return ResponseEntity.ok(ApiResponse.ok("MFA enabled",Map.of("enabled",true)));
     }
     @PostMapping("/disable")
-    public ResponseEntity<ApiResponse<Void>> disable() {
+    public ResponseEntity<ApiResponse<Void>> disable(@RequestBody Map<String, String> body) {
         User user = currentUserUtil.getCurrentUser();
-        mfaService.disable(currentUserUtil.getCurrentUserId());
+        mfaService.disable(currentUserUtil.getCurrentUserId(), body == null ? null : body.get("code"));
         auditService.log(user.getOrganization(), user, "MFA_DISABLED", "AUTH",
             String.valueOf(user.getId()), "Two-factor authentication disabled", null, null, "Authentication");
         return ResponseEntity.ok(ApiResponse.ok("MFA disabled"));

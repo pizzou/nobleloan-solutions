@@ -164,11 +164,13 @@ public class ComplianceService {
         @Transactional
         public KycCheck manualReview(
                         Long checkId,
+                        Long orgId,
                         String reviewer,
                         KycCheck.CheckResult decision,
                         String notes) {
 
                 validateId(checkId, "checkId");
+                validateId(orgId, "orgId");
 
                 String normalizedReviewer = requireText(
                                 reviewer,
@@ -202,6 +204,13 @@ public class ComplianceService {
                         throw new IllegalStateException(
                                         "KYC check has no associated borrower: "
                                                         + checkId);
+                }
+                validateOrganizationOwnership(borrower, orgId);
+                if (check.getOrganization() != null
+                                && check.getOrganization().getId() != null
+                                && !orgId.equals(check.getOrganization().getId())) {
+                        throw new org.springframework.security.access.AccessDeniedException(
+                                        "KYC check does not belong to your organization");
                 }
 
                 /*
@@ -301,17 +310,17 @@ public class ComplianceService {
          */
         @Transactional(readOnly = true)
         public List<KycCheck> getHistoryForBorrower(
-                        Long borrowerId) {
+                        Long borrowerId, Long orgId) {
 
                 validateId(borrowerId, "borrowerId");
+                validateId(orgId, "orgId");
 
-                if (!borrowerRepo.existsById(borrowerId)) {
-                        throw new IllegalArgumentException(
-                                        "Borrower not found: " + borrowerId);
-                }
+                Borrower borrower = borrowerRepo.findById(borrowerId)
+                                .orElseThrow(() -> new IllegalArgumentException(
+                                                "Borrower not found: " + borrowerId));
+                validateOrganizationOwnership(borrower, orgId);
 
-                return kycRepo.findByBorrower_Id(
-                                borrowerId);
+                return kycRepo.findByBorrower_Id(borrowerId);
         }
 
         /**
@@ -320,11 +329,15 @@ public class ComplianceService {
          */
         @Transactional(readOnly = true)
         public boolean isKycCurrentlyClear(
-                        Long borrowerId) {
+                        Long borrowerId, Long orgId) {
 
-                validateId(
-                                borrowerId,
-                                "borrowerId");
+                validateId(borrowerId, "borrowerId");
+                validateId(orgId, "orgId");
+
+                Borrower borrower = borrowerRepo.findById(borrowerId)
+                                .orElseThrow(() -> new IllegalArgumentException(
+                                                "Borrower not found: " + borrowerId));
+                validateOrganizationOwnership(borrower, orgId);
 
                 return kycRepo
                                 .findFirstByBorrower_IdAndCheckTypeOrderByCreatedAtDesc(

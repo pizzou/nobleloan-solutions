@@ -1511,7 +1511,9 @@ public class LoanService {
                 if (isProductionEnvironment()
                                 && (loan.getBorrower() == null
                                                 || !complianceService
-                                                                .isKycCurrentlyClear(loan.getBorrower().getId()))) {
+                                                                .isKycCurrentlyClear(
+                                                                        loan.getBorrower().getId(),
+                                                                        loan.getOrganization().getId()))) {
                         throw new IllegalStateException(
                                         "Cannot disburse this loan — the borrower does not have a current, provider-backed KYC/AML clearance.");
                 }

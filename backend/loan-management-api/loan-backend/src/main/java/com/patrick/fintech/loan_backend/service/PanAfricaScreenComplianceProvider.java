@@ -138,9 +138,9 @@ public class PanAfricaScreenComplianceProvider implements ExternalComplianceProv
             // A provider response saying totalMatches > 0 is never silently
             // treated as clear, even when the provider's entity typing changes.
             if (totalMatches > 0 || highestScore >= threshold) {
-                if (totalMatches > 0) {
-                    sanctionsClear = false;
-                }
+                // A score-only or contradictory provider response is not a clearance.
+                // Until the provider's contract resolves the signal, force manual review.
+                sanctionsClear = false;
             }
 
             boolean clear = sanctionsClear && pepClear && adverseMediaClear;

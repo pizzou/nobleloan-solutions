@@ -23,8 +23,12 @@ public class MfaService {
     @Transactional
     public MfaSetupResponse beginSetup(Long userId,String issuer) {
         User user=userRepository.findById(userId).orElseThrow(()->new RuntimeException("User not found"));
+        if (user.isTwoFactorEnabled()) {
+            throw new IllegalStateException(
+                    "MFA is already enabled. Verify the current authenticator code to disable it before enrolling a replacement.");
+        }
         String secret=secretGenerator.generate();
-        user.setTwoFactorSecret(secret); user.setTwoFactorEnabled(false);
+        user.setTwoFactorSecret(secret);
         userRepository.save(user);
         return new MfaSetupResponse(secret,generateQr(user.getEmail(),secret,issuer));
     }
@@ -44,9 +48,21 @@ public class MfaService {
     }
 
     @Transactional
-    public void disable(Long userId) {
-        User user=userRepository.findById(userId).orElseThrow(()->new RuntimeException("User not found"));
-        user.setTwoFactorEnabled(false); user.setTwoFactorSecret(null);
+    public void disable(Long userId, String currentCode) {
+        User user=userRepository.findById(userId)
+                .orElseThrow(()->new IllegalArgumentException("User not found"));
+
+        if (!user.isTwoFactorEnabled() || user.getTwoFactorSecret() == null) {
+            throw new IllegalStateException("MFA is not enabled for this account");
+        }
+        if (currentCode == null || !currentCode.matches("\\d{6}")
+                || !codeVerifier.isValidCode(user.getTwoFactorSecret(), currentCode)) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "A valid current authenticator code is required to disable MFA");
+        }
+
+        user.setTwoFactorEnabled(false);
+        user.setTwoFactorSecret(null);
         userRepository.save(user);
     }
 
