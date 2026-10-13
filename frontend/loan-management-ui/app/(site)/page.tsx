@@ -253,14 +253,20 @@ export default function HomePage() {
               <span className="h-2 w-2 rounded-full bg-[#C9A227]" /> Trusted
               lending for Rwanda
             </div>
-            <h1 className="mt-6 max-w-2xl text-[clamp(2.8rem,4.8vw,4.7rem)] font-black leading-[.96] tracking-[-.065em]">
-              Real support.
-              <span className="block text-[#F0C34E]">Bigger dreams.</span>
+            <p className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-[.22em] text-[#F0C34E]">
+              <span
+                className="h-2 w-2 rounded-full bg-[#F0C34E]"
+                aria-hidden="true"
+              />
+              NOBLE LOAN SOLUTIONS Ltd
+            </p>
+            <h1 className="mt-4 max-w-2xl text-[clamp(2.65rem,5vw,4.7rem)] font-black leading-[.96] tracking-[-.055em]">
+              FUEL YOUR
+              <span className="block text-[#F0C34E]">BUSINESS GROWTH</span>
             </h1>
-            <p className="mt-5 max-w-xl text-sm leading-6 text-white/85 sm:text-base sm:leading-7">
-              From a personal milestone to your next business step, find a loan
-              designed around your needs—with clear terms, practical guidance
-              and a team ready to help.
+            <p className="mt-5 max-w-xl text-sm leading-6 text-white/90 sm:text-base sm:leading-7">
+              Support your business growth with flexible financing options, fast
+              approval, high loan limits, and simple requirements.
             </p>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <Link
@@ -276,25 +282,25 @@ export default function HomePage() {
                 How it works
               </Link>
             </div>
-            <div className="mt-7 grid max-w-xl grid-cols-3 border-t border-white/25 pt-4">
-              <div className="pr-3">
-                <p className="text-lg font-black text-[#F0C34E]">Clear</p>
-                <p className="mt-1 text-xs leading-5 text-white/75">
-                  Published fees & terms
-                </p>
-              </div>
-              <div className="border-l border-white/25 px-4">
-                <p className="text-lg font-black text-[#F0C34E]">Guided</p>
-                <p className="mt-1 text-xs leading-5 text-white/75">
-                  Step-by-step application
-                </p>
-              </div>
-              <div className="border-l border-white/25 pl-4">
-                <p className="text-lg font-black text-[#F0C34E]">Local</p>
-                <p className="mt-1 text-xs leading-5 text-white/75">
-                  Lending in Rwanda
-                </p>
-              </div>
+            <div className="mt-7 grid max-w-2xl grid-cols-2 gap-3 border-t border-white/25 pt-5 sm:grid-cols-4">
+              {[
+                { title: "Simple requirements", mark: "✓" },
+                { title: "Competitive rates", mark: "%" },
+                { title: "Flexible tenure", mark: "↔" },
+                { title: "Quick approval", mark: "⚡" },
+              ].map((benefit) => (
+                <div
+                  key={benefit.title}
+                  className="flex min-h-[64px] items-center gap-2 rounded-xl border border-white/15 bg-white/[.07] px-3 py-3 backdrop-blur-sm"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#C9A227] text-sm font-black text-[#0F1B3D]">
+                    {benefit.mark}
+                  </span>
+                  <span className="text-xs font-bold leading-4 text-white sm:text-[11px] lg:text-xs">
+                    {benefit.title}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
           <div className="relative z-10">
