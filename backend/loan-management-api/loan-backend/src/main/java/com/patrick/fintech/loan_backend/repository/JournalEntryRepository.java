@@ -32,6 +32,7 @@ public interface JournalEntryRepository
             SELECT j
             FROM JournalEntry j
             WHERE j.organization.id = :organizationId
+              AND j.recycleLoanId IS NULL
               AND (
                     :includeBusinessOwnerOnly = true
                     OR (
@@ -72,6 +73,7 @@ public interface JournalEntryRepository
             FROM JournalEntry j
             WHERE j.organization.id = :organizationId
               AND j.entryDate BETWEEN :from AND :to
+              AND j.recycleLoanId IS NULL
               AND (
                     :includeBusinessOwnerOnly = true
                     OR (
@@ -118,6 +120,7 @@ public interface JournalEntryRepository
             FROM JournalEntry j
             WHERE j.organization.id = :organizationId
               AND j.entryDate BETWEEN :from AND :to
+              AND j.recycleLoanId IS NULL
               AND (
                     :includeBusinessOwnerOnly = true
                     OR (
@@ -156,6 +159,7 @@ public interface JournalEntryRepository
             FROM JournalEntry j
             WHERE j.id = :id
               AND j.organization.id = :organizationId
+              AND j.recycleLoanId IS NULL
               AND (
                     :includeBusinessOwnerOnly = true
                     OR (

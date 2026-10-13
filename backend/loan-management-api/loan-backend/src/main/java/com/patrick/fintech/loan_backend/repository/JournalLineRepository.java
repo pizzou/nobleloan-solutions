@@ -53,6 +53,7 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
             JOIN l.journalEntry e
             WHERE l.account.id = :accountId
               AND e.organization.id = :organizationId
+              AND e.recycleLoanId IS NULL
               AND (
                     :includeBusinessOwnerOnly = true
                     OR (
@@ -97,6 +98,7 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
             JOIN FETCH l.journalEntry e
             WHERE l.account.id = :accountId
               AND e.organization.id = :organizationId
+              AND e.recycleLoanId IS NULL
               AND (
                     :includeBusinessOwnerOnly = true
                     OR (
@@ -339,6 +341,7 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
                 ON je.id = jl.journal_entry_id
             WHERE je.organization_id = :organizationId
               AND je.reversed = false
+              AND je.recycle_loan_id IS NULL
               AND je.entry_date BETWEEN :historicalFrom AND :toDate
               AND (
                     :includeBusinessOwnerOnly = true
@@ -375,6 +378,7 @@ public interface JournalLineRepository extends JpaRepository<JournalLine, Long> 
                 ON jl.journal_entry_id = je.id
             WHERE je.organization_id = :organizationId
               AND je.reversed = false
+              AND je.recycle_loan_id IS NULL
               AND je.entry_date BETWEEN :fromDate AND :toDate
             GROUP BY je.id
             HAVING COUNT(jl.id) = 0

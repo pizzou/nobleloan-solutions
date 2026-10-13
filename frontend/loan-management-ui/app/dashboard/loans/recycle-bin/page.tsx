@@ -40,8 +40,17 @@ export default function LoanRecycleBinPage() {
     setLoading(true);
     setError(null);
     try {
+      // The shared API helper unwraps ApiResponse.data before returning.
+      // Therefore the normal successful shape here is already the array;
+      // retain the nested-data fallback for older/mock adapters.
       const response = await loanApi.recycleBin();
-      setItems(Array.isArray(response?.data) ? response.data : []);
+      setItems(
+        Array.isArray(response)
+          ? response
+          : Array.isArray(response?.data)
+            ? response.data
+            : [],
+      );
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Unable to load the recycle bin.",

@@ -23,4 +23,9 @@ public class PaymentSettlement{
     @jakarta.persistence.Column(name = "business_owner_only", nullable = false)
     @lombok.Builder.Default
     private Boolean businessOwnerOnly = false;
+
+    /** Excludes retained settlement evidence from active reports while its loan is recycled. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @jakarta.persistence.Column(name = "recycle_loan_id")
+    private Long recycleLoanId;
 }

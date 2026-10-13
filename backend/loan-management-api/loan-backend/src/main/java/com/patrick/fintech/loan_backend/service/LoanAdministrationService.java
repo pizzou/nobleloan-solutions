@@ -104,10 +104,10 @@ public class LoanAdministrationService {
 
         /*
          * Recycle is a visibility/lifecycle operation, not a reversal of the
-         * loan. Keep immutable journal history, but move the related journals
-         * and settlements into the BUSINESS_OWNER-only reporting scope for the
-         * recovery window. The original scope is stored per row so restore is
-         * lossless even when individual historical rows had their own scope.
+         * loan. Keep immutable journal history, restrict the rows to the owner
+         * for controlled audit access, and set recycle_loan_id so active accounting
+         * excludes them for every role. The original scope is stored per row so
+         * restore is lossless even when historical rows had their own scope.
          */
         upsertTombstone(
                 organizationId,
@@ -129,9 +129,9 @@ public class LoanAdministrationService {
         loanRepository.saveAndFlush(loan);
 
         /*
-         * Financial amounts and loan status are unchanged. Normal-scope reports
-         * exclude the recycled loan's related journals/settlements; the
-         * BUSINESS_OWNER retains full visibility and can restore the loan.
+         * Financial amounts and loan status are unchanged. Active accounting
+         * excludes related journal and settlement rows for every role; the
+         * Business Owner can inspect the recycle-bin record and restore it.
          */
         auditService.log(
                 loan.getOrganization(),
@@ -327,8 +327,8 @@ public class LoanAdministrationService {
 
         /*
          * Posted journal entries and settlement records are NOT a reason to keep
-         * the operational loan row forever: recycle already tags them owner-only,
-         * and they remain in the ledger/tombstone for accounting integrity. Only
+         * the operational loan row forever: recycle markers exclude them from
+         * active reports while preserving them for audit and accounting integrity. Only
          * signed contracts and submitted regulatory records that still depend on
          * the operational loan are allowed to block physical loan-row purge.
          */
@@ -380,7 +380,8 @@ public class LoanAdministrationService {
         /*
          * Delete operational loan children in FK-safe order. Posted journal entries,
          * journal lines, settlements, and audit history are deliberately retained;
-         * the tombstone plus owner-only reporting scope preserves their attribution.
+         * recycle markers and the tombstone preserve attribution while excluding
+         * the evidence from active accounting.
          */
         for (String table : DIRECT_LOAN_CHILD_TABLES) {
             deleteLoanChildren(table, loanId);
@@ -431,7 +432,8 @@ public class LoanAdministrationService {
 
     /**
      * A permanent operational purge may remove the loan and its operational
-     * children after 30 days, while the posted ledger remains owner-only. Signed
+     * children after 30 days, while posted ledger evidence remains retained and
+     * excluded from active reports by its recycle marker. Signed
      * contracts and submitted bureau/regulatory evidence are different: they are
      * legally significant source records and must not be erased by a routine job.
      */

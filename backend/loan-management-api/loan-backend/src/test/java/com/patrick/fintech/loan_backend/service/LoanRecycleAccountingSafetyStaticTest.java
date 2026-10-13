@@ -109,4 +109,50 @@ class LoanRecycleAccountingSafetyStaticTest {
         assertFalse(repository.contains("NOT public.loan_journal_is_recycled("),
                 "Ledger aggregates must not use the obsolete global recycle exclusion");
     }
+
+    @Test
+    void recycledLoanLedgerMustBeExcludedFromActiveAccountingForEveryRole() throws Exception {
+        String journalModel = Files.readString(source("model/JournalEntry.java"), StandardCharsets.UTF_8);
+        String journalRepository = Files.readString(source("repository/JournalEntryRepository.java"), StandardCharsets.UTF_8);
+        String lineRepository = Files.readString(source("repository/JournalLineRepository.java"), StandardCharsets.UTF_8);
+        String administrationService = Files.readString(source("service/LoanAdministrationService.java"), StandardCharsets.UTF_8);
+
+        assertTrue(journalModel.contains("@Column(name = \"recycle_loan_id\")"),
+                "The immutable journal must map the recycle marker already present in the schema");
+        assertTrue(journalRepository.split("recycleLoanId IS NULL", -1).length >= 5,
+                "Every visible journal-entry report query, including Business Owner queries, must exclude recycled entries");
+        assertTrue(lineRepository.contains("e.recycleLoanId IS NULL"),
+                "Account-ledger queries must exclude recycled journal lines for every role");
+        assertTrue(lineRepository.contains("je.recycle_loan_id IS NULL"),
+                "Native BNR aggregates and validation must exclude recycled journal entries");
+        String settlementModel = Files.readString(source("model/PaymentSettlement.java"), StandardCharsets.UTF_8);
+        String settlementService = Files.readString(source("service/PaymentSettlementService.java"), StandardCharsets.UTF_8);
+        assertTrue(settlementModel.contains("name = \"recycle_loan_id\""),
+                "Retained settlement evidence must expose its recycle marker to the operational reporting boundary");
+        assertTrue(settlementService.contains("s.getRecycleLoanId() == null"),
+                "Recycled settlements must not remain in the active settlement queue");
+        assertTrue(settlementService.contains("settlement.getRecycleLoanId() != null"),
+                "Direct settlement reconciliation must reject recycled-loan evidence until restore");
+        assertTrue(administrationService.contains("recycle_loan_id = :loanId"),
+                "Recycle must mark related immutable journal entries");
+        assertTrue(administrationService.contains("recycle_loan_id = NULL"),
+                "Restore must clear the marker and return entries to their original active reporting scope");
+    }
+
+    @Test
+    void recycleBinPageMustAcceptTheUnwrappedApiArray() throws Exception {
+        Path page = Path.of("../../../frontend/loan-management-ui/app/dashboard/loans/recycle-bin/page.tsx");
+        if (!Files.exists(page)) {
+            page = Path.of("../../../../frontend/loan-management-ui/app/dashboard/loans/recycle-bin/page.tsx");
+        }
+        if (!Files.exists(page)) {
+            page = Path.of("frontend/loan-management-ui/app/dashboard/loans/recycle-bin/page.tsx");
+        }
+        assertTrue(Files.exists(page), "Recycle-bin frontend page must be available for regression validation");
+        String content = Files.readString(page, StandardCharsets.UTF_8);
+        assertTrue(content.contains("Array.isArray(response)"),
+                "The API helper returns the unwrapped array, not necessarily an object with data");
+        assertTrue(content.contains("loanApi.restore(item.id, confirmation)"),
+                "Restore action must remain connected to the restore API");
+    }
 }

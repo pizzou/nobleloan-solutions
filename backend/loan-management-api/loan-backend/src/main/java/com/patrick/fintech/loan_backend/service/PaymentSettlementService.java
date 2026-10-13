@@ -113,6 +113,10 @@ public class PaymentSettlementService {
         }
 
         assertScope(Boolean.TRUE.equals(settlement.getBusinessOwnerOnly()));
+        if (settlement.getRecycleLoanId() != null) {
+            throw new IllegalStateException(
+                    "A settlement linked to a recycled loan cannot be reconciled until the loan is restored.");
+        }
 
         BankStatementLine bankStatement = statementRepo.findForUpdate(
                         statementLineId, org.getId())
@@ -155,6 +159,9 @@ public class PaymentSettlementService {
         boolean include = ReportingScopeService.includeBusinessOwnerOnly();
         return settlements == null ? List.of() : settlements.stream()
                 .filter(Objects::nonNull)
+                // Recycled settlements remain stored as audit evidence but are
+                // excluded from operational accounting for every role.
+                .filter(s -> s.getRecycleLoanId() == null)
                 .filter(s -> include || !Boolean.TRUE.equals(s.getBusinessOwnerOnly()))
                 .toList();
     }

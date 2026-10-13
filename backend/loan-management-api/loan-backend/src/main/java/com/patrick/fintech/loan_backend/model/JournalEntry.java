@@ -88,6 +88,16 @@ public class JournalEntry {
     @JsonIgnore
     private Long hiddenLoanId;
 
+    /**
+     * Non-null while this immutable journal belongs to a recycled loan.
+     * Active accounting/report queries exclude this marker for every role,
+     * including the Business Owner. The row remains retained for audit and
+     * is made visible again by the controlled restore workflow.
+     */
+    @Column(name = "recycle_loan_id")
+    @JsonIgnore
+    private Long recycleLoanId;
+
     @OneToMany(
         mappedBy = "journalEntry",
         cascade = CascadeType.ALL,
