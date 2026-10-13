@@ -30,6 +30,9 @@ class LoanRecycleAccountingSafetyStaticTest {
         String migration = Files.readString(
                 Path.of("src/main/resources/db/migration/V116__reversible_loan_recycle_reporting_scope.sql"),
                 StandardCharsets.UTF_8).toLowerCase();
+        String tombstoneBackfillMigration = Files.readString(
+                Path.of("src/main/resources/db/migration/V118__repair_legacy_loan_recycle_tombstones.sql"),
+                StandardCharsets.UTF_8).toLowerCase();
 
         assertTrue(service.contains("restrictLoanAccountingToBusinessOwner(organizationId, loanId, reference)"),
                 "Recycling a loan must restrict its accounting scope, not leave its entries visible to all staff");
@@ -49,8 +52,8 @@ class LoanRecycleAccountingSafetyStaticTest {
                 "Migration must identify journal/settlement rows affected by recycle");
         assertTrue(migration.contains("idx_journal_entries_recycle_scope"),
                 "Recycled-ledger scope lookups must be indexed");
-        assertTrue(migration.contains("insert into public.loan_deletion_tombstones"),
-                "Legacy recycled loans without tombstones must get a restorable scope record");
+        assertTrue(tombstoneBackfillMigration.contains("insert into public.loan_deletion_tombstones"),
+                "Legacy recycled loans without tombstones must get a restorable scope record in a forward-only migration");
         assertTrue(migration.contains("update public.journal_entries"),
                 "Existing recycled loans' journal entries must be restricted during migration");
         assertTrue(migration.contains("update public.payment_settlements"),

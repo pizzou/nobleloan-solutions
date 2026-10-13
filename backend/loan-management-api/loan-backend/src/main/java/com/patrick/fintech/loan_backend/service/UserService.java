@@ -306,6 +306,13 @@ public class UserService {
                 organizationId, "BUSINESS_OWNER", User.UserStatus.ACTIVE);
         User user = userRepository.findByIdAndOrganizationIdForUpdate(id, organizationId)
                 .orElseThrow(() -> new RuntimeException("User not found: " + id));
+        // Defense in depth: verify the target record itself belongs to the actor's organization.
+        if (user.getOrganization() == null
+                || user.getOrganization().getId() == null
+                || !user.getOrganization().getId().equals(organizationId)) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Target user does not belong to the requested organization");
+        }
         if (user.getDeletedAt() != null || user.getPurgedAt() != null) {
             throw new IllegalStateException("User account is already in the recycle bin or permanently purged");
         }
