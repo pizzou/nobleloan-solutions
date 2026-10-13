@@ -27,8 +27,11 @@ class LoanRecycleAccountingSafetyStaticTest {
     @Test
     void recycleMustRestrictRelatedAccountingToOwnerAndRestoreOriginalScope() throws Exception {
         String service = Files.readString(source("service/LoanAdministrationService.java"), StandardCharsets.UTF_8);
-        String migration = Files.readString(
+        String scopeSchemaMigration = Files.readString(
                 Path.of("src/main/resources/db/migration/V116__reversible_loan_recycle_reporting_scope.sql"),
+                StandardCharsets.UTF_8).toLowerCase();
+        String migration = Files.readString(
+                Path.of("src/main/resources/db/migration/V119__repair_recycled_loan_ledger_scope.sql"),
                 StandardCharsets.UTF_8).toLowerCase();
         String tombstoneBackfillMigration = Files.readString(
                 Path.of("src/main/resources/db/migration/V118__repair_legacy_loan_recycle_tombstones.sql"),
@@ -46,11 +49,11 @@ class LoanRecycleAccountingSafetyStaticTest {
                 "Original row-level reporting scope must be preserved for lossless restore");
         assertTrue(service.contains("business_owner_only = TRUE"),
                 "Related posted journals and settlements must be restricted to the owner");
-        assertTrue(migration.contains("original_business_owner_only"),
+        assertTrue(scopeSchemaMigration.contains("original_business_owner_only"),
                 "Migration must preserve the loan's original reporting scope");
-        assertTrue(migration.contains("recycle_loan_id"),
+        assertTrue(scopeSchemaMigration.contains("recycle_loan_id"),
                 "Migration must identify journal/settlement rows affected by recycle");
-        assertTrue(migration.contains("idx_journal_entries_recycle_scope"),
+        assertTrue(scopeSchemaMigration.contains("idx_journal_entries_recycle_scope"),
                 "Recycled-ledger scope lookups must be indexed");
         assertTrue(tombstoneBackfillMigration.contains("insert into public.loan_deletion_tombstones"),
                 "Legacy recycled loans without tombstones must get a restorable scope record in a forward-only migration");
