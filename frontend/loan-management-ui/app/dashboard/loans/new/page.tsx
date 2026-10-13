@@ -2290,15 +2290,16 @@ function LegacyLoanDetailPage() {
           </Card>
         )}
         {tab === "Documents" &&
-          (loan.borrower?.id ? (
+          ((loan.borrower?.id ?? loan.borrowerId) ? (
             <DocumentsPanel
-              borrowerId={loan.borrower.id}
-              key={loan.borrower.id}
+              borrowerId={Number(loan.borrower?.id ?? loan.borrowerId)}
+              key={Number(loan.borrower?.id ?? loan.borrowerId)}
             />
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-400 text-sm">
-              No borrower record is linked to this loan, so documents can't be
-              shown.
+              This loan response does not include a borrower ID. Refresh the
+              loan details or contact an administrator to verify the loan
+              record.
             </div>
           ))}
 
