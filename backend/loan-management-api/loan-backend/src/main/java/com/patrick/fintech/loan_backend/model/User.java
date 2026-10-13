@@ -87,6 +87,23 @@ public class User {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
+    /** Reversible 30-day recycle-bin lifecycle. Historical FK identity is retained. */
+    @JsonIgnore
+    private LocalDateTime deletedAt;
+
+    @JsonIgnore
+    private LocalDateTime purgeAfter;
+
+    @JsonIgnore
+    private LocalDateTime purgedAt;
+
+    @JsonIgnore
+    private Long deletedBy;
+
+    @JsonIgnore
+    @Column(columnDefinition = "TEXT")
+    private String deletionReason;
+
     @JsonIgnore
     @OneToMany(mappedBy = "user", fetch = FetchType.LAZY)
     @ToString.Exclude

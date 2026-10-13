@@ -65,7 +65,7 @@ public class UserController {
         }
 
         @GetMapping
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','BUSINESS_OWNER')")
         public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getAll() {
 
                 Long organizationId = requireCurrentOrganizationId();
@@ -83,8 +83,38 @@ public class UserController {
                                 ApiResponse.ok(users));
         }
 
+        @GetMapping("/recycle-bin")
+        @PreAuthorize("hasRole('BUSINESS_OWNER')")
+        public ResponseEntity<ApiResponse<List<Map<String, Object>>>> recycleBin() {
+                Long organizationId = requireCurrentOrganizationId();
+                User actor = currentUserUtil.getCurrentUser();
+                List<Map<String, Object>> users = userService.listRecycleBin(organizationId, actor)
+                                .stream().map(user -> {
+                                        Map<String, Object> item = safeUser(user);
+                                        item.put("deletedAt", user.getDeletedAt());
+                                        item.put("purgeAfter", user.getPurgeAfter());
+                                        item.put("deletionReason", user.getDeletionReason());
+                                        item.put("purgedAt", user.getPurgedAt());
+                                        return item;
+                                }).toList();
+                return ResponseEntity.ok(ApiResponse.ok(users));
+        }
+
+        @PostMapping("/{id}/restore")
+        @PreAuthorize("hasRole('BUSINESS_OWNER')")
+        public ResponseEntity<ApiResponse<Map<String, Object>>> restoreDeletedUser(@PathVariable Long id) {
+                validateUserId(id);
+                Long organizationId = requireCurrentOrganizationId();
+                User actor = currentUserUtil.getCurrentUser();
+                User restored = userService.restoreDeletedUser(id, organizationId, actor);
+                auditService.log(restored.getOrganization(), actor, "USER_RESTORED", "USER",
+                                String.valueOf(id), "Restored user account from the 30-day recycle bin",
+                                null, null, "User Management");
+                return ResponseEntity.ok(ApiResponse.ok("User restored. They must authenticate again.", safeUser(restored)));
+        }
+
         @GetMapping("/{id}")
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','BUSINESS_OWNER')")
         public ResponseEntity<ApiResponse<Map<String, Object>>> getById(
                         @PathVariable Long id) {
 
@@ -362,7 +392,7 @@ public class UserController {
                                 "USER_DELETED",
                                 "USER",
                                 String.valueOf(id),
-                                "Deleted user (account disabled; history preserved) "
+                                "Moved user account to the 30-day recycle bin; login disabled and history preserved "
                                                 + target.getName()
                                                 + " ("
                                                 + target.getEmail()
@@ -373,7 +403,7 @@ public class UserController {
 
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
-                                                "User deactivated — their login is disabled and their history is preserved"));
+                                                "User moved to the 30-day recycle bin. Restore is available until the retention deadline; historical references are preserved."));
         }
 
         @PutMapping("/{id}/reactivate")

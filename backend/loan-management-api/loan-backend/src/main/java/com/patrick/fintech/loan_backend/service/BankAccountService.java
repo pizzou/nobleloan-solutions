@@ -874,10 +874,20 @@ public class BankAccountService {
                         .getGlAccount()
                         .getId();
 
-        List<JournalLine> lines =
-                lineRepo.findByAccount_Id(
-                        glAccountId
-                );
+        Long organizationId = account.getOrganization() == null
+                ? null
+                : account.getOrganization().getId();
+        if (organizationId == null) {
+            throw new IllegalStateException(
+                    "Cannot calculate a bank-account balance without its organization scope");
+        }
+
+        // A bank/GL balance shown to ordinary staff must use the same owner-only
+        // reporting boundary as the general ledger and regulatory reports.
+        List<JournalLine> lines = lineRepo.findVisibleByAccount_IdAndOrganization_Id(
+                glAccountId,
+                organizationId,
+                ReportingScopeService.includeBusinessOwnerOnly());
 
         if (lines == null
                 || lines.isEmpty()) {

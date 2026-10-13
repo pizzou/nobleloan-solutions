@@ -3,6 +3,7 @@ package com.patrick.fintech.loan_backend.repository;
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.User;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -118,8 +119,44 @@ public interface UserRepository extends JpaRepository<User, Long> {
                         @Param("id") Long id,
                         @Param("organizationId") Long organizationId);
 
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @EntityGraph(attributePaths = { "role", "organization", "branch" })
+        @Query("select u from User u where u.id = :id and u.organization.id = :organizationId")
+        Optional<User> findByIdAndOrganizationIdForUpdate(
+                        @Param("id") Long id,
+                        @Param("organizationId") Long organizationId);
+
         @EntityGraph(attributePaths = { "role", "organization", "branch" })
         List<User> findByOrganization_Id(Long organizationId);
+
+        @EntityGraph(attributePaths = { "role", "organization", "branch" })
+        List<User> findByOrganization_IdAndDeletedAtIsNull(Long organizationId);
+
+        @EntityGraph(attributePaths = { "role", "organization", "branch" })
+        List<User> findByOrganization_IdAndDeletedAtIsNotNullAndPurgedAtIsNullOrderByDeletedAtDesc(
+                        Long organizationId);
+
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @EntityGraph(attributePaths = { "role", "organization", "branch" })
+        @Query("select u from User u where u.deletedAt is not null and u.purgedAt is null "
+                        + "and u.purgeAfter <= :cutoff order by u.purgeAfter asc, u.id asc")
+        List<User> findExpiredDeletedUsersForUpdate(
+                        @Param("cutoff") java.time.LocalDateTime cutoff, Pageable pageable);
+
+        /**
+         * Locks active users of a role in stable ID order. The Business Owner
+         * deletion path uses this to serialize concurrent attempts to remove the
+         * last active owner; an aggregate COUNT alone is vulnerable to races.
+         */
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @EntityGraph(attributePaths = { "role", "organization", "branch" })
+        @Query("select u from User u where u.organization.id = :organizationId "
+                        + "and upper(u.role.name) = upper(:roleName) "
+                        + "and u.status = :status and u.deletedAt is null order by u.id asc")
+        List<User> findActiveByOrganizationAndRoleForUpdate(
+                        @Param("organizationId") Long organizationId,
+                        @Param("roleName") String roleName,
+                        @Param("status") User.UserStatus status);
 
         @EntityGraph(attributePaths = { "role", "organization", "branch" })
         @Query("select u from User u where u.organization.id = :organizationId "

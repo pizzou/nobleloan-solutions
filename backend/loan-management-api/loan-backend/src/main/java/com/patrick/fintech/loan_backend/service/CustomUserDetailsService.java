@@ -43,6 +43,13 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .orElseThrow(() -> new UsernameNotFoundException(
                         "User not found: " + email));
 
+        // Recycle-bin and privacy-purged accounts must never be authenticated,
+        // even if a manual database repair accidentally leaves status=ACTIVE.
+        if (user.getDeletedAt() != null || user.getPurgedAt() != null
+                || user.getStatus() != User.UserStatus.ACTIVE) {
+            throw new UsernameNotFoundException("User account is unavailable");
+        }
+
         String roleName = normalizeRole(
                 user.getRole() != null ? user.getRole().getName() : null);
 

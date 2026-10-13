@@ -70,13 +70,26 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
     /**
      * Find a loan using reference number and hashed borrower phone.
      */
+    /**
+     * Public borrower dashboard/schedule lookup. The reference plus phone hash
+     * proves borrower possession, but does not override the Business Owner's
+     * explicit privacy choice. Keep the owner-only predicate at repository
+     * level so every caller is protected, including legacy service paths.
+     */
     @EntityGraph(attributePaths = {
             "borrower",
             "organization"
     })
+    @Query("""
+            SELECT l
+            FROM Loan l
+            WHERE l.referenceNumber = :referenceNumber
+              AND l.borrower.phoneHash = :phoneHash
+              AND COALESCE(l.businessOwnerOnly, false) = false
+            """)
     Optional<Loan> findByReferenceNumberAndBorrower_PhoneHash(
-            String referenceNumber,
-            String phoneHash);
+            @Param("referenceNumber") String referenceNumber,
+            @Param("phoneHash") String phoneHash);
 
     /**
      * Public borrower dashboard lookup.
@@ -123,13 +136,30 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
               AND (
                     :includeBusinessOwnerOnly = true
                     OR COALESCE(l.businessOwnerOnly, false) = false
-                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
               )
             ORDER BY l.createdAt DESC
             """)
     List<Loan> findVisibleByOrganizationId(
             @Param("organizationId") Long organizationId,
             @Param("includeBusinessOwnerOnly") boolean includeBusinessOwnerOnly);
+
+    /**
+     * Internal accounting reconciliation only: retrieve recycled loans that are
+     * excluded from normal Hibernate entity queries by Loan's @SQLRestriction.
+     * This query must never be used to populate ordinary loan lists or reports.
+     * The general ledger retains posted entries during the 30-day recycle
+     * period, so its internal reconciliation must also account for these
+     * outstanding balances rather than report a false GL/sub-ledger variance.
+     */
+    @Query(value = """
+            SELECT l.*
+            FROM public.loans l
+            WHERE l.organization_id = :organizationId
+              AND l.deleted_at IS NOT NULL
+            ORDER BY l.id
+            """, nativeQuery = true)
+    List<Loan> findRecycledForReconciliationByOrganizationId(
+            @Param("organizationId") Long organizationId);
 
     @EntityGraph(attributePaths = {"borrower", "organization", "loanOfficer"})
     @Query("""
@@ -156,7 +186,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
               AND (
                     :includeBusinessOwnerOnly = true
                     OR COALESCE(l.businessOwnerOnly, false) = false
-                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
               )
             """)
     Optional<Loan> findVisibleById(
@@ -175,7 +204,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
               AND (
                     :includeBusinessOwnerOnly = true
                     OR COALESCE(l.businessOwnerOnly, false) = false
-                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
               )
             """)
     Optional<Loan> findVisibleByIdForUpdate(
@@ -192,7 +220,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
               AND (
                     :includeBusinessOwnerOnly = true
                     OR COALESCE(l.businessOwnerOnly, false) = false
-                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
               )
             ORDER BY l.createdAt DESC
             """)
@@ -646,7 +673,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
               AND (
                     :includeBusinessOwnerOnly = true
                     OR COALESCE(l.businessOwnerOnly, false) = false
-                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
               )
             """)
     Object[] getVisibleDashboardLoanAggregate(
@@ -695,7 +721,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
               AND (
                     :includeBusinessOwnerOnly = true
                     OR COALESCE(l.businessOwnerOnly, false) = false
-                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
               )
             ORDER BY l.createdAt DESC
             """,
@@ -706,7 +731,6 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
               AND (
                     :includeBusinessOwnerOnly = true
                     OR COALESCE(l.businessOwnerOnly, false) = false
-                    OR l.status IN ('PENDING', 'UNDER_REVIEW')
               )
             """)
     Page<Loan> findVisiblePortfolio(
@@ -728,8 +752,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             "OR LOWER(CONCAT(COALESCE(l.borrower.firstName, ''), ' ', " +
             "COALESCE(l.borrower.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))) " +
             "AND (:includeBusinessOwnerOnly = true " +
-            "OR COALESCE(l.businessOwnerOnly, false) = false " +
-            "OR l.status IN ('PENDING', 'UNDER_REVIEW')) " +
+            "OR COALESCE(l.businessOwnerOnly, false) = false) " +
             "ORDER BY l.createdAt DESC",
             countQuery =
             "SELECT COUNT(l) " +
@@ -744,8 +767,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
             "OR LOWER(CONCAT(COALESCE(l.borrower.firstName, ''), ' ', " +
             "COALESCE(l.borrower.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%'))) " +
             "AND (:includeBusinessOwnerOnly = true " +
-            "OR COALESCE(l.businessOwnerOnly, false) = false " +
-            "OR l.status IN ('PENDING', 'UNDER_REVIEW'))")
+            "OR COALESCE(l.businessOwnerOnly, false) = false)")
     Page<Loan> findVisibleByFilters(
             @Param("org") Organization org,
             @Param("status") LoanStatus status,

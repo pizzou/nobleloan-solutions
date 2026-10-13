@@ -32,6 +32,12 @@ public class PasswordResetService {
     @Transactional
     public void requestReset(String email) {
         userRepository.findByEmail(email).ifPresent(user -> {
+            // Keep the public endpoint's response generic, but do not create a
+            // reset token or send a message for a suspended/recycled account.
+            if (user.getDeletedAt() != null || user.getPurgedAt() != null
+                    || user.getStatus() != User.UserStatus.ACTIVE) {
+                return;
+            }
             tokenRepository.deleteByUser_Id(user.getId());
             PasswordResetToken t = new PasswordResetToken();
             String rawToken = UUID.randomUUID().toString() + UUID.randomUUID();
@@ -55,6 +61,12 @@ public class PasswordResetService {
         if (t.getExpiresAt().isBefore(LocalDateTime.now()))
             throw new RuntimeException("Reset token has expired");
         User user = t.getUser();
+        if (user == null || user.getDeletedAt() != null || user.getPurgedAt() != null
+                || user.getStatus() != User.UserStatus.ACTIVE) {
+            t.setUsed(true);
+            tokenRepository.save(t);
+            throw new RuntimeException("This account is unavailable for password reset");
+        }
         com.patrick.fintech.loan_backend.security.PasswordPolicy.validate(newPassword);
         user.setPassword(passwordEncoder.encode(newPassword));
         user.setTokenVersion((user.getTokenVersion() == null ? 0L : user.getTokenVersion()) + 1L);

@@ -1,7 +1,6 @@
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.model.Loan;
-import com.patrick.fintech.loan_backend.model.LoanStatus;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -117,10 +116,10 @@ public class ReportingScopeService {
         if (!Boolean.TRUE.equals(loan.getBusinessOwnerOnly())) {
             return true;
         }
-        if (includeBusinessOwnerOnly()) {
-            return true;
-        }
-        return loan.getStatus() == LoanStatus.PENDING
-                || loan.getStatus() == LoanStatus.UNDER_REVIEW;
+        // Privacy is independent of lifecycle status. A BUSINESS_OWNER_ONLY
+        // loan must never become visible to another role merely because it is
+        // pending or under review. Approval workflows for such loans must be
+        // performed by an authorized Business Owner.
+        return includeBusinessOwnerOnly();
     }
 }

@@ -216,9 +216,11 @@ public class LoanAdministrationService {
         requireConfirmation(confirmation, reference);
 
         LocalDateTime purgeAfter = toLocalDateTime(row[2]);
-        if (purgeAfter != null && !purgeAfter.isAfter(LocalDateTime.now())) {
+        // A NULL deadline means automatic purge was blocked by protected financial
+        // history. It must never be interpreted as an unlimited restore extension.
+        if (purgeAfter == null || !purgeAfter.isAfter(LocalDateTime.now())) {
             throw new IllegalStateException(
-                    "The 30-day recycle period has expired; the loan is no longer restorable");
+                    "The 30-day recycle period has expired or permanent purge is blocked by protected financial history; the loan is no longer restorable");
         }
 
         entityManager.createNativeQuery("""
@@ -324,20 +326,20 @@ public class LoanAdministrationService {
         String reference = row[2] == null ? String.valueOf(loanId) : String.valueOf(row[2]);
 
         /*
-         * Fail safe at purge as well as at recycle time. If any financial
-         * activity appeared after recycling (legacy writer, webhook race, or
-         * manual repair), preserve the loan and all children for investigation.
-         * Clearing purge_after prevents a daily destructive retry and keeps
-         * the record restorable by the Business Owner.
+         * Posted journal entries and settlement records are NOT a reason to keep
+         * the operational loan row forever: recycle already tags them owner-only,
+         * and they remain in the ledger/tombstone for accounting integrity. Only
+         * signed contracts and submitted regulatory records that still depend on
+         * the operational loan are allowed to block physical loan-row purge.
          */
-        if (hasFinancialOrProtectedHistory(organizationId, loanId, reference)) {
+        if (hasNonPurgeableLegalOrRegulatoryHistory(loanId)) {
             entityManager.createNativeQuery("""
                     UPDATE loans
                     SET purge_after = NULL,
                         deletion_reason = CONCAT(
                             COALESCE(deletion_reason, ''),
                             CASE WHEN COALESCE(deletion_reason, '') = '' THEN '' ELSE E'\n' END,
-                            '[PURGE BLOCKED] Financial ledger/payment activity exists; restore or resolve through an audited accounting workflow.'
+                            '[PURGE BLOCKED] Signed contractual or regulatory evidence must be retained. The 30-day restore window is closed; contact an authorized compliance administrator for a documented retention decision.'
                         )
                     WHERE id = :loanId
                       AND organization_id = :organizationId
@@ -346,16 +348,16 @@ public class LoanAdministrationService {
                     .setParameter("loanId", loanId)
                     .setParameter("organizationId", organizationId)
                     .executeUpdate();
-            log.error("Permanent purge blocked for recycled loan {} (id={}): financial activity was detected; record retained for manual resolution",
+            log.error("Permanent purge blocked for recycled loan {} (id={}): signed contractual or regulatory evidence must be retained",
                     reference, loanId);
             auditService.log(
                     null,
                     null,
-                    "LOAN_PURGE_BLOCKED_FINANCIAL_HISTORY",
+                    "LOAN_PURGE_BLOCKED_PROTECTED_EVIDENCE",
                     "LOAN",
                     String.valueOf(loanId),
-                    "Permanent purge blocked for loan " + reference
-                            + " because financial journal/payment activity exists. Loan retained for audited resolution.",
+                    "Permanent operational purge blocked for loan " + reference
+                            + " because signed contractual or regulatory evidence must be retained. Restore window is closed.",
                     null,
                     null,
                     "Loan Management");
@@ -376,9 +378,9 @@ public class LoanAdministrationService {
                 .executeUpdate();
 
         /*
-         * These are operational records only. Financial-history checks above
-         * ensure a loan with any posted ledger/payment activity is never purged.
-         * Tombstones preserve the deletion event but never hide ledger entries.
+         * Delete operational loan children in FK-safe order. Posted journal entries,
+         * journal lines, settlements, and audit history are deliberately retained;
+         * the tombstone plus owner-only reporting scope preserves their attribution.
          */
         for (String table : DIRECT_LOAN_CHILD_TABLES) {
             deleteLoanChildren(table, loanId);
@@ -428,142 +430,12 @@ public class LoanAdministrationService {
 }
 
     /**
-     * Detect financial activity and protected legal/regulatory evidence by
-     * multiple independent signals. This is intentionally conservative: even
-     * reversed journals remain auditable, signed agreements remain evidence,
-     * and submitted bureau records/settlements must not be silently erased.
+     * A permanent operational purge may remove the loan and its operational
+     * children after 30 days, while the posted ledger remains owner-only. Signed
+     * contracts and submitted bureau/regulatory evidence are different: they are
+     * legally significant source records and must not be erased by a routine job.
      */
-    private void ensureNoFinancialOrProtectedHistory(
-            Long organizationId,
-            Long loanId,
-            String reference) {
-        if (hasFinancialOrProtectedHistory(organizationId, loanId, reference)) {
-            throw new IllegalStateException(
-                    "This loan has financial, contractual, settlement, or regulatory history and cannot be deleted through the recycle-bin workflow. "
-                            + "Use the approved audited accounting/retention workflow; posted records and signed evidence must remain available.");
-        }
-    }
-
-    private boolean hasFinancialOrProtectedHistory(
-            Long organizationId,
-            Long loanId,
-            String reference) {
-
-        Number journalCount = (Number) entityManager.createNativeQuery("""
-                SELECT COUNT(*)
-                FROM journal_entries je
-                WHERE je.organization_id = :organizationId
-                  AND (
-                        je.reference = :reference
-                        OR (
-                            je.source_type IN (
-                                'LOAN_DISBURSEMENT', 'LOAN_PAYMENT',
-                                'LOAN_EXTENSION_FEE', 'LOAN_EXTENSION_FEE_COLLECTION',
-                                'PENALTY_ACCRUAL', 'INTEREST_ACCRUAL',
-                                'MANAGEMENT_FEE_ACCRUAL', 'SCHEDULED_INTEREST_ACCRUAL',
-                                'SCHEDULED_MANAGEMENT_FEE_ACCRUAL',
-                                'CONTRACTUAL_MONTHLY_INTEREST_ACCRUAL',
-                                'CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL',
-                                'HISTORICAL_LOAN_OPENING', 'LEGACY_LOAN_OPENING',
-                                'LEGACY_LOAN_RECONCILIATION',
-                                'LEGACY_LOAN_OPENING_DATE_REPAIR', 'WRITE_OFF'
-                            )
-                            AND regexp_replace(trim(COALESCE(je.source_id, '')), '^LOAN:', '') = :loanIdText
-                        )
-                        OR (
-                            je.source_type IN (
-                                'PAYMENT_RECEIVED', 'REFUND_PAYMENT',
-                                'PAYMENT_REFUND', 'PAYMENT_REVERSAL'
-                            )
-                            AND je.source_id IN (
-                                SELECT CAST(p.id AS TEXT)
-                                FROM payments p
-                                WHERE p.loan_id = :loanId
-                            )
-                        )
-                        OR (
-                            je.source_type = 'APPLICATION_FEE_INCOME_RECLASSIFICATION'
-                            AND je.source_id = :applicationFeeSourceId
-                        )
-                  )
-                """)
-                .setParameter("organizationId", organizationId)
-                .setParameter("loanId", loanId)
-                .setParameter("loanIdText", String.valueOf(loanId))
-                .setParameter("reference", reference)
-                .setParameter("applicationFeeSourceId", loanId + ":APPLICATION_FEE_INCOME")
-                .getSingleResult();
-        if (journalCount != null && journalCount.longValue() > 0L) {
-            return true;
-        }
-
-        Number postedPayments = (Number) entityManager.createNativeQuery("""
-                SELECT COUNT(*)
-                FROM payments p
-                WHERE p.loan_id = :loanId
-                  AND (
-                        COALESCE(p.paid, FALSE) = TRUE
-                        OR COALESCE(p.amount_paid, 0) > 0
-                        OR COALESCE(p.status, '') IN ('COMPLETED', 'PARTIALLY_PAID')
-                  )
-                """)
-                .setParameter("loanId", loanId)
-                .getSingleResult();
-        if (postedPayments != null && postedPayments.longValue() > 0L) {
-            return true;
-        }
-
-        Number postedTransactions = (Number) entityManager.createNativeQuery("""
-                SELECT COUNT(*)
-                FROM payment_transactions pt
-                WHERE pt.loan_id = :loanId
-                  AND COALESCE(pt.status, '') IN ('POSTED', 'REVERSED')
-                """)
-                .setParameter("loanId", loanId)
-                .getSingleResult();
-        if (postedTransactions != null && postedTransactions.longValue() > 0L) {
-            return true;
-        }
-
-        Number financialAmounts = (Number) entityManager.createNativeQuery("""
-                SELECT COUNT(*)
-                FROM loans l
-                WHERE l.id = :loanId
-                  AND l.organization_id = :organizationId
-                  AND (
-                        COALESCE(l.disbursed_amount, 0) > 0
-                        OR COALESCE(l.net_disbursed_amount, 0) > 0
-                        OR COALESCE(l.application_fee_paid, 0) > 0
-                        OR COALESCE(l.total_paid, 0) > 0
-                        OR COALESCE(l.principal_paid, 0) > 0
-                  )
-                """)
-                .setParameter("loanId", loanId)
-                .setParameter("organizationId", organizationId)
-                .getSingleResult();
-        if (financialAmounts != null && financialAmounts.longValue() > 0L) {
-            return true;
-        }
-
-        // Bank statement settlement evidence is financial evidence even if
-        // the corresponding payment has not yet reached POSTED status.
-        Number settlements = (Number) entityManager.createNativeQuery("""
-                SELECT COUNT(*)
-                FROM payment_settlements ps
-                WHERE ps.internal_payment_reference IN (
-                    SELECT p.payment_reference
-                    FROM payments p
-                    WHERE p.loan_id = :loanId
-                )
-                """)
-                .setParameter("loanId", loanId)
-                .getSingleResult();
-        if (settlements != null && settlements.longValue() > 0L) {
-            return true;
-        }
-
-        // Preserve contractual and regulatory history beyond the operational
-        // recycle window. These tables intentionally do not get purged here.
+    private boolean hasNonPurgeableLegalOrRegulatoryHistory(Long loanId) {
         Number signedAgreements = (Number) entityManager.createNativeQuery("""
                 SELECT COUNT(*)
                 FROM esignature_requests es

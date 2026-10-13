@@ -375,10 +375,19 @@ export default function UsersPage() {
           <p className="text-sm text-gray-500">{users.length} team members</p>
         </div>
 
-        {isAdmin && (
-          <button
-            onClick={() => setShowCreate(true)}
-            className="
+        <div className="flex items-center gap-2">
+          {isBusinessOwner && (
+            <a
+              href="/dashboard/users/recycle-bin"
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+            >
+              Recycle Bin
+            </a>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => setShowCreate(true)}
+              className="
               bg-blue-600
               hover:bg-blue-700
               text-white
@@ -390,10 +399,11 @@ export default function UsersPage() {
               transition
               shadow-sm
             "
-          >
-            + Add User
-          </button>
-        )}
+            >
+              + Add User
+            </button>
+          )}
+        </div>
       </div>
 
       {/* USERS TABLE */}

@@ -34,8 +34,7 @@ public interface PaymentRepository
                   AND (
                         :includeBusinessOwnerOnly = true
                         OR COALESCE(l.businessOwnerOnly, false) = false
-                        OR l.status IN ('PENDING', 'UNDER_REVIEW')
-                  )
+                      )
                 ORDER BY p.dueDate ASC
                 """)
         List<Payment> findByLoanIdAndReportingScope(
@@ -161,8 +160,7 @@ public interface PaymentRepository
                   AND (
                         :includeBusinessOwnerOnly = true
                         OR COALESCE(l.businessOwnerOnly, false) = false
-                        OR l.status IN ('PENDING', 'UNDER_REVIEW')
-                  )
+                      )
                 ORDER BY p.dueDate ASC
                 """)
         List<Payment> findVisibleLoanSchedule(

@@ -2,9 +2,15 @@ package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.model.*;
 import com.patrick.fintech.loan_backend.repository.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.data.domain.PageRequest;
+import java.time.LocalDateTime;
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.List;
 
 @Service
@@ -14,13 +20,24 @@ public class UserService {
     private final RoleRepository roleRepository;
     private final OrganizationRepository organizationRepository;
     private final PasswordEncoder passwordEncoder;
+    private final PasswordResetTokenRepository passwordResetTokenRepository;
 
+    @Autowired
     public UserService(UserRepository u, RoleRepository r,
-            OrganizationRepository o, PasswordEncoder p) {
+            OrganizationRepository o, PasswordEncoder p,
+            PasswordResetTokenRepository passwordResetTokenRepository) {
         this.userRepository = u;
         this.roleRepository = r;
         this.organizationRepository = o;
         this.passwordEncoder = p;
+        this.passwordResetTokenRepository = passwordResetTokenRepository;
+    }
+
+    /** Compatibility constructor for existing unit tests and internal callers. */
+    @Deprecated
+    public UserService(UserRepository u, RoleRepository r,
+            OrganizationRepository o, PasswordEncoder p) {
+        this(u, r, o, p, null);
     }
 
     @Transactional
@@ -41,7 +58,7 @@ public class UserService {
     @Transactional(readOnly = true)
     public List<User> getAll(Long organizationId) {
         requireOrganizationId(organizationId);
-        return userRepository.findByOrganization_Id(organizationId);
+        return userRepository.findByOrganization_IdAndDeletedAtIsNull(organizationId);
     }
 
     /**
@@ -54,8 +71,12 @@ public class UserService {
         if (id == null || id <= 0) {
             throw new IllegalArgumentException("Invalid user id");
         }
-        return userRepository.findById(id)
+        User user = userRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("User not found: " + id));
+        if (user.getDeletedAt() != null || user.getPurgedAt() != null) {
+            throw new RuntimeException("User not found: " + id);
+        }
+        return user;
     }
 
     @Transactional(readOnly = true)
@@ -64,8 +85,12 @@ public class UserService {
             throw new IllegalArgumentException("Invalid user id");
         }
         requireOrganizationId(organizationId);
-        return userRepository.findByIdAndOrganizationId(id, organizationId)
+        User user = userRepository.findByIdAndOrganizationId(id, organizationId)
                 .orElseThrow(() -> new RuntimeException("User not found: " + id));
+        if (user.getDeletedAt() != null) {
+            throw new RuntimeException("User is in the recycle bin: " + id);
+        }
+        return user;
     }
 
     @Transactional
@@ -224,9 +249,20 @@ public class UserService {
                     "The last active BUSINESS_OWNER cannot be deleted. Assign another active BUSINESS_OWNER first.");
         }
 
+        LocalDateTime now = LocalDateTime.now();
         user.setStatus(User.UserStatus.SUSPENDED);
         user.setTokenVersion(
                 (user.getTokenVersion() == null ? 0L : user.getTokenVersion()) + 1L);
+        user.setLoginOtpHash(null);
+        user.setLoginOtpExpiresAt(null);
+        user.setLoginOtpAttempts(0);
+        if (passwordResetTokenRepository != null) {
+            passwordResetTokenRepository.deleteByUser_Id(user.getId());
+        }
+        user.setDeletedAt(now);
+        user.setPurgeAfter(now.plusDays(30));
+        user.setDeletionReason("Account deletion requested; reversible for 30 days.");
+        user.setPurgedAt(null);
         return userRepository.save(user);
     }
 
@@ -263,7 +299,16 @@ public class UserService {
             throw new IllegalArgumentException("Cannot delete your own account");
         }
 
-        User user = getById(id, organizationId);
+        // Lock active owners in stable order before changing a BUSINESS_OWNER
+        // account. This serializes concurrent deletions and protects the last-owner
+        // invariant across simultaneous requests.
+        List<User> activeOwners = userRepository.findActiveByOrganizationAndRoleForUpdate(
+                organizationId, "BUSINESS_OWNER", User.UserStatus.ACTIVE);
+        User user = userRepository.findByIdAndOrganizationIdForUpdate(id, organizationId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + id));
+        if (user.getDeletedAt() != null || user.getPurgedAt() != null) {
+            throw new IllegalStateException("User account is already in the recycle bin or permanently purged");
+        }
 
         if (user.getStatus() == User.UserStatus.SUSPENDED
                 || user.getStatus() == User.UserStatus.INACTIVE) {
@@ -278,11 +323,7 @@ public class UserService {
 
         String targetRole = user.getRole() == null ? null : user.getRole().getName();
         if ("BUSINESS_OWNER".equalsIgnoreCase(targetRole)) {
-            long activeBusinessOwners =
-                    userRepository.countByOrganization_IdAndRole_NameAndStatus(
-                            organizationId,
-                            "BUSINESS_OWNER",
-                            User.UserStatus.ACTIVE);
+            long activeBusinessOwners = activeOwners.size();
 
             if (activeBusinessOwners <= 1L) {
                 throw new IllegalStateException(
@@ -290,11 +331,103 @@ public class UserService {
             }
         }
 
+        LocalDateTime now = LocalDateTime.now();
         user.setStatus(User.UserStatus.SUSPENDED);
         user.setTokenVersion(
                 (user.getTokenVersion() == null ? 0L : user.getTokenVersion()) + 1L);
+        user.setLoginOtpHash(null);
+        user.setLoginOtpExpiresAt(null);
+        user.setLoginOtpAttempts(0);
+        user.setLockedUntil(null);
+        if (passwordResetTokenRepository != null) {
+            passwordResetTokenRepository.deleteByUser_Id(user.getId());
+        }
+        user.setDeletedAt(now);
+        user.setDeletedBy(actor.getId());
+        user.setDeletionReason("Business Owner requested account deletion; reversible for 30 days.");
+        user.setPurgeAfter(now.plusDays(30));
+        user.setPurgedAt(null);
 
         return userRepository.save(user);
+    }
+
+    /** Lists restorable user accounts for the authenticated organization only. */
+    @Transactional(readOnly = true)
+    public List<User> listRecycleBin(Long organizationId, User actor) {
+        requireBusinessOwner(actor);
+        if (actor.getOrganization() == null || actor.getOrganization().getId() == null
+                || !actor.getOrganization().getId().equals(organizationId)) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "User recycle-bin organization does not match the authenticated user");
+        }
+        requireOrganizationId(organizationId);
+        return userRepository.findByOrganization_IdAndDeletedAtIsNotNullAndPurgedAtIsNullOrderByDeletedAtDesc(organizationId);
+    }
+
+    /** Restores a deleted account only during its 30-day retention window. */
+    @Transactional
+    public User restoreDeletedUser(Long id, Long organizationId, User actor) {
+        requireBusinessOwner(actor);
+        if (actor.getOrganization() == null || actor.getOrganization().getId() == null
+                || !actor.getOrganization().getId().equals(organizationId)) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "User restore organization does not match the authenticated user");
+        }
+        User user = userRepository.findByIdAndOrganizationIdForUpdate(id, organizationId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + id));
+        LocalDateTime now = LocalDateTime.now();
+        if (user.getDeletedAt() == null || user.getPurgedAt() != null
+                || user.getPurgeAfter() == null || !user.getPurgeAfter().isAfter(now)) {
+            throw new IllegalStateException("User is not restorable; the 30-day retention period has expired");
+        }
+        user.setDeletedAt(null);
+        user.setPurgeAfter(null);
+        user.setDeletedBy(null);
+        user.setDeletionReason(null);
+        user.setStatus(User.UserStatus.ACTIVE);
+        user.setTokenVersion((user.getTokenVersion() == null ? 0L : user.getTokenVersion()) + 1L);
+        return userRepository.save(user);
+    }
+
+    /**
+     * Purges personal data after 30 days while retaining the identity row needed by
+     * immutable audit/loan/approval foreign keys. This is a permanent privacy purge,
+     * not a physical row DELETE that would break financial/audit history.
+     */
+    @Scheduled(cron = "${app.user.recycle-bin.purge-cron:0 35 2 * * *}", zone = "${app.user.recycle-bin.purge-zone:Africa/Kigali}")
+    @Transactional
+    public void purgeExpiredDeletedUsers() {
+        LocalDateTime now = LocalDateTime.now();
+        List<User> expired = userRepository.findExpiredDeletedUsersForUpdate(now, PageRequest.of(0, 100));
+        for (User user : expired) {
+            if (user.getId() == null) continue;
+            if (passwordResetTokenRepository != null) {
+                passwordResetTokenRepository.deleteByUser_Id(user.getId());
+            }
+            user.setName("Deleted User #" + user.getId());
+            user.setEmail("deleted-user-" + user.getId() + "@deleted.invalid");
+            user.setPhone(null);
+            user.setAvatarUrl(null);
+            user.setJobTitle(null);
+            user.setPassword(passwordEncoder.encode(Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(randomBytes(48))));
+            user.setTwoFactorEnabled(false);
+            user.setTwoFactorSecret(null);
+            user.setLoginOtpHash(null);
+            user.setLoginOtpExpiresAt(null);
+            user.setLoginOtpAttempts(0);
+            user.setLastLoginIp(null);
+            user.setDeletionReason("Personal data permanently purged after 30-day retention.");
+            user.setPurgedAt(now);
+            user.setTokenVersion((user.getTokenVersion() == null ? 0L : user.getTokenVersion()) + 1L);
+            userRepository.save(user);
+        }
+    }
+
+    private static byte[] randomBytes(int size) {
+        byte[] bytes = new byte[size];
+        new SecureRandom().nextBytes(bytes);
+        return bytes;
     }
 
     private void requireBusinessOwner(User actor) {

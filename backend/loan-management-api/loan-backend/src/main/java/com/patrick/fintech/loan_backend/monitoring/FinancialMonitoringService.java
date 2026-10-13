@@ -118,8 +118,15 @@ public class FinancialMonitoringService {
             reconciliationRuns.increment();
 
             try {
+                // Scheduled reconciliation is an internal accounting control, not a
+                // user-facing report. It must reconcile the complete organization's
+                // GL against all originated loans, including BUSINESS_OWNER_ONLY loans
+                // and loans in the 30-day recycle bin whose posted journals remain.
+                // Passing the scope explicitly is essential because scheduled jobs run
+                // without an HTTP SecurityContext; relying on ReportingScopeService's
+                // request-derived default silently omits private/recycled balances.
                 FinancialReconciliationService.ReconciliationReport report = reconciliationService
-                        .reconcile(organization.getId());
+                        .reconcile(organization.getId(), null, java.time.LocalDate.now(), true);
 
                 if (!report.balanced()) {
                     failed++;

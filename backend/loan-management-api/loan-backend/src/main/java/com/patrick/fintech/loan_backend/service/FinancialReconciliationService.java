@@ -95,11 +95,39 @@ public class FinancialReconciliationService {
             accounts = List.of();
         }
 
-        List<Loan> loans = loanRepository.findVisibleByOrganizationId(
+        List<Loan> visibleLoans = loanRepository.findVisibleByOrganizationId(
                 organizationId,
                 includeBusinessOwnerOnly);
-        if (loans == null) {
-            loans = List.of();
+        List<Loan> loans = visibleLoans == null
+                ? new ArrayList<>()
+                : new ArrayList<>(visibleLoans);
+
+        /*
+         * Recycled loans are deliberately hidden from ordinary operational
+         * queries by Loan's @SQLRestriction. Their posted journal entries are
+         * nevertheless retained for the 30-day restore period. System/owner
+         * reconciliation includes the recycled loan's operational balance so
+         * a legitimate recycled disbursement is not misreported as a missing
+         * RWF 20m (or other) sub-ledger balance. This is limited to this
+         * reconciliation path; the native query is not used by normal reports.
+         */
+        if (includeBusinessOwnerOnly) {
+            List<Loan> recycledLoans = loanRepository
+                    .findRecycledForReconciliationByOrganizationId(organizationId);
+            if (recycledLoans != null && !recycledLoans.isEmpty()) {
+                java.util.Set<Long> includedLoanIds = new java.util.HashSet<>();
+                for (Loan loan : loans) {
+                    if (loan != null && loan.getId() != null) {
+                        includedLoanIds.add(loan.getId());
+                    }
+                }
+                for (Loan recycled : recycledLoans) {
+                    if (recycled != null && recycled.getId() != null
+                            && includedLoanIds.add(recycled.getId())) {
+                        loans.add(recycled);
+                    }
+                }
+            }
         }
 
         loans = loans.stream()
@@ -459,7 +487,12 @@ public class FinancialReconciliationService {
         // ------------------------------------------------------------
         // BNR <-> PORTFOLIO CONTROL
         // ------------------------------------------------------------
+        // Regulatory/portfolio reporting intentionally excludes loans in the
+        // recycle bin. Keep this population separate from the internal GL
+        // sub-ledger above, which must include recycled balances while their
+        // posted journals are retained.
         BigDecimal portfolioOutstanding = loans.stream()
+                .filter(loan -> loan != null && loan.getDeletedAt() == null)
                 .filter(this::isGrossPortfolioLoan)
                 .map(Loan::getOutstandingBalanceDecimal)
                 .map(this::money)

@@ -10,12 +10,13 @@ type RecycleItem = {
   referenceNumber: string;
   status: string;
   deletedAt: string;
-  purgeAfter: string;
+  purgeAfter: string | null;
   deletionReason: string;
   deletedBy?: number | null;
 };
 
-function formatDate(value: string) {
+function formatDate(value: string | null) {
+  if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
@@ -65,12 +66,26 @@ export default function LoanRecycleBinPage() {
     );
   }, [items, query]);
 
-  const daysRemaining = (purgeAfter: string) => {
-    const ms = new Date(purgeAfter).getTime() - Date.now();
-    return Math.max(0, Math.ceil(ms / 86_400_000));
+  const daysRemaining = (purgeAfter: string | null) => {
+    if (!purgeAfter) return 0;
+    const deadline = new Date(purgeAfter).getTime();
+    if (!Number.isFinite(deadline)) return 0;
+    return Math.max(0, Math.ceil((deadline - Date.now()) / 86_400_000));
+  };
+
+  const canRestore = (purgeAfter: string | null) => {
+    if (!purgeAfter) return false;
+    const deadline = new Date(purgeAfter).getTime();
+    return Number.isFinite(deadline) && deadline > Date.now();
   };
 
   const restore = async (item: RecycleItem) => {
+    if (!canRestore(item.purgeAfter)) {
+      setError(
+        "The 30-day restore window has expired, or permanent purge was blocked by protected contractual or regulatory evidence. This loan cannot be restored from the recycle bin.",
+      );
+      return;
+    }
     const expected = `sudo ${item.referenceNumber}`;
     if (confirmation !== expected) {
       setError(`Type exactly: ${expected}`);
@@ -112,8 +127,10 @@ export default function LoanRecycleBinPage() {
           </h1>
           <p className="mt-1 text-sm text-slate-500">
             Recycled loans remain restorable for 30 days. After the retention
-            period, operational loan records are permanently purged
-            automatically.
+            period, operational loan records are purged when no signed contract
+            or regulatory evidence requires retention. Posted ledger and
+            settlement history is retained in the Business Owner-only reporting
+            scope.
           </p>
         </div>
         <Link
@@ -172,22 +189,31 @@ export default function LoanRecycleBinPage() {
                       Recycled: {formatDate(item.deletedAt)}
                     </div>
                     <div className="mt-1 text-xs font-semibold text-amber-700">
-                      Purge after: {formatDate(item.purgeAfter)} ·{" "}
-                      {daysRemaining(item.purgeAfter)} day
-                      {daysRemaining(item.purgeAfter) === 1 ? "" : "s"}{" "}
-                      remaining
+                      {canRestore(item.purgeAfter) ? (
+                        <>
+                          Purge after: {formatDate(item.purgeAfter)} ·{" "}
+                          {daysRemaining(item.purgeAfter)} day
+                          {daysRemaining(item.purgeAfter) === 1 ? "" : "s"}{" "}
+                          remaining
+                        </>
+                      ) : (
+                        "Restore window closed; protected contractual or regulatory evidence may require retention"
+                      )}
                     </div>
                   </div>
                   <button
                     type="button"
+                    disabled={!canRestore(item.purgeAfter)}
                     onClick={() => {
                       setConfirmingId(item.id);
                       setConfirmation("");
                       setError(null);
                     }}
-                    className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white"
+                    className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    Restore
+                    {canRestore(item.purgeAfter)
+                      ? "Restore"
+                      : "Restore unavailable"}
                   </button>
                 </div>
 
@@ -196,7 +222,7 @@ export default function LoanRecycleBinPage() {
                   {item.deletionReason}
                 </div>
 
-                {confirmingId === item.id ? (
+                {confirmingId === item.id && canRestore(item.purgeAfter) ? (
                   <div className="mt-4 rounded-xl border border-slate-200 p-4">
                     <p className="text-sm font-semibold text-slate-700">
                       Type exactly: <code>sudo {item.referenceNumber}</code>

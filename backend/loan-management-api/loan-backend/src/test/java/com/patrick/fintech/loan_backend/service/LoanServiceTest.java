@@ -14,6 +14,7 @@ import com.patrick.fintech.loan_backend.repository.LoanProductRepository;
 import com.patrick.fintech.loan_backend.repository.LoanRepository;
 import com.patrick.fintech.loan_backend.repository.OrganizationRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentRepository;
+import com.patrick.fintech.loan_backend.repository.PaymentTransactionRepository;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -89,6 +90,25 @@ class LoanServiceTest {
 
         @Mock
         PaymentScheduleService paymentScheduleService;
+
+        // Keep every required constructor dependency mocked. When WorkflowTaskService
+        // was added to LoanService, leaving other required constructor arguments
+        // absent made Mockito's @InjectMocks construction brittle and caused null
+        // dependencies during approval tests.
+        @Mock
+        AccountingService accountingService;
+
+        @Mock
+        ComplianceService complianceService;
+
+        @Mock
+        PaymentTransactionRepository paymentTransactionRepo;
+
+        @Mock
+        DashboardService dashboardService;
+
+        @Mock
+        LoanAdministrationService loanAdministrationService;
 
         @Mock
         WorkflowTaskService workflowTaskService;
@@ -404,6 +424,7 @@ class LoanServiceTest {
 
                 verify(paymentRepository, times(6))
                                 .save(any());
+                verify(workflowTaskService).createDisbursementTask(result, officer);
         }
 
         // ============================================================
@@ -494,6 +515,7 @@ class LoanServiceTest {
                                 .add(result.getOutstandingBalanceDecimal())
                                 .compareTo(result.getAmountDecimal()))
                                 .isZero();
+                verify(workflowTaskService).createDisbursementTask(result, admin);
         }
 
         // ============================================================
