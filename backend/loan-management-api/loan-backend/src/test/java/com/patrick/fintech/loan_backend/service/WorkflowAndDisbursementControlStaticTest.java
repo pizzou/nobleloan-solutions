@@ -1,6 +1,5 @@
 package com.patrick.fintech.loan_backend.service;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,16 +16,26 @@ class WorkflowAndDisbursementControlStaticTest {
         throw new AssertionError("Source file not found: " + relative);
     }
 
-    @Test
-    void disbursementIsBusinessOwnerOnlyAtBothBoundaries() throws Exception {
-        String controller = Files.readString(source("controller/LoanController.java"), StandardCharsets.UTF_8);
-        String service = Files.readString(source("service/LoanService.java"), StandardCharsets.UTF_8);
+    
+@Test
+void disbursementIsNotBusinessOwnerOnlyAtBothBoundaries() throws Exception {
+    String controller = Files.readString(
+            source("controller/LoanController.java"),
+            StandardCharsets.UTF_8);
+    String service = Files.readString(
+            source("service/LoanService.java"),
+            StandardCharsets.UTF_8);
 
-        assertTrue(controller.contains("@PreAuthorize(\"hasRole('BUSINESS_OWNER')\")"),
-                "Loan disbursement HTTP endpoint must be BUSINESS_OWNER-only");
-        assertTrue(service.contains("requireBusinessOwnerForDisbursement(officer);"),
-                "LoanService must enforce BUSINESS_OWNER-only disbursement even when called internally");
-    }
+    assertTrue(
+            !controller.contains(
+                    "@PreAuthorize(\"hasRole('BUSINESS_OWNER')\")"),
+            "Loan disbursement HTTP endpoint must not be Business Owner-only");
+
+    assertTrue(
+            service.contains(
+                    "requireNonBusinessOwnerForDisbursement(officer);"),
+            "LoanService must reject Business Owner disbursement even when called internally");
+}
 
     @Test
     void approvedLoansCreateDurableDisbursementTask() throws Exception {
