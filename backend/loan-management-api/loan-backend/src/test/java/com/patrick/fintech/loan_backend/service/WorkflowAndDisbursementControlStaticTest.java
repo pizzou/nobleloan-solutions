@@ -38,56 +38,55 @@ class WorkflowAndDisbursementControlStaticTest {
         return Files.readString(source(relative), StandardCharsets.UTF_8);
     }
 
-    /**
-     * Finds the authorization annotation associated with the controller
-     * method whose name contains "disburse".
-     *
-     * This prevents unrelated BUSINESS_OWNER-only endpoints from causing
-     * a false failure.
-     */
-    private static String disbursementEndpointAuthorization(String controller) {
-        Pattern methodPattern = Pattern.compile(
-                "(?s)((?:\\s*@[^\\n]*(?:\\n|$))*)"
-                + "\\s*(?:public|protected|private)\\s+"
-                + "[^;{}]*?\\b([A-Za-z_$][\\w$]*disburse[A-Za-z_$\\w]*)\\s*\\("
-        );
 
-        Matcher matcher = methodPattern.matcher(controller);
+private static String disbursementEndpointAuthorization(String controller) {
+    Pattern mappingPattern = Pattern.compile(
+            "(?s)((?:\\s*@[^\\n]*(?:\\n|$))*)"
+            + "\\s*(?:public|protected|private)\\s+"
+            + "[^;{}]*?\\b([A-Za-z_$][\\w$]*)\\s*\\(");
 
-        while (matcher.find()) {
-            String annotations = matcher.group(1);
-            String methodName = matcher.group(2);
+    Matcher matcher = mappingPattern.matcher(controller);
 
-            if (methodName.toLowerCase().contains("disburse")) {
-                return annotations;
-            }
+    while (matcher.find()) {
+        String annotations = matcher.group(1);
+        String methodName = matcher.group(2);
+
+        boolean disbursementMapping =
+                annotations.contains("/disburse")
+                || annotations.contains("/disbursement")
+                || methodName.toLowerCase().contains("disburse");
+
+        if (disbursementMapping) {
+            return annotations;
         }
-
-        throw new AssertionError(
-                "Could not locate a disbursement controller method. "
-                + "Review the endpoint method name and update this test "
-                + "if the project uses a different naming convention.");
     }
 
-    @Test
-    void disbursementIsNotBusinessOwnerOnlyAtBothBoundaries() throws Exception {
-        String controller = readSource("controller/LoanController.java");
-        String service = readSource("service/LoanService.java");
+    throw new AssertionError(
+            "Could not locate the disbursement endpoint by route mapping. "
+            + "Inspect LoanController.java and use its exact mapping.");
+}
 
-        String authorization = disbursementEndpointAuthorization(controller);
+@Test
+void disbursementIsNotBusinessOwnerOnlyAtBothBoundaries() throws Exception {
+    String controller = readSource("controller/LoanController.java");
+    String service = readSource("service/LoanService.java");
 
-        assertFalse(
-                authorization.contains("hasRole('BUSINESS_OWNER')"),
-                "The disbursement endpoint must not be restricted to Business Owner");
+    String authorization = disbursementEndpointAuthorization(controller);
 
-        assertTrue(
-                authorization.contains("hasAnyRole"),
-                "The disbursement endpoint must explicitly authorize permitted roles");
+    assertFalse(
+            authorization.contains("hasRole('BUSINESS_OWNER')"),
+            "The disbursement endpoint must not be Business Owner-only");
 
-        assertTrue(
-                service.contains("requireNonBusinessOwnerForDisbursement(officer);"),
-                "LoanService must independently reject Business Owner disbursement");
-    }
+    assertTrue(
+            authorization.contains("hasAnyRole"),
+            "The endpoint must explicitly authorize permitted disbursement roles");
+
+    assertTrue(
+            service.contains(
+                    "requireNonBusinessOwnerForDisbursement(officer);"),
+            "LoanService must independently reject Business Owner disbursement");
+}
+
 
     @Test
     void approvedLoansCreateDurableDisbursementTask() throws Exception {
