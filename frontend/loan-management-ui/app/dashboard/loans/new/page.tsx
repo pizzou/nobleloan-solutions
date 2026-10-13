@@ -998,7 +998,7 @@ function LegacyLoanDetailPage() {
 
   const router = useRouter();
 
-  const { currency, locale, isOfficer } = useAuth();
+  const { currency, locale, isOfficer, isBusinessOwner } = useAuth();
 
   const fc = (n?: number) => formatCurrency(n, currency, locale);
 
@@ -1410,6 +1410,11 @@ function LegacyLoanDetailPage() {
     const idempotencyKey = createIdempotencyKey();
 
     try {
+      if (isBusinessOwner && stForm.status === "DISBURSED") {
+        throw new Error(
+          "Business Owners cannot disburse loans. An authorized Loan Officer, Manager, or Admin must complete disbursement.",
+        );
+      }
       let url = "";
       let body: Record<string, string> = {};
       let label = "Loan status update";
@@ -2290,16 +2295,15 @@ function LegacyLoanDetailPage() {
           </Card>
         )}
         {tab === "Documents" &&
-          ((loan.borrower?.id ?? loan.borrowerId) ? (
+          (loan.borrower?.id ? (
             <DocumentsPanel
-              borrowerId={Number(loan.borrower?.id ?? loan.borrowerId)}
-              key={Number(loan.borrower?.id ?? loan.borrowerId)}
+              borrowerId={loan.borrower.id}
+              key={loan.borrower.id}
             />
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-400 text-sm">
-              This loan response does not include a borrower ID. Refresh the
-              loan details or contact an administrator to verify the loan
-              record.
+              No borrower record is linked to this loan, so documents can't be
+              shown.
             </div>
           ))}
 
@@ -2837,7 +2841,7 @@ function LegacyLoanDetailPage() {
 
                     UNDER_REVIEW: ["APPROVED", "REJECTED"],
 
-                    APPROVED: ["DISBURSED"],
+                    APPROVED: isBusinessOwner ? [] : ["DISBURSED"],
 
                     ACTIVE: ["DEFAULTED"],
 

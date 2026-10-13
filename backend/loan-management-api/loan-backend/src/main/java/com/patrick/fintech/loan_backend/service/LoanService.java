@@ -1413,11 +1413,12 @@ public class LoanService {
         // ================================================================
         // DISBURSE LOAN
         // ================================================================
-        private void requireBusinessOwnerForDisbursement(User officer) {
-                String role = officer.getRole() == null ? null : officer.getRole().getName();
-                if (role == null || !"BUSINESS_OWNER".equalsIgnoreCase(role.trim())) {
+        private void requireAuthorizedDisburser(User officer) {
+                String role = officer == null || officer.getRole() == null ? null : officer.getRole().getName();
+                if (role == null || !java.util.Set.of("ADMIN", "MANAGER", "LOAN_OFFICER")
+                                .contains(role.trim().toUpperCase(java.util.Locale.ROOT))) {
                         throw new org.springframework.security.access.AccessDeniedException(
-                                        "Only the BUSINESS_OWNER may disburse loans.");
+                                        "Only an authorized ADMIN, MANAGER, or LOAN_OFFICER may disburse loans; BUSINESS_OWNER is not permitted.");
                 }
         }
 
@@ -1435,7 +1436,7 @@ public class LoanService {
                                         "Disbursing officer must belong to an organization");
                 }
 
-                requireBusinessOwnerForDisbursement(officer);
+                requireAuthorizedDisburser(officer);
 
                 Loan loan = loanRepo.findVisibleByIdForUpdate(
                                 loanId,

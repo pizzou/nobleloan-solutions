@@ -443,7 +443,7 @@ public class LoanController {
         }
 
         @PostMapping("/{id}/disburse")
-        @PreAuthorize("hasRole('BUSINESS_OWNER')")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
         public ResponseEntity<ApiResponse<LoanResponse>> disburseLoan(
                         @PathVariable Long id,
                         @RequestBody(required = false) Map<String, String> body,

@@ -137,10 +137,12 @@ public class WorkflowTaskService {
         }
 
         Long organizationId = approvedLoan.getOrganization().getId();
-        User owner = userRepository.findFirstActiveByOrganizationAndRole(
-                organizationId, "BUSINESS_OWNER")
+        // Assign the disbursement work to an authorized staff role, never to the Business Owner.
+        User disburser = userRepository.findFirstActiveByOrganizationAndRole(organizationId, "LOAN_OFFICER")
+                .or(() -> userRepository.findFirstActiveByOrganizationAndRole(organizationId, "MANAGER"))
+                .or(() -> userRepository.findFirstActiveByOrganizationAndRole(organizationId, "ADMIN"))
                 .orElseThrow(() -> new IllegalStateException(
-                        "No active BUSINESS_OWNER is available to receive the disbursement task"));
+                        "No active LOAN_OFFICER, MANAGER, or ADMIN is available to receive the disbursement task"));
 
         String taskType = "LOAN_DISBURSEMENT";
         String entityType = "LOAN";
@@ -150,10 +152,31 @@ public class WorkflowTaskService {
                 taskType,
                 entityType,
                 approvedLoan.getId(),
-                owner.getId(),
+                disburser.getId(),
                 OPEN_STATUSES);
         if (existing.isPresent()) {
             return existing.get();
+        }
+
+        // Reassign an older open task that was created under the former
+        // Business-Owner-only workflow rather than leaving it in the owner's queue.
+        var legacyOwner = userRepository.findFirstActiveByOrganizationAndRole(organizationId, "BUSINESS_OWNER");
+        if (legacyOwner.isPresent()) {
+            var legacyTask = taskRepository.findOpenEntityTask(
+                    organizationId, taskType, entityType, approvedLoan.getId(), legacyOwner.get().getId(), OPEN_STATUSES);
+            if (legacyTask.isPresent()) {
+                WorkflowTask task = legacyTask.get();
+                task.setAssignedTo(disburser);
+                task.setAssignedBy(actor);
+                WorkflowTask reassigned = taskRepository.save(task);
+                auditService.log(
+                        reassigned.getOrganization(), actor, "WORKFLOW_TASK_REASSIGNED",
+                        "WORKFLOW_TASK", String.valueOf(reassigned.getId()),
+                        "Reassigned loan disbursement task from Business Owner to authorized staff user " + disburser.getId(),
+                        null, null, "Operations Tasks");
+                publishAssignmentEvent(reassigned, "/dashboard/loans/" + approvedLoan.getId());
+                return reassigned;
+            }
         }
 
         BigDecimal amount = approvedLoan.getAmountDecimal() == null
@@ -164,7 +187,7 @@ public class WorkflowTaskService {
 
         WorkflowTask task = WorkflowTask.builder()
                 .organization(approvedLoan.getOrganization())
-                .assignedTo(owner)
+                .assignedTo(disburser)
                 .assignedBy(actor)
                 .title("Disburse approved loan " + approvedLoan.getReferenceNumber())
                 .description("Approved principal " + currency + " " + amount
@@ -196,25 +219,27 @@ public class WorkflowTaskService {
 
     /**
      * Closes the mandatory disbursement task as part of the same financial
-     * transaction that moves the loan to ACTIVE. The task is an operational
-     * acknowledgement, not a permission to disburse.
+     * transaction that moves the loan to ACTIVE. The task is assigned to an
+     * authorized staff disburser; it is an operational acknowledgement, not
+     * a permission to disburse.
      */
     @Transactional
-    public void completeDisbursementTaskForLoan(Long loanId, User owner) {
+    public void completeDisbursementTaskForLoan(Long loanId, User disburser) {
         if (loanId == null || loanId <= 0) {
             throw new IllegalArgumentException("Loan id is required");
         }
-        Long organizationId = organizationId(owner);
-        String role = owner.getRole() == null ? null : owner.getRole().getName();
-        if (role == null || !"BUSINESS_OWNER".equalsIgnoreCase(role.trim())) {
-            throw new AccessDeniedException("Only the BUSINESS_OWNER may complete disbursement tasks");
+        Long organizationId = organizationId(disburser);
+        String role = disburser.getRole() == null ? null : disburser.getRole().getName();
+        if (role == null || !Set.of("ADMIN", "MANAGER", "LOAN_OFFICER")
+                .contains(role.trim().toUpperCase(Locale.ROOT))) {
+            throw new AccessDeniedException("Only an authorized ADMIN, MANAGER, or LOAN_OFFICER may complete disbursement tasks");
         }
         var existing = taskRepository.findOpenEntityTask(
                 organizationId,
                 "LOAN_DISBURSEMENT",
                 "LOAN",
                 loanId,
-                owner.getId(),
+                disburser.getId(),
                 OPEN_STATUSES);
         if (existing.isEmpty()) {
             log.warn("No open disbursement task found for loan {} during successful disbursement", loanId);
@@ -225,11 +250,11 @@ public class WorkflowTaskService {
         LocalDateTime now = LocalDateTime.now();
         task.setStatus("COMPLETED");
         task.setCompletedAt(now);
-        task.setCompletedBy(owner);
+        task.setCompletedBy(disburser);
         WorkflowTask saved = taskRepository.save(task);
         auditService.log(
                 saved.getOrganization(),
-                owner,
+                disburser,
                 "WORKFLOW_TASK_COMPLETED",
                 "WORKFLOW_TASK",
                 String.valueOf(saved.getId()),
