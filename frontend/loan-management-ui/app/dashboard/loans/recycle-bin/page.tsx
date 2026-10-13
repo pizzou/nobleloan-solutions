@@ -31,10 +31,16 @@ export default function LoanRecycleBinPage() {
   const [confirmation, setConfirmation] = useState("");
   const [query, setQuery] = useState("");
 
-  const isBusinessOwner =
-    String(
-      (user as { role?: { name?: string } } | null)?.role?.name ?? "",
-    ).toUpperCase() === "BUSINESS_OWNER";
+  // AuthResponse.role is a string (for example "BUSINESS_OWNER"), as
+  // defined by useAuthState and services/authService. Treating it as
+  // user.role.name makes a valid Business Owner appear unauthorized and
+  // hides the recycle-bin list and restore controls.
+  const normalizedRole = String(user?.role ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/^ROLE_/, "")
+    .replace(/[- ]/g, "_");
+  const isBusinessOwner = normalizedRole === "BUSINESS_OWNER";
 
   const load = useCallback(async () => {
     setLoading(true);
