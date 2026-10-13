@@ -235,7 +235,7 @@ export default function HomePage() {
     { label: "YouTube", mark: "▶", url: tenant.socialMedia?.youtube },
   ];
   return (
-    <main className="overflow-hidden bg-[#f3f5f8] text-[#0F1B3D]">
+    <div className="overflow-hidden bg-[#f3f5f8] text-[#0F1B3D]">
       <section className="relative isolate min-h-[560px] overflow-hidden bg-[#071a32] text-white lg:min-h-[570px]">
         <Image
           src="/hero-borrower.jpg"
@@ -562,6 +562,6 @@ export default function HomePage() {
           </span>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
