@@ -116,6 +116,29 @@ API.interceptors.request.use(async (config) => {
 
 API.interceptors.response.use(
   (response) => {
+    // API calls normally return JSON. Reverse proxies and expired-session
+    // gateways sometimes return an HTML document with HTTP 200; reject that
+    // response rather than letting pages treat the HTML as application data.
+    // Binary endpoints opt into blob/arraybuffer and validate their own bytes.
+    const responseType = String(
+      response.config.responseType ?? "",
+    ).toLowerCase();
+    const isBinaryResponse =
+      responseType === "blob" || responseType === "arraybuffer";
+    const contentType = String(
+      response.headers?.["content-type"] ?? "",
+    ).toLowerCase();
+    if (
+      !isBinaryResponse &&
+      (contentType.includes("text/html") || isHtmlErrorPayload(response.data))
+    ) {
+      const requestId = String(response.headers?.["x-request-id"] ?? "").trim();
+      throw new Error(
+        `The server or security proxy returned an HTML error page instead of JSON. Please retry.${
+          requestId ? ` Reference: ${requestId}` : ""
+        }`,
+      );
+    }
     return response;
   },
 
@@ -126,6 +149,7 @@ API.interceptors.response.use(
 
     const requestUrl = String(error.config?.url ?? "");
     const isAuthMeRequest = requestUrl.includes("/auth/me");
+    const isPublicRequest = requestUrl.includes("/public/");
 
     // /auth/me is the session-bootstrap request. Let useAuthState decide
     // whether a 401 is a real logout condition; redirecting here races the
@@ -134,6 +158,7 @@ API.interceptors.response.use(
     if (
       status === 401 &&
       !isAuthMeRequest &&
+      !isPublicRequest &&
       typeof window !== "undefined" &&
       window.location.pathname !== "/login"
     ) {
@@ -995,6 +1020,21 @@ export const publicApi = {
       )}/status?phone=${encodeURIComponent(phone.trim())}`,
     ),
 
+  getBorrowerProfile: (reference: string, phone: string) =>
+    get(
+      `/public/applications/${encodeURIComponent(reference.trim())}/profile?phone=${encodeURIComponent(phone.trim())}`,
+    ),
+
+  updateBorrowerProfile: (
+    reference: string,
+    phone: string,
+    profile: Record<string, string>,
+  ) =>
+    put(
+      `/public/applications/${encodeURIComponent(reference.trim())}/profile?phone=${encodeURIComponent(phone.trim())}`,
+      profile,
+    ),
+
   trackDashboard: (reference: string, phone: string) =>
     post("/public/dashboard", {
       reference: reference.trim(),
@@ -1052,9 +1092,8 @@ export const publicApi = {
     ),
 
   /**
-   * Builds the same-origin public document URL. Next.js proxies /api/* to the
-   * configured backend, so the borrower can open a binary response directly
-   * without requiring Axios to expose a cross-origin Blob to the browser.
+   * Legacy same-origin URL builder. Borrower preview/download handlers should
+   * use fetchDocumentContent so binary signatures and HTML error pages are checked.
    */
   documentContentUrl: (
     reference: string,
@@ -1069,6 +1108,118 @@ export const publicApi = {
     return `/api/public/applications/${encodeURIComponent(
       reference.trim().toUpperCase(),
     )}/documents/${fileId}/${mode}?phone=${encodeURIComponent(phone.trim())}`;
+  },
+
+  /**
+   * Fetch document bytes through Axios rather than navigating directly to the
+   * endpoint. This lets the portal reject proxy/login HTML pages and JSON
+   * errors before presenting them as borrower documents.
+   */
+  fetchDocumentContent: async (
+    reference: string,
+    phone: string,
+    fileId: number,
+    mode: "preview" | "download",
+  ): Promise<Blob> => {
+    if (!Number.isSafeInteger(fileId) || fileId <= 0) {
+      throw new Error("Invalid document ID.");
+    }
+    const url = `/public/applications/${encodeURIComponent(
+      reference.trim().toUpperCase(),
+    )}/documents/${fileId}/${mode}?phone=${encodeURIComponent(phone.trim())}`;
+    try {
+      const response = await API.get<Blob>(url, {
+        responseType: "blob",
+        headers: {
+          Accept: "application/pdf, image/jpeg, image/png, image/webp",
+        },
+      });
+      const blob = response.data;
+      const type = String(response.headers["content-type"] || blob.type || "")
+        .split(";", 1)[0]
+        .trim()
+        .toLowerCase();
+      const signature = await blob
+        .slice(0, 32)
+        .text()
+        .catch(() => "");
+      if (
+        type === "text/html" ||
+        type === "application/json" ||
+        signature.trimStart().toLowerCase().startsWith("<!doctype html") ||
+        signature.trimStart().toLowerCase().startsWith("<html") ||
+        signature.trimStart().startsWith("{")
+      ) {
+        throw new Error(
+          "The server returned an error page instead of the document. Please retry; if the problem continues, contact support.",
+        );
+      }
+      if (blob.size === 0) {
+        throw new Error(
+          "The document has no stored content. Please upload it again.",
+        );
+      }
+      const bytes = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+      const isPdf =
+        bytes.length >= 4 &&
+        bytes[0] === 0x25 &&
+        bytes[1] === 0x50 &&
+        bytes[2] === 0x44 &&
+        bytes[3] === 0x46;
+      const isJpeg =
+        bytes.length >= 3 &&
+        bytes[0] === 0xff &&
+        bytes[1] === 0xd8 &&
+        bytes[2] === 0xff;
+      const isPng =
+        bytes.length >= 8 &&
+        bytes[0] === 0x89 &&
+        bytes[1] === 0x50 &&
+        bytes[2] === 0x4e &&
+        bytes[3] === 0x47;
+      const isWebp =
+        bytes.length >= 12 &&
+        bytes[0] === 0x52 &&
+        bytes[1] === 0x49 &&
+        bytes[2] === 0x46 &&
+        bytes[8] === 0x57 &&
+        bytes[9] === 0x45 &&
+        bytes[10] === 0x42 &&
+        bytes[11] === 0x50;
+      if (!isPdf && !isJpeg && !isPng && !isWebp) {
+        throw new Error(
+          "The downloaded response is not a supported PDF or image. Please retry or contact support.",
+        );
+      }
+      const safeType = isPdf
+        ? "application/pdf"
+        : isJpeg
+          ? "image/jpeg"
+          : isPng
+            ? "image/png"
+            : "image/webp";
+      return new Blob([blob], { type: safeType });
+    } catch (error: unknown) {
+      const axiosError = error as AxiosError<unknown>;
+      const payload = axiosError.response?.data;
+      if (typeof Blob !== "undefined" && payload instanceof Blob) {
+        const text = await payload
+          .slice(0, 1000)
+          .text()
+          .catch(() => "");
+        if (
+          isHtmlErrorPayload(text) ||
+          text.trimStart().startsWith("{") ||
+          text.trimStart().startsWith("[")
+        ) {
+          throw new Error(
+            "The document service returned an error page instead of the file. Please retry; if the problem continues, contact support.",
+          );
+        }
+      }
+      if (error instanceof Error && error.message) throw error;
+      throw new Error("The document could not be retrieved. Please retry.");
+    }
   },
 
   /**

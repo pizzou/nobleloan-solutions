@@ -60,6 +60,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -348,6 +349,163 @@ public class PublicController {
                 return ResponseEntity.ok(
                                 ApiResponse.ok(
                                                 result));
+        }
+
+        // ============================================================
+        // BORROWER SELF-SERVICE PROFILE
+        // ============================================================
+
+        @GetMapping("/applications/{reference}/profile")
+        @Transactional
+        public ResponseEntity<ApiResponse<Map<String, Object>>> getBorrowerProfile(
+                        @PathVariable String reference,
+                        @RequestParam String phone) {
+                Loan loan = verifyOwnership(reference, phone);
+                return ResponseEntity.ok(ApiResponse.ok("Borrower profile", borrowerProfile(loan.getBorrower())));
+        }
+
+        /**
+         * Updates only contact, address, employment and place-of-birth fields.
+         * The registered phone, national ID, date of birth, gender, loan terms
+         * and KYC status cannot be changed through this self-service endpoint.
+         */
+        @PutMapping("/applications/{reference}/profile")
+        @Transactional
+        public ResponseEntity<ApiResponse<Map<String, Object>>> updateBorrowerProfile(
+                        @PathVariable String reference,
+                        @RequestParam String phone,
+                        @RequestBody Map<String, Object> body) {
+                Loan loan = verifyOwnership(reference, phone);
+                Borrower borrower = loan.getBorrower();
+                if (body == null || body.isEmpty()) {
+                        throw new IllegalArgumentException("Provide at least one profile field to update.");
+                }
+
+                Set<String> allowed = Set.of("placeOfBirth", "nationality",
+                                "addressLine1", "addressLine2", "city", "stateProvince", "postalCode",
+                                "country", "employerName", "employmentType", "jobTitle");
+                for (String key : body.keySet()) {
+                        if (!allowed.contains(key)) {
+                                throw new IllegalArgumentException(
+                                                "This profile field cannot be changed through self-service: " + key);
+                        }
+                }
+
+                Map<String, Object> originalProfile = borrowerProfile(borrower);
+                List<String> changedFields = new ArrayList<>();
+                if (body.containsKey("placeOfBirth")) {
+                        String value = profileValue(body, "placeOfBirth", 120, true);
+                        String existingPlaceOfBirth = borrower.getPlaceOfBirth();
+                        if (existingPlaceOfBirth != null && !existingPlaceOfBirth.isBlank()
+                                        && !existingPlaceOfBirth.equalsIgnoreCase(value)) {
+                                throw new IllegalArgumentException(
+                                                "Place of birth is already recorded. Contact your loan team to correct verified identity information.");
+                        }
+                        borrower.setPlaceOfBirth(value);
+                        changedFields.add("placeOfBirth");
+                }
+                if (body.containsKey("nationality")) {
+                        String value = profileValue(body, "nationality", 80, true);
+                        String existingNationality = borrower.getNationality();
+                        if (existingNationality != null && !existingNationality.isBlank()
+                                        && !existingNationality.equalsIgnoreCase(value)) {
+                                throw new IllegalArgumentException(
+                                                "Nationality is already recorded. Contact your loan team to correct verified identity information.");
+                        }
+                        borrower.setNationality(value);
+                        changedFields.add("nationality");
+                }
+                if (body.containsKey("addressLine1")) {
+                        borrower.setAddressLine1(profileValue(body, "addressLine1", 180, false));
+                        changedFields.add("addressLine1");
+                }
+                if (body.containsKey("addressLine2")) {
+                        borrower.setAddressLine2(profileValue(body, "addressLine2", 180, false));
+                        changedFields.add("addressLine2");
+                }
+                if (body.containsKey("city")) {
+                        borrower.setCity(profileValue(body, "city", 100, false));
+                        changedFields.add("city");
+                }
+                if (body.containsKey("stateProvince")) {
+                        borrower.setStateProvince(profileValue(body, "stateProvince", 100, false));
+                        changedFields.add("stateProvince");
+                }
+                if (body.containsKey("postalCode")) {
+                        borrower.setPostalCode(profileValue(body, "postalCode", 30, false));
+                        changedFields.add("postalCode");
+                }
+                if (body.containsKey("country")) {
+                        borrower.setCountry(profileValue(body, "country", 100, false));
+                        changedFields.add("country");
+                }
+                if (body.containsKey("employerName")) {
+                        borrower.setEmployerName(profileValue(body, "employerName", 180, false));
+                        changedFields.add("employerName");
+                }
+                if (body.containsKey("employmentType")) {
+                        borrower.setEmploymentType(profileValue(body, "employmentType", 80, false));
+                        changedFields.add("employmentType");
+                }
+                if (body.containsKey("jobTitle")) {
+                        borrower.setJobTitle(profileValue(body, "jobTitle", 120, false));
+                        changedFields.add("jobTitle");
+                }
+
+                Map<String, Object> updatedProfile = borrowerProfile(borrower);
+                changedFields.clear();
+                for (String field : allowed) {
+                        if (!Objects.equals(originalProfile.get(field), updatedProfile.get(field))) {
+                                changedFields.add(field);
+                        }
+                }
+                if (changedFields.isEmpty()) {
+                        return ResponseEntity.ok(ApiResponse.ok("No profile changes", updatedProfile));
+                }
+
+                Borrower saved = borrowerRepo.save(borrower);
+                auditService.log(saved.getOrganization(), null, "BORROWER_SELF_SERVICE_PROFILE_UPDATED",
+                                "BORROWER", String.valueOf(saved.getId()),
+                                "Borrower self-service profile fields updated: " + String.join(",", changedFields));
+                return ResponseEntity.ok(ApiResponse.ok("Profile updated", borrowerProfile(saved)));
+        }
+
+        private Map<String, Object> borrowerProfile(Borrower borrower) {
+                Map<String, Object> profile = new LinkedHashMap<>();
+                profile.put("firstName", borrower.getFirstName());
+                profile.put("lastName", borrower.getLastName());
+                profile.put("email", borrower.getEmail());
+                profile.put("alternatePhone", borrower.getAlternatePhone());
+                profile.put("placeOfBirth", borrower.getPlaceOfBirth());
+                profile.put("nationality", borrower.getNationality());
+                profile.put("addressLine1", borrower.getAddressLine1());
+                profile.put("addressLine2", borrower.getAddressLine2());
+                profile.put("city", borrower.getCity());
+                profile.put("stateProvince", borrower.getStateProvince());
+                profile.put("postalCode", borrower.getPostalCode());
+                profile.put("country", borrower.getCountry());
+                profile.put("employerName", borrower.getEmployerName());
+                profile.put("employmentType", borrower.getEmploymentType());
+                profile.put("jobTitle", borrower.getJobTitle());
+                return profile;
+        }
+
+        private String profileValue(Map<String, Object> body, String field, int maxLength, boolean requiredWhenProvided) {
+                Object raw = body.get(field);
+                if (raw == null) {
+                        if (requiredWhenProvided) throw new IllegalArgumentException(field + " cannot be blank.");
+                        return null;
+                }
+                if (!(raw instanceof String)) throw new IllegalArgumentException(field + " must be text.");
+                String value = ((String) raw).trim();
+                if (value.length() > maxLength) {
+                        throw new IllegalArgumentException(field + " exceeds the maximum length of " + maxLength + ".");
+                }
+                if (value.isEmpty()) {
+                        if (requiredWhenProvided) throw new IllegalArgumentException(field + " cannot be blank.");
+                        return null;
+                }
+                return value;
         }
 
         // ============================================================
@@ -645,7 +803,7 @@ public class PublicController {
                                 auditAction,
                                 "BORROWER_FILE",
                                 String.valueOf(fileId),
-                                "Applicant document access for " + loan.getReferenceNumber() + " (" + fileName + ")");
+                                "Applicant document content accessed.");
 
                 return ResponseEntity.ok()
                                 .contentType(mediaType)

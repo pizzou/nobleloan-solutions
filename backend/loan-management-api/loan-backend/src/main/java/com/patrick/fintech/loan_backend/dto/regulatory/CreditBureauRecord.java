@@ -26,6 +26,8 @@ public class CreditBureauRecord {
 
     private LocalDate dateOfBirth;
 
+    private String placeOfBirth;
+
     private String gender;
 
     private String phone;
@@ -38,12 +40,12 @@ public class CreditBureauRecord {
 
     private String repaymentClassification;
 
-    
+
 
     @JsonProperty("loanAmount")
 private BigDecimal loanAmount;
 
-    
+
 
     @JsonProperty("outstandingBalance")
 private BigDecimal outstandingBalance;

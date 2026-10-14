@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useTenant } from "../layout";
 import { publicApi } from "@/services/api";
-import { openApplicantDocument } from "@/services/publicDocumentContent";
 import { toast } from "@/hooks/useToast";
 
 interface StatusStep {
@@ -60,6 +59,24 @@ interface UploadedDoc {
   officerComment?: string;
   verifiedByName?: string;
   verifiedAt?: string;
+}
+
+interface BorrowerProfile {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  alternatePhone?: string;
+  placeOfBirth?: string;
+  nationality?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  stateProvince?: string;
+  postalCode?: string;
+  country?: string;
+  employerName?: string;
+  employmentType?: string;
+  jobTitle?: string;
 }
 
 interface StatusResult {
@@ -471,6 +488,10 @@ export default function TrackPage() {
   >(null);
 
   const [uploadedDocs, setUploadedDocs] = useState<UploadedDoc[]>([]);
+  const [profileForm, setProfileForm] = useState<Record<string, string>>({});
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState("");
+  const [profileMessage, setProfileMessage] = useState("");
 
   const [uploadingType, setUploadingType] = useState<string | null>(null);
 
@@ -517,6 +538,9 @@ export default function TrackPage() {
 
     setError("");
     setResult(null);
+    setProfileForm({});
+    setProfileError("");
+    setProfileMessage("");
     setComments([]);
     setCommentsError(false);
     setPaySuccess(false);
@@ -557,6 +581,36 @@ export default function TrackPage() {
       } catch {}
 
       setResult(merged);
+
+      publicApi
+        .getBorrowerProfile(ref, ph)
+        .then((profile) => {
+          const value = (profile || {}) as BorrowerProfile;
+          const editable: Record<string, string> = {};
+          for (const key of [
+            "email",
+            "alternatePhone",
+            "placeOfBirth",
+            "nationality",
+            "addressLine1",
+            "addressLine2",
+            "city",
+            "stateProvince",
+            "postalCode",
+            "country",
+            "employerName",
+            "employmentType",
+            "jobTitle",
+          ]) {
+            editable[key] = String(value[key as keyof BorrowerProfile] ?? "");
+          }
+          setProfileForm(editable);
+        })
+        .catch(() =>
+          setProfileError(
+            "Profile information could not be loaded. Please retry the application lookup.",
+          ),
+        );
 
       /*
        * Load comments independently.
@@ -779,20 +833,31 @@ export default function TrackPage() {
    * =========================================================
    */
 
-  const handleDownloadDoc = (
+  const saveBlobDownload = (blob: Blob, fileName: string) => {
+    const safeName =
+      fileName.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").slice(0, 180) ||
+      "document";
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = safeName;
+    anchor.rel = "noopener";
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
+  };
+
+  const handleDownloadDoc = async (
     doc: "agreement" | "schedule" | "receipt",
     label: string,
   ) => {
-    if (!result) {
-      return;
-    }
-
+    if (!result) return;
     const ref = (result.referenceNumber || result.reference || reference)
       .trim()
       .toUpperCase();
-
     const ph = phone.trim();
-
     if (!ref || !ph) {
       toast(
         "error",
@@ -801,51 +866,51 @@ export default function TrackPage() {
       return;
     }
 
-    const url =
-      `/api/public/applications/${encodeURIComponent(ref)}/documents/` +
-      `${doc}.pdf?phone=${encodeURIComponent(ph)}`;
-
     setDownloadingDoc(doc);
-
     try {
-      /*
-       * Public PDF endpoint:
-       *
-       * Open the authenticated-by-reference/phone document directly in the
-       * browser instead of using Axios/XHR to read a cross-origin Blob.
-       *
-       * This avoids the browser-side CORS requirement for reading a binary
-       * response. The backend remains responsible for validating the
-       * reference + phone before returning the document.
-       */
-      const anchor = document.createElement("a");
-
-      anchor.href = url;
-      anchor.target = "_blank";
-      anchor.rel = "noopener noreferrer";
-      anchor.style.display = "none";
-
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-
-      toast("success", `${label} opened successfully.`);
+      const response = await publicApi.downloadDocument(ref, ph, doc);
+      const blob = response.data as Blob;
+      const contentType = String(
+        response.headers?.["content-type"] || blob.type || "",
+      ).toLowerCase();
+      const bytes = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
+      const isPdf =
+        bytes.length >= 4 &&
+        bytes[0] === 0x25 &&
+        bytes[1] === 0x50 &&
+        bytes[2] === 0x44 &&
+        bytes[3] === 0x46;
+      if (
+        blob.size === 0 ||
+        contentType.includes("text/html") ||
+        contentType.includes("application/json") ||
+        !isPdf
+      ) {
+        throw new Error(
+          "The server returned an error page or invalid PDF instead of the document.",
+        );
+      }
+      saveBlobDownload(
+        new Blob([blob], { type: "application/pdf" }),
+        `${doc}.pdf`,
+      );
+      toast("success", `${label} download started.`);
     } catch (err: unknown) {
-      console.error("[DOCUMENT] Download failed:", err);
-      toast("error", `Could not open ${label}. Please retry.`);
+      const message =
+        err instanceof Error
+          ? err.message
+          : `Could not download ${label}. Please retry.`;
+      toast("error", message);
     } finally {
-      window.setTimeout(() => {
-        setDownloadingDoc(null);
-      }, 1000);
+      setDownloadingDoc(null);
     }
   };
 
-  const handleApplicantDocument = (
+  const handleApplicantDocument = async (
     doc: UploadedDoc,
     mode: "preview" | "download",
   ) => {
     if (!result) return;
-
     if (doc.uploadedByApplicant !== true) {
       toast(
         "error",
@@ -853,7 +918,6 @@ export default function TrackPage() {
       );
       return;
     }
-
     if (doc.contentAvailable === false) {
       toast(
         "error",
@@ -866,7 +930,6 @@ export default function TrackPage() {
       .trim()
       .toUpperCase();
     const ph = phone.trim();
-
     if (!ref || !ph || !Number.isSafeInteger(doc.id) || doc.id <= 0) {
       toast(
         "error",
@@ -875,29 +938,116 @@ export default function TrackPage() {
       return;
     }
 
-    const url = publicApi.documentContentUrl(ref, ph, doc.id, mode);
+    // Open synchronously in response to the click so popup blockers do not
+    // reject the preview after the asynchronous file fetch completes.
+    const previewWindow =
+      mode === "preview" ? window.open("about:blank", "_blank") : null;
+    if (mode === "preview" && !previewWindow) {
+      toast(
+        "error",
+        "Your browser blocked the preview window. Please allow pop-ups and retry.",
+      );
+      return;
+    }
+    if (previewWindow) previewWindow.opener = null;
 
-    // Open a same-origin blob only after checking the API response. This avoids
-    // silently opening/downloading JSON error pages as if they were documents.
-    // The helper opens the preview tab synchronously before awaiting the fetch.
-    void openApplicantDocument(url, mode, doc.fileName)
-      .then(() => {
-        toast(
-          "success",
-          mode === "preview"
-            ? `${docLabel(doc.documentType)} opened successfully.`
-            : `${docLabel(doc.documentType)} download started.`,
+    try {
+      const blob = await publicApi.fetchDocumentContent(ref, ph, doc.id, mode);
+      if (mode === "preview" && previewWindow) {
+        const objectUrl = URL.createObjectURL(blob);
+        previewWindow.location.replace(objectUrl);
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      } else {
+        saveBlobDownload(blob, doc.fileName || "document");
+      }
+      toast(
+        "success",
+        mode === "preview"
+          ? `${docLabel(doc.documentType)} opened successfully.`
+          : `${docLabel(doc.documentType)} download started.`,
+      );
+    } catch (err: unknown) {
+      previewWindow?.close();
+      toast(
+        "error",
+        err instanceof Error
+          ? err.message
+          : "The document could not be retrieved. Please retry.",
+      );
+    }
+  };
+
+  const handleProfileSave = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!result) return;
+    const ref = (
+      result.referenceNumber ||
+      result.reference ||
+      reference
+    ).trim();
+    const ph = phone.trim();
+    if (!ref || !ph) {
+      setProfileError(
+        "Your application reference and registered phone number are required.",
+      );
+      return;
+    }
+    setProfileSaving(true);
+    setProfileError("");
+    setProfileMessage("");
+    try {
+      const editableFields = [
+        "placeOfBirth",
+        "nationality",
+        "addressLine1",
+        "addressLine2",
+        "city",
+        "stateProvince",
+        "postalCode",
+        "country",
+        "employerName",
+        "employmentType",
+        "jobTitle",
+      ];
+      const payload = Object.fromEntries(
+        editableFields.map((key) => [key, profileForm[key] ?? ""]),
+      );
+      const updated = (await publicApi.updateBorrowerProfile(
+        ref,
+        ph,
+        payload,
+      )) as BorrowerProfile;
+      const next: Record<string, string> = {};
+      for (const key of [
+        "email",
+        "alternatePhone",
+        "placeOfBirth",
+        "nationality",
+        "addressLine1",
+        "addressLine2",
+        "city",
+        "stateProvince",
+        "postalCode",
+        "country",
+        "employerName",
+        "employmentType",
+        "jobTitle",
+      ]) {
+        next[key] = String(
+          updated?.[key as keyof BorrowerProfile] ?? profileForm[key] ?? "",
         );
-      })
-      .catch((error: unknown) => {
-        console.error(`[DOCUMENT] ${mode} failed:`, error);
-        toast(
-          "error",
-          error instanceof Error
-            ? error.message
-            : `Could not ${mode} the document. Please retry.`,
-        );
-      });
+      }
+      setProfileForm(next);
+      setProfileMessage("Your profile information has been updated.");
+    } catch (err: unknown) {
+      setProfileError(
+        err instanceof Error
+          ? err.message
+          : "Profile update failed. Please retry.",
+      );
+    } finally {
+      setProfileSaving(false);
+    }
   };
 
   /*
@@ -1616,6 +1766,127 @@ export default function TrackPage() {
 
                 <div className="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
                   <div className="space-y-5">
+                    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <div className="text-[9px] font-black uppercase tracking-[0.16em] text-blue-700">
+                            Borrower profile
+                          </div>
+                          <h3 className="mt-1 text-lg font-black text-slate-950">
+                            Update your information
+                          </h3>
+                          <p className="mt-1 text-xs leading-6 text-slate-500">
+                            Update your address and employment details, and
+                            complete missing identity details. Existing verified
+                            identity information and contact-channel changes
+                            require your loan team.
+                          </p>
+                        </div>
+                      </div>
+                      {profileError ? (
+                        <div
+                          role="alert"
+                          className="mt-4 rounded-xl border border-red-100 bg-red-50 p-3 text-xs font-semibold text-red-700"
+                        >
+                          {profileError}
+                        </div>
+                      ) : null}
+                      {profileMessage ? (
+                        <div
+                          role="status"
+                          className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800"
+                        >
+                          {profileMessage}
+                        </div>
+                      ) : null}
+                      <form onSubmit={handleProfileSave} className="mt-5">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="sm:col-span-2 grid gap-3 sm:grid-cols-2">
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                              <div className="text-[10px] font-bold text-slate-500">
+                                Email address (contact your loan team to change)
+                              </div>
+                              <div className="mt-1 text-sm font-semibold text-slate-800">
+                                {profileForm.email || "Not provided"}
+                              </div>
+                            </div>
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                              <div className="text-[10px] font-bold text-slate-500">
+                                Alternate phone (contact your loan team to
+                                change)
+                              </div>
+                              <div className="mt-1 text-sm font-semibold text-slate-800">
+                                {profileForm.alternatePhone || "Not provided"}
+                              </div>
+                            </div>
+                          </div>
+                          {(
+                            [
+                              ["placeOfBirth", "Place of birth", "text"],
+                              ["nationality", "Nationality", "text"],
+                              ["addressLine1", "Address line 1", "text"],
+                              ["addressLine2", "Address line 2", "text"],
+                              ["city", "City / town", "text"],
+                              ["stateProvince", "Province / state", "text"],
+                              ["postalCode", "Postal code", "text"],
+                              ["country", "Country", "text"],
+                              ["employerName", "Employer name", "text"],
+                              ["employmentType", "Employment type", "text"],
+                              ["jobTitle", "Job title", "text"],
+                            ] as const
+                          ).map(([key, label, type]) => (
+                            <label
+                              key={key}
+                              className="block text-[11px] font-bold text-slate-600"
+                            >
+                              {label}
+                              <input
+                                type={type}
+                                value={profileForm[key] ?? ""}
+                                maxLength={
+                                  key === "nationality"
+                                    ? 80
+                                    : key === "placeOfBirth"
+                                      ? 120
+                                      : key === "addressLine1" ||
+                                          key === "addressLine2" ||
+                                          key === "employerName"
+                                        ? 180
+                                        : key === "city" ||
+                                            key === "stateProvince" ||
+                                            key === "country"
+                                          ? 100
+                                          : key === "postalCode"
+                                            ? 30
+                                            : key === "employmentType"
+                                              ? 80
+                                              : 120
+                                }
+                                onChange={(event) => {
+                                  setProfileForm((current) => ({
+                                    ...current,
+                                    [key]: event.target.value,
+                                  }));
+                                  setProfileError("");
+                                  setProfileMessage("");
+                                }}
+                                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                              />
+                            </label>
+                          ))}
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={
+                            profileSaving ||
+                            Object.keys(profileForm).length === 0
+                          }
+                          className="mt-4 rounded-xl bg-slate-900 px-4 py-3 text-xs font-black text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {profileSaving ? "Saving profile…" : "Save profile"}
+                        </button>
+                      </form>
+                    </section>
                     {result.documentsRequired ? (
                       <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

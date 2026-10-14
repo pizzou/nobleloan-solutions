@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { publicApi } from "@/services/api";
-import { openApplicantDocument } from "@/services/publicDocumentContent";
 import CameraCapture from "./CameraCapture";
 
 interface DocItem {
@@ -229,12 +228,11 @@ export default function DocumentUploadPanel({
     }
   };
 
-  const openDocument = (doc: DocItem, mode: "preview" | "download") => {
+  const openDocument = async (doc: DocItem, mode: "preview" | "download") => {
     if (!doc.id || doc.uploadedByApplicant === false) {
       setError("This document is not available through the borrower portal.");
       return;
     }
-
     if (doc.contentAvailable === false) {
       setError(
         "The document record exists, but the stored file content is unavailable. Please upload it again.",
@@ -242,20 +240,51 @@ export default function DocumentUploadPanel({
       return;
     }
 
-    const url = publicApi.documentContentUrl(reference, phone, doc.id, mode);
+    const previewWindow =
+      mode === "preview" ? window.open("about:blank", "_blank") : null;
+    if (mode === "preview" && !previewWindow) {
+      setError(
+        "Your browser blocked the preview window. Please allow pop-ups and retry.",
+      );
+      return;
+    }
+    if (previewWindow) previewWindow.opener = null;
+    setError("");
 
-    // Fetch through the same-origin proxy and validate the binary response before
-    // previewing/downloading, so authorization and server errors remain visible.
-    void openApplicantDocument(url, mode, doc.fileName).catch(
-      (err: unknown) => {
-        console.error(`[DOCUMENT] Applicant document ${mode} failed:`, err);
-        setError(
-          err instanceof Error
-            ? err.message
-            : `Could not ${mode} the document. Please retry.`,
-        );
-      },
-    );
+    try {
+      const blob = await publicApi.fetchDocumentContent(
+        reference,
+        phone,
+        doc.id,
+        mode,
+      );
+      if (mode === "preview" && previewWindow) {
+        const objectUrl = URL.createObjectURL(blob);
+        previewWindow.location.replace(objectUrl);
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      } else {
+        const safeName = (doc.fileName || "document")
+          .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
+          .slice(0, 180);
+        const objectUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = objectUrl;
+        anchor.download = safeName || "document";
+        anchor.rel = "noopener";
+        anchor.style.display = "none";
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
+      }
+    } catch (err: unknown) {
+      previewWindow?.close();
+      setError(
+        err instanceof Error
+          ? err.message
+          : "The document could not be retrieved. Please retry.",
+      );
+    }
   };
 
   const handleDelete = async (doc: DocItem) => {

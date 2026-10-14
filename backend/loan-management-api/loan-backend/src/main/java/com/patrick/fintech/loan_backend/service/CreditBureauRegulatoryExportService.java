@@ -728,6 +728,11 @@ public class CreditBureauRegulatoryExportService {
         values[15] =
                 date(borrower.getDateOfBirth());
 
+        // CONSUMER_HEADERS[16] is "Place Of Birth". Keep the regulatory
+        // column mapping aligned with the official template.
+        values[16] =
+                borrower.getPlaceOfBirth();
+
         values[20] =
                 borrower.getAddressLine2();
 

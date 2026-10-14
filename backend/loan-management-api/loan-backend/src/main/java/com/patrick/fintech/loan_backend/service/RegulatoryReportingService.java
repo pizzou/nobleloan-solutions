@@ -201,7 +201,7 @@ public class RegulatoryReportingService {
                 };
         }
 
-        
+
         private LocalDateTime exclusiveEndOfDay(
                         LocalDate date) {
 
@@ -214,7 +214,7 @@ public class RegulatoryReportingService {
                                 .atStartOfDay();
         }
 
-       
+
         private LocalDateTime startOfDay(
                         LocalDate date) {
 
@@ -370,7 +370,7 @@ public class RegulatoryReportingService {
                                                 periodStart,
                                                 periodEnd));
 
-               
+
 
                 long activeLoans = 0;
 
@@ -550,13 +550,13 @@ public class RegulatoryReportingService {
                                 outstanding = ZERO;
                         }
 
-                        
+
                         boolean includedInGrossPortfolio = isCurrentPortfolioLoan(loan);
 
                         if (includedInGrossPortfolio) {
                                 outstandingPrincipal = add(outstandingPrincipal, outstanding);
 
-                                
+
                                 outstandingInterest = add(outstandingInterest, number(loan.getInterestOutstandingDecimal()));
                                 BigDecimal penaltyOutstanding = number(loan.getPenaltiesAssessedDecimal())
                                                 .subtract(number(loan.getPenaltiesPaidDecimal()))
@@ -839,7 +839,7 @@ public class RegulatoryReportingService {
 
                                 totalPrincipalDisbursed = add(totalPrincipalDisbursed, disbursed);
 
-                               
+
                                 BigDecimal applicationFeeCollected = number(loan.getApplicationFeePaid());
                                 feesCollected = add(feesCollected, applicationFeeCollected);
                                 applicationFeesCollected = add(applicationFeesCollected, applicationFeeCollected);
@@ -923,7 +923,7 @@ public class RegulatoryReportingService {
                                 feesCollected = add(feesCollected, number(payment.getExtensionFeeComponent()));
                                 feesCollected = add(feesCollected, number(payment.getPenaltyPaid()));
 
-                                
+
                                 totalAmountCollected = add(totalAmountCollected, amountPaid);
 
                         } else {
@@ -947,7 +947,7 @@ public class RegulatoryReportingService {
                         }
                 }
 
-                
+
                 totalAmountCollected = add(totalAmountCollected, applicationFeesCollected);
                 interestAccruedUnpaid = outstandingInterest;
                 feesAccruedUnpaid = outstandingFees;
@@ -993,7 +993,7 @@ public class RegulatoryReportingService {
                         historicalAmountCollected = moneyDecimal(historicalAmountCollected.add(historicalTotal));
                 }
 
-                
+
                 totalAmountCollected = add(totalAmountCollected, historicalAmountCollected);
 
                 // ========================================================
@@ -1039,7 +1039,7 @@ public class RegulatoryReportingService {
                                 nplAmount,
                                 outstandingPrincipal);
 
-               
+
                 BigDecimal totalOutstanding = moneyDecimal(outstandingPrincipal);
                 BigDecimal totalReceivables = moneyDecimal(outstandingPrincipal)
                                 .add(moneyDecimal(outstandingInterest))
@@ -2078,6 +2078,11 @@ public class RegulatoryReportingService {
                                                                         ? borrower.getDateOfBirth()
                                                                         : null)
 
+                                        .placeOfBirth(
+                                                        borrower != null
+                                                                        ? borrower.getPlaceOfBirth()
+                                                                        : null)
+
                                         .gender(
                                                         borrower != null
                                                                         ? borrower.getGender()
@@ -2100,6 +2105,9 @@ public class RegulatoryReportingService {
                                                         loan.getStatus() != null
                                                                         ? loan.getStatus().name()
                                                                         : null)
+
+                                        .repaymentClassification(
+                                                        repaymentClassification)
 
                                         .loanAmount(
                                                         loanAmount(
@@ -2137,14 +2145,8 @@ public class RegulatoryReportingService {
                                         .currency(
                                                         loan.getCurrency());
 
-                        /*
-                         * Current CreditBureauRecord does not expose a
-                         * repaymentClassification builder field.
-                         *
-                         * Keep the classification calculation above ready
-                         * for a future DTO enhancement without calling a
-                         * non-existent builder method.
-                         */
+                        // Keep the classification calculated above in the DTO
+                        // consumed by preview, CSV, PDF, XLSX and external reporting.
 
                         output.add(
                                         builder.build());

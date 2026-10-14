@@ -130,7 +130,7 @@ public class BorrowerFileController {
 
                 auditService.log(file.getBorrower().getOrganization(), user,
                                 action, "BORROWER_FILE", String.valueOf(fileId),
-                                verb + " " + file.getDocumentType() + " (" + file.getFileName() + ")",
+                                verb + " borrower document content.",
                                 null, null, "Documents & KYC");
                 String fileName = safeFileName(file.getFileName());
                 MediaType mediaType = resolveMediaType(file, data);
