@@ -80,4 +80,20 @@ public interface WorkflowTaskRepository extends JpaRepository<WorkflowTask, Long
                         @Param("entityId") Long entityId,
                         @Param("assigneeId") Long assigneeId,
                         @Param("statuses") Collection<String> statuses);
+        @Query("""
+                        select t from WorkflowTask t
+                        where t.organization.id = :organizationId
+                          and t.taskType = :taskType
+                          and t.entityType = :entityType
+                          and t.entityId = :entityId
+                          and t.status in :statuses
+                        order by t.createdAt desc
+                        """)
+        Optional<WorkflowTask> findOpenEntityTaskForOrganization(
+                        @Param("organizationId") Long organizationId,
+                        @Param("taskType") String taskType,
+                        @Param("entityType") String entityType,
+                        @Param("entityId") Long entityId,
+                        @Param("statuses") Collection<String> statuses);
+
 }

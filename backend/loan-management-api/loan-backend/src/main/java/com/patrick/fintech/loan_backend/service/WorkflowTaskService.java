@@ -138,9 +138,9 @@ public class WorkflowTaskService {
 
         Long organizationId = approvedLoan.getOrganization().getId();
         User owner = userRepository.findFirstActiveByOrganizationAndRole(
-                organizationId, "BUSINESS_OWNER")
+                organizationId, "LOAN_OFFICER")
                 .orElseThrow(() -> new IllegalStateException(
-                        "No active BUSINESS_OWNER is available to receive the disbursement task"));
+                        "No active LOAN_OFFICER is available to receive the disbursement task"));
 
         String taskType = "LOAN_DISBURSEMENT";
         String entityType = "LOAN";
@@ -206,15 +206,16 @@ public class WorkflowTaskService {
         }
         Long organizationId = organizationId(owner);
         String role = owner.getRole() == null ? null : owner.getRole().getName();
-        if (role == null || !"BUSINESS_OWNER".equalsIgnoreCase(role.trim())) {
-            throw new AccessDeniedException("Only the BUSINESS_OWNER may complete disbursement tasks");
+        if (role == null || !java.util.Set.of("LOAN_OFFICER", "TELLER", "MANAGER", "ADMIN")
+                .contains(role.trim().toUpperCase(java.util.Locale.ROOT))) {
+            throw new AccessDeniedException(
+                    "Only an authorized disbursement officer may complete disbursement tasks");
         }
-        var existing = taskRepository.findOpenEntityTask(
+        var existing = taskRepository.findOpenEntityTaskForOrganization(
                 organizationId,
                 "LOAN_DISBURSEMENT",
                 "LOAN",
                 loanId,
-                owner.getId(),
                 OPEN_STATUSES);
         if (existing.isEmpty()) {
             log.warn("No open disbursement task found for loan {} during successful disbursement", loanId);
@@ -270,6 +271,10 @@ public class WorkflowTaskService {
     @Transactional
     public WorkflowTask complete(Long taskId, User actor) {
         WorkflowTask task = findMine(taskId, actor);
+        if ("LOAN_DISBURSEMENT".equalsIgnoreCase(task.getTaskType())) {
+            throw new AccessDeniedException(
+                    "Disbursement tasks are completed automatically only after the loan disbursement succeeds.");
+        }
         if ("COMPLETED".equalsIgnoreCase(task.getStatus())) {
             return task;
         }

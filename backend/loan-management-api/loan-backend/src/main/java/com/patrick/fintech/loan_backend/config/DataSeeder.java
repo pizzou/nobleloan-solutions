@@ -72,7 +72,7 @@ public class DataSeeder implements CommandLineRunner {
 
                 ensureRole(
                                 "LOAN_OFFICER",
-                                "Approve and disburse loans");
+                                "Review loan applications and execute authorized disbursements");
 
                 ensureRole(
                                 "MANAGER",

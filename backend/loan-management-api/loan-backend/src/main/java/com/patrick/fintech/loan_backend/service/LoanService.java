@@ -1413,13 +1413,23 @@ public class LoanService {
         // ================================================================
         // DISBURSE LOAN
         // ================================================================
-        private void requireBusinessOwnerForDisbursement(User officer) {
-                String role = officer.getRole() == null ? null : officer.getRole().getName();
-                if (role == null || !"BUSINESS_OWNER".equalsIgnoreCase(role.trim())) {
+        /**
+         * Service-layer separation of duties. All direct, bulk and workflow
+         * disbursement calls pass this check; controller authorization is not enough.
+         */
+        private void requireAuthorizedDisbursementOfficer(User officer) {
+                String role = officer == null || officer.getRole() == null
+                                ? null : officer.getRole().getName();
+                boolean authorized = role != null && java.util.Set.of(
+                                "LOAN_OFFICER", "TELLER", "MANAGER", "ADMIN")
+                                .contains(role.trim().toUpperCase(java.util.Locale.ROOT));
+                if (!authorized) {
                         throw new org.springframework.security.access.AccessDeniedException(
-                                        "Only the BUSINESS_OWNER may disburse loans.");
+                                        "Only an authorized disbursement officer may execute a loan disbursement. "
+                                                        + "Business owners and accounting users cannot disburse loans.");
                 }
         }
+        
 
         @Transactional
         public Loan disburseLoan(
@@ -1435,7 +1445,7 @@ public class LoanService {
                                         "Disbursing officer must belong to an organization");
                 }
 
-                requireBusinessOwnerForDisbursement(officer);
+                requireAuthorizedDisbursementOfficer(officer);
 
                 Loan loan = loanRepo.findVisibleByIdForUpdate(
                                 loanId,
