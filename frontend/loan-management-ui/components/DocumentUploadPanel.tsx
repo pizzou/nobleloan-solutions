@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { publicApi } from "@/services/api";
+import { openApplicantDocument } from "@/services/publicDocumentContent";
 import CameraCapture from "./CameraCapture";
 
 interface DocItem {
@@ -243,24 +244,18 @@ export default function DocumentUploadPanel({
 
     const url = publicApi.documentContentUrl(reference, phone, doc.id, mode);
 
-    if (mode === "preview") {
-      const previewWindow = window.open(url, "_blank", "noopener,noreferrer");
-      if (!previewWindow) {
+    // Fetch through the same-origin proxy and validate the binary response before
+    // previewing/downloading, so authorization and server errors remain visible.
+    void openApplicantDocument(url, mode, doc.fileName).catch(
+      (err: unknown) => {
+        console.error(`[DOCUMENT] Applicant document ${mode} failed:`, err);
         setError(
-          "Your browser blocked the preview window. Please allow pop-ups and retry.",
+          err instanceof Error
+            ? err.message
+            : `Could not ${mode} the document. Please retry.`,
         );
-      }
-      return;
-    }
-
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = doc.fileName || "document";
-    anchor.rel = "noopener";
-    anchor.style.display = "none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
+      },
+    );
   };
 
   const handleDelete = async (doc: DocItem) => {

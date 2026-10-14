@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useTenant } from "../layout";
 import { publicApi } from "@/services/api";
+import { openApplicantDocument } from "@/services/publicDocumentContent";
 import { toast } from "@/hooks/useToast";
 
 interface StatusStep {
@@ -876,28 +877,27 @@ export default function TrackPage() {
 
     const url = publicApi.documentContentUrl(ref, ph, doc.id, mode);
 
-    if (mode === "preview") {
-      const previewWindow = window.open(url, "_blank", "noopener,noreferrer");
-      if (!previewWindow) {
+    // Open a same-origin blob only after checking the API response. This avoids
+    // silently opening/downloading JSON error pages as if they were documents.
+    // The helper opens the preview tab synchronously before awaiting the fetch.
+    void openApplicantDocument(url, mode, doc.fileName)
+      .then(() => {
+        toast(
+          "success",
+          mode === "preview"
+            ? `${docLabel(doc.documentType)} opened successfully.`
+            : `${docLabel(doc.documentType)} download started.`,
+        );
+      })
+      .catch((error: unknown) => {
+        console.error(`[DOCUMENT] ${mode} failed:`, error);
         toast(
           "error",
-          "Your browser blocked the preview window. Please allow pop-ups and retry.",
+          error instanceof Error
+            ? error.message
+            : `Could not ${mode} the document. Please retry.`,
         );
-        return;
-      }
-      toast("success", `${docLabel(doc.documentType)} opened successfully.`);
-      return;
-    }
-
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = doc.fileName || "document";
-    anchor.rel = "noopener";
-    anchor.style.display = "none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    toast("success", `${docLabel(doc.documentType)} download started.`);
+      });
   };
 
   /*
