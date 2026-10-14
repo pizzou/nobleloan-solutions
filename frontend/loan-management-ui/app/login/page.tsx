@@ -423,6 +423,15 @@ function LoginInner() {
                     autoComplete="current-password"
                   />
                 </FormGroup>
+                <div className="-mt-2 text-right">
+                  <Link
+                    href="/forgot-password"
+                    className="text-sm font-semibold hover:underline"
+                    style={{ color: BLUE }}
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
               </>
             ) : mfaRequired ? (
               /* ------------------------------------------------

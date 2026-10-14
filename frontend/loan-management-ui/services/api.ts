@@ -360,6 +360,12 @@ export const authApi = {
 
   register: (data: unknown) => post("/auth/register", data),
 
+  forgotPassword: (email: string) =>
+    post("/auth/forgot-password", { email: email.trim() }),
+
+  resetPassword: (token: string, newPassword: string) =>
+    post("/auth/reset-password", { token, newPassword }),
+
   me: () => get("/auth/me"),
 
   logout: () => post("/auth/logout"),

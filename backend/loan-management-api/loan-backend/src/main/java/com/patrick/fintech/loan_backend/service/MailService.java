@@ -573,49 +573,53 @@ public class MailService {
                                 : "our team";
         }
 
+        /** Returns true only when all required delivery settings are present. */
+        public boolean isPasswordResetEmailConfigured() {
+                return mailEnabled
+                                && brevoApiKey != null && !brevoApiKey.isBlank()
+                                && from != null && !from.isBlank();
+        }
+
+        /**
+         * Legacy asynchronous notification method retained for existing callers.
+         * Password recovery uses the synchronous method below so failures do not
+         * leave an undelivered, usable token in the database.
+         */
         @Async("mailAsyncExecutor")
-        public void sendPasswordResetEmail(
-                        User user,
-                        String resetLink) {
+        public void sendPasswordResetEmail(User user, String resetLink) {
+                if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
+                        return;
+                }
                 if (!mailEnabled) {
-                        log.info(
-                                        "[EMAIL] Password reset notification requested for {} " +
-                                                        "(email delivery disabled)",
-                                        user != null ? user.getEmail() : "unknown");
+                        log.warn("Password reset email skipped because mail delivery is disabled");
                         return;
                 }
+                send(user.getEmail(), "Reset Your Noble Loan Solutions Password",
+                                passwordResetHtml(user, resetLink));
+        }
 
-                if (user == null ||
-                                user.getEmail() == null ||
-                                user.getEmail().isBlank()) {
-                        return;
+        /** Synchronous reset delivery. Does not log the recipient or reset link. */
+        public boolean sendPasswordResetEmailNow(User user, String resetLink) {
+                if (user == null || user.getEmail() == null || user.getEmail().isBlank()
+                                || resetLink == null || resetLink.isBlank()
+                                || !isPasswordResetEmailConfigured()) {
+                        return false;
                 }
+                return send(user.getEmail(), "Reset Your Noble Loan Solutions Password",
+                                passwordResetHtml(user, resetLink));
+        }
 
-                send(
-                                user.getEmail(),
-                                "Reset Your LoanSaaS Pro Password",
-                                "<h2>Password Reset Request</h2>" +
-                                                "<p>Hi " +
-                                                safe(
-                                                                user.getName() != null
-                                                                                ? user.getName()
-                                                                                : "")
-                                                +
-                                                ",</p>" +
-                                                "<p>Click the link below to reset your password. " +
-                                                "This link expires in 1 hour.</p>" +
-                                                "<p><a href=\"" +
-                                                safeAttribute(resetLink) +
-                                                "\" style=\"" +
-                                                "background:#0D9488;" +
-                                                "color:#fff;" +
-                                                "padding:12px 24px;" +
-                                                "border-radius:8px;" +
-                                                "text-decoration:none;" +
-                                                "font-weight:bold;\">" +
-                                                "Reset Password</a></p>" +
-                                                "<p>If you did not request a password reset, " +
-                                                "please ignore this email.</p>");
+        private String passwordResetHtml(User user, String resetLink) {
+                String displayName = user.getName() == null ? "" : user.getName();
+                return "<h2>Password Reset Request</h2>"
+                                + "<p>Hello " + safe(displayName) + ",</p>"
+                                + "<p>We received a request to reset your Noble Loan Solutions password. "
+                                + "This link expires in 30 minutes and can only be used once.</p>"
+                                + "<p><a href=\"" + safeAttribute(resetLink) + "\" style=\""
+                                + "background:#0D9488;color:#fff;padding:12px 24px;border-radius:8px;"
+                                + "text-decoration:none;font-weight:bold;\">Reset Password</a></p>"
+                                + "<p>If you did not request this change, ignore this email and contact your administrator "
+                                + "if you suspect unauthorized access.</p>";
         }
 
         /**
@@ -1094,133 +1098,44 @@ public class MailService {
          * methods. Therefore Brevo network latency does not block the login HTTP
          * request.
          */
-        private void send(
-                        String to,
-                        String subject,
-                        String html) {
-                if (to == null || to.isBlank()) {
-                        log.warn(
-                                        "[EMAIL] Email send skipped: recipient is blank");
-                        return;
-                }
-
-                if (subject == null || subject.isBlank()) {
-                        log.warn(
-                                        "[EMAIL] Email send skipped for {}: subject is blank",
-                                        to);
-                        return;
-                }
-
-                if (html == null) {
-                        log.warn(
-                                        "[EMAIL] Email send skipped for {}: body is null",
-                                        to);
-                        return;
-                }
-
-                if (brevoApiKey == null || brevoApiKey.isBlank()) {
-                        log.error(
-                                        "[EMAIL] Email send skipped for {}: " +
-                                                        "BREVO_API_KEY is not configured",
-                                        to);
-                        return;
-                }
-
-                if (from == null || from.isBlank()) {
-                        log.error(
-                                        "[EMAIL] Email send skipped for {}: " +
-                                                        "MAIL_FROM is not configured",
-                                        to);
-                        return;
+        private boolean send(String to, String subject, String html) {
+                if (to == null || to.isBlank() || subject == null || subject.isBlank() || html == null
+                                || brevoApiKey == null || brevoApiKey.isBlank()
+                                || from == null || from.isBlank()) {
+                        log.warn("Email delivery skipped because recipient, content, or mail configuration is missing");
+                        return false;
                 }
 
                 String senderName = fromName == null || fromName.isBlank()
-                                ? DEFAULT_SENDER_NAME
-                                : fromName.trim();
-
+                                ? DEFAULT_SENDER_NAME : fromName.trim();
                 try {
                         HttpHeaders headers = new HttpHeaders();
+                        headers.setContentType(MediaType.APPLICATION_JSON);
+                        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+                        headers.set("api-key", brevoApiKey);
 
-                        headers.setContentType(
-                                        MediaType.APPLICATION_JSON);
-
-                        headers.setAccept(
-                                        List.of(MediaType.APPLICATION_JSON));
-
-                        headers.set(
-                                        "api-key",
-                                        brevoApiKey);
-
-                        /*
-                         * IMPORTANT:
-                         *
-                         * Previously:
-                         *
-                         * "sender", Map.of("email", from)
-                         *
-                         * That allowed the email client to display the mailbox
-                         * identity as the sender name.
-                         *
-                         * Now:
-                         *
-                         * "sender", {
-                         * "email": "pmpumuropizzou@gmail.com",
-                         * "name": "Noble Loan Solution"
-                         * }
-                         *
-                         * Brevo will use "Noble Loan Solution" as the display name.
-                         */
-                        Map<String, Object> sender = Map.of(
-                                        "email",
-                                        from.trim(),
-                                        "name",
-                                        senderName);
-
+                        Map<String, Object> sender = Map.of("email", from.trim(), "name", senderName);
                         Map<String, Object> payload = Map.of(
-                                        "sender",
-                                        sender,
-                                        "to",
-                                        List.of(
-                                                        Map.of(
-                                                                        "email",
-                                                                        to.trim())),
-                                        "subject",
-                                        subject,
-                                        "htmlContent",
-                                        html);
+                                        "sender", sender,
+                                        "to", List.of(Map.of("email", to.trim())),
+                                        "subject", subject,
+                                        "htmlContent", html);
 
                         ResponseEntity<String> response = restTemplate.exchange(
-                                        BREVO_URL,
-                                        HttpMethod.POST,
-                                        new HttpEntity<>(
-                                                        payload,
-                                                        headers),
-                                        String.class);
-
+                                        BREVO_URL, HttpMethod.POST,
+                                        new HttpEntity<>(payload, headers), String.class);
                         if (response.getStatusCode().is2xxSuccessful()) {
-                                log.info(
-                                                "[EMAIL] Email accepted by Brevo for {}: {} " +
-                                                                "(sender={} <{}>)",
-                                                to,
-                                                subject,
-                                                senderName,
-                                                from);
-                        } else {
-                                log.error(
-                                                "[EMAIL] Brevo rejected email for {}. " +
-                                                                "HTTP status: {}. Subject: {}",
-                                                to,
-                                                response.getStatusCode().value(),
-                                                subject);
+                                log.info("Email accepted by delivery provider; subject={}", subject);
+                                return true;
                         }
-
-                } catch (Exception e) {
-                        log.error(
-                                        "[EMAIL] Email delivery failed for {}. " +
-                                                        "Subject: {}. Error: {}",
-                                        to,
-                                        subject,
-                                        e.getMessage());
+                        log.warn("Email delivery provider rejected message; status={}, subject={}",
+                                        response.getStatusCode().value(), subject);
+                        return false;
+                } catch (Exception ex) {
+                        // Do not log recipient addresses, API credentials, message bodies, or reset links.
+                        log.warn("Email delivery failed; subject={}, exceptionType={}",
+                                        subject, ex.getClass().getSimpleName());
+                        return false;
                 }
         }
 

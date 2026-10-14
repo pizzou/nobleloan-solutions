@@ -1,81 +1,126 @@
-'use client';
-import { useState } from 'react';
-import Link from 'next/link';
-import { post } from '../../services/api';
+"use client";
+
+import { FormEvent, useState } from "react";
+import Link from "next/link";
+import { authApi } from "@/services/api";
+
+const NAVY = "#0B1F3A";
+const BLUE = "#123B66";
+const YELLOW = "#F4C430";
 
 export default function ForgotPasswordPage() {
-  const [email,   setEmail]   = useState('');
+  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const [sent,    setSent]    = useState(false);
-  const [error,   setError]   = useState('');
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true); setError('');
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setLoading(true);
     try {
-      await post('/auth/forgot-password', { email });
-      setSent(true);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
-    } finally { setLoading(false); }
-  };
+      await authApi.forgotPassword(email);
+      // The backend intentionally uses the same response for known and unknown
+      // addresses to prevent account enumeration.
+      setSubmitted(true);
+    } catch {
+      setError(
+        "We could not process this request right now. Please wait and try again.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600 mb-4">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-            </svg>
+    <main className="min-h-screen flex items-center justify-center bg-slate-50 px-4 py-10">
+      <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-7 shadow-sm sm:p-9">
+        <div className="mb-7 flex items-center gap-3">
+          <div
+            className="flex h-11 w-11 items-center justify-center rounded-xl text-lg font-extrabold"
+            style={{ backgroundColor: YELLOW, color: NAVY }}
+          >
+            N
           </div>
-          <h1 className="text-2xl font-bold text-white">Reset password</h1>
-          <p className="text-slate-400 text-sm mt-1">LoanSaaS</p>
-        </div>
-        <div className="bg-white rounded-2xl shadow-2xl p-8">
-          {sent ? (
-            <div className="text-center">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <h2 className="text-lg font-semibold text-gray-800 mb-2">Check your email</h2>
-              <p className="text-gray-500 text-sm mb-6">
-                If an account exists for <strong>{email}</strong>, a reset link has been sent.
-              </p>
-              <Link href="/login" className="text-blue-600 text-sm hover:underline">Back to sign in</Link>
+          <div>
+            <div className="font-extrabold text-slate-900">
+              Noble Loan Solutions
             </div>
-          ) : (
-            <>
-              <h2 className="text-xl font-semibold text-gray-800 mb-2">Forgot your password?</h2>
-              <p className="text-gray-500 text-sm mb-6">
-                Enter your email and we will send you a reset link.
-              </p>
-              {error && (
-                <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">{error}</div>
-              )}
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
-                  <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
-                    placeholder="you@company.com"
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <button type="submit" disabled={loading}
-                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-medium rounded-lg text-sm transition">
-                  {loading ? 'Sending...' : 'Send reset link'}
-                </button>
-              </form>
-              <p className="text-center text-gray-500 text-sm mt-4">
-                Remembered it?{' '}
-                <Link href="/login" className="text-blue-600 hover:underline">Sign in</Link>
-              </p>
-            </>
-          )}
+            <div className="text-xs text-slate-500">
+              Secure account recovery
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
+        <div
+          className="mb-6 h-1 w-10 rounded-full"
+          style={{ backgroundColor: YELLOW }}
+        />
+        <h1 className="text-2xl font-extrabold text-slate-900">
+          Forgot your password?
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Enter the email address associated with your staff account. If the
+          account is eligible, we will send a secure reset link.
+        </p>
+
+        {submitted ? (
+          <div
+            className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-900"
+            role="status"
+            aria-live="polite"
+          >
+            If an active account matches that email and email delivery is
+            available, a password reset link will be sent. Check your inbox and
+            spam folder. The link expires after 30 minutes and can be used once.
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            {error && (
+              <div
+                role="alert"
+                className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+              >
+                {error}
+              </div>
+            )}
+            <label
+              htmlFor="email"
+              className="block text-sm font-semibold text-slate-700"
+            >
+              Email address
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              maxLength={254}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@organization.com"
+              className="w-full rounded-lg border border-slate-300 px-3 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-lg px-4 py-3 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ backgroundColor: BLUE }}
+            >
+              {loading ? "Sending request…" : "Send reset link"}
+            </button>
+          </form>
+        )}
+        <div className="mt-6 text-center text-sm">
+          <Link
+            href="/login"
+            className="font-semibold hover:underline"
+            style={{ color: BLUE }}
+          >
+            ← Back to sign in
+          </Link>
+        </div>
+      </section>
+    </main>
   );
 }
