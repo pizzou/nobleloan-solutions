@@ -25,24 +25,10 @@ public class MailService {
 
         private static final String BREVO_URL = "https://api.brevo.com/v3/smtp/email";
 
-        /**
-         * Display name shown to recipients in their email client.
-         *
-         * Example:
-         *
-         * Noble Loan Solution <pmpumuropizzou@gmail.com>
-         *
-         * This is intentionally separate from the actual sender email address.
-         */
+     
         private static final String DEFAULT_SENDER_NAME = "Noble Loan Solution";
 
-        /**
-         * Keep external email calls outside the HTTP request thread.
-         *
-         * IMPORTANT:
-         * Login OTP delivery must remain asynchronous. Making this synchronous
-         * can make /auth/login wait for Brevo and recreate the login timeout.
-         */
+      
         private final RestTemplate restTemplate;
 
         @Value("${app.mail.enabled:false}")
@@ -51,13 +37,7 @@ public class MailService {
         @Value("${app.mail.from:}")
         private String from;
 
-        /**
-         * Optional deployment configuration:
-         *
-         * MAIL_FROM_NAME=Noble Loan Solution
-         *
-         * If it is not configured, DEFAULT_SENDER_NAME is used.
-         */
+       
         @Value("${app.mail.from-name:Noble Loan Solution}")
         private String fromName;
 

@@ -17,13 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Rwanda KYC adapter for LTGS Rwanda's documented KYC API.
- *
- * Production use still requires a commercial/API onboarding relationship and
- * credentials from the provider. The API contract must be re-checked against
- * the provider's production documentation before certification.
- */
+
 @Service
 @Slf4j
 public class LtgsKycProvider {

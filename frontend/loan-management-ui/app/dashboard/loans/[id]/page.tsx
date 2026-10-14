@@ -1589,6 +1589,15 @@ export default function LoanDetailPage() {
   const handleStatus = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Defense in depth for the UI. The backend remains authoritative.
+    if (isBusinessOwner && stForm.status === "DISBURSED") {
+      setMsg({
+        type: "error",
+        text: "Business Owners cannot disburse loans. An authorized operational officer must complete disbursement.",
+      });
+      return;
+    }
+
     if (!hasValidLoanId) {
       setMsg({
         type: "error",
@@ -3493,7 +3502,7 @@ export default function LoanDetailPage() {
                     WRITTEN_OFF: ["CLOSED"],
                   };
                   const options = (VALID_FROM[loan.status] ?? []).filter(
-                    (status) => status !== "DISBURSED" || isBusinessOwner,
+                    (status) => status !== "DISBURSED" || !isBusinessOwner,
                   );
 
                   if (options.length === 0) {

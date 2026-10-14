@@ -18,14 +18,28 @@ class WorkflowAndDisbursementControlStaticTest {
     }
 
     @Test
-    void disbursementIsBusinessOwnerOnlyAtBothBoundaries() throws Exception {
+    void disbursementExcludesBusinessOwnerAndAccountingAtBothBoundaries() throws Exception {
         String controller = Files.readString(source("controller/LoanController.java"), StandardCharsets.UTF_8);
         String service = Files.readString(source("service/LoanService.java"), StandardCharsets.UTF_8);
 
-        assertTrue(controller.contains("@PreAuthorize(\"hasRole('BUSINESS_OWNER')\")"),
-                "Loan disbursement HTTP endpoint must be BUSINESS_OWNER-only");
-        assertTrue(service.contains("requireBusinessOwnerForDisbursement(officer);"),
-                "LoanService must enforce BUSINESS_OWNER-only disbursement even when called internally");
+        assertTrue(controller.contains("@PreAuthorize(\"hasAnyRole('LOAN_OFFICER','TELLER','MANAGER','ADMIN')\")"),
+                "Loan disbursement HTTP endpoint must be restricted to authorized operational roles");
+        assertTrue(service.contains("requireAuthorizedDisbursementOfficer(officer);"),
+                "LoanService must enforce operational-role authorization even when called internally");
+        assertTrue(service.contains("BUSINESS_OWNER"), "Business owners must be explicitly excluded");
+        assertTrue(service.contains("accounting users cannot disburse loans"),
+                "Accounting users must be explicitly excluded from execution");
+    }
+
+    @Test
+    void bulkDisbursementIsRestrictedAndGenericTaskCompletionCannotFakeDisbursement() throws Exception {
+        String bulkController = Files.readString(source("controller/BulkController.java"), StandardCharsets.UTF_8);
+        String taskService = Files.readString(source("service/WorkflowTaskService.java"), StandardCharsets.UTF_8);
+
+        assertTrue(bulkController.contains("@PreAuthorize(\"hasAnyRole('LOAN_OFFICER','TELLER','MANAGER','ADMIN')\")"),
+                "Bulk disbursement endpoint must use the same operational-role boundary");
+        assertTrue(taskService.contains("Disbursement tasks can only be completed by the successful loan disbursement workflow"),
+                "A generic workflow task completion must not substitute for actual disbursement and accounting");
     }
 
     @Test
@@ -36,7 +50,9 @@ class WorkflowAndDisbursementControlStaticTest {
         assertTrue(service.contains("workflowTaskService.createDisbursementTask(saved, approvedBy);"),
                 "Final approval must create a durable disbursement task");
         assertTrue(taskService.contains("findFirstActiveByOrganizationAndRole"),
-                "Disbursement task must resolve an active BUSINESS_OWNER in the same organization");
+                "Disbursement task must resolve an active operational user in the same organization");
+        assertTrue(taskService.contains("List.of(\"LOAN_OFFICER\", \"TELLER\", \"MANAGER\", \"ADMIN\")"),
+                "Task assignment must use operational roles, not Business Owner");
         assertTrue(service.contains("workflowTaskService.completeDisbursementTaskForLoan(saved.getId(), officer);"),
                 "Successful disbursement must close the mandatory owner task atomically");
     }
