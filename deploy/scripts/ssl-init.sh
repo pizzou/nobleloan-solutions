@@ -1,120 +1,258 @@
 #!/usr/bin/env bash
-# ================================================================
-# Let's Encrypt SSL initialization for AOS VM deployment
-# Usage: ./deploy/scripts/ssl-init.sh admin@example.com domain.tld [www.domain.tld]
-# ================================================================
+# Initial Let's Encrypt certificate bootstrap.
+# Does not start the production application or bypass approval gates.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-[[ -f .env ]] || { echo ".env not found." >&2; exit 1; }
-set -a; # shellcheck disable=SC1091
-source .env; set +a
+[[ -f .env ]] || {
+    echo ".env not found. Configure production values first." >&2
+    exit 1
+}
+
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
 
 EMAIL="${1:-${EMAIL:-}}"
-shift || true
-if [[ -z "$EMAIL" || "$EMAIL" != *@* ]]; then
-  echo "Usage: $0 <email> <domain> [domain2 ...]" >&2
-  exit 1
-fi
 if [[ "$#" -gt 0 ]]; then
-  DOMAINS=("$@")
-elif [[ -n "${DOMAIN:-}" ]]; then
-  DOMAINS=("$DOMAIN" "www.$DOMAIN")
-else
-  echo "A production domain is required." >&2
-  exit 1
+    shift
 fi
+
+if [[ ! "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
+    echo "Usage: $0 <email> <domain> [domain2 ...]" >&2
+    exit 1
+fi
+
+if [[ "$#" -gt 0 ]]; then
+    DOMAINS=("$@")
+elif [[ -n "${DOMAIN:-}" ]]; then
+    # Request only the primary domain by default.
+    # Add www explicitly only after its DNS record is configured.
+    DOMAINS=("$DOMAIN")
+else
+    echo "A production domain is required." >&2
+    exit 1
+fi
+
 PRIMARY_DOMAIN="${DOMAINS[0]}"
 
-if docker compose version >/dev/null 2>&1; then COMPOSE=(docker compose); else COMPOSE=(docker-compose); fi
-command -v openssl >/dev/null 2>&1 || { echo "openssl is required." >&2; exit 1; }
-command -v curl >/dev/null 2>&1 || { echo "curl is required." >&2; exit 1; }
+# Validate hostnames before using them in paths and commands.
+for domain in "${DOMAINS[@]}"; do
+    [[ "$domain" =~ ^[A-Za-z0-9.-]+$ &&
+       "$domain" != .* &&
+       "$domain" != *. &&
+       "$domain" != *..* ]] || {
+        echo "Invalid domain name: $domain" >&2
+        exit 1
+    }
+
+    IFS='.' read -r -a labels <<< "$domain"
+
+    for label in "${labels[@]}"; do
+        [[ "$label" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]] || {
+            echo "Invalid DNS label in domain: $domain" >&2
+            exit 1
+        }
+    done
+done
+
+command -v docker >/dev/null 2>&1 || {
+    echo "Docker Engine is required." >&2
+    exit 1
+}
+
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE=(docker-compose)
+else
+    echo "Docker Compose is required." >&2
+    exit 1
+fi
+
+command -v openssl >/dev/null 2>&1 || {
+    echo "openssl is required." >&2
+    exit 1
+}
+
+command -v curl >/dev/null 2>&1 || {
+    echo "curl is required." >&2
+    exit 1
+}
+
+command -v sha256sum >/dev/null 2>&1 || {
+    echo "sha256sum is required." >&2
+    exit 1
+}
+
+compose_base() {
+    "${COMPOSE[@]}" \
+        -f "$ROOT_DIR/docker-compose.yml" "$@"
+}
+
+compose_acme() {
+    "${COMPOSE[@]}" \
+        -f "$ROOT_DIR/docker-compose.yml" \
+        -f "$ROOT_DIR/deploy/docker-compose.acme-bootstrap.yml" \
+        "$@"
+}
 
 mkdir -p docker/nginx/ssl
+chmod 700 docker/nginx/ssl
 
-# Bootstrap Nginx with a temporary self-signed certificate only long enough to
-# serve the ACME HTTP challenge. deploy.sh never creates or accepts this as a
-# production certificate.
-if [[ ! -s docker/nginx/ssl/cert.pem || ! -s docker/nginx/ssl/key.pem ]]; then
-  echo "[SSL] Creating temporary bootstrap certificate for ACME setup..."
-  openssl req -x509 -nodes -days 1 -newkey rsa:2048 \
-    -keyout docker/nginx/ssl/key.pem \
-    -out docker/nginx/ssl/cert.pem \
-    -subj "/C=RW/O=LoanSaaS/OU=ACME Bootstrap/CN=${PRIMARY_DOMAIN}" \
-    >/dev/null 2>&1
-fi
+# If a healthy production Nginx exists, reuse it. Otherwise, use
+# a temporary HTTP-only Nginx without starting backend or frontend.
+BOOTSTRAP_STARTED=false
+COMPOSE_MODE="bootstrap"
 
-# Build/start the dependency services first because production Nginx has a
-# depends_on health requirement.
-"${COMPOSE[@]}" up -d postgres
-DB_READY=false
-for _ in $(seq 1 60); do
-  if "${COMPOSE[@]}" exec -T postgres pg_isready -U "${POSTGRES_ADMIN_USERNAME:-loansaas}" -d loansaas_nobleloansolutions >/dev/null 2>&1; then
-    DB_READY=true
-    break
-  fi
-  sleep 2
-done
-if [[ "$DB_READY" != true ]]; then
-  "${COMPOSE[@]}" logs --tail=100 postgres || true
-  echo "[SSL] PostgreSQL did not become ready; refusing to continue." >&2
-  exit 1
-fi
+NGINX_ID="$(compose_base ps -q nginx 2>/dev/null || true)"
 
-"${COMPOSE[@]}" up -d backend frontend
+if [[ -n "$NGINX_ID" ]]; then
+    NGINX_STATE="$(
+        docker inspect --format='{{.State.Status}}' \
+            "$NGINX_ID" 2>/dev/null || true
+    )"
 
-for svc in backend frontend; do
-  SERVICE_HEALTHY=false
-  for _ in $(seq 1 180); do
-    cid="$("${COMPOSE[@]}" ps -q "$svc" 2>/dev/null || true)"
-    if [[ -n "$cid" ]]; then
-      status="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid" 2>/dev/null || true)"
-      if [[ "$status" == "healthy" ]]; then
-        SERVICE_HEALTHY=true
-        break
-      fi
-      if [[ "$status" == "unhealthy" || "$status" == "exited" || "$status" == "dead" ]]; then
-        "${COMPOSE[@]}" logs --tail=100 "$svc" || true
-        echo "[SSL] $svc failed before becoming healthy (status=$status)." >&2
+    NGINX_HEALTH="$(
+        docker inspect \
+            --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+            "$NGINX_ID" 2>/dev/null || true
+    )"
+
+    if [[ "$NGINX_STATE" == "running" &&
+          "$NGINX_HEALTH" == "healthy" ]]; then
+        COMPOSE_MODE="base"
+        echo "[SSL] Reusing healthy production Nginx."
+    elif [[ "$NGINX_STATE" == "running" ]]; then
+        echo "[SSL] Existing Nginx is running but not healthy." >&2
+        echo "[SSL] Inspect it before continuing; it will not be stopped automatically." >&2
         exit 1
-      fi
     fi
-    sleep 2
-  done
-  if [[ "$SERVICE_HEALTHY" != true ]]; then
-    "${COMPOSE[@]}" logs --tail=100 "$svc" || true
-    echo "[SSL] $svc did not become healthy within the startup window." >&2
-    exit 1
-  fi
-done
+fi
 
-"${COMPOSE[@]}" up -d nginx
+cleanup() {
+    rc=$?
+    trap - EXIT
+
+    if [[ "$BOOTSTRAP_STARTED" == true ]]; then
+        compose_acme stop acme-bootstrap >/dev/null 2>&1 || true
+
+        if [[ "$rc" -eq 0 ]]; then
+            compose_acme rm -f acme-bootstrap >/dev/null 2>&1 || true
+        fi
+    fi
+
+    exit "$rc"
+}
+trap cleanup EXIT
+
+if [[ "$COMPOSE_MODE" == "bootstrap" ]]; then
+    echo "[SSL] Starting temporary HTTP-only ACME service."
+    echo "[SSL] Application services will not be started by this script."
+
+    compose_acme up -d --no-deps acme-bootstrap
+    BOOTSTRAP_STARTED=true
+fi
 
 DOMAIN_ARGS=()
-for d in "${DOMAINS[@]}"; do DOMAIN_ARGS+=("-d" "$d"); done
+for domain in "${DOMAINS[@]}"; do
+    DOMAIN_ARGS+=("-d" "$domain")
+done
 
-echo "[SSL] Requesting Let's Encrypt certificate for: ${DOMAINS[*]}"
-"${COMPOSE[@]}" --profile ssl run --rm --entrypoint certbot certbot certonly \
-  --webroot -w /var/www/certbot \
-  --email "$EMAIL" \
-  --agree-tos --no-eff-email --non-interactive \
-  "${DOMAIN_ARGS[@]}"
+# Request the certificate using the shared Let's Encrypt webroot.
+if [[ "$COMPOSE_MODE" == "bootstrap" ]]; then
+    compose_acme --profile ssl run --rm --no-deps \
+        --entrypoint certbot certbot certonly \
+        --webroot -w /var/www/certbot \
+        --email "$EMAIL" \
+        --agree-tos --no-eff-email --non-interactive \
+        "${DOMAIN_ARGS[@]}"
 
-# certbot and Nginx now share the host ssl directory. Copy the issued files out of
-# the Let's Encrypt store using a shell entrypoint so no host-path assumptions exist
-# inside the container.
-"${COMPOSE[@]}" --profile ssl run --rm --entrypoint /bin/sh certbot -c \
-  "cp /etc/letsencrypt/live/$PRIMARY_DOMAIN/fullchain.pem /etc/nginx/ssl/cert.pem && \
-   cp /etc/letsencrypt/live/$PRIMARY_DOMAIN/privkey.pem /etc/nginx/ssl/key.pem && \
-   chmod 600 /etc/nginx/ssl/key.pem"
+    compose_acme --profile ssl run --rm --no-deps \
+        --entrypoint /bin/sh certbot -ec \
+        "test -s '/etc/letsencrypt/live/$PRIMARY_DOMAIN/fullchain.pem' &&
+         test -s '/etc/letsencrypt/live/$PRIMARY_DOMAIN/privkey.pem' &&
+         cp '/etc/letsencrypt/live/$PRIMARY_DOMAIN/fullchain.pem' /etc/nginx/ssl/cert.pem &&
+         cp '/etc/letsencrypt/live/$PRIMARY_DOMAIN/privkey.pem' /etc/nginx/ssl/key.pem &&
+         chmod 600 /etc/nginx/ssl/key.pem"
+else
+    compose_base --profile ssl run --rm --no-deps \
+        --entrypoint certbot certbot certonly \
+        --webroot -w /var/www/certbot \
+        --email "$EMAIL" \
+        --agree-tos --no-eff-email --non-interactive \
+        "${DOMAIN_ARGS[@]}"
 
-"${COMPOSE[@]}" exec -T nginx nginx -t
-"${COMPOSE[@]}" exec -T nginx nginx -s reload
+    compose_base --profile ssl run --rm --no-deps \
+        --entrypoint /bin/sh certbot -ec \
+        "test -s '/etc/letsencrypt/live/$PRIMARY_DOMAIN/fullchain.pem' &&
+         test -s '/etc/letsencrypt/live/$PRIMARY_DOMAIN/privkey.pem' &&
+         cp '/etc/letsencrypt/live/$PRIMARY_DOMAIN/fullchain.pem' /etc/nginx/ssl/cert.pem &&
+         cp '/etc/letsencrypt/live/$PRIMARY_DOMAIN/privkey.pem' /etc/nginx/ssl/key.pem &&
+         chmod 600 /etc/nginx/ssl/key.pem"
+fi
 
-HTTP_CODE="$(curl -ksS --resolve "${PRIMARY_DOMAIN}:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://${PRIMARY_DOMAIN}/healthz" || true)"
-[[ "$HTTP_CODE" == "200" ]] || { echo "[SSL] HTTPS validation failed: HTTP $HTTP_CODE" >&2; exit 1; }
+chmod 644 docker/nginx/ssl/cert.pem
+chmod 600 docker/nginx/ssl/key.pem
 
-echo "[SSL] PASS — real Let's Encrypt certificate installed for: ${DOMAINS[*]}"
-echo "[SSL] Install the weekly renewal cron entry with: ./deploy/scripts/install-production-cron.sh"
+openssl x509 -in docker/nginx/ssl/cert.pem -noout -checkend 0 >/dev/null || {
+    echo "[SSL] Certificate is expired or not yet valid." >&2
+    exit 1
+}
+
+for domain in "${DOMAINS[@]}"; do
+    openssl x509 -in docker/nginx/ssl/cert.pem \
+        -noout -checkhost "$domain" >/dev/null || {
+        echo "[SSL] Certificate does not cover $domain." >&2
+        exit 1
+    }
+done
+
+CERT_PUB_HASH="$(
+    openssl x509 -in docker/nginx/ssl/cert.pem -pubkey -noout |
+        openssl pkey -pubin -outform DER 2>/dev/null |
+        sha256sum | awk '{print $1}'
+)"
+
+KEY_PUB_HASH="$(
+    openssl pkey -in docker/nginx/ssl/key.pem -pubout -outform DER 2>/dev/null |
+        sha256sum | awk '{print $1}'
+)"
+
+[[ -n "$CERT_PUB_HASH" &&
+   "$CERT_PUB_HASH" == "$KEY_PUB_HASH" ]] || {
+    echo "[SSL] Certificate and private key do not match." >&2
+    exit 1
+}
+
+if [[ "$COMPOSE_MODE" == "base" ]]; then
+    compose_base exec -T nginx nginx -t
+    compose_base exec -T nginx nginx -s reload
+
+    HTTP_CODE="$(
+        curl -ksS \
+            --resolve "${PRIMARY_DOMAIN}:443:127.0.0.1" \
+            -o /dev/null -w '%{http_code}' \
+            "https://${PRIMARY_DOMAIN}/healthz" || true
+    )"
+
+    [[ "$HTTP_CODE" == "200" ]] || {
+        echo "[SSL] HTTPS readiness returned HTTP $HTTP_CODE, expected 200." >&2
+        exit 1
+    }
+fi
+
+if [[ "$BOOTSTRAP_STARTED" == true ]]; then
+    compose_acme stop acme-bootstrap >/dev/null
+    compose_acme rm -f acme-bootstrap >/dev/null
+    BOOTSTRAP_STARTED=false
+
+    echo "[SSL] Certificate prepared."
+    echo "[SSL] The production application has NOT been started."
+    echo "[SSL] Run deploy.sh only after production values and evidence gates are approved."
+else
+    echo "[SSL] Certificate installed and healthy production Nginx reloaded."
+fi
