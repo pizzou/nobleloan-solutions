@@ -38,6 +38,7 @@ public class FinancialReconciliationService {
     private final LoanRepository loanRepository;
     private final PaymentRepository paymentRepository;
     private final RegulatoryReportingService regulatoryReportingService;
+
     @Transactional(readOnly = true)
     public ReconciliationReport reconcile(Long organizationId) {
         return reconcile(organizationId, null, LocalDate.now());
@@ -203,7 +204,7 @@ public class FinancialReconciliationService {
                 issues.add(issue(
                         "APPLICATION_FEE_RECONCILIATION_FAILED",
                         "Loan " + safeReference(loan)
-                                + " fails one-time application/processing fee reconciliation. "
+                                + " fails one-time application fee reconciliation. "
                                 + "paid=" + applicationFeePaid.toPlainString()
                                 + ", outstanding=" + applicationFeeOutstanding.toPlainString()
                                 + ", fee=" + applicationFee.toPlainString(),
@@ -363,14 +364,12 @@ public class FinancialReconciliationService {
         // only installments that are due by the as-of date, less amounts
         // already allocated to those installments. Imported loans retain
         // their historical opening receivable as the operational authority.
-        operationalSubledger.put("1150", sum(loans, loan ->
-                isImportedLoan(loan)
-                        ? loan.getInterestOutstandingDecimal()
-                        : accruedInterestReceivable(loan, asOf)));
-        operationalSubledger.put("1160", sum(loans, loan ->
-                isImportedLoan(loan)
-                        ? loan.getManagementFeeOutstandingDecimal()
-                        : accruedManagementFeeReceivable(loan, asOf)));
+        operationalSubledger.put("1150", sum(loans, loan -> isImportedLoan(loan)
+                ? loan.getInterestOutstandingDecimal()
+                : accruedInterestReceivable(loan, asOf)));
+        operationalSubledger.put("1160", sum(loans, loan -> isImportedLoan(loan)
+                ? loan.getManagementFeeOutstandingDecimal()
+                : accruedManagementFeeReceivable(loan, asOf)));
         operationalSubledger.put("1170", sum(loans, Loan::getExtensionFeeOutstandingDecimal));
         operationalSubledger.put("1175", sum(loans, loan -> {
             BigDecimal assessed = loan.getPenaltiesAssessedDecimal();
@@ -879,8 +878,8 @@ public class FinancialReconciliationService {
             return ZERO;
         }
 
-        List<com.patrick.fintech.loan_backend.model.Payment> installments =
-                paymentRepository.findByLoanId(loan.getId());
+        List<com.patrick.fintech.loan_backend.model.Payment> installments = paymentRepository
+                .findByLoanId(loan.getId());
         if (installments == null || installments.isEmpty()) {
             return ZERO;
         }

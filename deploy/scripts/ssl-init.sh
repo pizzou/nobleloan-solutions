@@ -49,20 +49,45 @@ fi
 # Build/start the dependency services first because production Nginx has a
 # depends_on health requirement.
 "${COMPOSE[@]}" up -d postgres
+DB_READY=false
 for _ in $(seq 1 60); do
-  if "${COMPOSE[@]}" exec -T postgres pg_isready -U loansaas -d loansaas_nobleloansolutions >/dev/null 2>&1; then break; fi
+  if "${COMPOSE[@]}" exec -T postgres pg_isready -U "${POSTGRES_ADMIN_USERNAME:-loansaas}" -d loansaas_nobleloansolutions >/dev/null 2>&1; then
+    DB_READY=true
+    break
+  fi
   sleep 2
 done
+if [[ "$DB_READY" != true ]]; then
+  "${COMPOSE[@]}" logs --tail=100 postgres || true
+  echo "[SSL] PostgreSQL did not become ready; refusing to continue." >&2
+  exit 1
+fi
+
 "${COMPOSE[@]}" up -d backend frontend
 
 for svc in backend frontend; do
+  SERVICE_HEALTHY=false
   for _ in $(seq 1 180); do
     cid="$("${COMPOSE[@]}" ps -q "$svc" 2>/dev/null || true)"
-    status="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid" 2>/dev/null || true)"
-    [[ "$status" == "healthy" ]] && break
-    [[ "$status" == "unhealthy" || "$status" == "exited" ]] && { "${COMPOSE[@]}" logs --tail=100 "$svc"; exit 1; }
+    if [[ -n "$cid" ]]; then
+      status="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid" 2>/dev/null || true)"
+      if [[ "$status" == "healthy" ]]; then
+        SERVICE_HEALTHY=true
+        break
+      fi
+      if [[ "$status" == "unhealthy" || "$status" == "exited" || "$status" == "dead" ]]; then
+        "${COMPOSE[@]}" logs --tail=100 "$svc" || true
+        echo "[SSL] $svc failed before becoming healthy (status=$status)." >&2
+        exit 1
+      fi
+    fi
     sleep 2
   done
+  if [[ "$SERVICE_HEALTHY" != true ]]; then
+    "${COMPOSE[@]}" logs --tail=100 "$svc" || true
+    echo "[SSL] $svc did not become healthy within the startup window." >&2
+    exit 1
+  fi
 done
 
 "${COMPOSE[@]}" up -d nginx

@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -11,6 +12,7 @@ warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 err()  { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 command -v docker >/dev/null 2>&1 || err "Docker Engine is required."
+command -v python3 >/dev/null 2>&1 || err "Python 3 is required for fail-closed Flyway migration validation."
 if docker compose version >/dev/null 2>&1; then
     COMPOSE=(docker compose)
 else
@@ -28,7 +30,15 @@ set +a
 
 [[ "${APP_ENVIRONMENT:-}" == "production" ]] || err "APP_ENVIRONMENT must be production."
 [[ "${SPRING_PROFILE:-default}" != "dev" ]] || err "SPRING_PROFILE=dev is not allowed for production deployment."
-[[ "${DB_PASSWORD:-}" != "" ]] || err "DB_PASSWORD is required."
+[[ "${POSTGRES_ADMIN_PASSWORD:-}" != "" ]] || err "POSTGRES_ADMIN_PASSWORD is required (PostgreSQL administrator only)."
+[[ "${DB_PASSWORD:-}" != "" ]] || err "DB_PASSWORD is required for restricted loansaas_app."
+[[ "${FLYWAY_DB_PASSWORD:-}" != "" ]] || err "FLYWAY_DB_PASSWORD is required for loansaas_migrator."
+[[ ${#POSTGRES_ADMIN_PASSWORD} -ge 16 ]] || err "POSTGRES_ADMIN_PASSWORD must contain at least 16 characters."
+[[ ${#DB_PASSWORD} -ge 16 ]] || err "DB_PASSWORD must contain at least 16 characters."
+[[ ${#FLYWAY_DB_PASSWORD} -ge 16 ]] || err "FLYWAY_DB_PASSWORD must contain at least 16 characters."
+[[ "$POSTGRES_ADMIN_PASSWORD" != "$DB_PASSWORD" ]] || err "PostgreSQL administrator and application passwords must be different."
+[[ "$POSTGRES_ADMIN_PASSWORD" != "$FLYWAY_DB_PASSWORD" ]] || err "PostgreSQL administrator and Flyway passwords must be different."
+[[ "$DB_PASSWORD" != "$FLYWAY_DB_PASSWORD" ]] || err "Application and Flyway passwords must be different."
 [[ "${JWT_SECRET:-}" != "" ]] || err "JWT_SECRET is required."
 [[ "${CORS_ORIGINS:-}" != *"*"* ]] || err "CORS_ORIGINS may not contain '*'."
 [[ "${WEBSOCKET_ALLOWED_ORIGINS:-}" != "" ]] || err "WEBSOCKET_ALLOWED_ORIGINS is required."
@@ -47,6 +57,9 @@ if [[ ! -s "$ROOT_DIR/docker/nginx/ssl/cert.pem" || ! -s "$ROOT_DIR/docker/nginx
     err "Production TLS certificate/key are missing. Run ./deploy/scripts/ssl-init.sh first, or install the real AOS/domain certificate into docker/nginx/ssl/cert.pem and key.pem."
 fi
 
+log "Validating Flyway migration filenames and version sequence..."
+python3 "$ROOT_DIR/deploy/scripts/validate-migrations.py"
+
 log "Validating Docker Compose configuration..."
 "${COMPOSE[@]}" config >/dev/null
 
@@ -59,7 +72,7 @@ log "Building application images with production tests..."
 log "Starting PostgreSQL..."
 "${COMPOSE[@]}" up -d postgres
 for i in $(seq 1 60); do
-    if "${COMPOSE[@]}" exec -T postgres pg_isready -U loansaas -d loansaas_nobleloansolutions >/dev/null 2>&1; then
+    if "${COMPOSE[@]}" exec -T postgres pg_isready -U "${POSTGRES_ADMIN_USERNAME:-loansaas}" -d loansaas_nobleloansolutions >/dev/null 2>&1; then
         break
     fi
     [[ "$i" -eq 60 ]] && err "PostgreSQL did not become ready."

@@ -296,7 +296,7 @@ public class DashboardService {
                 }
 
                 /*
-                 * Current application/processing fees are cash collections at
+                 * Current Application Fees are cash collections at
                  * disbursement and are not represented by Payment rows. Keep
                  * them in the institution-wide collected KPI while keeping
                  * legacy application fees inside the legacy historical bucket
@@ -324,7 +324,7 @@ public class DashboardService {
                  * + penalties paid
                  * + application fee paid
                  *
-                 * Processing fee is a one-time cash collection at disbursement.
+                 * Application fee is a one-time cash collection at disbursement.
                  * It is kept in the institution-wide collected KPI, but is not
                  * treated as a repayment Payment row.
                  */

@@ -595,7 +595,7 @@ public class LoanProductController {
                 }
 
                 // ----------------------------------------------------
-                // PROCESSING FEE
+                // APPLICATION FEE
                 //
                 // Organization/product-specific.
                 //
@@ -606,7 +606,7 @@ public class LoanProductController {
                                 || body.containsKey(
                                                 "applicationFeePercent")) {
 
-                        BigDecimal requestedProcessingFee = body.containsKey(
+                        BigDecimal requestedApplicationFee = body.containsKey(
                                         "applicationFeePercent")
                                                         ? decimalValue(
                                                                         body.get(
@@ -614,16 +614,16 @@ public class LoanProductController {
                                                                         "applicationFeePercent")
                                                         : DEFAULT_APPLICATION_FEE_PERCENT;
 
-                        if (requestedProcessingFee.compareTo(
+                        if (requestedApplicationFee.compareTo(
                                         BigDecimal.ZERO) < 0) {
 
                                 throw new IllegalArgumentException(
-                                                "Processing fee percentage cannot be negative.");
+                                                "Application fee percentage cannot be negative.");
                         }
 
-                        product.setProcessingFeePercent(
+                        product.setApplicationFeePercent(
                                         normalizePercent(
-                                                        requestedProcessingFee));
+                                                        requestedApplicationFee));
                 }
 
                 // ----------------------------------------------------
@@ -944,7 +944,7 @@ public class LoanProductController {
                 }
 
                 // ----------------------------------------------------
-                // PROCESSING FEE
+                // APPLICATION FEE
                 // ----------------------------------------------------
 
                 BigDecimal applicationFee = product.getApplicationFeePercentDecimal();
@@ -952,21 +952,21 @@ public class LoanProductController {
                 if (applicationFee == null) {
 
                         throw new IllegalArgumentException(
-                                        "Processing fee percentage is required.");
+                                        "Application fee percentage is required.");
                 }
 
                 if (applicationFee.compareTo(
                                 BigDecimal.ZERO) < 0) {
 
                         throw new IllegalArgumentException(
-                                        "Processing fee percentage cannot be negative.");
+                                        "Application fee percentage cannot be negative.");
                 }
 
                 if (applicationFee.compareTo(
                                 new BigDecimal("100.0000")) > 0) {
 
                         throw new IllegalArgumentException(
-                                        "Processing fee percentage cannot exceed 100%.");
+                                        "Application fee percentage cannot exceed 100%.");
                 }
 
                 // ----------------------------------------------------

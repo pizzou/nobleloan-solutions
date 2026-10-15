@@ -47,7 +47,7 @@ public class LoanRestructuringService {
          * Management fee:
          * 5% monthly, calculated daily using the actual calendar month.
          *
-         * Processing fee:
+         * Application fee:
          * 2%, one-time at disbursement only.
          */
         private static final BigDecimal MONTHLY_INTEREST_RATE = FinancialPolicy.MONTHLY_INTEREST_RATE;
@@ -88,7 +88,7 @@ public class LoanRestructuringService {
          *
          * - Existing loan ID remains unchanged.
          * - Principal does NOT increase because of the extension fee.
-         * - Processing fee is NOT charged again.
+         * - Application fee is NOT charged again.
          * - Existing unpaid schedule is rebuilt.
          * - Original extension amount is captured in the audit trail.
          */
@@ -203,7 +203,7 @@ public class LoanRestructuringService {
                                 "MONTHLY");
 
                 /*
-                 * Processing fee remains unchanged.
+                 * Application fee remains unchanged.
                  *
                  * NEVER recalculate 2% here.
                  */
@@ -752,7 +752,7 @@ public class LoanRestructuringService {
 
                 /*
                  * Rebuild only the unearned/unpaid portion of the operational
-                 * payment schedule.  Never delete paid or partially-paid rows:
+                 * payment schedule. Never delete paid or partially-paid rows:
                  * those rows are financial history and may already be linked to
                  * posted payment transactions and accrual journals.
                  */
@@ -792,7 +792,7 @@ public class LoanRestructuringService {
                                                 + " | New management="
                                                 + restructuringManagementRate
                                                 + "% monthly"
-                                                + " | Processing fee remains one-time="
+                                                + " | Application fee remains one-time="
                                                 + APPLICATION_FEE_RATE
                                                 + "%");
 
@@ -863,7 +863,7 @@ public class LoanRestructuringService {
 
                 /*
                  * Post the accounting entry while the original outstanding
-                 * balance is still present.  postWriteOff() is idempotent by
+                 * balance is still present. postWriteOff() is idempotent by
                  * loan/source, so a retry cannot create a second journal.
                  */
                 accountingService.postWriteOff(loan);

@@ -522,8 +522,8 @@ public class LegacyLoanImportRowService {
                                  * +
                                  * management fee rate from the historical source, default 5% monthly.
                                  *
-                                 * Processing fee is NOT included here because it is
-                                 * a one-time fee deducted at disbursement.
+                                 * The one-time Application Fee is NOT included here;
+                                 * it is deducted from gross funds at disbursement.
                                  */
                                 BigDecimal[] calculated = calculateCurrentPlatformLoan(
                                                 amount,
@@ -595,17 +595,16 @@ public class LegacyLoanImportRowService {
                         }
 
                         // ========================================================
-                        // PROCESSING FEE
+                        // APPLICATION FEE (CANONICAL FIELD)
                         // ========================================================
 
                         /*
-                         * APPLICATION FEE and PROCESSING FEE are the same one-time charge in Noble
-                         * Loan.
-                         * Legacy imports preserve the historical Application Fee when the source
-                         * workbook provides it. Otherwise the current Noble Loan default of 2%
-                         * of gross principal is used. The fee is deducted from gross disbursement
-                         * and is excluded from recurring totalRepayable because it is a one-time
-                         * disbursement charge.
+                         * Some historical workbooks call this column "processing fee".
+                         * That legacy heading is mapped to Noble's single canonical Application
+                         * Fee field; the system does not create a second fee concept. Preserve
+                         * the historical amount when supplied, otherwise use the current default
+                         * of 2% of gross principal. It is deducted at disbursement and is not
+                         * included in recurring totalRepayable.
                          */
                         BigDecimal applicationFee;
 
@@ -785,13 +784,14 @@ public class LegacyLoanImportRowService {
                                                  * validation failures row-scoped and prevents malformed
                                                  * borrowers from reaching the database transaction.
                                                  */
-                                                Set<ConstraintViolation<Borrower>> borrowerViolations =
-                                                                validator.validate(borrower);
+                                                Set<ConstraintViolation<Borrower>> borrowerViolations = validator
+                                                                .validate(borrower);
 
                                                 if (!borrowerViolations.isEmpty()) {
                                                         String validationMessage = borrowerViolations.stream()
                                                                         .map(ConstraintViolation::getMessage)
-                                                                        .filter(message -> message != null && !message.isBlank())
+                                                                        .filter(message -> message != null
+                                                                                        && !message.isBlank())
                                                                         .distinct()
                                                                         .sorted()
                                                                         .reduce((left, right) -> left + "; " + right)
@@ -1001,7 +1001,7 @@ public class LegacyLoanImportRowService {
                                                                         org))
 
                                         // ------------------------------------------------
-                                        // APPLICATION / PROCESSING FEE
+                                        // APPLICATION FEE
                                         // One-time fee; deducted from gross disbursement.
                                         // ------------------------------------------------
 
@@ -1025,7 +1025,7 @@ public class LegacyLoanImportRowService {
                                          * authoritative PRINCIPAL receivable and is
                                          * protected by ck_loan_principal_reconciliation:
                                          *
-                                         *     principal_paid + outstanding_balance = amount
+                                         * principal_paid + outstanding_balance = amount
                                          *
                                          * The legacy source's outstanding_balance may be the
                                          * TOTAL contractual amount still payable (principal +
@@ -1305,7 +1305,7 @@ public class LegacyLoanImportRowService {
          * =
          * 10% monthly recurring charge.
          *
-         * Processing fee is excluded because it is a one-time
+         * The one-time Application Fee is excluded because it is a
          * disbursement deduction.
          *
          * Returns:

@@ -80,7 +80,7 @@ const LOAN_TYPES = [
  */
 const DEFAULT_INTEREST_RATE = 5;
 const DEFAULT_MANAGEMENT_FEE = 5;
-const DEFAULT_PROCESSING_FEE = 2;
+const DEFAULT_APPLICATION_FEE = 2;
 const DEFAULT_PENALTY_RATE = 10;
 const DEFAULT_MIN_AMOUNT = 500000;
 const DEFAULT_MIN_TERM = 1;
@@ -95,7 +95,7 @@ const emptyForm = (): ProductForm => ({
   interestRate: DEFAULT_INTEREST_RATE,
   interestRateType: "MONTHLY",
   managementFeePercent: DEFAULT_MANAGEMENT_FEE,
-  applicationFeePercent: DEFAULT_PROCESSING_FEE,
+  applicationFeePercent: DEFAULT_APPLICATION_FEE,
   penaltyPercent: DEFAULT_PENALTY_RATE,
   minAmount: DEFAULT_MIN_AMOUNT,
   maxAmount: null,
@@ -211,7 +211,7 @@ export default function LoanProductsPage() {
 
       applicationFeePercent: numberValue(
         product.applicationFeePercent,
-        DEFAULT_PROCESSING_FEE,
+        DEFAULT_APPLICATION_FEE,
       ),
 
       penaltyPercent: DEFAULT_PENALTY_RATE,
@@ -370,7 +370,7 @@ export default function LoanProductsPage() {
 
       applicationFeePercent: numberValue(
         editing.applicationFeePercent,
-        DEFAULT_PROCESSING_FEE,
+        DEFAULT_APPLICATION_FEE,
       ),
 
       penaltyPercent: DEFAULT_PENALTY_RATE,
@@ -824,7 +824,7 @@ export default function LoanProductsPage() {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
                   <label className="text-xs font-bold text-slate-500">
-                    Processing Fee (%)
+                    Application Fee (%)
                   </label>
 
                   <input

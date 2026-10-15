@@ -125,7 +125,6 @@ public class Payment {
         @Builder.Default
         private BigDecimal principalComponent = BigDecimal.ZERO;
 
-        
         @Column(name = "interest_component", precision = 19, scale = 2)
         @JsonProperty("interestComponent")
         @Builder.Default
@@ -250,7 +249,7 @@ public class Payment {
         /**
          * Gross outstanding principal after this payment.
          *
-         * Processing fee is NOT part of this balance.
+         * Application fee is NOT part of this balance.
          */
         @Column(name = "outstanding_after", precision = 19, scale = 2)
         @JsonProperty("outstandingAfter")

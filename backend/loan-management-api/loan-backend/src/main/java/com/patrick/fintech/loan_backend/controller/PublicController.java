@@ -490,19 +490,23 @@ public class PublicController {
                 return profile;
         }
 
-        private String profileValue(Map<String, Object> body, String field, int maxLength, boolean requiredWhenProvided) {
+        private String profileValue(Map<String, Object> body, String field, int maxLength,
+                        boolean requiredWhenProvided) {
                 Object raw = body.get(field);
                 if (raw == null) {
-                        if (requiredWhenProvided) throw new IllegalArgumentException(field + " cannot be blank.");
+                        if (requiredWhenProvided)
+                                throw new IllegalArgumentException(field + " cannot be blank.");
                         return null;
                 }
-                if (!(raw instanceof String)) throw new IllegalArgumentException(field + " must be text.");
+                if (!(raw instanceof String))
+                        throw new IllegalArgumentException(field + " must be text.");
                 String value = ((String) raw).trim();
                 if (value.length() > maxLength) {
                         throw new IllegalArgumentException(field + " exceeds the maximum length of " + maxLength + ".");
                 }
                 if (value.isEmpty()) {
-                        if (requiredWhenProvided) throw new IllegalArgumentException(field + " cannot be blank.");
+                        if (requiredWhenProvided)
+                                throw new IllegalArgumentException(field + " cannot be blank.");
                         return null;
                 }
                 return value;
@@ -2319,7 +2323,7 @@ public class PublicController {
                                                 loan.getCurrency())
                                                 + " "
                                                 + formatMoney(
-                                                                loan.getProcessingFeeDecimal()));
+                                                                loan.getApplicationFeeDecimal()));
 
                 add.accept(
                                 "Application Fee Paid",
@@ -2434,7 +2438,7 @@ public class PublicController {
                                 value(loan.getCurrency())
                                                 + " "
                                                 + formatMoney(
-                                                                loan.getProcessingFeeDecimal()));
+                                                                loan.getApplicationFeeDecimal()));
 
                 add.accept(
                                 "Application Fee Paid",
@@ -3429,7 +3433,7 @@ public class PublicController {
                  */
                 loan.setInterestRate(interestRate);
                 loan.setManagementFeeRate(money(product.getManagementFeePercent()));
-                loan.setProcessingFeeRate(money(product.getApplicationFeePercent()));
+                loan.setApplicationFeeRate(money(product.getApplicationFeePercent()));
                 loan.setInterestRateType(interestRateType);
 
                 loan.setTermsAcceptedAt(
@@ -4683,7 +4687,7 @@ public class PublicController {
                                 loan.getAmountDecimal());
 
                 BigDecimal fee = money(
-                                loan.getProcessingFeeDecimal());
+                                loan.getApplicationFeeDecimal());
 
                 return money(
                                 gross.subtract(

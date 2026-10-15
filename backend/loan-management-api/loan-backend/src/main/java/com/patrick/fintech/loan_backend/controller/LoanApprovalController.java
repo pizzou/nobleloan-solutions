@@ -1,4 +1,5 @@
 package com.patrick.fintech.loan_backend.controller;
+
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.service.LoanApprovalService;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +17,6 @@ public class LoanApprovalController {
 
     private final LoanApprovalService approvalService;
 
-   
     @PostMapping("/decide")
     @PreAuthorize("""
             hasAnyRole(
@@ -32,25 +32,20 @@ public class LoanApprovalController {
             User user) {
 
         String decision = firstNonBlank(
-                body.get("decision")
-        );
+                body.get("decision"));
 
         String comments = firstNonBlank(
                 body.get("comments"),
-                body.get("notes")
-        );
+                body.get("notes"));
 
         return ResponseEntity.ok(
                 approvalService.decide(
                         loanId,
                         user,
                         decision,
-                        comments
-                )
-        );
+                        comments));
     }
 
-   
     @PostMapping("/approve")
     @PreAuthorize("""
             hasAnyRole(
@@ -67,12 +62,11 @@ public class LoanApprovalController {
 
         String comments = firstNonBlank(
                 body.get("comments"),
-                body.get("notes")
-        );
+                body.get("notes"));
 
         Double newInterestRate = parseInterestRate(body);
 
-        Double newProcessingFeeRate = parseProcessingFeeRate(body);
+        Double newApplicationFeeRate = parseApplicationFeeRate(body);
 
         BigDecimal approvedAmount = parseApprovedAmount(body);
 
@@ -85,14 +79,11 @@ public class LoanApprovalController {
                         "APPROVED",
                         comments,
                         newInterestRate,
-                        newProcessingFeeRate,
+                        newApplicationFeeRate,
                         approvedAmount,
-                        businessOwnerOnly
-                )
-        );
+                        businessOwnerOnly));
     }
 
-    
     @PostMapping("/reject")
     @PreAuthorize("""
             hasAnyRole(
@@ -109,28 +100,23 @@ public class LoanApprovalController {
 
         String comments = firstNonBlank(
                 body.get("comments"),
-                body.get("notes")
-        );
+                body.get("notes"));
 
         return ResponseEntity.ok(
                 approvalService.decide(
                         loanId,
                         user,
                         "REJECTED",
-                        comments
-                )
-        );
+                        comments));
     }
 
-   
     private BigDecimal parseApprovedAmount(
             Map<String, Object> body) {
 
         Object value = firstPresent(
                 body,
                 "approvedAmount",
-                "amount"
-        );
+                "amount");
 
         if (value == null) {
             return null;
@@ -142,8 +128,7 @@ public class LoanApprovalController {
 
         if (value instanceof Number) {
             return BigDecimal.valueOf(
-                    ((Number) value).doubleValue()
-            );
+                    ((Number) value).doubleValue());
         }
 
         String text = String.valueOf(value).trim();
@@ -156,8 +141,7 @@ public class LoanApprovalController {
             return new BigDecimal(text);
         } catch (NumberFormatException ex) {
             throw new IllegalArgumentException(
-                    "approvedAmount must be a valid numeric value"
-            );
+                    "approvedAmount must be a valid numeric value");
         }
     }
 
@@ -170,50 +154,46 @@ public class LoanApprovalController {
         Object value = firstPresent(
                 body,
                 "interestRate",
-                "newInterestRate"
-        );
+                "newInterestRate");
 
         return parsePercentage(
                 value,
-                "interestRate"
-        );
+                "interestRate");
     }
 
     /**
-     * Parse processing/application fee rate.
+     * Parse application fee rate.
      */
-    private Double parseProcessingFeeRate(
+    private Double parseApplicationFeeRate(
             Map<String, Object> body) {
 
         Object value = firstPresent(
                 body,
                 "applicationFeeRate",
+                "newApplicationFeeRate",
                 "processingFeeRate",
-                "newProcessingFeeRate"
-        );
+                "newProcessingFeeRate");
 
         return parsePercentage(
                 value,
-                "applicationFeeRate"
-        );
+                "applicationFeeRate");
     }
 
     /**
      * Parse Business Owner reporting classification.
      *
      * Normal:
-     *     false
+     * false
      *
      * Business Owner only:
-     *     true
+     * true
      */
     private Boolean parseBusinessOwnerOnly(
             Map<String, Object> body) {
 
         Object value = firstPresent(
                 body,
-                "businessOwnerOnly"
-        );
+                "businessOwnerOnly");
 
         if (value == null) {
             return null;
@@ -264,8 +244,7 @@ public class LoanApprovalController {
 
             default:
                 throw new IllegalArgumentException(
-                        "businessOwnerOnly must be a boolean value"
-                );
+                        "businessOwnerOnly must be a boolean value");
         }
     }
 
@@ -273,7 +252,7 @@ public class LoanApprovalController {
      * Parse percentage/rate values.
      *
      * Valid range:
-     *     0 through 100
+     * 0 through 100
      */
     private Double parsePercentage(
             Object value,
@@ -298,8 +277,7 @@ public class LoanApprovalController {
                 result = Double.valueOf(text);
             } catch (NumberFormatException ex) {
                 throw new IllegalArgumentException(
-                        fieldName + " must be a valid numeric value"
-                );
+                        fieldName + " must be a valid numeric value");
             }
         }
 
@@ -309,8 +287,7 @@ public class LoanApprovalController {
                 || result > 100.0) {
 
             throw new IllegalArgumentException(
-                    fieldName + " must be between 0 and 100"
-            );
+                    fieldName + " must be between 0 and 100");
         }
 
         return result;
@@ -371,4 +348,3 @@ public class LoanApprovalController {
         return null;
     }
 }
-

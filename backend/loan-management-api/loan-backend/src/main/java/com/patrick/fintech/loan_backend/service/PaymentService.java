@@ -151,7 +151,7 @@ public class PaymentService {
 
                 Loan loan = recordedByOrganizationId == null
                                 ? loanRepo.findByIdForUpdate(loanId)
-                                .orElseThrow(() -> new RuntimeException("Loan not found: " + loanId))
+                                                .orElseThrow(() -> new RuntimeException("Loan not found: " + loanId))
                                 : loanRepo.findVisibleByIdForUpdate(
                                                 loanId,
                                                 recordedByOrganizationId,
@@ -232,11 +232,10 @@ public class PaymentService {
                                          * webhook must carry the same amount as the
                                          * transaction that was originally posted.
                                          */
-                                        Optional<PaymentTransaction> existingTransaction =
-                                                        paymentTransactionRepo
-                                                                        .findByOrganization_IdAndTransactionReference(
-                                                                                        organizationId,
-                                                                                        normalizedTxnId);
+                                        Optional<PaymentTransaction> existingTransaction = paymentTransactionRepo
+                                                        .findByOrganization_IdAndTransactionReference(
+                                                                        organizationId,
+                                                                        normalizedTxnId);
 
                                         if (existingTransaction.isPresent()) {
                                                 BigDecimal existingAmount = roundMoney(
@@ -558,7 +557,7 @@ public class PaymentService {
                  * Example:
                  *
                  * Gross loan = 1,000,000
-                 * Processing fee = 20,000
+                 * Application fee = 20,000
                  * Cash received = 980,000
                  *
                  * Repayment/interest/management calculations still use
@@ -603,7 +602,8 @@ public class PaymentService {
                                 : (cycleIsDue
                                                 ? FinancialPolicy.contractualMonthlyCharge(
                                                                 currentBalance,
-                                                                moneyRatePercent(loan.getInterestRateDecimal(), MONTHLY_INTEREST_RATE))
+                                                                moneyRatePercent(loan.getInterestRateDecimal(),
+                                                                                MONTHLY_INTEREST_RATE))
                                                 : ZERO);
 
                 BigDecimal contractualMonthlyManagementFee = existingCycleManagementFeeDue.signum() > 0
@@ -1275,10 +1275,10 @@ public class PaymentService {
                 // ============================================================
                 // IMMUTABLE PAYMENT TRANSACTION LEDGER
                 // ============================================================
-                // Payment rows are cumulative installment state.  The
+                // Payment rows are cumulative installment state. The
                 // PaymentTransaction row is the immutable transaction event
                 // used by the business-owner payment ledger, audit views and
-                // downstream reconciliation.  Every successful posting gets
+                // downstream reconciliation. Every successful posting gets
                 // exactly one transaction event in the same database
                 // transaction as the accounting journal.
                 String transactionReference = normalizedTxnId != null
@@ -2166,9 +2166,11 @@ public class PaymentService {
                 loan.setTotalInterest(normalizedInterestTotal);
                 loan.setManagementFee(normalizedManagementTotal);
                 loan.setInterestOutstanding(
-                                roundMoney(normalizedInterestTotal.subtract(safe(loan.getInterestPaidDecimal())).max(ZERO)));
+                                roundMoney(normalizedInterestTotal.subtract(safe(loan.getInterestPaidDecimal()))
+                                                .max(ZERO)));
                 loan.setManagementFeeOutstanding(
-                                roundMoney(normalizedManagementTotal.subtract(safe(loan.getManagementFeePaidDecimal())).max(ZERO)));
+                                roundMoney(normalizedManagementTotal.subtract(safe(loan.getManagementFeePaidDecimal()))
+                                                .max(ZERO)));
                 loan.setTotalRepayable(
                                 roundMoney(
                                                 safe(loan.getAmountDecimal())

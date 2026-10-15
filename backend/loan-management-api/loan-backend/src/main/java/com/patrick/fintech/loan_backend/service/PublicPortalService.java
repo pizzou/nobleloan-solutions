@@ -106,10 +106,9 @@ public class PublicPortalService {
                 // PAYMENT HISTORY
                 // ============================================================
 
-                List<Payment> loanPayments =
-                                paymentRepository.findByLoanIdAndReportingScope(
-                                                loan.getId(),
-                                                false);
+                List<Payment> loanPayments = paymentRepository.findByLoanIdAndReportingScope(
+                                loan.getId(),
+                                false);
 
                 if (loanPayments == null) {
                         loanPayments = List.of();
@@ -439,7 +438,7 @@ public class PublicPortalService {
          * Interest and management fee accrue on the outstanding
          * principal balance.
          *
-         * Processing fee is NOT added here because it is a one-time
+         * Application fee is NOT added here because it is a one-time
          * charge already deducted at disbursement.
          *
          * Payment priority:

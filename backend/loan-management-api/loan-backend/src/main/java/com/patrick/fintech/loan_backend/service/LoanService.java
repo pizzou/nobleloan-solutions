@@ -544,7 +544,7 @@ public class LoanService {
                 BigDecimal totalRepayable = calc[1];
 
                 // ============================================================
-                // PROCESSING FEE
+                // APPLICATION FEE
                 // ============================================================
 
                 BigDecimal applicationFeeRate = product != null
@@ -1075,7 +1075,7 @@ public class LoanService {
                 loan.setDaysOverdue(0);
 
                 // ============================================================
-                // PROCESSING FEE
+                // APPLICATION FEE
                 // ============================================================
 
                 BigDecimal applicationFee = money(
@@ -1419,7 +1419,8 @@ public class LoanService {
          */
         private void requireAuthorizedDisbursementOfficer(User officer) {
                 String role = officer == null || officer.getRole() == null
-                                ? null : officer.getRole().getName();
+                                ? null
+                                : officer.getRole().getName();
                 boolean authorized = role != null && java.util.Set.of(
                                 "LOAN_OFFICER", "TELLER", "MANAGER", "ADMIN")
                                 .contains(role.trim().toUpperCase(java.util.Locale.ROOT));
@@ -1429,7 +1430,6 @@ public class LoanService {
                                                         + "Business owners and accounting users cannot disburse loans.");
                 }
         }
-        
 
         @Transactional
         public Loan disburseLoan(
@@ -2869,7 +2869,7 @@ public class LoanService {
                                 "MONTHLY");
 
                 // ============================================================
-                // PROCESSING FEE
+                // APPLICATION FEE
                 // ============================================================
 
                 BigDecimal applicationFeeRate = loan.getApplicationFeeRateDecimal() != null

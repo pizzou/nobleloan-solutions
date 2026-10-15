@@ -299,7 +299,7 @@ public class LoanProduct {
                                 || applicationFeePercent.signum() < 0) {
 
                         throw new IllegalStateException(
-                                        "Processing fee cannot be negative.");
+                                        "Application fee cannot be negative.");
                 }
 
                 if (managementFeePercent == null
@@ -418,10 +418,21 @@ public class LoanProduct {
                 this.maxAmount = value;
         }
 
-        public void setProcessingFeePercent(
+        public void setApplicationFeePercent(
                         BigDecimal value) {
 
                 this.applicationFeePercent = value;
+        }
+
+        /**
+         * @deprecated Use {@link #setApplicationFeePercent(BigDecimal)}.
+         *             Kept for compatibility with older integrations.
+         */
+        @Deprecated
+        public void setProcessingFeePercent(
+                        BigDecimal value) {
+
+                setApplicationFeePercent(value);
         }
 
         public void setManagementFeePercent(

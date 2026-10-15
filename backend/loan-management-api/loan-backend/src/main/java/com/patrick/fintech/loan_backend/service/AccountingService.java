@@ -281,10 +281,9 @@ public class AccountingService {
                 for (String[] definition : DEFAULT_ACCOUNTS) {
 
                         String code = definition[0];
-                        ChartOfAccount.AccountType expectedType =
-                                        ChartOfAccount.AccountType.valueOf(definition[2]);
-                        ChartOfAccount.NormalBalance expectedNormalBalance =
-                                        ChartOfAccount.NormalBalance.valueOf(definition[3]);
+                        ChartOfAccount.AccountType expectedType = ChartOfAccount.AccountType.valueOf(definition[2]);
+                        ChartOfAccount.NormalBalance expectedNormalBalance = ChartOfAccount.NormalBalance
+                                        .valueOf(definition[3]);
 
                         ChartOfAccount existingAccount = existing == null
                                         ? null
@@ -869,7 +868,8 @@ public class AccountingService {
                                 if (loanId != null) {
                                         return loanRepo.findById(loanId)
                                                         .filter(l -> l.getOrganization() != null
-                                                                        && organizationId.equals(l.getOrganization().getId()))
+                                                                        && organizationId.equals(
+                                                                                        l.getOrganization().getId()))
                                                         .map(l -> Boolean.TRUE.equals(l.getBusinessOwnerOnly()))
                                                         .orElse(false);
                                 }
@@ -881,8 +881,10 @@ public class AccountingService {
                                         return paymentRepo.findById(paymentId)
                                                         .filter(p -> p.getLoan() != null
                                                                         && p.getLoan().getOrganization() != null
-                                                                        && organizationId.equals(p.getLoan().getOrganization().getId()))
-                                                        .map(p -> Boolean.TRUE.equals(p.getLoan().getBusinessOwnerOnly()))
+                                                                        && organizationId.equals(p.getLoan()
+                                                                                        .getOrganization().getId()))
+                                                        .map(p -> Boolean.TRUE
+                                                                        .equals(p.getLoan().getBusinessOwnerOnly()))
                                                         .orElse(false);
                                 }
                         }
@@ -1602,7 +1604,7 @@ public class AccountingService {
                 }
 
                 // --------------------------------------------------------
-                // PROCESSING FEE
+                // APPLICATION FEE
                 // --------------------------------------------------------
 
                 BigDecimal applicationFee = money(
@@ -1647,7 +1649,8 @@ public class AccountingService {
 
                 ChartOfAccount applicationFeeIncomeAccount = account(org, "4100");
                 if (applicationFeeIncomeAccount.getType() != ChartOfAccount.AccountType.INCOME
-                                || applicationFeeIncomeAccount.getNormalBalance() != ChartOfAccount.NormalBalance.CREDIT) {
+                                || applicationFeeIncomeAccount
+                                                .getNormalBalance() != ChartOfAccount.NormalBalance.CREDIT) {
                         throw new IllegalStateException(
                                         "GL account 4100 must be classified as INCOME/CREDIT before loan disbursement");
                 }
@@ -1702,7 +1705,7 @@ public class AccountingService {
                  *
                  * DR Loans Receivable 1,000,000
                  * CR Cash 980,000
-                 * CR Application Fee  Income 20,000
+                 * CR Application Fee Income 20,000
                  *
                  * This is one balanced journal.
                  *
@@ -1753,7 +1756,7 @@ public class AccountingService {
                                                 .build());
 
                 // --------------------------------------------------------
-                // CR PROCESSING FEE INCOME
+                // CR APPLICATION FEE INCOME
                 // --------------------------------------------------------
 
                 if (applicationFee.compareTo(
@@ -1876,7 +1879,7 @@ public class AccountingService {
                  * totalInterest is the full contractual interest for the loan,
                  * and the database invariant is:
                  *
-                 *     interestPaid + interestOutstanding = totalInterest
+                 * interestPaid + interestOutstanding = totalInterest
                  *
                  * Therefore interestOutstanding already represents the unpaid
                  * contractual balance. The accrual journal records when income
@@ -1955,7 +1958,7 @@ public class AccountingService {
                  * managementFee is the full contractual fee and the database
                  * invariant is:
                  *
-                 *     managementFeePaid + managementFeeOutstanding = managementFee
+                 * managementFeePaid + managementFeeOutstanding = managementFee
                  *
                  * The journal records the accounting accrual. PaymentService
                  * reduces the operational outstanding balance when the borrower
@@ -2161,7 +2164,8 @@ public class AccountingService {
 
         /**
          * Records the daily late-payment penalty as a receivable. The platform
-         * policy is 10% of outstanding principal per chargeable day after a 3-day grace period.
+         * policy is 10% of outstanding principal per chargeable day after a 3-day grace
+         * period.
          */
         @Transactional
         public JournalEntry postPenaltyAccrual(
@@ -4397,26 +4401,35 @@ public class AccountingService {
                                                         BigDecimal feeIncome = ZERO;
                                                         if (entry.getLines() != null) {
                                                                 for (JournalLine journalLine : entry.getLines()) {
-                                                                        if (journalLine == null || journalLine.getAccount() == null)
+                                                                        if (journalLine == null || journalLine
+                                                                                        .getAccount() == null)
                                                                                 continue;
-                                                                        if ("1100".equals(journalLine.getAccount().getCode())) {
+                                                                        if ("1100".equals(journalLine.getAccount()
+                                                                                        .getCode())) {
                                                                                 grossPrincipal = grossPrincipal.add(
-                                                                                                money(journalLine.getDebitDecimal())
-                                                                                                                .subtract(money(journalLine.getCreditDecimal())));
-                                                                        } else if ("4100".equals(journalLine.getAccount().getCode())) {
+                                                                                                money(journalLine
+                                                                                                                .getDebitDecimal())
+                                                                                                                .subtract(money(journalLine
+                                                                                                                                .getCreditDecimal())));
+                                                                        } else if ("4100".equals(journalLine
+                                                                                        .getAccount().getCode())) {
                                                                                 feeIncome = feeIncome.add(
-                                                                                                money(journalLine.getCreditDecimal())
-                                                                                                                .subtract(money(journalLine.getDebitDecimal())));
+                                                                                                money(journalLine
+                                                                                                                .getCreditDecimal())
+                                                                                                                .subtract(money(journalLine
+                                                                                                                                .getDebitDecimal())));
                                                                         }
                                                                 }
                                                         }
-                                                        BigDecimal presentedLendingOutflow = grossPrincipal.compareTo(ZERO) > 0
-                                                                        ? grossPrincipal
-                                                                        : outflow;
+                                                        BigDecimal presentedLendingOutflow = grossPrincipal
+                                                                        .compareTo(ZERO) > 0
+                                                                                        ? grossPrincipal
+                                                                                        : outflow;
                                                         lendingOutflows = lendingOutflows.add(presentedLendingOutflow);
                                                         BigDecimal collectedFee = feeIncome.max(ZERO);
                                                         operatingInflows = operatingInflows.add(collectedFee);
-                                                        applicationFeeCashInflows = applicationFeeCashInflows.add(collectedFee);
+                                                        applicationFeeCashInflows = applicationFeeCashInflows
+                                                                        .add(collectedFee);
                                                 }
                                                 case "EXPENSE", "OPERATING_EXPENSE" ->
                                                         operatingOutflows = operatingOutflows.add(outflow);

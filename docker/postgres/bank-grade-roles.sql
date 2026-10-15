@@ -1,10 +1,10 @@
--- Bank-grade PostgreSQL role separation bootstrap.
+-- Bank-grade PostgreSQL role separation bootstrap for Noble Loan Solutions.
+-- Run only as a PostgreSQL administrator. Passwords are supplied by Compose
+-- variables and are never stored in this file.
 --
--- Run as a PostgreSQL administrator:
--- psql -v APP_PASSWORD='...' -v MIGRATOR_PASSWORD='...' -f bank-grade-roles.sql
---
--- The application role is runtime-only. Flyway uses the separate migrator
--- role. Never commit real passwords to this file.
+-- Runtime account : loansaas_app      (least-privilege CRUD)
+-- Migration account: loansaas_migrator (owns schema objects, runs Flyway)
+-- Admin account  : loansaas            (cluster/database administration only)
 
 \set ON_ERROR_STOP on
 
@@ -22,40 +22,40 @@
 
 SELECT format('CREATE ROLE loansaas_app LOGIN PASSWORD %L', :'APP_PASSWORD')
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'loansaas_app')\gexec
-
 ALTER ROLE loansaas_app LOGIN PASSWORD :'APP_PASSWORD';
+ALTER ROLE loansaas_app NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
 
 SELECT format('CREATE ROLE loansaas_migrator LOGIN PASSWORD %L', :'MIGRATOR_PASSWORD')
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'loansaas_migrator')\gexec
-
 ALTER ROLE loansaas_migrator LOGIN PASSWORD :'MIGRATOR_PASSWORD';
+ALTER ROLE loansaas_migrator NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS;
 
-ALTER ROLE loansaas_app NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
-ALTER ROLE loansaas_migrator NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT;
+-- This is the database name used by docker-compose.yml and application.properties.
+ALTER DATABASE loansaas_nobleloansolutions OWNER TO loansaas_migrator;
+\connect loansaas_nobleloansolutions
 
-ALTER DATABASE loansaas OWNER TO loansaas_migrator;
-
-\connect loansaas
-
--- Existing deployments created with the historical `loansaas` owner can be
--- migrated without changing table definitions. REASSIGN OWNED changes only
--- object ownership; it does not delete data or objects.
+-- Preserve existing deployments by transferring ownership of objects created
+-- by the historical runtime/migration roles. This changes ownership/privileges,
+-- not table contents.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'loansaas') THEN
         EXECUTE 'REASSIGN OWNED BY loansaas TO loansaas_migrator';
     END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'loansaas_app') THEN
+        EXECUTE 'REASSIGN OWNED BY loansaas_app TO loansaas_migrator';
+    END IF;
 END
 $$;
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-REVOKE ALL ON DATABASE loansaas FROM PUBLIC;
+REVOKE ALL ON DATABASE loansaas_nobleloansolutions FROM PUBLIC;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 
-GRANT CONNECT ON DATABASE loansaas TO loansaas_migrator;
+GRANT CONNECT ON DATABASE loansaas_nobleloansolutions TO loansaas_migrator;
 GRANT USAGE, CREATE ON SCHEMA public TO loansaas_migrator;
 
-GRANT CONNECT ON DATABASE loansaas TO loansaas_app;
+GRANT CONNECT ON DATABASE loansaas_nobleloansolutions TO loansaas_app;
 GRANT USAGE ON SCHEMA public TO loansaas_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO loansaas_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO loansaas_app;
@@ -70,12 +70,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE loansaas_migrator IN SCHEMA public
 
 REVOKE CREATE ON SCHEMA public FROM loansaas_app;
 
--- After the application is switched to loansaas_app, the historical owner
--- account must no longer be usable as a runtime login.
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'loansaas') THEN
-        EXECUTE 'ALTER ROLE loansaas NOLOGIN';
-    END IF;
-END
-$$;
+-- Deliberately keep the administrative `loansaas` login intact for controlled
+-- maintenance, backup/restore, and role bootstrap. It must not be used by the app.

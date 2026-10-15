@@ -39,8 +39,8 @@ services:
 
     environment:
       POSTGRES_DB: loansaas_nobleloansolutions
-      POSTGRES_USER: loansaas
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_USER: ${POSTGRES_ADMIN_USERNAME:-loansaas}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?POSTGRES_ADMIN_PASSWORD is required}
       PGDATA: /var/lib/postgresql/data/pgdata
 
     volumes:
@@ -48,12 +48,47 @@ services:
 
     healthcheck:
       test:
-        ["CMD-SHELL", "pg_isready -U loansaas -d loansaas_nobleloansolutions"]
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_ADMIN_USERNAME:-loansaas} -d loansaas_nobleloansolutions",
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 30s
 
+    networks:
+      - loansaas-network
+
+  # ==========================================================
+  # DATABASE ROLE BOOTSTRAP (one-shot, runs before the backend)
+  # ==========================================================
+
+  db-role-bootstrap:
+    image: postgres:16-alpine
+    container_name: loansaas-db-role-bootstrap
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: postgres
+      PGUSER: ${POSTGRES_ADMIN_USERNAME:-loansaas}
+      PGPASSWORD: ${POSTGRES_ADMIN_PASSWORD:?POSTGRES_ADMIN_PASSWORD is required}
+      APP_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      MIGRATOR_PASSWORD: ${FLYWAY_DB_PASSWORD:?FLYWAY_DB_PASSWORD is required}
+    volumes:
+      - ./docker/postgres/bank-grade-roles.sql:/scripts/bank-grade-roles.sql:ro
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        psql -v ON_ERROR_STOP=1
+        -v APP_PASSWORD="$${APP_PASSWORD}"
+        -v MIGRATOR_PASSWORD="$${MIGRATOR_PASSWORD}"
+        -f /scripts/bank-grade-roles.sql
     networks:
       - loansaas-network
 
@@ -73,6 +108,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-role-bootstrap:
+        condition: service_completed_successfully
 
     environment:
       # ------------------------------------------------------
@@ -86,9 +123,14 @@ services:
       # ------------------------------------------------------
 
       DB_URL: jdbc:postgresql://postgres:5432/loansaas_nobleloansolutions
-      DB_USERNAME: loansaas
+      # Restricted application user. Do not use the PostgreSQL admin login here.
+      DB_USERNAME: loansaas_app
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       DB_NAME: loansaas_nobleloansolutions
+      # Separate DDL/migration account. It must never be used for API requests.
+      FLYWAY_DB_URL: jdbc:postgresql://postgres:5432/loansaas_nobleloansolutions
+      FLYWAY_DB_USERNAME: loansaas_migrator
+      FLYWAY_DB_PASSWORD: ${FLYWAY_DB_PASSWORD:?FLYWAY_DB_PASSWORD is required}
 
       # ------------------------------------------------------
       # SINGLE TENANT

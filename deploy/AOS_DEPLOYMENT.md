@@ -4,7 +4,7 @@ This stack is designed for an AOS cloud VM. AOS describes its cloud service as V
 
 ## 1. Prepare the AOS VM
 
-Use a supported Linux distribution with Docker Engine and the Docker Compose v2 plugin installed. Open only TCP 80 and 443 to the internet. Keep PostgreSQL, Spring Boot, and Next.js private to the Docker network; the supplied Compose file intentionally does not publish their ports.
+Use a supported Linux distribution with Docker Engine, the Docker Compose v2 plugin, Python 3, and curl installed. Open only TCP 80 and 443 to the internet. Keep PostgreSQL, Spring Boot, and Next.js private to the Docker network; the supplied Compose file intentionally does not publish their ports.
 
 ## 2. Install the project
 
@@ -16,9 +16,11 @@ chmod 600 .env
 chmod +x deploy/scripts/*.sh
 ```
 
-Fill `.env` with real production values. Do not use placeholders. The backend deliberately refuses production startup when required secrets, provider credentials, organization identity, or evidence gates are missing.
+Fill `.env` with real production values. Do not use placeholders. Generate unique `POSTGRES_ADMIN_PASSWORD`, `DB_PASSWORD`, and `FLYWAY_DB_PASSWORD` values; keep each at least 16 characters and never reuse one value for multiple roles. Compose creates the restricted `loansaas_app` and `loansaas_migrator` roles before the backend starts. The admin login is for controlled maintenance only. The backend deliberately refuses production startup when required secrets, provider credentials, organization identity, or evidence gates are missing.
 
-Generate cryptographic application/backup secrets with:
+**Important for an existing database:** do not blindly paste newly generated administrator credentials into `.env`. On an initialized PostgreSQL volume, changing `POSTGRES_PASSWORD` in Compose does not change the stored PostgreSQL role password. Keep `POSTGRES_ADMIN_PASSWORD` equal to the password of the existing PostgreSQL superuser until you have deliberately rotated it inside PostgreSQL. The old deployment may have used `DB_PASSWORD` for the `loansaas` administrator; in that case use that existing password as `POSTGRES_ADMIN_PASSWORD`, and set new, unique values for the new app `DB_PASSWORD` and `FLYWAY_DB_PASSWORD`. Take and verify a backup first. The bootstrap changes object ownership/permissions and should be tested on a restored copy before it is run against a live database.
+
+Generate unique database, application, and backup secrets with:
 
 ```bash
 ./deploy/scripts/generate-secrets.sh

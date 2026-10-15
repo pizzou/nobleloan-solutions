@@ -37,13 +37,14 @@ rand_b64() {
 }
 
 rand_password() {
-  # 20-char strong password: mixed case, digits, symbols, no ambiguous chars
+  # Produce 20 alphanumeric characters from cryptographically random bytes.
+  # awk reads the full finite stream before returning a prefix, avoiding the
+  # SIGPIPE/pipefail failure that can occur with `... | head -c 20`.
   if command -v openssl >/dev/null 2>&1; then
-    openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 20
+    openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | awk 'length($0) >= 20 { print substr($0, 1, 20) }'
   else
-    head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 20
+    head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | awk 'length($0) >= 20 { print substr($0, 1, 20) }'
   fi
-  echo
 }
 
 echo "# ─────────────────────────────────────────────────────────────────"
@@ -52,6 +53,18 @@ echo "# Each value below is unique to this run. Re-running generates new,"
 echo "# different values — that's expected, not a bug."
 echo "# ─────────────────────────────────────────────────────────────────"
 echo
+echo "# PostgreSQL cluster administrator password; never use this account in the backend."
+echo "POSTGRES_ADMIN_PASSWORD=$(rand_password)"
+echo
+
+echo "# Password for the restricted loansaas_app runtime account."
+echo "DB_PASSWORD=$(rand_password)"
+echo
+
+echo "# Password for the loansaas_migrator account used exclusively by Flyway."
+echo "FLYWAY_DB_PASSWORD=$(rand_password)"
+echo
+
 echo "# Signs and verifies JWT auth tokens. Rotating this invalidates every"
 echo "# currently-logged-in session (a drop-in restart, per"
 echo "# SECRETS_AND_KEY_ROTATION.md — safe to rotate any time)."
@@ -82,6 +95,6 @@ echo "BOOTSTRAP_ADMIN_PASSWORD=$(rand_password)"
 echo
 echo "# ─────────────────────────────────────────────────────────────────"
 echo "# Still needed from real accounts — this script can't generate these:"
-echo "#   MAIL_USERNAME / MAIL_PASSWORD        (real mailbox + app password)"
+echo "#   BREVO_API_KEY                         (real Brevo account API key)"
 echo "#   FLUTTERWAVE_SECRET_KEY / PUBLIC_KEY / WEBHOOK_SECRET  (from Flutterwave dashboard)"
 echo "# ─────────────────────────────────────────────────────────────────"

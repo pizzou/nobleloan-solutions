@@ -125,7 +125,7 @@ public class SmsService {
                                                 Locale.ROOT,
                                                 "Loan %s approved. Requested: %s %s. "
                                                                 + "Approved principal: %s %s. "
-                                                                + "Processing fee (%s%%): %s %s. "
+                                                                + "Application fee (%s%%): %s %s. "
                                                                 + "Net to be disbursed: %s %s. "
                                                                 + "Interest %s%% monthly; management fee %s%% monthly. No daily interest accrual. -%s",
                                                 value(loan != null ? loan.getReferenceNumber() : null),
@@ -196,7 +196,7 @@ public class SmsService {
                  *
                  * Gross loan principal remains the basis for interest.
                  *
-                 * Processing fee is deducted once from the gross amount
+                 * Application fee is deducted once from the gross amount
                  * before the borrower receives the funds.
                  */
                 BigDecimal netDisbursedAmount = grossAmount
@@ -227,7 +227,7 @@ public class SmsService {
 
                                                 "Loan %s has been disbursed. "
                                                                 + "Gross principal: %s %s. "
-                                                                + "Processing fee (2%%): %s %s. "
+                                                                + "Application fee (2%%): %s %s. "
                                                                 + "Net amount received: %s %s "
                                                                 + "via %s. "
                                                                 + "Interest remains calculated on the "
@@ -291,8 +291,10 @@ public class SmsService {
                                                                                 : null),
 
                                                 loan != null && loan.getPenaltyRateDecimal() != null
-                                                                ? loan.getPenaltyRateDecimal().stripTrailingZeros().toPlainString()
-                                                                : MONTHLY_PENALTY_RATE.stripTrailingZeros().toPlainString(),
+                                                                ? loan.getPenaltyRateDecimal().stripTrailingZeros()
+                                                                                .toPlainString()
+                                                                : MONTHLY_PENALTY_RATE.stripTrailingZeros()
+                                                                                .toPlainString(),
 
                                                 orgName(loan)));
         }
@@ -396,8 +398,10 @@ public class SmsService {
                                                                 outstandingBalance),
 
                                                 loan != null && loan.getPenaltyRateDecimal() != null
-                                                                ? loan.getPenaltyRateDecimal().stripTrailingZeros().toPlainString()
-                                                                : MONTHLY_PENALTY_RATE.stripTrailingZeros().toPlainString(),
+                                                                ? loan.getPenaltyRateDecimal().stripTrailingZeros()
+                                                                                .toPlainString()
+                                                                : MONTHLY_PENALTY_RATE.stripTrailingZeros()
+                                                                                .toPlainString(),
 
                                                 orgName(loan)));
         }

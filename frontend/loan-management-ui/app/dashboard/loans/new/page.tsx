@@ -1906,7 +1906,7 @@ function LegacyLoanDetailPage() {
 
             <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-4">
               <Field
-                label="Processing Fee"
+                label="Application Fee"
                 value={`${fc(loan.applicationFee)} (${(loan.applicationFeeRate ?? 2).toFixed(2)}%)`}
               />
               <Field
@@ -2045,7 +2045,7 @@ function LegacyLoanDetailPage() {
                 <Field label="Schedule" value={loan.repaymentFrequency} />
 
                 <Field
-                  label="Processing Fee"
+                  label="Application Fee"
                   value={`${fc(loan.applicationFee)} · ${(loan.applicationFeeRate ?? 2).toFixed(2)}%`}
                 />
 
