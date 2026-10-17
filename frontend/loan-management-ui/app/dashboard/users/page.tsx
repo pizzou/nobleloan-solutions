@@ -6,7 +6,7 @@ import { get, post, put, del } from "../../../services/api";
 
 import { toast } from "../../../hooks/useToast";
 
-import { hasRole } from "../../../services/authService";
+import { getCurrentUser, hasRole } from "../../../services/authService";
 
 import { PageSpinner } from "../../../components/ui/Skeleton";
 
@@ -62,6 +62,8 @@ export default function UsersPage() {
   const [showCreate, setShowCreate] = useState(false);
 
   const [resetUserId, setResetUserId] = useState<number | null>(null);
+  const [currentPw, setCurrentPw] = useState("");
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
   const [delUserId, setDelUserId] = useState<number | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
@@ -104,6 +106,11 @@ export default function UsersPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    // AuthResponse stores the authenticated account id as userId.
+    setCurrentUserId(getCurrentUser()?.userId ?? null);
+  }, []);
 
   /*
    * ============================================================
@@ -261,19 +268,30 @@ export default function UsersPage() {
       return;
     }
 
+    const isOwnPasswordChange = resetUserId === getCurrentUser()?.userId;
+
+    if (isOwnPasswordChange && !currentPw.trim()) {
+      toast("error", "Enter your current password to change your own password");
+      return;
+    }
+
     setResetting(true);
 
     try {
       await put("/users/" + resetUserId, {
         password: newPw,
+        ...(isOwnPasswordChange ? { currentPassword: currentPw } : {}),
       });
 
       toast(
         "success",
-        "Password reset — they'll be asked to set their own on next login",
+        isOwnPasswordChange
+          ? "Your password has been changed successfully"
+          : "Password reset — they'll be asked to set their own on next login",
       );
 
       setResetUserId(null);
+      setCurrentPw("");
       setNewPw("");
       setCfPw("");
 
@@ -573,6 +591,7 @@ export default function UsersPage() {
                             <button
                               onClick={() => {
                                 setResetUserId(u.id);
+                                setCurrentPw("");
                                 setNewPw("");
                                 setCfPw("");
                               }}
@@ -1063,7 +1082,12 @@ export default function UsersPage() {
               </h2>
 
               <button
-                onClick={() => setResetUserId(null)}
+                onClick={() => {
+                  setResetUserId(null);
+                  setCurrentPw("");
+                  setNewPw("");
+                  setCfPw("");
+                }}
                 className="
                   text-gray-400
                   hover:text-gray-600
@@ -1087,9 +1111,32 @@ export default function UsersPage() {
                 p-3
               "
               >
-                The user will be required to set their own password the next
-                time they log in.
+                {resetUserId === currentUserId
+                  ? "To change your own password, enter your current password below. We will verify it before changing your password."
+                  : "The selected user will be required to set their own password the next time they log in."}
               </p>
+
+              {resetUserId === currentUserId && (
+                <div>
+                  <label
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                    htmlFor="current-password-for-reset"
+                  >
+                    Current Password
+                  </label>
+                  <input
+                    id="current-password-for-reset"
+                    type="password"
+                    autoComplete="current-password"
+                    value={currentPw}
+                    onChange={(e) => setCurrentPw(e.target.value)}
+                    required
+                    maxLength={128}
+                    placeholder="Enter your current password"
+                    className={inputCls()}
+                  />
+                </div>
+              )}
 
               <div>
                 <label
@@ -1160,7 +1207,12 @@ export default function UsersPage() {
 
                 <button
                   type="button"
-                  onClick={() => setResetUserId(null)}
+                  onClick={() => {
+                    setResetUserId(null);
+                    setCurrentPw("");
+                    setNewPw("");
+                    setCfPw("");
+                  }}
                   className="
                     flex-1
                     border
