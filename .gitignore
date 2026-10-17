@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.production
+.env.audit
 
 # SSL certificates
 docker/nginx/ssl/*.pem

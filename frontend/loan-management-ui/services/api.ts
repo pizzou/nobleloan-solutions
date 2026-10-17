@@ -227,6 +227,25 @@ function getAxiosErrorMessage(data: unknown): string | null {
       detail?: unknown;
     };
 
+    // Spring validation responses use a generic top-level `error` such as
+    // "Validation failed" and put actionable field errors in `detail`. Prefer
+    // those details so a 400 is diagnosable rather than displaying only the
+    // generic summary.
+    if (
+      value.detail &&
+      typeof value.detail === "object" &&
+      !Array.isArray(value.detail)
+    ) {
+      const details = Object.entries(value.detail as Record<string, unknown>)
+        .filter(
+          (entry): entry is [string, string] =>
+            typeof entry[1] === "string" && Boolean(entry[1].trim()),
+        )
+        .slice(0, 3)
+        .map(([field, message]) => `${field}: ${message}`);
+      if (details.length) return details.join("; ").slice(0, 400);
+    }
+
     if (typeof value.message === "string" && value.message) {
       return value.message;
     }
@@ -354,7 +373,7 @@ export const authApi = {
     return post(
       "/auth/send-login-otp",
       { otpChallengeToken: token },
-      { timeout: 15000 },
+      { timeout: 20000 },
     );
   },
 

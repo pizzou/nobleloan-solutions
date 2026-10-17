@@ -8,6 +8,7 @@ import com.patrick.fintech.loan_backend.service.*;
 import com.patrick.fintech.loan_backend.service.AuditService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.*;
@@ -202,7 +203,9 @@ public class AuthController {
             User user = userRepository.findByEmailIgnoreCase(email)
                     .orElseThrow(() -> new RuntimeException("User account not found"));
             long currentVersion = user.getTokenVersion() == null ? 0L : user.getTokenVersion();
-            if (tokenVersion != currentVersion || !isEmailOtpRole(user)) {
+            if (tokenVersion != currentVersion || !isEmailOtpRole(user)
+                    || user.getStatus() != User.UserStatus.ACTIVE
+                    || user.getDeletedAt() != null || user.getPurgedAt() != null) {
                 throw new RuntimeException("Invalid or expired OTP challenge. Please sign in again.");
             }
 
@@ -218,11 +221,29 @@ public class AuthController {
                 user.setLoginOtpAttempts(0);
                 user.setLastLoginAt(null);
                 userRepository.save(user);
-                mailService.sendLoginOtp(user, code);
+
+                // Do not return a successful "code sent" response until the email
+                // provider accepts the message. Otherwise a failed first delivery
+                // leaves an active OTP and a retry falsely reports "already sent".
+                if (!mailService.sendLoginOtp(user, code)) {
+                    user.setLoginOtpHash(null);
+                    user.setLoginOtpExpiresAt(null);
+                    user.setLoginOtpAttempts(0);
+                    userRepository.save(user);
+                    auditService.logAuthenticationAsync(
+                            user.getOrganization(), user, "LOGIN_OTP_DELIVERY_FAILED", "AUTH",
+                            String.valueOf(user.getId()),
+                            "Login OTP could not be accepted by the email provider",
+                            null, null, "Authentication");
+                    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                            "success", false,
+                            "message", "We could not send your sign-in code right now. Please try again shortly."));
+                }
+
                 auditService.logAuthenticationAsync(
                         user.getOrganization(), user, "LOGIN_OTP_SENT", "AUTH",
                         String.valueOf(user.getId()),
-                        "Login OTP issued after verification screen was reached",
+                        "Login OTP accepted by the email provider",
                         null, null, "Authentication");
             }
 
@@ -271,6 +292,11 @@ public class AuthController {
         User current = userRepository.findById(user.getId())
                 .orElseThrow(() -> new RuntimeException("User account not found"));
 
+        if (current.getStatus() != User.UserStatus.ACTIVE
+                || current.getDeletedAt() != null || current.getPurgedAt() != null) {
+            throw new RuntimeException("User account is not active");
+        }
+
         if (current.getLoginOtpHash() == null || current.getLoginOtpExpiresAt() == null
                 || !current.getLoginOtpExpiresAt().isAfter(now)) {
             throw new RuntimeException("Your verification code has expired. Please sign in again to get a new one.");
@@ -315,6 +341,18 @@ public class AuthController {
     }
 
     private ResponseEntity<Map<String, Object>> successfulLogin(User user) {
+        if (user == null || user.getId() == null) {
+            throw new RuntimeException("User account not found");
+        }
+        // Re-read account state just before issuing a session. This closes the
+        // challenge/OTP race where an administrator deactivates a user mid-login.
+        user = userRepository.findById(user.getId())
+                .orElseThrow(() -> new RuntimeException("User account not found"));
+        if (user.getStatus() != User.UserStatus.ACTIVE
+                || user.getDeletedAt() != null || user.getPurgedAt() != null) {
+            throw new RuntimeException("User account is not active");
+        }
+
         auditService.logAuthenticationAsync(user.getOrganization(), user, "LOGIN_SUCCESS", "AUTH",
                 String.valueOf(user.getId()), user.getName() + " signed in", null, null, "Authentication");
 

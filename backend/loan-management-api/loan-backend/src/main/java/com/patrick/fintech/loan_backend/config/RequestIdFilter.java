@@ -5,21 +5,18 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.MDC;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.UUID;
 
-/**
- * Without this, every log line just says what happened, never which request it happened for —
- * tracing a single user's error through the logs (especially once this runs behind a load
- * balancer with more than one backend instance) means grepping timestamps and hoping. This
- * stamps every request with an ID that's attached to every log line logged during it (via SLF4J
- * MDC, which the JSON log encoder in logback-spring.xml includes automatically) and echoed back
- * as a response header, so a borrower or officer reporting "it broke" can hand you a request ID
- * that jumps straight to the right log lines.
- */
+
 public class RequestIdFilter extends OncePerRequestFilter {
+
+    private static final Logger log = LoggerFactory.getLogger(RequestIdFilter.class);
+    private static final long SLOW_REQUEST_THRESHOLD_MS = 2_000L;
 
     public static final String HEADER = "X-Request-Id";
     public static final String MDC_KEY = "requestId";
@@ -27,18 +24,28 @@ public class RequestIdFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        // Trust an inbound ID from our own load balancer/reverse proxy (so a request can be
-        // traced across it and the app), but always generate our own if none was supplied —
-        // never trust an arbitrary client-supplied value as-is without at least a sanity bound.
+        
         String requestId = request.getHeader(HEADER);
         if (requestId == null || requestId.isBlank() || requestId.length() > 100) {
             requestId = UUID.randomUUID().toString();
         }
         MDC.put(MDC_KEY, requestId);
         response.setHeader(HEADER, requestId);
+        long startedAt = System.nanoTime();
         try {
             chain.doFilter(request, response);
         } finally {
+            long durationMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                    System.nanoTime() - startedAt);
+            int status = response.getStatus();
+            if (status >= 500) {
+                log.error("HTTP request failed method={} path={} status={} durationMs={}",
+                        request.getMethod(), request.getRequestURI(), status, durationMs);
+            } else if (durationMs >= SLOW_REQUEST_THRESHOLD_MS) {
+                // Deliberately omit query strings, request bodies, cookies, and auth headers.
+                log.warn("Slow HTTP request method={} path={} status={} durationMs={}",
+                        request.getMethod(), request.getRequestURI(), status, durationMs);
+            }
             MDC.remove(MDC_KEY);
         }
     }

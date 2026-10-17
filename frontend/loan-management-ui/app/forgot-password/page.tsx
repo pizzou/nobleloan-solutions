@@ -23,10 +23,24 @@ export default function ForgotPasswordPage() {
       // The backend intentionally uses the same response for known and unknown
       // addresses to prevent account enumeration.
       setSubmitted(true);
-    } catch {
-      setError(
-        "We could not process this request right now. Please wait and try again.",
-      );
+    } catch (requestError: unknown) {
+      const error = requestError as {
+        message?: unknown;
+        status?: number;
+        response?: { status?: number };
+      };
+      const status = error.response?.status ?? error.status;
+      if (status === 400 && typeof error.message === "string" && error.message.trim()) {
+        // Validation feedback is safe to show; account existence remains hidden
+        // because unknown addresses receive the same generic success response.
+        setError(error.message);
+      } else if (status === 429) {
+        setError("Too many reset requests. Please wait before trying again.");
+      } else {
+        setError(
+          "We could not process this request right now. Please wait and try again.",
+        );
+      }
     } finally {
       setLoading(false);
     }

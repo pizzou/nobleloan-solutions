@@ -11,28 +11,24 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Distributed rate limiting with a bounded local degraded-mode fallback.
- *
- * The database limiter is authoritative during normal operation. If the
- * distributed store is temporarily unavailable, authentication and other
- * abuse-sensitive endpoints are NOT allowed to become completely unprotected:
- * a per-instance fixed-window limiter is used instead.
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class RateLimitFilter extends OncePerRequestFilter {
 
-    private record Rule(String method, String path, int max, long window, String label, boolean degradedModeAllowed) {}
+    private record Rule(String method, String path, int max, long window, String label, boolean degradedModeAllowed) {
+    }
 
-    private record LocalBucket(long windowStart, AtomicInteger count) {}
+    private record LocalBucket(long windowStart, AtomicInteger count) {
+    }
 
     private final DistributedRateLimitService limiter;
     private final ConcurrentHashMap<String, LocalBucket> localBuckets = new ConcurrentHashMap<>();
@@ -41,15 +37,16 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private final List<Rule> rules = List.of(
             new Rule("POST", "/api/auth/login", 20, TimeUnit.MINUTES.toMillis(5), "login", true),
+            new Rule("POST", "/api/auth/send-login-otp", 5, TimeUnit.MINUTES.toMillis(5), "login-otp", true),
             new Rule("POST", "/api/auth/register", 5, TimeUnit.HOURS.toMillis(1), "register", true),
             new Rule("POST", "/api/auth/forgot-password", 5, TimeUnit.HOURS.toMillis(1), "forgot", true),
             new Rule("POST", "/api/auth/reset-password", 10, TimeUnit.HOURS.toMillis(1), "reset", true),
 
             // Webhooks must be evaluated before the generic public rule.
             new Rule("POST", "/api/public/webhooks/", 120, TimeUnit.MINUTES.toMillis(1), "webhook", true),
-            new Rule("GET", "/api/public/payment-schedule", 20, TimeUnit.MINUTES.toMillis(1), "public-payment-schedule", true),
-            new Rule("ANY", "/api/public/", 60, TimeUnit.MINUTES.toMillis(1), "public", true)
-    );
+            new Rule("GET", "/api/public/payment-schedule", 20, TimeUnit.MINUTES.toMillis(1), "public-payment-schedule",
+                    true),
+            new Rule("ANY", "/api/public/", 60, TimeUnit.MINUTES.toMillis(1), "public", true));
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -81,7 +78,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
                     return;
                 }
             } catch (Exception exception) {
-                log.error("Distributed rate limiter unavailable for {} {}. Entering degraded local mode.", method, path, exception);
+                log.error("Distributed rate limiter unavailable for {} {}. Entering degraded local mode.", method, path,
+                        exception);
 
                 var localDecision = localCheck(key, rule.max(), rule.window());
                 if (!localDecision.allowed()) {
@@ -149,7 +147,41 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private String clientIp(HttpServletRequest request) {
         String remoteAddress = request.getRemoteAddr();
-        return remoteAddress == null || remoteAddress.isBlank() ? "unknown" : remoteAddress.trim();
+        String fallback = remoteAddress == null || remoteAddress.isBlank()
+                ? "unknown"
+                : remoteAddress.trim();
+
+        // The backend is not published on host ports; production requests arrive via
+        // the private Docker-network Nginx proxy, which overwrites X-Real-IP with
+        // the socket peer address. Only honor that header when the direct peer is a
+        // private/loopback/link-local proxy address, and only accept a numeric IP.
+        if (!isTrustedPrivateProxy(remoteAddress)) {
+            return fallback;
+        }
+
+        String supplied = request.getHeader("X-Real-IP");
+        if (supplied == null || supplied.isBlank() || supplied.length() > 45
+                || !supplied.matches("(?i)^[0-9a-f:.]+$")) {
+            return fallback;
+        }
+        try {
+            return InetAddress.getByName(supplied).getHostAddress();
+        } catch (UnknownHostException ignored) {
+            return fallback;
+        }
+    }
+
+    private boolean isTrustedPrivateProxy(String remoteAddress) {
+        if (remoteAddress == null || remoteAddress.isBlank()
+                || !remoteAddress.matches("(?i)^[0-9a-f:.]+$")) {
+            return false;
+        }
+        try {
+            InetAddress address = InetAddress.getByName(remoteAddress);
+            return address.isSiteLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress();
+        } catch (UnknownHostException ignored) {
+            return false;
+        }
     }
 
     @Scheduled(fixedRate = 1, timeUnit = TimeUnit.HOURS)

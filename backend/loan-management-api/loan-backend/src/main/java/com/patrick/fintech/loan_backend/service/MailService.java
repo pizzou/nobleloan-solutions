@@ -14,6 +14,7 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -25,10 +26,8 @@ public class MailService {
 
         private static final String BREVO_URL = "https://api.brevo.com/v3/smtp/email";
 
-     
         private static final String DEFAULT_SENDER_NAME = "Noble Loan Solution";
 
-      
         private final RestTemplate restTemplate;
 
         @Value("${app.mail.enabled:false}")
@@ -37,7 +36,6 @@ public class MailService {
         @Value("${app.mail.from:}")
         private String from;
 
-       
         @Value("${app.mail.from-name:Noble Loan Solution}")
         private String fromName;
 
@@ -139,41 +137,28 @@ public class MailService {
                                                 "from your application tracking page.</p>");
         }
 
-        @Async("mailAsyncExecutor")
-        public void sendLoginOtp(User user, String code) {
-                if (user == null) {
-                        log.warn(
-                                        "[EMAIL] Login OTP delivery skipped: user is null");
-                        return;
+        /**
+         * Login OTP delivery is synchronous on purpose: the login endpoint must not
+         * claim that a code was sent before the provider accepts it. The provider
+         * request has bounded connect/read timeouts in this service's RestTemplate.
+         * This method logs no recipient address or OTP value.
+         */
+        public boolean sendLoginOtp(User user, String code) {
+                if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
+                        log.warn("Login OTP delivery skipped because the user email is missing");
+                        return false;
                 }
-
-                String email = user.getEmail();
-
-                if (email == null || email.isBlank()) {
-                        log.warn(
-                                        "[EMAIL] Login OTP delivery skipped: " +
-                                                        "user email is missing");
-                        return;
-                }
-
                 if (code == null || code.isBlank()) {
-                        log.warn(
-                                        "[EMAIL] Login OTP delivery skipped for {}: " +
-                                                        "OTP code is missing",
-                                        email);
-                        return;
+                        log.warn("Login OTP delivery skipped because the code is missing");
+                        return false;
                 }
-
                 if (!mailEnabled) {
-                        log.warn(
-                                        "[EMAIL] Login OTP delivery is disabled for {}; " +
-                                                        "set MAIL_ENABLED=true in the deployment environment.",
-                                        email);
-                        return;
+                        log.warn("Login OTP delivery is disabled; set MAIL_ENABLED=true in the deployment environment.");
+                        return false;
                 }
 
-                send(
-                                email,
+                return send(
+                                user.getEmail(),
                                 "Your sign-in code",
                                 "<h2>Sign-in Verification Code</h2>" +
                                                 "<p>Use this code to finish signing in:</p>" +
@@ -1107,7 +1092,8 @@ public class MailService {
                 }
 
                 String senderName = fromName == null || fromName.isBlank()
-                                ? DEFAULT_SENDER_NAME : fromName.trim();
+                                ? DEFAULT_SENDER_NAME
+                                : fromName.trim();
                 try {
                         HttpHeaders headers = new HttpHeaders();
                         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -1131,12 +1117,29 @@ public class MailService {
                         log.warn("Email delivery provider rejected message; status={}, subject={}",
                                         response.getStatusCode().value(), subject);
                         return false;
+                } catch (RestClientResponseException ex) {
+                        // Report provider rejection status, but never log its response body or request
+                        // headers.
+                        log.warn("Email delivery provider rejected message; subject={}, status={}",
+                                        subject, ex.getStatusCode().value());
+                        return false;
                 } catch (Exception ex) {
-                        // Do not log recipient addresses, API credentials, message bodies, or reset links.
-                        log.warn("Email delivery failed; subject={}, exceptionType={}",
-                                        subject, ex.getClass().getSimpleName());
+                        // Do not log recipient addresses, API credentials, message bodies, or reset
+                        // links.
+                        // Include only exception class names so connect/read timeout causes are
+                        // diagnosable.
+                        log.warn("Email delivery failed; subject={}, exceptionType={}, rootCauseType={}",
+                                        subject, ex.getClass().getSimpleName(), rootCauseType(ex));
                         return false;
                 }
+        }
+
+        private String rootCauseType(Throwable exception) {
+                Throwable current = exception;
+                for (int i = 0; i < 8 && current.getCause() != null && current.getCause() != current; i++) {
+                        current = current.getCause();
+                }
+                return current.getClass().getSimpleName();
         }
 
         private String escapeHtml(Object value) {
