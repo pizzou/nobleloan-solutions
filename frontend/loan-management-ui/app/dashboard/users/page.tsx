@@ -238,6 +238,11 @@ export default function UsersPage() {
       return;
     }
 
+    if (newPw.length > 128) {
+      toast("error", "Password must not exceed 128 characters");
+      return;
+    }
+
     if (
       !/[A-Z]/.test(newPw) ||
       !/[a-z]/.test(newPw) ||
@@ -1102,6 +1107,8 @@ export default function UsersPage() {
                 <input
                   type="password"
                   value={newPw}
+                  maxLength={128}
+                  autoComplete="new-password"
                   onChange={(e) => setNewPw(e.target.value)}
                   placeholder="10+ chars, upper, lower, digit, symbol"
                   className={inputCls()}
@@ -1124,6 +1131,8 @@ export default function UsersPage() {
                 <input
                   type="password"
                   value={cfPw}
+                  maxLength={128}
+                  autoComplete="new-password"
                   onChange={(e) => setCfPw(e.target.value)}
                   placeholder="Repeat password"
                   className={inputCls()}

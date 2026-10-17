@@ -396,11 +396,26 @@ public class GlobalExceptionHandler {
                 // paths.
                 String lower = message.toLowerCase(java.util.Locale.ROOT);
                 if (lower.contains("sql") || lower.contains("hibernate") || lower.contains("proxy")
-                                || lower.contains("jdbc") || lower.contains("constraint")
-                                || lower.contains("password")) {
+                                || lower.contains("jdbc") || lower.contains("constraint")) {
+                        return fallback;
+                }
+                // Password-policy and current-password validation messages are fixed,
+                // client-safe messages; hiding them made the User & Roles admin reset
+                // action return only "Invalid request" for actionable validation errors.
+                // Never allow arbitrary messages containing password-related data through.
+                if (lower.contains("password") && !isSafePasswordValidationMessage(lower)) {
                         return fallback;
                 }
                 return message;
+        }
+
+        private boolean isSafePasswordValidationMessage(String lower) {
+                return lower.startsWith("password must be at least ")
+                                || lower.startsWith("password must not exceed ")
+                                || lower.startsWith("password must contain ")
+                                || lower.equals("current password is incorrect")
+                                || lower.equals("current password is required")
+                                || lower.equals("enter your current password to change your email");
         }
 
         private ResponseEntity<Map<String, Object>> json(
