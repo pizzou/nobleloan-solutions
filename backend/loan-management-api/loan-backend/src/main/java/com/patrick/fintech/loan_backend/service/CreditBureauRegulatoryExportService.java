@@ -683,37 +683,35 @@ public class CreditBureauRegulatoryExportService {
 
                 // CONSUMER_HEADERS[16] is "Place Of Birth". Keep the regulatory
                 // column mapping aligned with the official template.
-                values[16] = borrower.getPlaceOfBirth();
+                values[16] = cleanText(borrower.getPlaceOfBirth());
 
-                values[20] = borrower.getAddressLine2();
+                values[20] = cleanText(borrower.getAddressLine2());
 
                 values[19] = firstNonBlank(
-                                borrower.getAddressLine1(),
-                                borrower.getAddress());
+                                cleanText(borrower.getAddressLine1()),
+                                cleanText(borrower.getAddress()));
 
-                values[21] = borrower.getPostalCode();
+                values[21] = cleanText(borrower.getPostalCode());
 
-                values[23] = firstNonBlank(borrower.getPhysicalAddressProvince(), borrower.getStateProvince());
+                // Keep each physical-address component in its own CRB column. Do not
+                // substitute province or the free-text address for a missing district,
+                // sector or cell: that would create inaccurate regulatory data.
+                values[23] = firstNonBlank(
+                                cleanText(borrower.getPhysicalAddressProvince()),
+                                cleanText(borrower.getStateProvince()));
+                values[24] = cleanText(borrower.getPhysicalAddressDistrict());
+                values[25] = cleanText(borrower.getPhysicalAddressSector());
+                values[26] = cleanText(borrower.getPhysicalAddressCell());
 
-                values[24] = borrower.getPhysicalAddressDistrict();
+                values[27] = cleanText(borrower.getCountry());
+                values[28] = cleanText(borrower.getEmail());
 
-                values[25] = borrower.getPhysicalAddressSector();
-
-                values[26] = borrower.getPhysicalAddressCell();
-
-                values[27] = borrower.getCountry();
-
-                values[28] = borrower.getEmail();
-
-                values[29] = null;
-
-                // CRB template has separate work/home/mobile columns, but Noble collects one
-                // borrower phone number. Repeat that same verified number in all three fields.
-                values[30] = borrower.getPhone();
-
-                values[31] = borrower.getPhone();
-
-                values[32] = borrower.getPhone();
+                // Noble currently stores one borrower phone number. Use one normalized
+                // source value for all three CRB telephone columns so they cannot diverge.
+                String phone = cleanText(borrower.getPhone());
+                values[30] = phone;
+                values[31] = phone;
+                values[32] = phone;
 
                 values[34] = borrower.getEmployerName();
 
@@ -1553,6 +1551,18 @@ public class CreditBureauRegulatoryExportService {
                 return !isBlank(first)
                                 ? first
                                 : second;
+        }
+
+        /**
+         * Normalizes text before writing it to the regulatory workbook.
+         * Null and whitespace-only values remain empty; no regulatory data is invented.
+         */
+        private String cleanText(String value) {
+                if (value == null) {
+                        return null;
+                }
+                String cleaned = value.trim();
+                return cleaned.isEmpty() ? null : cleaned;
         }
 
         private boolean isBlank(
