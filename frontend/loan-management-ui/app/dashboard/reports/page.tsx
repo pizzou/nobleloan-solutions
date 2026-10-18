@@ -62,6 +62,7 @@ interface CashFlowReport {
   from?: string;
   to?: string;
   cashUsedForLending?: Numeric;
+  operatingCashInflows?: Numeric;
   cashFromCollections?: Numeric;
   cashFromFees?: Numeric;
   otherCashMovement?: Numeric;

@@ -36,6 +36,7 @@ export interface CreditQualityPoint {
 
 export interface CashFlowSummary {
   cashUsedForLending?: Numeric;
+  operatingCashInflows?: Numeric;
   cashFromCollections?: Numeric;
   cashFromFees?: Numeric;
   otherCashMovement?: Numeric;
@@ -131,8 +132,10 @@ export default function FinancialPerformanceCharts({
           color: "#dc2626",
         },
         {
-          source: "Collections received",
-          amount: numberValue(cashFlow.cashFromCollections),
+          source: "Operating cash inflows",
+          amount: numberValue(
+            cashFlow.operatingCashInflows ?? cashFlow.cashFromCollections,
+          ),
           color: "#15803d",
         },
         {
@@ -325,7 +328,7 @@ export default function FinancialPerformanceCharts({
 
         <ChartCard
           title="Cash movement by source"
-          description="Cash used for lending is shown as an outflow; collections, fees and other movements retain their reported sign. Net change is shown separately to avoid double-counting it in the component bars."
+          description="Cash used for lending is shown as an outflow; operating inflows, application-fee cash and other movements retain their reported sign. Operating inflows are not labelled as collections because the accounting API does not separately expose a verified collection-only cash total. Net change is shown separately to avoid double-counting it in the component bars."
         >
           {cashMovements.length ? (
             <ResponsiveContainer width="100%" height="100%">
