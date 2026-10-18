@@ -1408,7 +1408,7 @@ export default function ReportsPage() {
 
         <FinancialPerformanceCharts
           monthly={monthlyAccounting}
-          creditQuality={reportAggregates.creditQuality}
+          creditQuality={qualityBreakdown}
           cashFlow={cashFlow}
           reportingFrom={reportingFrom}
           reportingTo={reportingTo}

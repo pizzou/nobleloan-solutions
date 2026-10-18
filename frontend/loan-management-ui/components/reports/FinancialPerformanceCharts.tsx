@@ -133,9 +133,18 @@ export default function FinancialPerformanceCharts({
         },
         {
           source: "Operating cash inflows",
-          amount: numberValue(
-            cashFlow.operatingCashInflows ?? cashFlow.cashFromCollections,
-          ),
+          // AccountingService.getCashFlow currently exposes cashFromCollections
+          // as total operating inflows, which also includes application-fee
+          // receipts. Subtract the separately reported fee amount so the chart
+          // does not count the same fee cash twice. If a future API supplies a
+          // dedicated operatingCashInflows field, treat that field as the
+          // explicit value and do not subtract fees again.
+          amount:
+            cashFlow.operatingCashInflows !== null &&
+            cashFlow.operatingCashInflows !== undefined
+              ? numberValue(cashFlow.operatingCashInflows)
+              : numberValue(cashFlow.cashFromCollections) -
+                numberValue(cashFlow.cashFromFees),
           color: "#15803d",
         },
         {
@@ -328,7 +337,7 @@ export default function FinancialPerformanceCharts({
 
         <ChartCard
           title="Cash movement by source"
-          description="Cash used for lending is shown as an outflow; operating inflows, application-fee cash and other movements retain their reported sign. Operating inflows are not labelled as collections because the accounting API does not separately expose a verified collection-only cash total. Net change is shown separately to avoid double-counting it in the component bars."
+          description="Lending deployment is shown as an outflow. Collections are separated from application-fee receipts using the accounting API's current aggregate fields; other movements retain their reported sign. Net change is shown separately and is not added to the component bars."
         >
           {cashMovements.length ? (
             <ResponsiveContainer width="100%" height="100%">
