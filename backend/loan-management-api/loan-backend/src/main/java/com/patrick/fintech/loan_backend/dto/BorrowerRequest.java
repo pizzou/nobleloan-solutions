@@ -8,28 +8,26 @@ import java.math.BigDecimal;
 import jakarta.validation.constraints.*;
 import lombok.*;
 
-@Data @NoArgsConstructor @AllArgsConstructor @Builder
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class BorrowerRequest {
-    @NotBlank private String firstName;
-    @NotBlank private String lastName;
-    @Email   private String email;
+    @NotBlank
+    private String firstName;
+    @NotBlank
+    private String lastName;
+    @Email
+    private String email;
     @NotBlank(message = "Phone number is required")
-    @Pattern(
-        regexp = "^0\\d{9}$",
-        message = "Phone number must contain exactly 10 digits and start with 0"
-    )
+    @Pattern(regexp = "^0\\d{9}$", message = "Phone number must contain exactly 10 digits and start with 0")
     private String phone;
-    @NotBlank(message = "Alternate phone number is required")
-    @Pattern(
-        regexp = "^0\\d{9}$",
-        message = "Alternate phone number must contain exactly 10 digits and start with 0"
-    )
+    // Deprecated compatibility field. The application now collects one phone
+    // number.
+    // If supplied by older clients it is ignored in favor of the primary phone.
     private String alternatePhone;
-       @NotBlank(message = "National ID is required")
-@Pattern(
-    regexp = "^\\d{16}$",
-    message = "National ID must contain exactly 16 digits"
-)
+    @NotBlank(message = "National ID is required")
+    @Pattern(regexp = "^\\d{16}$", message = "National ID must contain exactly 16 digits")
     private String nationalId;
     private String passportNumber;
     private String taxIdentificationNumber;
@@ -61,15 +59,15 @@ public class BorrowerRequest {
     private String employerName;
     private String employmentType;
     private String jobTitle;
-    
+
     @JsonProperty("monthlyIncome")
-private BigDecimal monthlyIncome;
-    
+    private BigDecimal monthlyIncome;
+
     @JsonProperty("monthlyExpenses")
-private BigDecimal monthlyExpenses;
-    
+    private BigDecimal monthlyExpenses;
+
     @JsonProperty("netWorth")
-private BigDecimal netWorth;
+    private BigDecimal netWorth;
     private Integer creditScore;
     private String creditBureau;
     private String bankName;
@@ -146,22 +144,27 @@ private BigDecimal netWorth;
             this.monthlyIncome = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BorrowerRequestBuilder monthlyIncome(BigDecimal value) {
             this.monthlyIncome = value;
             return this;
         }
+
         public BorrowerRequestBuilder monthlyExpenses(Double value) {
             this.monthlyExpenses = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BorrowerRequestBuilder monthlyExpenses(BigDecimal value) {
             this.monthlyExpenses = value;
             return this;
         }
+
         public BorrowerRequestBuilder netWorth(Double value) {
             this.netWorth = value == null ? null : BigDecimal.valueOf(value);
             return this;
         }
+
         public BorrowerRequestBuilder netWorth(BigDecimal value) {
             this.netWorth = value;
             return this;

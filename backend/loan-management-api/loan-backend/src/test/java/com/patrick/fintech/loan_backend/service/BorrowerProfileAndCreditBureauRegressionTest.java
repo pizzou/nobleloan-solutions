@@ -33,6 +33,34 @@ class BorrowerProfileAndCreditBureauRegressionTest {
         }
 
         @Test
+        void creditBureauConsumerExportIncludesPhysicalDistrictSectorCellAndOnePhoneInAllTelephoneColumns()
+                        throws Exception {
+                String source = Files.readString(source("service/CreditBureauRegulatoryExportService.java"));
+                source = source.replace("\r\n", "\n").replace('\r', '\n');
+                assertTrue(source.contains("values[24] =\n                borrower.getPhysicalAddressDistrict();"),
+                                "Physical district must populate the CRB consumer district column.");
+                assertTrue(source.contains("values[25] =\n                borrower.getPhysicalAddressSector();"),
+                                "Physical sector must populate the CRB consumer sector column.");
+                assertTrue(source.contains("values[26] =\n                borrower.getPhysicalAddressCell();"),
+                                "Physical cell must populate the CRB consumer cell column.");
+                assertTrue(source.contains("values[30] =\n                borrower.getPhone();")
+                                && source.contains("values[31] =\n                borrower.getPhone();")
+                                && source.contains("values[32] =\n                borrower.getPhone();"),
+                                "Work, home and mobile telephone columns must use the one borrower phone.");
+        }
+
+        @Test
+        void borrowerCreationUsesOnePhoneAndKeepsLegacyAlternatePhoneSynchronized() throws Exception {
+                String controller = Files.readString(source("controller/BorrowerController.java"));
+                String request = Files.readString(source("dto/BorrowerRequest.java"));
+                assertTrue(controller.contains(
+                                ".alternatePhone(\n                                                req.getPhone())"),
+                                "New borrowers must persist the sole phone in the legacy alternate-phone column too.");
+                assertFalse(request.contains("Alternate phone number is required"),
+                                "Borrower creation must not require a second phone number.");
+        }
+
+        @Test
         void publicBorrowerProfileUpdateUsesOwnershipCheckAndStrictAllowlist() throws Exception {
                 String source = Files.readString(source("controller/PublicController.java"));
                 assertTrue(source.contains("@PutMapping(\"/applications/{reference}/profile\")"));

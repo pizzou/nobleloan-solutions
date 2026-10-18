@@ -226,7 +226,7 @@ public class BorrowerController {
                                                 req.getPhone())
 
                                 .alternatePhone(
-                                                req.getAlternatePhone())
+                                                req.getPhone())
 
                                 .nationalId(
                                                 req.getNationalId())
@@ -437,6 +437,9 @@ public class BorrowerController {
 
                         borrower.setPhone(
                                         req.getPhone());
+                        // Keep the legacy alternate-phone column synchronized: the product collects one
+                        // phone only.
+                        borrower.setAlternatePhone(req.getPhone());
                 }
 
                 if (req.getPlaceOfBirth() != null) {
@@ -467,9 +470,6 @@ public class BorrowerController {
                         borrower.setCountry(req.getCountry());
                 }
 
-                if (req.getAlternatePhone() != null) {
-                        borrower.setAlternatePhone(req.getAlternatePhone().trim());
-                }
                 if (req.getEmail() != null) {
                         borrower.setEmail(req.getEmail().trim());
                 }
