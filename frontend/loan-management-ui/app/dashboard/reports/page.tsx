@@ -5,9 +5,11 @@ import Link from "next/link";
 
 import API from "../../../services/api";
 import { getDashboardStats } from "../../../services/dashboardService";
-import { getOverduePayments } from "../../../services/paymentService";
-
 import { PageSpinner } from "../../../components/ui/Skeleton";
+import FinancialPerformanceCharts, {
+  type CreditQualityPoint,
+  type MonthlyFinancialPoint,
+} from "../../../components/reports/FinancialPerformanceCharts";
 
 /* ==========================================================================
    TYPES
@@ -66,14 +68,12 @@ interface CashFlowReport {
   netChangeInCash?: Numeric;
 }
 
-interface MonthlyAccountingReport {
-  month: string;
-  label: string;
-  from: string;
-  to: string;
-  revenue: number;
-  expenses: number;
-  profit: number;
+interface MonthlyAccountingReport extends MonthlyFinancialPoint {}
+
+interface ReportAggregates {
+  loanProducts: Array<{ type: string; count: number; amount: number }>;
+  creditQuality: CreditQualityPoint[];
+  genderRows: unknown[][];
 }
 
 interface DashboardStatsLike {
@@ -757,6 +757,12 @@ export default function ReportsPage() {
     MonthlyAccountingReport[]
   >([]);
 
+  const [reportAggregates, setReportAggregates] = useState<ReportAggregates>({
+    loanProducts: [],
+    creditQuality: [],
+    genderRows: [],
+  });
+
   const [loading, setLoading] = useState(true);
 
   const [accountingError, setAccountingError] = useState<string | null>(null);
@@ -805,28 +811,23 @@ export default function ReportsPage() {
             amount: numberValue(row?.[2]),
           }));
 
-          const genderRows = normalizeArray<any>(operational.borrowerGender);
-          const genderLoans: LoanLike[] = [];
-          for (const row of genderRows) {
-            genderLoans.push({
-              borrower: { gender: String(row?.[0] ?? "UNKNOWN") },
-              amount: numberValue(row?.[1]),
-            });
-          }
+          const genderRows = normalizeArray<unknown[]>(
+            operational.borrowerGender,
+          );
 
-          setLoans(genderLoans);
+          // Keep server aggregates in React state. Avoid synthetic loan objects
+          // and window globals, which could otherwise confuse portfolio totals.
+          setReportAggregates({ loanProducts, creditQuality, genderRows });
+          setLoans([]);
           setOverdue([{ penalty: numberValue(operational.overduePenalties) }]);
-
-          // Store lightweight aggregates on the existing state shape via a synthetic
-          // set of rows used only by the report's memoized composition sections.
-          (window as any).__nobleReportAggregates = {
-            loanProducts,
-            creditQuality,
-            genderRows,
-          };
         } else {
           setLoans([]);
           setOverdue([]);
+          setReportAggregates({
+            loanProducts: [],
+            creditQuality: [],
+            genderRows: [],
+          });
         }
       } catch (error) {
         console.error("Operational reports failed", error);
@@ -835,6 +836,11 @@ export default function ReportsPage() {
           setStats(null);
           setOverdue([]);
           setLoans([]);
+          setReportAggregates({
+            loanProducts: [],
+            creditQuality: [],
+            genderRows: [],
+          });
         }
       }
     };
@@ -929,77 +935,50 @@ export default function ReportsPage() {
           setAccountingError("Accounting reports could not be loaded.");
         }
 
-        /*
-         * Monthly P&L is a secondary visualization. Do not block the first
-         * reports screen on six additional full accounting queries.
-         * Fetch it after the primary reports have rendered.
-         */
-        void (async () => {
-          const today = new Date();
-
-          const periods = Array.from({ length: 6 }, (_, index) => {
-            const date = previousMonth(today, 5 - index);
-
-            return {
-              date,
-              from: toDateString(monthStart(date)),
-              to: toDateString(monthEnd(date)),
-            };
-          });
-
-          const monthlyResults = await Promise.allSettled(
-            periods.map(async (period) => {
-              const response = await API.get("/accounting/profit-and-loss", {
-                params: {
-                  from: period.from,
-                  to: period.to,
-                },
-              });
-
-              const data = unwrap<ProfitAndLossReport>(response);
-
-              return {
-                month: period.from.slice(0, 7),
-                label: new Intl.DateTimeFormat("en-RW", {
-                  month: "short",
-                  year: "numeric",
-                }).format(period.date),
-                from: period.from,
-                to: period.to,
-                revenue: numberValue(data?.totalIncome),
-                expenses: numberValue(
-                  data?.totalExpense ?? data?.totalExpenses,
-                ),
-                profit: numberValue(data?.netIncome),
-              } satisfies MonthlyAccountingReport;
-            }),
+        // The unified accounting response already includes monthlyProfitAndExpenses.
+        // Reuse that server-calculated accounting data instead of issuing six more
+        // full P&L requests from the browser. Failed months are never represented as zero.
+        if (accounting.status === "fulfilled") {
+          const monthlyRows = normalizeArray<any>(
+            accountingPayload.monthlyProfitAndExpenses,
           );
-
-          if (!mounted) return;
-
-          setMonthlyAccounting(
-            monthlyResults.map((result, index) => {
-              const period = periods[index];
-
-              if (result.status === "fulfilled") {
-                return result.value;
-              }
-
+          const normalizedMonthly = monthlyRows.map(
+            (row): MonthlyAccountingReport => {
+              const from = String(row?.from ?? "").slice(0, 10);
+              const to = String(row?.to ?? "").slice(0, 10);
+              const monthNumber = numberValue(row?.monthNumber);
+              const year =
+                numberValue(row?.year) ||
+                (from ? Number(from.slice(0, 4)) : new Date().getFullYear());
+              const monthDate =
+                monthNumber >= 1 && monthNumber <= 12
+                  ? new Date(year, monthNumber - 1, 1)
+                  : from
+                    ? new Date(`${from}T12:00:00`)
+                    : new Date();
+              const monthKey = from
+                ? from.slice(0, 7)
+                : `${year}-${String(monthNumber || monthDate.getMonth() + 1).padStart(2, "0")}`;
+              const label = new Intl.DateTimeFormat("en-RW", {
+                month: "short",
+                year: "2-digit",
+              }).format(monthDate);
               return {
-                month: period.from.slice(0, 7),
-                label: new Intl.DateTimeFormat("en-RW", {
-                  month: "short",
-                  year: "numeric",
-                }).format(period.date),
-                from: period.from,
-                to: period.to,
-                revenue: 0,
-                expenses: 0,
-                profit: 0,
+                month: monthKey,
+                label,
+                from,
+                to,
+                revenue: numberValue(row?.revenue),
+                expenses: numberValue(row?.expenses),
+                profit: numberValue(row?.netIncome ?? row?.profit),
+                available: true,
               };
-            }),
+            },
           );
-        })();
+          setMonthlyAccounting(normalizedMonthly.slice(-6));
+        } else {
+          setMonthlyAccounting([]);
+        }
       } catch (error) {
         console.error("Accounting reports failed", error);
 
@@ -1109,11 +1088,6 @@ export default function ReportsPage() {
 
   const totalCredit = numberValue(trialBalance?.totalCredit);
 
-  const reportAggregates =
-    typeof window !== "undefined"
-      ? (window as any).__nobleReportAggregates
-      : null;
-
   const rejectedCount = 0;
 
   const portfolioCount =
@@ -1134,7 +1108,7 @@ export default function ReportsPage() {
       }
     >();
 
-    if (Array.isArray(reportAggregates?.creditQuality)) {
+    if (reportAggregates.creditQuality.length > 0) {
       return reportAggregates.creditQuality;
     }
 
@@ -1161,7 +1135,7 @@ export default function ReportsPage() {
   }, [currentLoans, reportAggregates]);
 
   const borrowerGender = useMemo(() => {
-    if (Array.isArray(reportAggregates?.genderRows)) {
+    if (reportAggregates.genderRows.length > 0) {
       let male = 0;
       let female = 0;
       let unknown = 0;
@@ -1170,7 +1144,7 @@ export default function ReportsPage() {
         const gender = String(row?.[0] ?? "UNKNOWN")
           .trim()
           .toUpperCase();
-        const count = numberValue(row?.[1]);
+        const count = numberValue(row?.[1] as Numeric);
         if (gender === "M" || gender === "MALE") male += count;
         else if (gender === "F" || gender === "FEMALE") female += count;
         else unknown += count;
@@ -1183,7 +1157,7 @@ export default function ReportsPage() {
   }, [reportAggregates]);
 
   const loanProducts = useMemo(() => {
-    if (Array.isArray(reportAggregates?.loanProducts)) {
+    if (reportAggregates.loanProducts.length > 0) {
       const total = reportAggregates.loanProducts.reduce(
         (sum: number, item: any) => sum + numberValue(item.amount),
         0,
@@ -1430,6 +1404,14 @@ export default function ReportsPage() {
             </div>
           </div>
         </section>
+
+        <FinancialPerformanceCharts
+          monthly={monthlyAccounting}
+          creditQuality={reportAggregates.creditQuality}
+          cashFlow={cashFlow}
+          reportingFrom={reportingFrom}
+          reportingTo={reportingTo}
+        />
 
         {/* ==================================================================
            PORTFOLIO COMPOSITION
