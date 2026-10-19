@@ -210,7 +210,7 @@ export default function HomePage() {
   const products = tenant.services?.length
     ? tenant.services
     : SITE_CONTENT.services;
-  const contactPhone = tenant.contactPhone || "+250 788 123 456";
+  const contactPhone = tenant.contactPhone || "+250 788 599696";
   const contactEmail = tenant.contactEmail || "info@nobleloansolutions.rw";
   const phoneHref = contactPhone.replace(/[^+\d]/g, "");
   const productImages = [
