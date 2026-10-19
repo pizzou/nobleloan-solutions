@@ -122,7 +122,7 @@ public class PublicController {
         // PLATFORM RULES
         // ============================================================
 
-        private static final BigDecimal MIN_LOAN_AMOUNT = new BigDecimal("500000.00");
+        private static final BigDecimal MIN_LOAN_AMOUNT = new BigDecimal("1000000.00");
 
         private static final int MIN_LOAN_DURATION_MONTHS = 1;
 

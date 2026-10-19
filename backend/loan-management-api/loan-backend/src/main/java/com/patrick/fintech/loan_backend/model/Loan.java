@@ -63,7 +63,7 @@ public class Loan {
         // LOAN LIMITS / DEFAULTS
         // ================================================================
 
-        public static final BigDecimal MIN_LOAN_AMOUNT = new BigDecimal("500000.00");
+        public static final BigDecimal MIN_LOAN_AMOUNT = new BigDecimal("1000000.00");
 
         public static final BigDecimal MAX_LOAN_AMOUNT = null;
 

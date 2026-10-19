@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { getLoanRequirementProfile } from "../../../lib/loanRequirements";
 import { useTenant } from "../layout";
 
 const images: Record<string, string> = {
@@ -197,6 +198,66 @@ export default function ServicesPage() {
                           </div>
                         ))}
                       </div>
+
+                      {(() => {
+                        const requirements = getLoanRequirementProfile(
+                          type || service.title,
+                        );
+                        return (
+                          <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                            <h4 className="text-sm font-black text-slate-900">
+                              Requirements for this product
+                            </h4>
+                            <div className="mt-4 grid gap-5 md:grid-cols-3">
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-[.14em] text-slate-500">
+                                  Eligibility
+                                </p>
+                                <ul className="mt-2 list-disc space-y-1.5 pl-4 text-xs leading-5 text-slate-600">
+                                  {requirements.eligibility.map((item) => (
+                                    <li key={item}>{item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-[.14em] text-slate-500">
+                                  Documents to prepare
+                                </p>
+                                <ul className="mt-2 list-disc space-y-1.5 pl-4 text-xs leading-5 text-slate-600">
+                                  {requirements.requiredDocuments.map(
+                                    (item) => (
+                                      <li key={item}>{item}</li>
+                                    ),
+                                  )}
+                                </ul>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-[.14em] text-slate-500">
+                                  Possible extra evidence
+                                </p>
+                                <ul className="mt-2 list-disc space-y-1.5 pl-4 text-xs leading-5 text-slate-600">
+                                  {requirements.additionalEvidence.map(
+                                    (item) => (
+                                      <li key={item}>{item}</li>
+                                    ),
+                                  )}
+                                </ul>
+                              </div>
+                            </div>
+                            <p className="mt-4 text-[11px] leading-5 text-slate-500">
+                              Minimum request:{" "}
+                              <strong>
+                                {amount(
+                                  tenant.currency,
+                                  service.minAmount ?? 1000000,
+                                )}
+                              </strong>
+                              . Requirements and supporting evidence can vary
+                              after verification; approval is not guaranteed.
+                            </p>
+                          </div>
+                        );
+                      })()}
 
                       <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                         <Link

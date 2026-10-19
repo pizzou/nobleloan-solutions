@@ -368,7 +368,7 @@ export default function ApprovalsPage() {
                   </label>
                   <input
                     type="number"
-                    min="500000"
+                    min="1000000"
                     step="0.01"
                     value={draft.approvedAmount}
                     onChange={(e) =>

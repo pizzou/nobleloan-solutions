@@ -91,7 +91,7 @@ public class LoanService {
 
         private static final int DEFAULT_LOAN_DURATION_MONTHS = 1;
 
-        private static final BigDecimal MIN_LOAN_AMOUNT = bd("500000");
+        private static final BigDecimal MIN_LOAN_AMOUNT = bd("1000000");
 
         private static final BigDecimal MONTHLY_INTEREST_RATE = FinancialPolicy.MONTHLY_INTEREST_RATE;
 

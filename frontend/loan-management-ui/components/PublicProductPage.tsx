@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useTenant } from "../app/(site)/layout";
 import { pageContent } from "../lib/websiteContent";
+import { getLoanRequirementProfile } from "../lib/loanRequirements";
 
 const productImages: Record<string, string> = {
   PERSONAL: "/personal-loan.jpg",
@@ -84,6 +85,9 @@ export default function PublicProductPage({
   const primary = tenant.primaryColor || "#0F1B3D";
   const accent = tenant.accentColor || "#C9A227";
   const image = productImages[normalizedType] || "/hero-borrower.jpg";
+  const requirementProfile = getLoanRequirementProfile(
+    product?.loanType || normalizedType,
+  );
   const audience = productAudience[normalizedType] || {
     title: "Your borrowing need",
     body: "Review the active product terms and eligibility requirements shown through Noble's application journey.",
@@ -274,6 +278,57 @@ export default function PublicProductPage({
             </p>
           </article>
         </div>
+
+        <section className="mt-10 rounded-[30px] border border-slate-200 bg-white p-7 shadow-sm sm:p-9">
+          <div className="max-w-3xl">
+            <p
+              className="text-[10px] font-black uppercase tracking-[.18em]"
+              style={{ color: accent }}
+            >
+              Application checklist
+            </p>
+            <h2 className="mt-3 text-2xl font-black tracking-tight sm:text-3xl">
+              Requirements for {resolvedTitle}
+            </h2>
+            <p className="mt-3 text-sm leading-7 text-slate-600">
+              Review these product-specific conditions before starting. The
+              application form will confirm the mandatory uploads for your
+              employment and marital status.
+            </p>
+          </div>
+          <div className="mt-7 grid gap-6 md:grid-cols-3">
+            {[
+              { title: "Eligibility", items: requirementProfile.eligibility },
+              {
+                title: "Documents to prepare",
+                items: requirementProfile.requiredDocuments,
+              },
+              {
+                title: "Additional evidence",
+                items: requirementProfile.additionalEvidence,
+              },
+            ].map((group) => (
+              <div key={group.title} className="rounded-2xl bg-slate-50 p-5">
+                <h3 className="text-sm font-black" style={{ color: primary }}>
+                  {group.title}
+                </h3>
+                <ul className="mt-3 list-disc space-y-2 pl-4 text-xs leading-5 text-slate-600">
+                  {group.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <p className="mt-5 text-xs leading-6 text-slate-500">
+            Minimum loan amount:{" "}
+            <strong>
+              {amount(tenant.currency, product?.minAmount ?? 1000000)}
+            </strong>
+            . Product limits shown above apply; the final approved amount and
+            any extra evidence are confirmed during assessment.
+          </p>
+        </section>
 
         <div className="mt-8 grid gap-5 lg:grid-cols-[.9fr_1.1fr]">
           <div

@@ -7,6 +7,7 @@ import { useOnlineStatus } from "../../../hooks/useOnlineStatus";
 import { TENANT_SLUG } from "../../../lib/tenant";
 import { getApiBaseUrl } from "../../../lib/apiBase";
 import CameraCapture from "../../../components/CameraCapture";
+import { getLoanRequirementProfile } from "../../../lib/loanRequirements";
 import {
   calculateContractualSchedule,
   percentageCharge,
@@ -96,7 +97,10 @@ function ApplyPageContent() {
   const selectedService = tenant.services?.find(
     (s) => s.title === form.loanType || s.loanType === form.loanType,
   );
-  const minimumLoanAmount = Number(selectedService?.minAmount ?? 500000);
+  const minimumLoanAmount = Number(selectedService?.minAmount ?? 1000000);
+  const requirementProfile = getLoanRequirementProfile(
+    selectedService?.loanType || form.loanType,
+  );
   const configuredMaximum = selectedService?.maxAmount ?? null;
   const maximumLoanAmount =
     configuredMaximum === null ||
@@ -506,7 +510,62 @@ function ApplyPageContent() {
         </p>
       </section>
 
-      <div className="max-w-2xl mx-auto px-4 py-12">
+      <div className="max-w-5xl mx-auto px-4 py-8">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <p
+            className="text-xs font-black uppercase tracking-wider"
+            style={{ color: accent }}
+          >
+            Before you apply
+          </p>
+          <h2 className="mt-2 text-xl font-black text-slate-900">
+            Requirements for{" "}
+            {selectedService?.title || form.loanType || "your loan"}
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Minimum loan amount:{" "}
+            <strong>
+              {tenant.currency}{" "}
+              {minimumLoanAmount.toLocaleString("en-RW", {
+                maximumFractionDigits: 0,
+              })}
+            </strong>
+            . Review the requirements for your selected product before
+            completing the form.
+          </p>
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            {[
+              { title: "Eligibility", items: requirementProfile.eligibility },
+              {
+                title: "Documents to prepare",
+                items: requirementProfile.requiredDocuments,
+              },
+              {
+                title: "Possible extra evidence",
+                items: requirementProfile.additionalEvidence,
+              },
+            ].map((group) => (
+              <div key={group.title} className="rounded-xl bg-slate-50 p-4">
+                <h3 className="text-xs font-black uppercase tracking-wide text-slate-700">
+                  {group.title}
+                </h3>
+                <ul className="mt-2 list-disc space-y-1.5 pl-4 text-xs leading-5 text-slate-600">
+                  {group.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs leading-5 text-slate-500">
+            The form will identify mandatory uploads based on your employment
+            and marital status. Additional evidence may be requested during
+            assessment; meeting the requirements does not guarantee approval.
+          </p>
+        </section>
+      </div>
+
+      <div className="max-w-2xl mx-auto px-4 pb-12">
         {/* PROGRESS */}
 
         <div className="flex items-center justify-center gap-0 mb-10">
@@ -1044,7 +1103,7 @@ function ApplyPageContent() {
                       return null;
                     }
 
-                    const min = Number(svc.minAmount ?? 500000);
+                    const min = Number(svc.minAmount ?? 1000000);
                     const max =
                       svc.maxAmount === null ||
                       svc.maxAmount === undefined ||
@@ -1465,7 +1524,8 @@ function ApplyPageContent() {
                       if (!svc) return true;
 
                       return (
-                        Number(form.amount) < Number(svc.minAmount ?? 500000) ||
+                        Number(form.amount) <
+                          Number(svc.minAmount ?? 1000000) ||
                         (svc.maxAmount !== null &&
                           svc.maxAmount !== undefined &&
                           svc.maxAmount !== "" &&
