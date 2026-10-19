@@ -3441,22 +3441,14 @@ public class LoanService {
 
         private String generateRef(
                         Organization org) {
-
-                String prefix = "RW";
-
-                if (org != null
-                                && org.getCountry() != null
-                                && !org.getCountry().trim().isEmpty()) {
-
-                        prefix = org.getCountry()
-                                        .trim()
-                                        .toUpperCase();
-                }
-
                 String random = UUID.randomUUID().toString().replace("-", "")
                                 .substring(0, 12).toUpperCase(Locale.ROOT);
 
-                return prefix + "-" + random;
+                // Noble Loan Solution reference numbers use one stable prefix
+                // across organizations, origination paths and imported loans.
+                // The random suffix remains globally collision-resistant, while
+                // the database unique constraint is the final concurrency guard.
+                return "NLS-" + random;
         }
 
         // ================================================================

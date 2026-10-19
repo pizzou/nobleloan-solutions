@@ -165,12 +165,10 @@ public class Loan {
         @Builder.Default
         private LoanStatus status = LoanStatus.PENDING;
 
-       
         @Column(name = "business_owner_only", nullable = false)
         @Builder.Default
         @JsonIgnore
         private Boolean businessOwnerOnly = false;
-
 
         @Column(name = "deleted_at")
         @JsonIgnore
@@ -180,7 +178,6 @@ public class Loan {
         @JsonIgnore
         private String deletionReason;
 
-        
         @Column(name = "deleted_by")
         @JsonIgnore
         private Long deletedBy;
@@ -547,8 +544,40 @@ public class Loan {
         // JPA LIFECYCLE
         // ================================================================
 
+        /**
+         * Enforces Noble Loan Solution's canonical loan-reference format at the
+         * entity boundary. This protects every ORM creation/update path, including
+         * paths that do not call LoanService or the legacy importer directly.
+         * Historical values are normalized by Flyway migration V120.
+         */
+        private void normalizeLoanReferenceNumber() {
+
+                if (referenceNumber == null || referenceNumber.isBlank()) {
+                        throw new IllegalStateException(
+                                        "Loan reference number is required and must start with NLS-.");
+                }
+
+                String normalized = referenceNumber.trim();
+                String suffix = normalized.replaceFirst("(?i)^NLS[-_\\s]*", "").trim();
+
+                if (suffix.isBlank()) {
+                        throw new IllegalStateException(
+                                        "Loan reference number must contain a suffix after NLS-.");
+                }
+
+                // reference_number is VARCHAR(100); reserve four characters for NLS-.
+                if (suffix.length() > 96) {
+                        throw new IllegalStateException(
+                                        "Loan reference suffix cannot exceed 96 characters after the NLS- prefix.");
+                }
+
+                this.referenceNumber = "NLS-" + suffix;
+        }
+
         @PrePersist
         protected void onCreate() {
+
+                normalizeLoanReferenceNumber();
 
                 LocalDateTime now = LocalDateTime.now();
 
@@ -785,6 +814,8 @@ public class Loan {
         @PreUpdate
         protected void onUpdate() {
 
+                normalizeLoanReferenceNumber();
+
                 updatedAt = LocalDateTime.now();
 
                 // Keep both timestamp fields synchronized.
@@ -889,7 +920,13 @@ public class Loan {
 
                 this.daysOverdue = days;
 
-                this.creditQuality = classifyCreditQuality(days);
+                // A formal write-off is a contractual/accounting event, not
+                // merely a days-past-due threshold. Preserve that status during
+                // entity lifecycle callbacks even when the source does not have
+                // a reliable next due date or historical overdue-day count.
+                this.creditQuality = this.status == LoanStatus.WRITTEN_OFF
+                                ? CreditQuality.WRITTEN_OFF
+                                : classifyCreditQuality(days);
 
                 this.arrearsStatus = classifyArrearsStatus(days);
 

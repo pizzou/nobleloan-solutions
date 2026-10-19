@@ -28,8 +28,10 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -195,6 +197,7 @@ public class AsyncLegacyImportService {
                 AtomicInteger failed = new AtomicInteger(0);
                 List<ImportRowResult> storedResults = new ArrayList<>();
                 Map<String, Borrower> sessionBorrowers = new HashMap<>();
+                Set<String> sessionLoanReferences = new HashSet<>();
 
                 // ---------------------------------------------------------------
                 // PASS 1 — COUNT UNIQUE SUPPORTED RECORDS
@@ -254,7 +257,8 @@ public class AsyncLegacyImportService {
                                                                                 organization,
                                                                                 batchId,
                                                                                 true,
-                                                                                sessionBorrowers);
+                                                                                sessionBorrowers,
+                                                                                sessionLoanReferences);
                                                         } catch (Exception e) {
                                                                 log.error(
                                                                                 "Unexpected legacy import row failure. batchId={}, rowNumber={}",

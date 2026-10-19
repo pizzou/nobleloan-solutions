@@ -24,6 +24,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * ================================================================
@@ -146,25 +147,17 @@ public class LegacyLoanImportService {
                 final List<Integer> parsedRowNumbers = new ArrayList<>();
 
                 try {
-                        if (safeFilename.toLowerCase(Locale.ROOT).endsWith(".xlsx")) {
-                                StreamingLedgerFileParser.stream(
-                                                safeFilename,
-                                                in,
-                                                MAX_IMPORT_ROWS,
-                                                (sourceRowNumber, row) -> {
-                                                        parsedRows.add(row);
-                                                        parsedRowNumbers.add(
-                                                                        Math.toIntExact(sourceRowNumber));
-                                                });
-                        } else {
-                                List<Map<String, String>> parsedFileRows = LedgerFileParser.parse(
-                                                safeFilename,
-                                                in);
-
-                                if (parsedFileRows != null && !parsedFileRows.isEmpty()) {
-                                        parsedRows.addAll(parsedFileRows);
-                                }
-                        }
+                        // Use the same parser for preview and background commit.
+                        // Otherwise CSV duplicate handling and Excel formula-cell
+                        // values can differ between validation and persistence.
+                        StreamingLedgerFileParser.stream(
+                                        safeFilename,
+                                        in,
+                                        MAX_IMPORT_ROWS,
+                                        (sourceRowNumber, row) -> {
+                                                parsedRows.add(row);
+                                                parsedRowNumbers.add(Math.toIntExact(sourceRowNumber));
+                                        });
 
                 } catch (IOException e) {
 
@@ -191,6 +184,7 @@ public class LegacyLoanImportService {
                 validateParsedRows(rows);
 
                 Map<String, Borrower> sessionBorrowers = new HashMap<>();
+                Set<String> sessionLoanReferences = new HashSet<>();
 
                 /*
                  * Preload all existing borrowers referenced by this file once.
@@ -234,7 +228,8 @@ public class LegacyLoanImportService {
                                         org,
                                         null,
                                         false,
-                                        sessionBorrowers);
+                                        sessionBorrowers,
+                                        sessionLoanReferences);
 
                         if (result != null) {
                                 results.add(result);
@@ -380,6 +375,7 @@ public class LegacyLoanImportService {
                                 importedBy.getId());
 
                 Map<String, Borrower> sessionBorrowers = new HashMap<>();
+                Set<String> sessionLoanReferences = new HashSet<>();
 
                 List<ImportRowResult> results = new ArrayList<>(
                                 Math.min(
@@ -413,7 +409,8 @@ public class LegacyLoanImportService {
                                                 org,
                                                 batchId,
                                                 true,
-                                                sessionBorrowers);
+                                                sessionBorrowers,
+                                                sessionLoanReferences);
 
                                 if (result == null) {
 
@@ -1006,36 +1003,32 @@ public class LegacyLoanImportService {
                                 "amount",
                                 "interest_rate",
                                 "interest_rate_type",
+                                "management_fee_rate",
                                 "duration_months",
                                 "start_date",
+                                "next_due_date",
                                 "status",
                                 "total_paid",
+                                "total_repayable",
                                 "outstanding_balance",
+                                "principal_paid",
+                                "principal_balance",
+                                "interest_paid",
+                                "interest_outstanding",
+                                "management_fee_paid",
+                                "total_management_fee_balance",
+                                "application_fee",
+                                "application_fee_paid",
+                                "application_fee_outstanding",
+                                "extension_fee_assessed",
+                                "extension_fee_paid",
+                                "extension_fee_outstanding",
+                                "penalties_assessed",
+                                "penalties_paid",
+                                "business_owner_only",
                                 "currency",
                                 "loan_reference",
                                 "notes")
-                                + "\n"
-                                +
-                                String.join(
-                                                ",",
-                                                "SYNTHETIC-ID-0001",
-                                                "Jean",
-                                                "Uwimana",
-                                                "",
-                                                "0788000000",
-                                                "Male",
-                                                "Married",
-                                                "PERSONAL",
-                                                "500000",
-                                                "10",
-                                                "MONTHLY",
-                                                "6",
-                                                "2025-01-15",
-                                                "ACTIVE",
-                                                "150000",
-                                                "",
-                                                "RWF",
-                                                "OLD-LEDGER-EXAMPLE-0042",
-                                                "Synthetic example - replace with real historical data");
+                                + "\n";
         }
 }

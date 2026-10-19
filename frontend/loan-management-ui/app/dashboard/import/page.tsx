@@ -39,7 +39,7 @@ interface Batch {
 
 const MAX_FILE_SIZE_MB = 25;
 
-const ACCEPTED_EXTENSIONS = [".csv", ".xlsx", ".xls"];
+const ACCEPTED_EXTENSIONS = [".csv", ".xlsx"];
 
 /* ============================================================
    HELPERS
@@ -127,7 +127,10 @@ export default function ImportLegacyLoansPage() {
     const extension = getFileExtension(selectedFile.name);
 
     if (!ACCEPTED_EXTENSIONS.includes(extension)) {
-      toast("error", "Unsupported file type. Please upload CSV, XLSX, or XLS.");
+      toast(
+        "error",
+        "Unsupported file type. Please upload CSV or XLSX. Convert legacy XLS workbooks to XLSX first.",
+      );
 
       return false;
     }
@@ -495,6 +498,24 @@ export default function ImportLegacyLoansPage() {
           </div>
         </div>
 
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/70 p-5">
+          <p className="text-sm font-bold text-amber-950">
+            Financial fields that must be accurate
+          </p>
+          <p className="mt-1 text-sm leading-6 text-amber-900">
+            Use the downloaded template. For open loans, provide the contractual
+            <span className="font-semibold"> next_due_date</span>, set
+            <span className="font-semibold"> business_owner_only</span> to true
+            or false, and distinguish
+            <span className="font-semibold"> principal_balance</span> (principal
+            only) from{" "}
+            <span className="font-semibold">outstanding_balance</span>
+            (the total contractual amount still due). References supplied from
+            old systems are retained with the required NLS prefix; blank source
+            references receive a stable NLS reference to prevent repeat imports.
+          </p>
+        </div>
+
         {/* ====================================================
             THREE STEP PROCESS
             ==================================================== */}
@@ -569,7 +590,7 @@ export default function ImportLegacyLoansPage() {
                 <h2 className="text-base font-bold">Import workspace</h2>
 
                 <p className="mt-1 text-xs text-blue-100">
-                  CSV, XLSX and XLS files · Maximum {MAX_FILE_SIZE_MB} MB
+                  CSV and XLSX files · Maximum {MAX_FILE_SIZE_MB} MB
                 </p>
               </div>
 
@@ -603,7 +624,7 @@ export default function ImportLegacyLoansPage() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.xlsx,.xls"
+                accept=".csv,.xlsx"
                 className="hidden"
                 onChange={(event) =>
                   handleFileChange(event.target.files?.[0] ?? null)
@@ -638,7 +659,8 @@ export default function ImportLegacyLoansPage() {
               </p>
 
               <p className="mt-3 text-xs text-gray-400">
-                Accepted: CSV, XLSX, XLS · Maximum {MAX_FILE_SIZE_MB} MB
+                Accepted: CSV and XLSX · Maximum {MAX_FILE_SIZE_MB} MB. Convert
+                legacy XLS workbooks to XLSX first.
               </p>
             </div>
 

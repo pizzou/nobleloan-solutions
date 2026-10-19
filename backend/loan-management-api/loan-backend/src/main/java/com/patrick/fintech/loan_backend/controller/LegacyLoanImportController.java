@@ -73,7 +73,10 @@ public class LegacyLoanImportController {
         public ResponseEntity<ApiResponse<List<ImportRowResult>>> preview(
                         @RequestParam("file") MultipartFile file) throws Exception {
 
-                validateUploadedFile(file, true);
+                // Preview and commit must accept the same formats. The async
+                // commit worker uses the streaming parser, which supports CSV and
+                // XLSX (not the legacy binary XLS format).
+                validateUploadedFile(file, false);
 
                 Organization organization = currentOrganization();
                 String filename = safeFilename(file.getOriginalFilename());
