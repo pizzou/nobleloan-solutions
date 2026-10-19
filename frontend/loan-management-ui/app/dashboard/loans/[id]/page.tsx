@@ -2005,6 +2005,53 @@ export default function LoanDetailPage() {
               <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950">
                 {loan.referenceNumber}
               </h1>
+              {isBusinessOwner && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-bold ${loan.businessOwnerOnly ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}`}
+                  >
+                    {loan.businessOwnerOnly
+                      ? "Business Owner only"
+                      : "Normal reporting"}
+                  </span>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+                    onClick={async () => {
+                      const nextValue = !Boolean(loan.businessOwnerOnly);
+                      const nextLabel = nextValue
+                        ? "Business Owner only"
+                        : "Normal reporting";
+                      const confirmed = window.confirm(
+                        `Move loan ${loan.referenceNumber} to ${nextLabel}? This changes reporting visibility only; it does not change the loan balance or post financial transactions.`,
+                      );
+                      if (!confirmed) return;
+                      try {
+                        await loanApi.changeReportingVisibility(
+                          loan.id,
+                          nextValue,
+                        );
+                        setMsg({
+                          type: "success",
+                          text: `Loan reporting visibility changed to ${nextLabel}.`,
+                        });
+                        await load();
+                      } catch (error) {
+                        setMsg({
+                          type: "error",
+                          text:
+                            error instanceof Error
+                              ? error.message
+                              : "Unable to change loan reporting visibility.",
+                        });
+                      }
+                    }}
+                  >
+                    Move to{" "}
+                    {loan.businessOwnerOnly ? "Normal" : "Business Owner only"}
+                  </button>
+                </div>
+              )}
 
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <StatusBadge status={loan.status} />

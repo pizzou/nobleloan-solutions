@@ -154,6 +154,27 @@ public class LoanController {
                                                                 organizationId))));
         }
 
+        /**
+         * Business Owner-only reporting classification migration. This endpoint
+         * changes visibility only; it does not approve, disburse, or reprice a loan.
+         */
+        @PatchMapping("/{id}/visibility")
+        @PreAuthorize("hasRole('BUSINESS_OWNER')")
+        @Transactional
+        public ResponseEntity<ApiResponse<LoanResponse>> changeLoanVisibility(
+                        @PathVariable Long id,
+                        @RequestBody Map<String, Boolean> body) {
+                if (body == null || body.get("businessOwnerOnly") == null) {
+                        throw new IllegalArgumentException("businessOwnerOnly must be supplied as true or false");
+                }
+                User actor = currentUserUtil.getCurrentUser();
+                Loan updated = loanAdministrationService.changeReportingVisibility(
+                                id, body.get("businessOwnerOnly"), actor);
+                return ResponseEntity.ok(ApiResponse.ok(
+                                "Loan reporting visibility updated",
+                                ResponseDtoMapper.loan(updated)));
+        }
+
         // ================================================================
         // GET LOAN SCHEDULE
         // ================================================================

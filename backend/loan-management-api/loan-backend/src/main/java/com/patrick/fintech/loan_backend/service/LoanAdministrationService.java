@@ -15,7 +15,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -42,12 +41,116 @@ public class LoanAdministrationService {
             "lending_feature_records",
             "payment_transactions",
             "payment_schedules",
-            "payments"
-    );
+            "payments");
 
     private final LoanRepository loanRepository;
     private final EntityManager entityManager;
     private final AuditService auditService;
+
+    /**
+     * Change a loan's reporting visibility without changing its contractual or
+     * accounting amounts. This is deliberately separate from recycle-bin logic:
+     * visibility changes must never set recycle_loan_id or alter deletion fields.
+     */
+    @Transactional
+    public Loan changeReportingVisibility(Long loanId, boolean businessOwnerOnly, User actor) {
+        requireBusinessOwner(actor);
+        if (loanId == null || loanId <= 0) {
+            throw new IllegalArgumentException("Loan ID is required");
+        }
+
+        Long organizationId = organizationId(actor);
+        Loan loan = loanRepository.findByIdForUpdate(loanId)
+                .orElseThrow(() -> new IllegalArgumentException("Loan not found"));
+        if (loan.getOrganization() == null
+                || !organizationId.equals(loan.getOrganization().getId())) {
+            throw new AccessDeniedException("Loan does not belong to your organization");
+        }
+        if (loan.getDeletedAt() != null) {
+            throw new IllegalStateException("A recycled loan cannot have its reporting visibility changed");
+        }
+
+        boolean previous = Boolean.TRUE.equals(loan.getBusinessOwnerOnly());
+        if (previous == businessOwnerOnly) {
+            return loan;
+        }
+
+        updateLoanAccountingVisibility(organizationId, loan.getId(), loan.getReferenceNumber(), businessOwnerOnly);
+        loan.setBusinessOwnerOnly(businessOwnerOnly);
+        Loan saved = loanRepository.saveAndFlush(loan);
+        auditService.log(
+                loan.getOrganization(), actor, "LOAN_REPORTING_VISIBILITY_CHANGED", "Loan",
+                String.valueOf(loan.getId()),
+                "Business Owner changed loan reporting visibility for " + loan.getReferenceNumber(),
+                previous ? "BUSINESS_OWNER_ONLY" : "NORMAL",
+                businessOwnerOnly ? "BUSINESS_OWNER_ONLY" : "NORMAL",
+                "Loans");
+        return saved;
+    }
+
+    private void updateLoanAccountingVisibility(
+            Long organizationId, Long loanId, String reference, boolean businessOwnerOnly) {
+        String loanIdText = String.valueOf(loanId);
+        entityManager
+                .createNativeQuery(
+                        """
+                                WITH related_entries AS (
+                                    SELECT je.id
+                                    FROM journal_entries je
+                                    WHERE je.organization_id = :organizationId
+                                      AND (
+                                        je.reference = :reference
+                                        OR (je.source_type IN (
+                                            'LOAN_DISBURSEMENT', 'LOAN_PAYMENT', 'LOAN_EXTENSION_FEE',
+                                            'LOAN_EXTENSION_FEE_COLLECTION', 'PENALTY_ACCRUAL',
+                                            'INTEREST_ACCRUAL', 'MANAGEMENT_FEE_ACCRUAL',
+                                            'SCHEDULED_INTEREST_ACCRUAL', 'SCHEDULED_MANAGEMENT_FEE_ACCRUAL',
+                                            'CONTRACTUAL_MONTHLY_INTEREST_ACCRUAL',
+                                            'CONTRACTUAL_MONTHLY_MANAGEMENT_FEE_ACCRUAL',
+                                            'HISTORICAL_LOAN_OPENING', 'LEGACY_LOAN_OPENING',
+                                            'LEGACY_LOAN_RECONCILIATION', 'LEGACY_LOAN_OPENING_DATE_REPAIR',
+                                            'WRITE_OFF', 'APPLICATION_FEE_INCOME_RECLASSIFICATION')
+                                          AND regexp_replace(trim(COALESCE(je.source_id, '')), '^LOAN:', '')
+                                              ~ ('^' || :loanIdText || '($|[-:])'))
+                                        OR (je.source_type IN ('PAYMENT_RECEIVED', 'REFUND_PAYMENT',
+                                            'PAYMENT_REFUND', 'PAYMENT_REVERSAL', 'OVERPAYMENT_REFUND_PAYABLE')
+                                          AND je.source_id IN (SELECT p.id::text FROM payments p WHERE p.loan_id = :loanId))
+                                        OR (je.source_type IN ('SCHEDULED_INTEREST_ACCRUAL', 'SCHEDULED_MANAGEMENT_FEE_ACCRUAL')
+                                          AND je.source_id IN (SELECT 'PAYMENT-' || p.id::text FROM payments p WHERE p.loan_id = :loanId))
+                                        OR (je.source_type = 'REVERSAL' AND je.source_id IN (
+                                            SELECT original.id::text FROM journal_entries original
+                                            WHERE original.organization_id = :organizationId
+                                              AND (original.reference = :reference
+                                                OR regexp_replace(trim(COALESCE(original.source_id, '')), '^LOAN:', '')
+                                                   ~ ('^' || :loanIdText || '($|[-:])')
+                                                OR original.source_id IN (SELECT p.id::text FROM payments p WHERE p.loan_id = :loanId))))
+                                      )
+                                )
+                                UPDATE journal_entries je
+                                SET business_owner_only = :businessOwnerOnly
+                                WHERE je.id IN (SELECT id FROM related_entries)
+                                  AND je.recycle_loan_id IS NULL
+                                """)
+                .setParameter("organizationId", organizationId)
+                .setParameter("loanId", loanId)
+                .setParameter("loanIdText", loanIdText)
+                .setParameter("reference", reference)
+                .setParameter("businessOwnerOnly", businessOwnerOnly)
+                .executeUpdate();
+
+        entityManager.createNativeQuery("""
+                UPDATE payment_settlements ps
+                SET business_owner_only = :businessOwnerOnly
+                WHERE ps.organization_id = :organizationId
+                  AND ps.internal_payment_reference IN (
+                    SELECT p.payment_reference FROM payments p WHERE p.loan_id = :loanId)
+                  AND ps.recycle_loan_id IS NULL
+                """)
+                .setParameter("organizationId", organizationId)
+                .setParameter("loanId", loanId)
+                .setParameter("businessOwnerOnly", businessOwnerOnly)
+                .executeUpdate();
+    }
 
     @Transactional
     public void deleteWithConfirmation(
@@ -280,9 +383,7 @@ public class LoanAdministrationService {
      * Daily automatic purge. A batch limit prevents a large recycle bin from
      * creating one unbounded transaction.
      */
-    @Scheduled(
-            cron = "${app.loan.recycle-bin.purge-cron:0 15 2 * * *}",
-            zone = "${app.loan.recycle-bin.purge-zone:Africa/Kigali}")
+    @Scheduled(cron = "${app.loan.recycle-bin.purge-cron:0 15 2 * * *}", zone = "${app.loan.recycle-bin.purge-zone:Africa/Kigali}")
     @Transactional
     public void purgeExpiredRecycledLoans() {
 
@@ -333,22 +434,25 @@ public class LoanAdministrationService {
          * the operational loan are allowed to block physical loan-row purge.
          */
         if (hasNonPurgeableLegalOrRegulatoryHistory(loanId)) {
-            entityManager.createNativeQuery("""
-                    UPDATE loans
-                    SET purge_after = NULL,
-                        deletion_reason = CONCAT(
-                            COALESCE(deletion_reason, ''),
-                            CASE WHEN COALESCE(deletion_reason, '') = '' THEN '' ELSE E'\n' END,
-                            '[PURGE BLOCKED] Signed contractual or regulatory evidence must be retained. The 30-day restore window is closed; contact an authorized compliance administrator for a documented retention decision.'
-                        )
-                    WHERE id = :loanId
-                      AND organization_id = :organizationId
-                      AND deleted_at IS NOT NULL
-                    """)
+            entityManager
+                    .createNativeQuery(
+                            """
+                                    UPDATE loans
+                                    SET purge_after = NULL,
+                                        deletion_reason = CONCAT(
+                                            COALESCE(deletion_reason, ''),
+                                            CASE WHEN COALESCE(deletion_reason, '') = '' THEN '' ELSE E'\n' END,
+                                            '[PURGE BLOCKED] Signed contractual or regulatory evidence must be retained. The 30-day restore window is closed; contact an authorized compliance administrator for a documented retention decision.'
+                                        )
+                                    WHERE id = :loanId
+                                      AND organization_id = :organizationId
+                                      AND deleted_at IS NOT NULL
+                                    """)
                     .setParameter("loanId", loanId)
                     .setParameter("organizationId", organizationId)
                     .executeUpdate();
-            log.error("Permanent purge blocked for recycled loan {} (id={}): signed contractual or regulatory evidence must be retained",
+            log.error(
+                    "Permanent purge blocked for recycled loan {} (id={}): signed contractual or regulatory evidence must be retained",
                     reference, loanId);
             auditService.log(
                     null,
@@ -423,12 +527,12 @@ public class LoanAdministrationService {
         log.info("Recycle-bin loan {} permanently purged", reference);
     }
 
-   private void deleteLoanChildren(String table, Long loanId) {
-    entityManager.createNativeQuery(
-            "DELETE FROM \"" + table + "\" WHERE loan_id = :loanId")
-            .setParameter("loanId", loanId)
-            .executeUpdate();
-}
+    private void deleteLoanChildren(String table, Long loanId) {
+        entityManager.createNativeQuery(
+                "DELETE FROM \"" + table + "\" WHERE loan_id = :loanId")
+                .setParameter("loanId", loanId)
+                .executeUpdate();
+    }
 
     /**
      * A permanent operational purge may remove the loan and its operational

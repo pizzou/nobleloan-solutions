@@ -299,6 +299,13 @@ export const put = (
 ): Promise<any> =>
   API.put(url, data, config).then((response) => unwrap(response.data));
 
+export const patch = (
+  url: string,
+  data?: unknown,
+  config?: AxiosRequestConfig,
+): Promise<any> =>
+  API.patch(url, data, config).then((response) => unwrap(response.data));
+
 export const del = (url: string, config?: AxiosRequestConfig): Promise<any> =>
   API.delete(url, config).then((response) => unwrap(response.data));
 
@@ -415,6 +422,9 @@ export const loanApi = {
     ),
 
   get: (id: number) => get(`/loans/${id}`),
+
+  changeReportingVisibility: (id: number, businessOwnerOnly: boolean) =>
+    patch(`/loans/${id}/visibility`, { businessOwnerOnly }),
 
   deleteWithConfirmation: (id: number, confirmation: string, reason: string) =>
     del(`/loans/${id}`, { data: { confirmation, reason } }),
