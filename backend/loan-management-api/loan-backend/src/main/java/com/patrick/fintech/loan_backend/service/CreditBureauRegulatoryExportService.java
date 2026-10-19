@@ -39,20 +39,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Native CRB regulatory workbook generator.
- *
- * The workbook structure is defined in Java. No uploaded XLS/XLSX template is
- * read at runtime and no business figures are hard-coded. Values come from
- * Noble Loan entities/repositories.
- *
- * The seven worksheets intentionally mirror the supplied CRB workbook:
- * Consumer, Corporate, Shareholders, Directors, Guarantors, Collateral and
- * Bounced Cheques.
- *
- * All organization-owned child records are retrieved using organization-scoped
- * repository methods to preserve tenant isolation.
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -296,11 +282,6 @@ public class CreditBureauRegulatoryExportService {
         private final GuarantorRepository guarantorRepository;
         private final CollateralRepository collateralRepository;
 
-        /**
-         * Generates the native CRB .xlsx workbook.
-         *
-         * The CRB worksheet structure is defined in Java; no runtime template is read.
-         */
         public byte[] export(
                         Long organizationId,
                         Long branchId,
@@ -348,15 +329,6 @@ public class CreditBureauRegulatoryExportService {
                         createHeader(collateral, COLLATERAL_HEADERS, styles);
                         createHeader(bounced, BOUNCED_CHEQUE_HEADERS, styles);
 
-                        /*
-                         * The supplied workbook is a seven-sheet submission structure.
-                         *
-                         * Noble Loan currently has individual Borrower records and does not
-                         * have separate corporate/shareholder/director/bounced-cheque entities.
-                         *
-                         * Those sheets therefore remain structurally present but contain no
-                         * fabricated rows.
-                         */
                         Map<Long, List<Payment>> paymentCache = new HashMap<>();
                         Map<Long, List<Guarantor>> guarantorCache = new HashMap<>();
                         Map<Long, List<Collateral>> collateralCache = new HashMap<>();
@@ -385,15 +357,6 @@ public class CreditBureauRegulatoryExportService {
                                                 reportDate,
                                                 styles);
 
-                                /*
-                                 * IMPORTANT:
-                                 * The organizationId is explicitly passed into the helper.
-                                 *
-                                 * This matches:
-                                 * GuarantorRepository.findByLoan_IdAndOrganization_Id(...)
-                                 *
-                                 * and prevents cross-tenant child-record access.
-                                 */
                                 List<Guarantor> guarantorsForLoan = guarantorCache.computeIfAbsent(
                                                 loan.getId(),
                                                 id -> safeGuarantors(id, organizationId));
@@ -411,15 +374,6 @@ public class CreditBureauRegulatoryExportService {
                                                         styles);
                                 }
 
-                                /*
-                                 * IMPORTANT:
-                                 * The organizationId is explicitly passed into the helper.
-                                 *
-                                 * This matches:
-                                 * CollateralRepository.findByLoan_IdAndOrganization_Id(...)
-                                 *
-                                 * and prevents cross-tenant child-record access.
-                                 */
                                 List<Collateral> collateralsForLoan = collateralCache.computeIfAbsent(
                                                 loan.getId(),
                                                 id -> safeCollaterals(id, organizationId));
@@ -578,15 +532,6 @@ public class CreditBureauRegulatoryExportService {
                 }
         }
 
-        /**
-         * Loads guarantors using both loan ID and organization ID.
-         *
-         * This method intentionally does not use:
-         *
-         * guarantorRepository.findByLoan_Id(loanId)
-         *
-         * because that query is not tenant-scoped.
-         */
         private List<Guarantor> safeGuarantors(
                         Long loanId,
                         Long organizationId) {
@@ -614,15 +559,6 @@ public class CreditBureauRegulatoryExportService {
                 }
         }
 
-        /**
-         * Loads collateral using both loan ID and organization ID.
-         *
-         * This method intentionally does not use:
-         *
-         * collateralRepository.findByLoan_Id(loanId)
-         *
-         * because that query is not tenant-scoped.
-         */
         private List<Collateral> safeCollaterals(
                         Long loanId,
                         Long organizationId) {
@@ -691,9 +627,6 @@ public class CreditBureauRegulatoryExportService {
 
                 values[21] = cleanText(borrower.getPostalCode());
 
-                // Keep each physical-address component in its own CRB column. Do not
-                // substitute province or the free-text address for a missing district,
-                // sector or cell: that would create inaccurate regulatory data.
                 values[23] = firstNonBlank(
                                 cleanText(borrower.getPhysicalAddressProvince()),
                                 cleanText(borrower.getStateProvince()));
@@ -706,8 +639,6 @@ public class CreditBureauRegulatoryExportService {
                 values[27] = cleanText(borrower.getCountry());
                 values[28] = cleanText(borrower.getEmail());
 
-                // Noble currently stores one borrower phone number. Use one normalized
-                // source value for all three CRB telephone columns so they cannot diverge.
                 String phone = cleanText(borrower.getPhone());
                 values[30] = phone;
                 values[31] = phone;
@@ -813,10 +744,6 @@ public class CreditBureauRegulatoryExportService {
                                 values,
                                 styles.body);
 
-                /*
-                 * CRB numeric columns are deliberately stored as
-                 * actual numeric Excel cells rather than strings.
-                 */
                 setNumeric(
                                 row,
                                 40,
