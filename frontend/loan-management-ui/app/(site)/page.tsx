@@ -25,7 +25,7 @@ function CompactLoanCalculator({
   const product = products[index] || products[0];
   const [amount, setAmount] = useState(1000000);
   const [months, setMonths] = useState(6);
-  const min = Number(product?.minAmount ?? 500000);
+  const min = Math.max(1000000, Number(product?.minAmount ?? 1000000));
   const max = Math.max(
     min,
     product?.maxAmount == null ? 20000000 : Number(product.maxAmount),
@@ -53,7 +53,7 @@ function CompactLoanCalculator({
   const selectProduct = (next: number) => {
     const selected = products[next];
     setIndex(next);
-    setAmount(Math.max(500000, Number(selected?.minAmount ?? 500000)));
+    setAmount(Math.max(1000000, Number(selected?.minAmount ?? 1000000)));
     setMonths(Number(selected?.minTermMonths ?? 1));
   };
   return (

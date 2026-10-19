@@ -179,7 +179,13 @@ export default function ServicesPage() {
                           ],
                           [
                             "Starting amount",
-                            amount(tenant.currency, service.minAmount),
+                            amount(
+                              tenant.currency,
+                              Math.max(
+                                1000000,
+                                Number(service.minAmount ?? 1000000),
+                              ),
+                            ),
                           ],
                         ].map(([label, value]) => (
                           <div
@@ -249,7 +255,10 @@ export default function ServicesPage() {
                               <strong>
                                 {amount(
                                   tenant.currency,
-                                  service.minAmount ?? 1000000,
+                                  Math.max(
+                                    1000000,
+                                    Number(service.minAmount ?? 1000000),
+                                  ),
                                 )}
                               </strong>
                               . Requirements and supporting evidence can vary
