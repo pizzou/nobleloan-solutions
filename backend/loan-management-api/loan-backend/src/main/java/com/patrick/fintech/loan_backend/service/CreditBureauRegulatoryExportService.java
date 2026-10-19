@@ -681,9 +681,7 @@ public class CreditBureauRegulatoryExportService {
 
                 values[15] = date(borrower.getDateOfBirth());
 
-                // CONSUMER_HEADERS[16] is "Place Of Birth". Keep the regulatory
-                // column mapping aligned with the official template.
-                values[16] = cleanText(borrower.getPlaceOfBirth());
+                values[16] = borrower.getPlaceOfBirth();
 
                 values[20] = cleanText(borrower.getAddressLine2());
 
@@ -699,9 +697,11 @@ public class CreditBureauRegulatoryExportService {
                 values[23] = firstNonBlank(
                                 cleanText(borrower.getPhysicalAddressProvince()),
                                 cleanText(borrower.getStateProvince()));
-                values[24] = cleanText(borrower.getPhysicalAddressDistrict());
-                values[25] = cleanText(borrower.getPhysicalAddressSector());
-                values[26] = cleanText(borrower.getPhysicalAddressCell());
+                values[24] = borrower.getPhysicalAddressDistrict();
+
+                values[25] = borrower.getPhysicalAddressSector();
+
+                values[26] = borrower.getPhysicalAddressCell();
 
                 values[27] = cleanText(borrower.getCountry());
                 values[28] = cleanText(borrower.getEmail());
@@ -716,6 +716,7 @@ public class CreditBureauRegulatoryExportService {
                 values[34] = borrower.getEmployerName();
 
                 values[39] = firstNonBlank(
+
                                 borrower.getJobTitle(),
                                 borrower.getEmploymentType());
 
