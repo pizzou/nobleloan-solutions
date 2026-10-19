@@ -4,7 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { useTenant } from "../app/(site)/layout";
 import { pageContent } from "../lib/websiteContent";
-import { getLoanRequirementProfile } from "../lib/loanRequirements";
+import {
+  getLoanProductType,
+  getLoanRequirementProfile,
+} from "../lib/loanRequirements";
 
 const productImages: Record<string, string> = {
   PERSONAL: "/personal-loan.jpg",
@@ -85,9 +88,10 @@ export default function PublicProductPage({
   const primary = tenant.primaryColor || "#0F1B3D";
   const accent = tenant.accentColor || "#C9A227";
   const image = productImages[normalizedType] || "/hero-borrower.jpg";
-  const requirementProfile = getLoanRequirementProfile(
-    product?.loanType || normalizedType,
-  );
+  const requirementType = product
+    ? getLoanProductType({ loanType: product.loanType, title: product.title })
+    : normalizedType;
+  const requirementProfile = getLoanRequirementProfile(requirementType);
   const audience = productAudience[normalizedType] || {
     title: "Your borrowing need",
     body: "Review the active product terms and eligibility requirements shown through Noble's application journey.",
@@ -249,7 +253,10 @@ export default function PublicProductPage({
               {resolvedSections[1]?.body ? `${resolvedSections[1].body} ` : ""}
               Minimum:{" "}
               <strong className="text-slate-800">
-                {amount(tenant.currency, product?.minAmount)}
+                {amount(
+                  tenant.currency,
+                  Math.max(1000000, Number(product?.minAmount ?? 1000000)),
+                )}
               </strong>
               . Maximum:{" "}
               <strong className="text-slate-800">
@@ -323,7 +330,10 @@ export default function PublicProductPage({
           <p className="mt-5 text-xs leading-6 text-slate-500">
             Minimum loan amount:{" "}
             <strong>
-              {amount(tenant.currency, product?.minAmount ?? 1000000)}
+              {amount(
+                tenant.currency,
+                Math.max(1000000, Number(product?.minAmount ?? 1000000)),
+              )}
             </strong>
             . Product limits shown above apply; the final approved amount and
             any extra evidence are confirmed during assessment.
