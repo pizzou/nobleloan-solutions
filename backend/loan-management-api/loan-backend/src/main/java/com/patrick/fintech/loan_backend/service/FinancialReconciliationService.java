@@ -376,6 +376,13 @@ public class FinancialReconciliationService {
             BigDecimal paid = loan.getPenaltiesPaidDecimal();
             return money(assessed).subtract(money(paid)).max(ZERO);
         }));
+        // Application-fee receivable is only the genuinely unpaid portion.
+        // Fees deducted and collected at disbursement must have application_fee_paid
+        // populated and therefore must not be reported as a receivable a second time.
+        operationalSubledger.put("1180", sum(loans, loan -> money(
+                money(loan.getApplicationFeeDecimal())
+                        .subtract(money(loan.getApplicationFeePaidDecimal())))
+                .max(ZERO)));
 
         Map<String, ReconciliationLine> subledger = new LinkedHashMap<>();
         for (Map.Entry<String, BigDecimal> item : operationalSubledger.entrySet()) {
@@ -636,6 +643,8 @@ public class FinancialReconciliationService {
                     .subtract(money(loan.getPenaltiesPaidDecimal()))
                     .max(ZERO);
             operational.put("1175", money(penalties));
+            operational.put("1180", money(loan.getApplicationFeeDecimal())
+                    .subtract(money(loan.getApplicationFeePaidDecimal())).max(ZERO));
 
             Map<String, BigDecimal> gl = new LinkedHashMap<>();
             for (String code : operational.keySet()) {
@@ -650,12 +659,15 @@ public class FinancialReconciliationService {
             BigDecimal managementDifference = normalize(gl.get("1160").subtract(operational.get("1160")));
             BigDecimal extensionDifference = normalize(gl.get("1170").subtract(operational.get("1170")));
             BigDecimal penaltyDifference = normalize(gl.get("1175").subtract(operational.get("1175")));
+            BigDecimal applicationFeeDifference = normalize(
+                    gl.get("1180").subtract(operational.get("1180")));
 
             boolean reconciles = principalDifference.abs().compareTo(TOLERANCE) < 0
                     && interestDifference.abs().compareTo(TOLERANCE) < 0
                     && managementDifference.abs().compareTo(TOLERANCE) < 0
                     && extensionDifference.abs().compareTo(TOLERANCE) < 0
-                    && penaltyDifference.abs().compareTo(TOLERANCE) < 0;
+                    && penaltyDifference.abs().compareTo(TOLERANCE) < 0
+                    && applicationFeeDifference.abs().compareTo(TOLERANCE) < 0;
 
             if (!reconciles) {
                 result.add(new LoanReconciliationDiagnostic(
@@ -676,7 +688,10 @@ public class FinancialReconciliationService {
                         extensionDifference,
                         operational.get("1175"),
                         gl.get("1175"),
-                        penaltyDifference));
+                        penaltyDifference,
+                        operational.get("1180"),
+                        gl.get("1180"),
+                        applicationFeeDifference));
             }
         }
 
@@ -946,7 +961,7 @@ public class FinancialReconciliationService {
          * attribute and a legacy/misconfigured row must never be allowed to
          * invert the operational sub-ledger reconciliation.
          *
-         * For 1100/1150/1160/1170/1175 the authoritative GL balance is:
+         * For 1100/1150/1160/1170/1175/1180 the authoritative GL balance is:
          *
          * total debits - total credits
          *
@@ -972,7 +987,7 @@ public class FinancialReconciliationService {
         }
 
         return switch (code.trim()) {
-            case "1100", "1150", "1160", "1170", "1175" -> true;
+            case "1100", "1150", "1160", "1170", "1175", "1180" -> true;
             default -> false;
         };
     }
@@ -1034,7 +1049,10 @@ public class FinancialReconciliationService {
             BigDecimal extensionFeeDifference,
             BigDecimal operationalPenalty,
             BigDecimal glPenalty,
-            BigDecimal penaltyDifference) {
+            BigDecimal penaltyDifference,
+            BigDecimal operationalApplicationFee,
+            BigDecimal glApplicationFee,
+            BigDecimal applicationFeeDifference) {
     }
 
     public record ReconciliationLine(

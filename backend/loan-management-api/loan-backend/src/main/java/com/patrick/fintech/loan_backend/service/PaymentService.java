@@ -1055,17 +1055,18 @@ public class PaymentService {
                 // UPDATE LOAN TOTALS
                 // ============================================================
 
+                // totalPaid is the cumulative amount settled through the repayment
+                // workflow, regardless of allocation to interest, management fees,
+                // penalties, extension fees or principal. Keep this aggregate in sync
+                // with the component-paid fields updated below; do not use it as a
+                // principal-only figure. Application fees deducted at disbursement are
+                // tracked separately and are not added by this repayment operation.
                 BigDecimal oldTotalPaid = roundMoney(
-                                safe(
-                                                loan.getTotalPaidDecimal()));
+                                safe(loan.getTotalPaidDecimal()));
 
-                BigDecimal newTotalPaid = roundMoney(
-                                oldTotalPaid
-                                                .add(
-                                                                amount));
+                BigDecimal newTotalPaid = roundMoney(oldTotalPaid.add(amount));
 
-                loan.setTotalPaid(
-                                newTotalPaid);
+                loan.setTotalPaid(newTotalPaid);
 
                 loan.setOutstandingBalance(
                                 newBalance);

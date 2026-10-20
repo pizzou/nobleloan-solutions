@@ -984,34 +984,88 @@ public class LegacyLoanImportRowService {
                                                                 .add(extensionFeePaid));
                         }
 
+                        // Some legacy exports label the remaining PRINCIPAL as
+                        // outstanding_balance, while other exports use that column for
+                        // the complete amount still due. If the supplied value exactly
+                        // matches the independently reconciled principal balance, treat
+                        // it as principal-only and reconstruct total repayment outstanding
+                        // from the separately supplied unpaid repayment components. Never
+                        // overwrite the principal sub-ledger with a total contractual due.
+                        boolean outstandingInputIsPrincipalOnly = outstandingGiven != null
+                                        && outstandingGiven.subtract(principalBalanceHistorical).abs()
+                                                        .compareTo(new BigDecimal("0.01")) <= 0;
+                        if (outstandingInputIsPrincipalOnly) {
+                                outstandingBalance = money(
+                                                principalBalanceHistorical
+                                                                .add(interestOutstandingHistorical)
+                                                                .add(managementFeeOutstandingHistorical)
+                                                                .add(extensionFeeOutstanding)
+                                                                .add(penaltiesAssessed.subtract(penaltiesPaid)
+                                                                                .max(ZERO)));
+                        }
+
                         if (totalRepayableGiven == null) {
-                                if (outstandingGiven != null) {
+                                if (outstandingGiven != null && !outstandingInputIsPrincipalOnly) {
                                         // If the source explicitly gives the amount
                                         // still due but not the original total, derive
                                         // the contractual total from final paid + due
                                         // values so the two figures reconcile.
                                         totalRepayable = money(totalPaid.add(outstandingBalance));
                                 } else {
+                                        // totalRepayable covers the repayment obligation across
+                                        // principal and assessed repayment charges. The one-time
+                                        // application fee is handled separately as a disbursement
+                                        // deduction/receivable and is not added to scheduled repayment.
                                         totalRepayable = money(
                                                         amount
                                                                         .add(totalHistoricalInterest)
-                                                                        .add(totalHistoricalManagementFee));
+                                                                        .add(totalHistoricalManagementFee)
+                                                                        .add(extensionFeeAssessed)
+                                                                        .add(penaltiesAssessed));
                                 }
                         }
 
-                        if (outstandingGiven == null) {
-                                outstandingBalance = money(
-                                                totalRepayable.subtract(totalPaid).max(ZERO));
-                        } else if (totalRepayableGiven != null
-                                        && totalRepayable.subtract(totalPaid.add(outstandingBalance)).abs()
+                        // total_repayable and total_paid describe the complete repayment
+                        // obligation and all repayments allocated to it. The import's
+                        // outstanding_balance column may instead be PRINCIPAL ONLY. Never
+                        // use that principal-only source value as the aggregate balance in
+                        // the total-repayment equation.
+                        BigDecimal totalRepaymentOutstanding = money(
+                                        totalRepayable.subtract(totalPaid).max(ZERO));
+                        BigDecimal componentOutstanding = money(
+                                        principalBalanceHistorical
+                                                        .add(interestOutstandingHistorical)
+                                                        .add(managementFeeOutstandingHistorical)
+                                                        .add(extensionFeeOutstanding)
+                                                        .add(penaltiesAssessed.subtract(penaltiesPaid).max(ZERO)));
+
+                        if (totalRepayable.compareTo(totalPaid) < 0) {
+                                return fail(rowNumber,
+                                                "total_repayable cannot be less than total_paid.");
+                        }
+
+                        // An explicitly supplied aggregate total is not sufficient evidence
+                        // to invent the allocation of unpaid amounts between principal,
+                        // interest, management fees, extension fees and penalties. Require
+                        // those component balances to reconcile before creating the loan;
+                        // otherwise the imported loan could pass the aggregate check while
+                        // its GL receivable accounts are wrong.
+                        if (totalRepayableGiven != null
+                                        && componentOutstanding.subtract(totalRepaymentOutstanding).abs()
                                                         .compareTo(new BigDecimal("0.01")) > 0) {
-                                return fail(
-                                                rowNumber,
-                                                "total_repayable must equal total_paid + outstanding_balance. "
+                                return fail(rowNumber,
+                                                "Legacy balance components do not reconcile: total_repayable - total_paid must equal principal_balance + interest_outstanding + management_fee_outstanding + extension_fee_outstanding + penalty_outstanding. "
                                                                 + "total_repayable=" + totalRepayable
                                                                 + ", total_paid=" + totalPaid
-                                                                + ", outstanding_balance=" + outstandingBalance);
+                                                                + ", aggregate_outstanding=" + totalRepaymentOutstanding
+                                                                + ", component_outstanding=" + componentOutstanding
+                                                                + ". Supply or correct the missing historical component balances; principal outstanding must not be substituted for total outstanding.");
                         }
+
+                        // Keep this local variable as aggregate repayment outstanding for
+                        // overdue/paid-status classification only. Loan.outstandingBalance
+                        // is persisted separately from principalBalanceHistorical below.
+                        outstandingBalance = totalRepaymentOutstanding;
 
                         if (outstandingBalance.add(new BigDecimal("0.01"))
                                         .compareTo(principalBalanceHistorical) < 0) {

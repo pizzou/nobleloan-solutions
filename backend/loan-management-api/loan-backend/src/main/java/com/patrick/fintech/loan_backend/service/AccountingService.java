@@ -75,6 +75,7 @@ public class AccountingService {
                         { "1160", "Management Fees Receivable", "ASSET", "DEBIT" },
                         { "1170", "Extension Fees Receivable", "ASSET", "DEBIT" },
                         { "1175", "Penalties Receivable", "ASSET", "DEBIT" },
+                        { "1180", "Application Fees Receivable", "ASSET", "DEBIT" },
 
                         // CONTRA ASSET
                         { "1200", "Loan Loss Reserve", "ASSET", "CREDIT" },
@@ -978,6 +979,10 @@ public class AccountingService {
                                 loan.getManagementFeeOutstandingDecimal()).max(ZERO);
                 BigDecimal extensionOutstanding = money(
                                 loan.getExtensionFeeOutstandingDecimal()).max(ZERO);
+                BigDecimal applicationFeeOutstanding = money(
+                                money(loan.getApplicationFeeDecimal())
+                                                .subtract(money(loan.getApplicationFeePaidDecimal()))
+                                                .max(ZERO));
 
                 BigDecimal penaltiesAssessed = money(
                                 loan.getPenaltiesAssessedDecimal()).max(ZERO);
@@ -1004,7 +1009,8 @@ public class AccountingService {
                                                 .add(interestOutstanding)
                                                 .add(managementOutstanding)
                                                 .add(extensionOutstanding)
-                                                .add(penaltyOutstanding));
+                                                .add(penaltyOutstanding)
+                                                .add(applicationFeeOutstanding));
 
                 if (openingBalance.compareTo(ZERO) <= 0) {
                         log.info(
@@ -1076,6 +1082,18 @@ public class AccountingService {
                                                         .credit(ZERO)
                                                         .description(
                                                                         "Opening historical penalty receivable — "
+                                                                                        + reference)
+                                                        .build());
+                }
+
+                if (applicationFeeOutstanding.compareTo(ZERO) > 0) {
+                        lines.add(
+                                        JournalLine.builder()
+                                                        .account(account(org, "1180"))
+                                                        .debit(applicationFeeOutstanding)
+                                                        .credit(ZERO)
+                                                        .description(
+                                                                        "Opening unpaid application-fee receivable — "
                                                                                         + reference)
                                                         .build());
                 }
@@ -1169,6 +1187,8 @@ public class AccountingService {
                                         .subtract(money(loan.getPenaltiesPaidDecimal()))
                                         .max(ZERO);
                         expected.put("1175", money(penaltyOutstanding));
+                        expected.put("1180", money(loan.getApplicationFeeDecimal()
+                                        .subtract(loan.getApplicationFeePaidDecimal()).max(ZERO)));
 
                         Map<String, BigDecimal> deltas = new LinkedHashMap<>();
 
@@ -1273,7 +1293,7 @@ public class AccountingService {
                 }
 
                 Map<String, ChartOfAccount> receivableAccounts = new LinkedHashMap<>();
-                for (String code : List.of("1100", "1150", "1160", "1170", "1175")) {
+                for (String code : List.of("1100", "1150", "1160", "1170", "1175", "1180")) {
                         ChartOfAccount account = coaRepo
                                         .findByOrganization_IdAndCode(organizationId, code)
                                         .orElse(null);
@@ -1356,6 +1376,9 @@ public class AccountingService {
                                                 operational = money(loan.getExtensionFeeOutstandingDecimal()).max(ZERO);
                                         case "1175" -> operational = money(loan.getPenaltiesAssessedDecimal())
                                                         .subtract(money(loan.getPenaltiesPaidDecimal()))
+                                                        .max(ZERO);
+                                        case "1180" -> operational = money(loan.getApplicationFeeDecimal())
+                                                        .subtract(money(loan.getApplicationFeePaidDecimal()))
                                                         .max(ZERO);
                                         default -> operational = ZERO;
                                 }
