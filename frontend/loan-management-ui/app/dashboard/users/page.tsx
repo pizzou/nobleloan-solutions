@@ -7,6 +7,7 @@ import { get, post, put, del } from "../../../services/api";
 import { toast } from "../../../hooks/useToast";
 
 import { getCurrentUser, hasRole } from "../../../services/authService";
+import { clearSensitiveClientState } from "@/lib/securityCleanup";
 
 import { PageSpinner } from "../../../components/ui/Skeleton";
 
@@ -55,6 +56,12 @@ function inputCls(err?: string) {
 export default function UsersPage() {
   const isAdmin = hasRole("ADMIN");
   const isBusinessOwner = hasRole("BUSINESS_OWNER");
+  // AuthResponse stores the current account ID as userId. Used only to choose
+  // the correct form; the backend remains authoritative for authorization.
+  const [currentUserId] = useState<number | null>(() => {
+    const currentUser = getCurrentUser();
+    return typeof currentUser?.userId === "number" ? currentUser.userId : null;
+  });
 
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,8 +69,6 @@ export default function UsersPage() {
   const [showCreate, setShowCreate] = useState(false);
 
   const [resetUserId, setResetUserId] = useState<number | null>(null);
-  const [currentPw, setCurrentPw] = useState("");
-  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
   const [delUserId, setDelUserId] = useState<number | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
@@ -80,6 +85,7 @@ export default function UsersPage() {
 
   const [newPw, setNewPw] = useState("");
   const [cfPw, setCfPw] = useState("");
+  const [currentPw, setCurrentPw] = useState("");
   const [resetting, setResetting] = useState(false);
 
   const getMsg = (err: unknown) =>
@@ -106,11 +112,6 @@ export default function UsersPage() {
   useEffect(() => {
     load();
   }, [load]);
-
-  useEffect(() => {
-    // AuthResponse stores the authenticated account id as userId.
-    setCurrentUserId(getCurrentUser()?.userId ?? null);
-  }, []);
 
   /*
    * ============================================================
@@ -237,16 +238,39 @@ export default function UsersPage() {
    * ============================================================
    */
 
+  const closeResetPasswordModal = () => {
+    setResetUserId(null);
+    setCurrentPw("");
+    setNewPw("");
+    setCfPw("");
+  };
+
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (newPw.length < 10) {
-      toast("error", "Password must be at least 10 characters");
+    if (resetUserId === null) {
+      toast("error", "Select a user before resetting a password");
       return;
     }
 
-    if (newPw.length > 128) {
-      toast("error", "Password must not exceed 128 characters");
+    const authenticatedUser = getCurrentUser();
+    const authenticatedUserId = authenticatedUser?.userId ?? currentUserId;
+    if (authenticatedUserId == null) {
+      toast(
+        "error",
+        "Cannot identify your signed-in account. Refresh the page and try again.",
+      );
+      return;
+    }
+    const isSelfReset = resetUserId === authenticatedUserId;
+
+    if (isSelfReset && !currentPw) {
+      toast("error", "Enter your current password to change your own password");
+      return;
+    }
+
+    if (newPw.length < 10) {
+      toast("error", "Password must be at least 10 characters");
       return;
     }
 
@@ -268,33 +292,31 @@ export default function UsersPage() {
       return;
     }
 
-    const isOwnPasswordChange = resetUserId === getCurrentUser()?.userId;
-
-    if (isOwnPasswordChange && !currentPw.trim()) {
-      toast("error", "Enter your current password to change your own password");
-      return;
-    }
-
     setResetting(true);
 
     try {
       await put("/users/" + resetUserId, {
         password: newPw,
-        ...(isOwnPasswordChange ? { currentPassword: currentPw } : {}),
+        ...(isSelfReset ? { currentPassword: currentPw } : {}),
       });
+
+      if (isSelfReset) {
+        toast("success", "Your password has changed. Please sign in again.");
+        closeResetPasswordModal();
+        // The backend increments tokenVersion on self-service password change.
+        // Clear stale client state and return to login rather than using a
+        // session that the backend has just invalidated.
+        await clearSensitiveClientState();
+        window.location.replace("/login");
+        return;
+      }
 
       toast(
         "success",
-        isOwnPasswordChange
-          ? "Your password has been changed successfully"
-          : "Password reset — they'll be asked to set their own on next login",
+        "Password reset — they'll be asked to set their own on next login",
       );
 
-      setResetUserId(null);
-      setCurrentPw("");
-      setNewPw("");
-      setCfPw("");
-
+      closeResetPasswordModal();
       load();
     } catch (err: unknown) {
       toast("error", getMsg(err));
@@ -1082,12 +1104,7 @@ export default function UsersPage() {
               </h2>
 
               <button
-                onClick={() => {
-                  setResetUserId(null);
-                  setCurrentPw("");
-                  setNewPw("");
-                  setCfPw("");
-                }}
+                onClick={closeResetPasswordModal}
                 className="
                   text-gray-400
                   hover:text-gray-600
@@ -1111,30 +1128,33 @@ export default function UsersPage() {
                 p-3
               "
               >
-                {resetUserId === currentUserId
-                  ? "To change your own password, enter your current password below. We will verify it before changing your password."
-                  : "The selected user will be required to set their own password the next time they log in."}
+                The user will be required to set their own password the next
+                time they log in.
               </p>
 
               {resetUserId === currentUserId && (
                 <div>
                   <label
                     className="block text-sm font-medium text-gray-700 mb-1"
-                    htmlFor="current-password-for-reset"
+                    htmlFor="user-reset-current-password"
                   >
                     Current Password
                   </label>
                   <input
-                    id="current-password-for-reset"
+                    id="user-reset-current-password"
                     type="password"
-                    autoComplete="current-password"
                     value={currentPw}
                     onChange={(e) => setCurrentPw(e.target.value)}
-                    required
+                    autoComplete="current-password"
                     maxLength={128}
+                    required
                     placeholder="Enter your current password"
                     className={inputCls()}
                   />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Current-password verification is required when changing your
+                    own password.
+                  </p>
                 </div>
               )}
 
@@ -1207,12 +1227,7 @@ export default function UsersPage() {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setResetUserId(null);
-                    setCurrentPw("");
-                    setNewPw("");
-                    setCfPw("");
-                  }}
+                  onClick={closeResetPasswordModal}
                   className="
                     flex-1
                     border
