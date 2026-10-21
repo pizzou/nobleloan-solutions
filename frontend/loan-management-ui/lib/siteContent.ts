@@ -198,7 +198,7 @@ export const SITE_CONTENT: TenantConfig = {
 
   contactPhone: value(
     process.env.NEXT_PUBLIC_SITE_CONTACT_PHONE,
-    "+250 788 123 456",
+    "+250 788 599 696",
   ),
 
   website: value(
