@@ -392,7 +392,7 @@ public final class StreamingLedgerFileParser {
              * canonical. Noble Loan legacy monthly workbooks commonly have a
              * short header row such as:
              *
-             *   NAMES | ID NUMBER | TELEPHONE | AMOUNT DISBURSED | ...
+             * NAMES | ID NUMBER | TELEPHONE | AMOUNT DISBURSED | ...
              *
              * followed by positional data whose important fields (including
              * start date, restructure marker and historical balances) are in
@@ -541,6 +541,7 @@ public final class StreamingLedgerFileParser {
 
             Map<String, String> out = new LinkedHashMap<>();
             out.put("national_id", clean(row.get(2)).replaceAll("\\s+", ""));
+            out.put("business_owner_only", "false");
             out.put("first_name", names[0]);
             out.put("last_name", names[1]);
             out.put("phone", clean(row.get(3)));
@@ -600,6 +601,7 @@ public final class StreamingLedgerFileParser {
             String[] names = splitName(row.get(1));
             Map<String, String> out = new LinkedHashMap<>();
             out.put("national_id", clean(row.get(2)).replaceAll("\\s+", ""));
+            out.put("business_owner_only", "false");
             out.put("first_name", names[0]);
             out.put("last_name", names[1]);
             out.put("phone", clean(row.get(3)));

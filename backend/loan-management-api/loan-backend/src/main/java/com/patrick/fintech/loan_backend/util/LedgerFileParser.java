@@ -417,6 +417,7 @@ public final class LedgerFileParser {
 
         Map<String, String> out = new LinkedHashMap<>();
         out.put("national_id", cleanNationalId(cellValue(row.getCell(2), formatter, evaluator)));
+        out.put("business_owner_only", "false");
         out.put("first_name", names[0]);
         out.put("last_name", names[1]);
         out.put("phone", cleanCell(cellValue(row.getCell(3), formatter, evaluator)));
@@ -522,6 +523,7 @@ public final class LedgerFileParser {
 
         Map<String, String> out = new LinkedHashMap<>();
         out.put("national_id", cleanNationalId(cellValue(row.getCell(2), formatter, evaluator)));
+        out.put("business_owner_only", "false");
         out.put("first_name", names[0]);
         out.put("last_name", names[1]);
         out.put("phone", cleanCell(cellValue(row.getCell(3), formatter, evaluator)));
