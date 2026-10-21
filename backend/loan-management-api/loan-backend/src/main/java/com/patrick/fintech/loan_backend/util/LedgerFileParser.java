@@ -397,10 +397,14 @@ public final class LedgerFileParser {
 
         BigDecimal totalInterest = money(interestPaid.add(interestOutstanding));
         BigDecimal totalManagement = money(managementPaid.add(managementOutstanding));
+        // The historical workbook's PENALITIES column (column AB) records
+        // assessed repayment penalties. Include them in total_repayable so the
+        // aggregate balance reconciles with the imported penalty component.
         BigDecimal totalRepayable = money(
                 decimalOrZero(amount)
                         .add(totalInterest)
-                        .add(totalManagement));
+                        .add(totalManagement)
+                        .add(penalties));
         BigDecimal totalPaid = money(
                 principalPaid
                         .add(interestPaid)
