@@ -1,6 +1,7 @@
 package com.patrick.fintech.loan_backend.service;
 
 import com.patrick.fintech.loan_backend.model.Borrower;
+import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.BorrowerFile;
 import com.patrick.fintech.loan_backend.model.DocumentType;
 import com.patrick.fintech.loan_backend.model.VerificationStatus;
@@ -101,6 +102,23 @@ public class BorrowerFileService {
         borrowerFile.setVerificationStatus(VerificationStatus.PENDING);
 
         return fileRepository.save(borrowerFile);
+    }
+
+    /**
+     * Store a signed copy under the borrower's documents and link it to this exact
+     * loan.
+     */
+    @Transactional
+    public BorrowerFile uploadSignedContractForLoan(Long borrowerId, Loan loan, MultipartFile file)
+            throws IOException {
+        if (loan == null || loan.getId() == null || loan.getBorrower() == null
+                || !loan.getBorrower().getId().equals(borrowerId)) {
+            throw new IllegalArgumentException("The selected loan does not belong to this borrower.");
+        }
+        BorrowerFile saved = upload(borrowerId, file, DocumentType.SIGNED_LOAN_CONTRACT, false);
+        saved.setLoan(loan);
+        saved.setVerificationStatus(VerificationStatus.PENDING);
+        return fileRepository.save(saved);
     }
 
     /**

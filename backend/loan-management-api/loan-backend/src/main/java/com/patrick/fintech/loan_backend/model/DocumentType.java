@@ -34,6 +34,8 @@ public enum DocumentType {
 
     SIGNATURE,
 
+    SIGNED_LOAN_CONTRACT,
+
     OTHER
 
 }

@@ -7,6 +7,8 @@ import com.patrick.fintech.loan_backend.dto.LoanResponse;
 import com.patrick.fintech.loan_backend.dto.LoanCommentResponse;
 import com.patrick.fintech.loan_backend.mapper.ResponseDtoMapper;
 import com.patrick.fintech.loan_backend.model.Loan;
+import com.patrick.fintech.loan_backend.model.LoanContract;
+import com.patrick.fintech.loan_backend.service.LoanContractService;
 import com.patrick.fintech.loan_backend.model.LoanComment;
 import com.patrick.fintech.loan_backend.model.LoanApproval;
 import com.patrick.fintech.loan_backend.model.LoanStatus;
@@ -33,6 +35,8 @@ import lombok.RequiredArgsConstructor;
 
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -71,6 +75,7 @@ public class LoanController {
         private final IdempotencyService idempotencyService;
         private final ObjectMapper objectMapper;
         private final LoanAdministrationService loanAdministrationService;
+        private final LoanContractService loanContractService;
 
         // ================================================================
         // CREATE LOAN
@@ -94,6 +99,10 @@ public class LoanController {
                  */
                 loanApprovalService.initiateChain(
                                 loan);
+
+                // Create the contract after the application and its approval chain exist.
+                // The contract is a draft only; it does not approve or disburse the loan.
+                loanContractService.generateForNewLoan(loan, user);
 
                 return ResponseEntity
                                 .status(HttpStatus.CREATED)
@@ -152,6 +161,85 @@ public class LoanController {
                                                 ResponseDtoMapper.loan(loanService.getLoanForOrg(
                                                                 id,
                                                                 organizationId))));
+        }
+
+        // ================================================================
+        // LOAN CONTRACT DRAFT
+        // ================================================================
+
+        @PostMapping("/{id}/contract/generate")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
+        public ResponseEntity<ApiResponse<Map<String, Object>>> generateLoanContractDraft(@PathVariable Long id) {
+                User user = currentUserUtil.getCurrentUser();
+                Long organizationId = user.getOrganization().getId();
+                Loan loan = loanService.getLoanForOrg(id, organizationId);
+                LoanContract contract = loanContractService.generateForNewLoan(loan, user);
+                return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(
+                                "Loan contract draft is ready for review",
+                                Map.of("loanId", id, "status", contract.getStatus().name(),
+                                                "fileName", contract.getFileName(),
+                                                "generatedAt", contract.getGeneratedAt().toString())));
+        }
+
+        @GetMapping("/{id}/contract/status")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','BUSINESS_OWNER')")
+        public ResponseEntity<ApiResponse<Map<String, Object>>> getLoanContractStatus(@PathVariable Long id) {
+                User user = currentUserUtil.getCurrentUser();
+                Long organizationId = user.getOrganization().getId();
+                loanService.getLoanForOrg(id, organizationId);
+                LoanContract contract = loanContractService.getForOrganization(id, organizationId);
+                return ResponseEntity.ok(ApiResponse.ok("Contract status loaded",
+                                Map.of("status", contract.getStatus().name(),
+                                                "fileName", contract.getFileName(),
+                                                "generatedAt", contract.getGeneratedAt().toString(),
+                                                "sentAt",
+                                                contract.getSentAt() == null ? "" : contract.getSentAt().toString(),
+                                                "borrowerNoticeQueued", contract.getBorrowerNotifiedAt() != null)));
+        }
+
+        @GetMapping("/{id}/contract/draft")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','BUSINESS_OWNER')")
+        public ResponseEntity<byte[]> downloadLoanContractDraft(@PathVariable Long id) {
+                User user = currentUserUtil.getCurrentUser();
+                Long organizationId = user.getOrganization().getId();
+
+                // Verify tenant-scoped loan access before returning contract bytes.
+                loanService.getLoanForOrg(id, organizationId);
+                LoanContract contract = loanContractService.getForOrganization(id, organizationId);
+                auditService.log(
+                                contract.getOrganization(), user,
+                                "LOAN_CONTRACT_DRAFT_DOWNLOADED", "LOAN_CONTRACT",
+                                String.valueOf(contract.getId()),
+                                "Downloaded draft contract for loan " + contract.getLoan().getReferenceNumber()
+                                                + "; sha256=" + contract.getSha256(),
+                                null, null, "Loan Contracts");
+                return ResponseEntity.ok()
+                                .contentType(MediaType.parseMediaType(contract.getContentType()))
+                                .header(HttpHeaders.CONTENT_DISPOSITION,
+                                                "attachment; filename=\"" + contract.getFileName().replace("\"", "")
+                                                                + "\"")
+                                .header(HttpHeaders.CACHE_CONTROL, "no-store, private")
+                                .body(contract.getDocumentData());
+        }
+
+        @PostMapping("/{id}/contract/sent")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
+        public ResponseEntity<ApiResponse<Map<String, Object>>> markLoanContractSent(
+                        @PathVariable Long id,
+                        @RequestBody(required = false) Map<String, Boolean> body) {
+                User user = currentUserUtil.getCurrentUser();
+                Long organizationId = user.getOrganization().getId();
+                loanService.getLoanForOrg(id, organizationId);
+                boolean termsReviewed = body != null && Boolean.TRUE.equals(body.get("termsReviewed"));
+                LoanContract contract = loanContractService.markSent(id, organizationId, user, termsReviewed);
+                return ResponseEntity.ok(ApiResponse.ok(
+                                "Contract dispatch recorded. A borrower review notice is queued by email when email delivery is enabled.",
+                                Map.of(
+                                                "loanId", id,
+                                                "status", contract.getStatus().name(),
+                                                "sentAt",
+                                                contract.getSentAt() == null ? "" : contract.getSentAt().toString(),
+                                                "borrowerNoticeQueued", contract.getBorrowerNotifiedAt() != null)));
         }
 
         /**

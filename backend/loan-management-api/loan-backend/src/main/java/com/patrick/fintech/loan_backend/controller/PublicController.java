@@ -37,6 +37,7 @@ import com.patrick.fintech.loan_backend.service.BorrowerFileService;
 import com.patrick.fintech.loan_backend.service.FlutterwaveService;
 import com.patrick.fintech.loan_backend.service.IdempotencyService;
 import com.patrick.fintech.loan_backend.service.LoanService;
+import com.patrick.fintech.loan_backend.service.LoanContractService;
 import com.patrick.fintech.loan_backend.service.MailService;
 import com.patrick.fintech.loan_backend.service.MtnMobileMoneyService;
 import com.patrick.fintech.loan_backend.service.NotificationService;
@@ -97,6 +98,7 @@ public class PublicController {
         private final LoanRepository loanRepo;
 
         private final LoanService loanService;
+        private final LoanContractService loanContractService;
         private final BorrowerFileService fileService;
         private final SmsService smsService;
         private final NotificationService notificationService;
@@ -3441,6 +3443,10 @@ public class PublicController {
 
                 loan = loanRepo.save(
                                 loan);
+
+                // Generate only after product-specific rates/fees have been applied, so the
+                // document reflects the actual product selected by the borrower.
+                loanContractService.generateForNewLoan(loan, null);
 
                 notifyStaff(
                                 org,

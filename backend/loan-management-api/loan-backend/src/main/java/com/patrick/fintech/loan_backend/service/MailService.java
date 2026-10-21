@@ -54,6 +54,38 @@ public class MailService {
                 this.restTemplate = new RestTemplate(factory);
         }
 
+        public boolean isMailEnabled() {
+                return mailEnabled;
+        }
+
+        @Async("mailAsyncExecutor")
+        public void sendLoanContractDraftNotice(Loan loan) {
+                if (!mailEnabled) {
+                        log.info("[EMAIL] Loan contract draft notice queued: {}",
+                                        loan != null ? loan.getReferenceNumber() : "unknown");
+                        return;
+                }
+                if (loan == null || loan.getBorrower() == null) {
+                        log.warn("[EMAIL] Contract draft notice skipped: loan/borrower is null");
+                        return;
+                }
+                String to = loan.getBorrower().getEmail();
+                if (to == null || to.isBlank()) {
+                        log.warn("[EMAIL] Contract draft notice skipped: borrower email is missing");
+                        return;
+                }
+                send(to,
+                                "Draft Loan Contract Ready for Review — " + escapeHtml(loan.getReferenceNumber()),
+                                "<p>Dear " + escapeHtml(loan.getBorrower().getFullName()) + ",</p>"
+                                                + "<p>Noble Loan Solutions Ltd has recorded that a draft loan contract for your application "
+                                                + "<strong>" + escapeHtml(loan.getReferenceNumber())
+                                                + "</strong> has been sent to you separately by our loan officer.</p>"
+                                                + "<p>Please review all borrower details, loan amounts, interest, fees and repayment terms carefully. "
+                                                + "Contact the loan officer if anything is incorrect or unclear. Do not sign until the final terms have been reviewed.</p>"
+                                                + "<p>This notice does not mean the contract has been signed, the loan has been approved, or funds have been disbursed.</p>"
+                                                + "<p>Regards,<br/>Noble Loan Solutions Ltd</p>");
+        }
+
         @Async("mailAsyncExecutor")
         public void sendApplicationReceived(Loan loan) {
                 if (!mailEnabled) {
