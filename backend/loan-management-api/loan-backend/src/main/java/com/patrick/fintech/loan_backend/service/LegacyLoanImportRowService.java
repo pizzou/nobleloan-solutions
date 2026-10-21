@@ -318,16 +318,11 @@ public class LegacyLoanImportRowService {
 
                         LoanStatus status = LoanStatus.valueOf(
                                         statusRaw);
-
-                        if (isBlankOrSkipped(row.get("business_owner_only"))) {
-                                return fail(
-                                                rowNumber,
-                                                "business_owner_only is required. Set true for a Business-Owner-only loan or false for a normal loan; omission could expose restricted loan data.");
-                        }
-                        boolean businessOwnerOnly = optBoolean(
-                                        row,
-                                        "business_owner_only",
-                                        false);
+                        // Imported loans always enter the normal reporting/access scope.
+                        // An authorized user may explicitly mark a loan Business-Owner-only
+                        // later through the dedicated visibility-management workflow.
+                        // Do not require or trust an import spreadsheet column for this control.
+                        boolean businessOwnerOnly = false;
 
                         LocalDate nextDueDate = isHistoricalLoanStatus(statusRaw)
                                         ? optDate(row, "next_due_date", null)

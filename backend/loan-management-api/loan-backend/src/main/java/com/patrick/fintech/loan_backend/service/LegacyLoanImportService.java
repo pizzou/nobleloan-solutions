@@ -1025,7 +1025,6 @@ public class LegacyLoanImportService {
                                 "extension_fee_outstanding",
                                 "penalties_assessed",
                                 "penalties_paid",
-                                "business_owner_only",
                                 "currency",
                                 "loan_reference",
                                 "notes")
