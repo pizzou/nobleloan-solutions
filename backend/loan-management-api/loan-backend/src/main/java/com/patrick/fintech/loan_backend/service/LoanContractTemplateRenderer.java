@@ -78,20 +78,11 @@ final class LoanContractTemplateRenderer {
             }
         values.put("SCHEDULE", schedule.toString());
         try (XWPFDocument doc = new XWPFDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            // Consistent confidential-document branding on every generated contract.
-            XWPFParagraph classification = doc.createParagraph();
-            classification.setAlignment(ParagraphAlignment.RIGHT);
-            classification.setSpacingAfter(100);
-            XWPFRun classificationRun = classification.createRun();
-            classificationRun.setText("IBANGA • CONFIDENTIAL | LOAN AGREEMENT");
-            classificationRun.setFontFamily("Aptos");
-            classificationRun.setFontSize(8);
-            classificationRun.setBold(true);
-            classificationRun.setColor("926D25");
-
-            XWPFParagraph brand = doc.createParagraph();
+            // True repeating Word header: the approved company logo appears on every page.
+            XWPFHeader header = doc.createHeader(org.apache.poi.wp.usermodel.HeaderFooterType.DEFAULT);
+            XWPFParagraph brand = header.createParagraph();
             brand.setAlignment(ParagraphAlignment.CENTER);
-            brand.setSpacingAfter(150);
+            brand.setSpacingAfter(70);
             try (java.io.InputStream logoStream = LoanContractTemplateRenderer.class
                     .getResourceAsStream(LOGO_RESOURCE)) {
                 if (logoStream == null) {
@@ -99,8 +90,16 @@ final class LoanContractTemplateRenderer {
                 }
                 XWPFRun logoRun = brand.createRun();
                 logoRun.addPicture(logoStream, Document.PICTURE_TYPE_PNG,
-                        "nls-logo.png", Units.toEMU(220), Units.toEMU(74));
+                        "nls-logo.png", Units.toEMU(175), Units.toEMU(59));
             }
+            XWPFParagraph classification = header.createParagraph();
+            classification.setAlignment(ParagraphAlignment.RIGHT);
+            XWPFRun classificationRun = classification.createRun();
+            classificationRun.setText("IBANGA • CONFIDENTIAL | LOAN AGREEMENT");
+            classificationRun.setFontFamily("Aptos");
+            classificationRun.setFontSize(8);
+            classificationRun.setBold(true);
+            classificationRun.setColor("926D25");
 
             XWPFParagraph meta = doc.createParagraph();
             meta.setAlignment(ParagraphAlignment.CENTER);
@@ -284,10 +283,12 @@ final class LoanContractTemplateRenderer {
         if (amount.signum() < 0)
             throw new IllegalArgumentException("Negative contract amount: " + amount);
         if (amount.stripTrailingZeros().scale() > 0) {
-            return amount.toPlainString() + " (" + str(c) + ")"; // fractions must not be misrepresented as whole francs
+            return amount.toPlainString() + " (" + str(c) + " " + amount.toPlainString() + ")"; // fractions must not be
+                                                                                                // misrepresented as
+                                                                                                // whole francs
         }
-        return rwfWords(amount.toBigIntegerExact()) + " (" + String.format(java.util.Locale.US, "%,.0f", amount) + " "
-                + str(c) + ")";
+        return rwfWords(amount.toBigIntegerExact()) + " (" + str(c) + " "
+                + amount.toBigIntegerExact().toString() + ")";
     }
 
     private static String rwfWords(java.math.BigInteger value) {
