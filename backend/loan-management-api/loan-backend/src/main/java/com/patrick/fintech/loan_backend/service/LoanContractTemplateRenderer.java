@@ -5,9 +5,12 @@ import com.patrick.fintech.loan_backend.model.Borrower;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.PaymentSchedule;
 
-import org.apache.poi.xwpf.usermodel.*;
 import org.apache.poi.util.Units;
 import org.apache.poi.wp.usermodel.HeaderFooterType;
+import org.apache.poi.xwpf.usermodel.*;
+
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTPageMar;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTSectPr;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -16,9 +19,27 @@ import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.StringJoiner;
 
+/**
+ * Noble Loan Solutions Ltd loan agreement.
+ *
+ * The entire legal agreement is authored in Java.
+ * No DOCX template is read at runtime.
+ *
+ * The approved NLS logo is supplied as a static PNG resource.
+ *
+ * The source agreement's 10 articles are retained.
+ * Variable loan terms come from the saved Loan entity and
+ * PaymentSchedule records.
+ *
+ * IMPORTANT:
+ * Legal provisions and the Kinyarwanda number wording should
+ * be reviewed and approved before first production use.
+ */
 final class LoanContractTemplateRenderer {
 
     private LoanContractTemplateRenderer() {
@@ -27,9 +48,12 @@ final class LoanContractTemplateRenderer {
     private static final String LOGO_RESOURCE = "/branding/nls-logo.png";
 
     private static final String NAVY = "17324D";
-    private static final String GOLD = "926D25";
-    private static final String BODY = "253346";
-    private static final String MUTED = "687384";
+    private static final String GOLD = "A78329";
+    private static final String TEXT = "27374A";
+    private static final String MUTED = "667085";
+    private static final String LIGHT = "F5F7FA";
+
+    private static final String FONT = "Aptos";
 
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
@@ -38,291 +62,526 @@ final class LoanContractTemplateRenderer {
             List<PaymentSchedule> schedules) {
         if (loan == null || loan.getBorrower() == null) {
             throw new IllegalArgumentException(
-                    "Loan and borrower are required.");
+                    "A saved loan and borrower are required.");
+        }
+
+        if (loan.getAmountDecimal() == null
+                || loan.getAmountDecimal().signum() <= 0) {
+            throw new IllegalArgumentException(
+                    "Loan principal must be greater than zero.");
         }
 
         Borrower borrower = loan.getBorrower();
 
-        BigDecimal principal = nz(loan.getAmountDecimal());
-        BigDecimal interest = nz(loan.getInterestRateDecimal());
-        BigDecimal management = nz(loan.getManagementFeeRateDecimal());
-        BigDecimal application = nz(loan.getApplicationFeeRateDecimal());
+        BigDecimal principal = loan.getAmountDecimal();
+        BigDecimal interestRate = loan.getInterestRateDecimal();
+        BigDecimal managementRate = loan.getManagementFeeRateDecimal();
+        BigDecimal applicationRate = loan.getApplicationFeeRateDecimal();
+        BigDecimal penaltyRate = loan.getPenaltyRateDecimal();
+
+        String currency = value(loan.getCurrency());
 
         boolean annual = "ANNUAL".equalsIgnoreCase(
                 String.valueOf(loan.getInterestRateType()));
 
-        BigDecimal monthlyInterest = principal.multiply(interest)
-                .divide(
-                        annual ? new BigDecimal("1200")
-                                : new BigDecimal("100"),
-                        2,
-                        RoundingMode.HALF_UP);
+        BigDecimal firstMonthInterest = calculateRate(
+                principal,
+                interestRate,
+                annual ? new BigDecimal("1200")
+                        : new BigDecimal("100"));
 
-        BigDecimal monthlyManagement = principal.multiply(management)
-                .divide(
-                        new BigDecimal("100"),
-                        2,
-                        RoundingMode.HALF_UP);
+        BigDecimal firstMonthManagement = calculateRate(
+                principal,
+                managementRate,
+                new BigDecimal("100"));
 
-        BigDecimal applicationFee = loan.getApplicationFeeDecimal() != null
-                ? loan.getApplicationFeeDecimal()
-                : principal.multiply(application)
-                        .divide(
-                                new BigDecimal("100"),
-                                2,
-                                RoundingMode.HALF_UP);
+        BigDecimal applicationFee = loan.getApplicationFeeDecimal();
 
-        String currency = loan.getCurrency();
-        String reference = str(loan.getReferenceNumber());
+        if (applicationFee == null) {
+            applicationFee = calculateRate(
+                    principal,
+                    applicationRate,
+                    new BigDecimal("100"));
+        }
 
-        try (
-                XWPFDocument doc = new XWPFDocument();
-                ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            configurePage(doc);
-            createHeader(doc);
-            createFooter(doc, reference);
+        try (XWPFDocument document = new XWPFDocument();
+                ByteArrayOutputStream output = new ByteArrayOutputStream()) {
 
-            title(doc, "AMASEZERANO Y’INGUZANYO");
+            configurePage(document);
+            createHeader(document);
+            createFooter(document, loan);
 
-            centered(
-                    doc,
-                    "NOBLE LOAN SOLUTIONS LTD",
-                    12,
-                    NAVY,
-                    true);
+            // CONTRACT TITLE
+            title(
+                    document,
+                    "AMASEZERANO Y’IGURIZA NA "
+                            + "NOBLE LOAN SOLUTIONS LTD");
 
-            centered(
-                    doc,
-                    "UMUSHINGA W’AMASEZERANO — DRAFT / NOT SIGNED",
-                    9,
-                    GOLD,
-                    true);
+            contractMetadata(document, loan);
 
-            centered(
-                    doc,
-                    "Nomero: " + reference
-                            + "     |     Itariki: "
-                            + LocalDate.now().format(DATE),
-                    9,
-                    MUTED,
-                    false);
+            // PARTIES
+            paragraph(
+                    document,
+                    "NOBLE LOAN SOLUTIONS LTD, yemerewe "
+                            + "kugurizanya ifite icyemezo cya Banki "
+                            + "Nkuru y’u Rwanda (BNR) "
+                            + "No 7420/2025-00211/7000 BNR, "
+                            + "ifite icyicaro Gisozi, "
+                            + "ihagarariwe na Madamu Annuarite Tuyisenge, "
+                            + "Umuyobozi Mukuru wa NLS, "
+                            + "yitwa “Noble Loan Solutions Ltd” "
+                            + "muri aya masezerano ku ruhande rumwe.");
 
             paragraph(
-                    doc,
-                    "Aya masezerano ni umushinga ugomba "
-                            + "gusuzumwa no kwemezwa mbere yo gusinywa.");
-
-            section(doc, "1. ABAGIRANYE AMASEZERANO");
-
-            paragraph(
-                    doc,
-                    "Uguriza: Noble Loan Solutions Ltd (NLS), "
-                            + "ihagarariwe n’umuyobozi cyangwa undi "
-                            + "mukozi ubifitiye ububasha.");
-
-            paragraph(
-                    doc,
-                    "Ugurizwa: "
-                            + str(borrower.getFirstName()) + " "
-                            + str(borrower.getLastName()));
-
-            paragraph(
-                    doc,
-                    "Indangamuntu/Pasiporo: "
-                            + str(borrower.getNationalId()));
+                    document,
+                    "Bwana/Madamu "
+                            + value(borrower.getFirstName()) + " "
+                            + value(borrower.getLastName())
+                            + ", ufite indangamuntu No: "
+                            + value(borrower.getNationalId())
+                            + ", telefone: "
+                            + value(borrower.getPhone())
+                            + ", email: "
+                            + optional(borrower.getEmail())
+                            + ". Uwo bashakanye: "
+                            + optional(borrower.getSpouseFullName())
+                            + ", indangamuntu No: "
+                            + optional(borrower.getSpouseNationalId())
+                            + ". Aho atuye: "
+                            + address(borrower)
+                            + ".");
 
             paragraph(
-                    doc,
-                    "Telefone: " + str(borrower.getPhone())
-                            + " | Email: " + str(borrower.getEmail()));
+                    document,
+                    "Muri aya masezerano akaba yitwa "
+                            + "“Ugurijwe”, ku rundi ruhande.");
+
+            prominent(
+                    document,
+                    "HEMERANYIJWE IBI BIKURIKIRA:");
+
+            // ARTICLE 1
+            article(document, "INGINGO YA 1", "Ubusobanuro");
 
             paragraph(
-                    doc,
-                    "Uwo bashakanye: "
-                            + str(borrower.getSpouseFullName())
-                            + " | Indangamuntu: "
-                            + str(borrower.getSpouseNationalId()));
-
-            paragraph(doc, "Aderesi: " + address(borrower));
-
-            section(doc, "2. INGANO N’IMPAMVU Y’INGUZANYO");
+                    document,
+                    "Muri aya masezerano, aya magambo "
+                            + "asobanuwe mu buryo bukurikira, "
+                            + "uretse aho aya masezerano "
+                            + "abiteganya ukundi:");
 
             paragraph(
-                    doc,
-                    "NLS yemeye guha ugurizwa inguzanyo ingana na "
-                            + money(principal, currency)
-                            + ", igenewe: "
-                            + str(loan.getPurpose()) + ".");
+                    document,
+                    "1.1 “Noble Loan Solutions Ltd” "
+                            + "isobanura “Ugurije”, "
+                            + "ikigo cyemerewe kuguriza.");
 
             paragraph(
-                    doc,
-                    "Igihe cy’inguzanyo: "
-                            + str(loan.getDurationMonths())
-                            + " amezi.");
+                    document,
+                    "1.2 “Ugurijwe” ni umuntu cyangwa "
+                            + "company bigaragara muri aya "
+                            + "masezerano ahabanza.");
 
             paragraph(
-                    doc,
-                    "Amafaranga yose ateganyijwe kwishyurwa: "
-                            + money(
+                    document,
+                    "1.3 NLS ni impine isobanura "
+                            + "Noble Loan Solutions Ltd.");
+
+            // ARTICLE 2
+            article(document, "INGINGO YA 2", null);
+
+            paragraph(
+                    document,
+                    "NLS ihaye inguzanyo ugurijwe, "
+                            + "ikurikije amategeko-ngenga yayo, "
+                            + "Politiki y’inguzanyo, ndetse "
+                            + "n’aya masezerano, inguzanyo "
+                            + "y’amafaranga angana na "
+                            + moneyInWords(principal, currency)
+                            + " yo gukoresha mu rwego rwa "
+                            + value(loan.getPurpose())
+                            + ". Inomero y’inguzanyo ni "
+                            + value(loan.getReferenceNumber())
+                            + ".");
+
+            // ARTICLE 3
+            article(
+                    document,
+                    "INGINGO YA 3",
+                    "Inyungu ku nguzanyo, amafaranga yo "
+                            + "gukurikirana inguzanyo "
+                            + "n’umufuragiro ku nguzanyo");
+
+            bullet(
+                    document,
+                    "Iyi nguzanyo ibarirwa ku nyungu "
+                            + "fatizo ya "
+                            + percent(interestRate)
+                            + (annual ? " ku mwaka" : " ku kwezi")
+                            + ". Ku mushoro w’ibanze, "
+                            + "ikigereranyo cy’inyungu "
+                            + "z’ukwezi kwa mbere ni "
+                            + moneyInWords(
+                                    firstMonthInterest,
+                                    currency)
+                            + ". Inyungu zibarwa "
+                            + "ku mushoro usigaye.");
+
+            bullet(
+                    document,
+                    "Mu gihe cyo gutanga inguzanyo "
+                            + "hishyurwa amafaranga yo kwiga "
+                            + "dosiye, umufuragiro w’inguzanyo "
+                            + "hakurikijwe ijanisha rya "
+                            + percent(applicationRate)
+                            + ", ungana na "
+                            + moneyInWords(
+                                    applicationFee,
+                                    currency)
+                            + ". Ayo mafaranga akatwa "
+                            + "ku nguzanyo igihe cyo "
+                            + "kuyitanga.");
+
+            bullet(
+                    document,
+                    "Ugurijwe yishyura buri kwezi "
+                            + "NLS Ltd amafaranga yo "
+                            + "gukurikirana inguzanyo "
+                            + "abarirwa kuri "
+                            + percent(managementRate)
+                            + " ku kwezi ku mushoro "
+                            + "usigaye. Ku mushoro w’ibanze, "
+                            + "ikigereranyo cy’ukwezi "
+                            + "kwa mbere ni "
+                            + moneyInWords(
+                                    firstMonthManagement,
+                                    currency)
+                            + ".");
+
+            bullet(
+                    document,
+                    "Iyo ugurijwe atishyuye inguzanyo "
+                            + "ye mu gihe cyagenwe nk’uko "
+                            + "biteganywa n’aya masezerano, "
+                            + "yishyura igihano cy’ubukererwe "
+                            + "ku gipimo cya "
+                            + percent(penaltyRate)
+                            + " ku kwezi ku mafaranga "
+                            + "ari mu bukererwe, "
+                            + "hakurikijwe iminsi y’inyongera "
+                            + "n’uburyo bwo kubara ibihano "
+                            + "byemejwe kuri iyo nguzanyo.");
+
+            // ARTICLE 4
+            article(
+                    document,
+                    "INGINGO YA 4",
+                    "Igihe cy’inguzanyo n’uburyo bwo kwishyura");
+
+            paragraph(
+                    document,
+                    "Umwenda wose, harimo umushoro, "
+                            + "inyungu n’amafaranga yo "
+                            + "gukurikirana inguzanyo, "
+                            + "uzishyurwa mu gihe cy’amezi "
+                            + value(loan.getDurationMonths())
+                            + ". Amafaranga yose "
+                            + "ateganyijwe kwishyurwa ni "
+                            + moneyInWords(
                                     loan.getTotalRepayableDecimal(),
                                     currency)
                             + ".");
 
-            section(
-                    doc,
-                    "3. INYUNGU N’AMAFARANGA AJYANYE N’INGUZANYO");
+            subsection(
+                    document,
+                    "Gahunda yo kwishyura");
+
+            repaymentSchedule(
+                    document,
+                    schedules,
+                    loan);
+
+            importantParagraph(
+                    document,
+                    "NB: Amafaranga yose yishyurwa kuri "
+                            + "Konti NIMERO 100236776071 RWF "
+                            + "YA NOBLE LOAN SOLUTIONS LTD "
+                            + "iri muri BANK OF KIGALI.");
 
             paragraph(
-                    doc,
-                    "Igipimo cy’inyungu: "
-                            + pct(interest)
-                            + (annual ? " ku mwaka." : " ku kwezi.")
-                            + " Inyungu zibarwa ku mushoro usigaye.");
+                    document,
+                    "Abiherewe uburenganzira na NLS, "
+                            + "Ugurijwe ashobora kwishyura "
+                            + "umwenda wose cyangwa igice "
+                            + "cyawo mbere y’igihe "
+                            + "cyateganyijwe mu masezerano, "
+                            + "agasigara yishyura inyungu "
+                            + "zayo azigaje kwishyura "
+                            + "ndetse hagakorwa amasezerano "
+                            + "mashya.");
 
             paragraph(
-                    doc,
-                    "Ikigereranyo cy’inyungu z’ukwezi kwa mbere "
-                            + "ku mushoro w’ibanze: "
-                            + money(monthlyInterest, currency) + ".");
+                    document,
+                    "Mu gihe habayeho kugura umwenda "
+                            + "bikozwe n’ikigo cy’imari "
+                            + "cyangwa indi company ikora "
+                            + "imirimo ijya gusa n’iya NLS, "
+                            + "mbere y’uko itariki ya nyuma "
+                            + "igera, NLS yishyurwa inyungu "
+                            + "zose zari ziteganyijwe.");
+
+            // ARTICLE 5
+            article(
+                    document,
+                    "INGINGO YA 5",
+                    "Gusesa amasezerano");
 
             paragraph(
-                    doc,
-                    "Amafaranga yo kwiga dosiye: "
-                            + pct(application)
-                            + ", angana na "
-                            + money(applicationFee, currency)
-                            + ", akatwa ku mafaranga ahabwa ugurizwa "
-                            + "igihe inguzanyo itanzwe.");
+                    document,
+                    "NLS ifite uburenganzira bwo gusesa "
+                            + "aya masezerano nta nteguza "
+                            + "cyangwa kandi igahita yishyuza "
+                            + "amafaranga yose ako kanya "
+                            + "ibinyujije mu ibaruwa ishinganye "
+                            + "cyangwa, mu gihe bidashobotse, "
+                            + "ibaruwa igashyikirizwa ugurijwe "
+                            + "aho atuye iyo bigaragaye ko:");
+
+            lettered(
+                    document,
+                    "a",
+                    "Iyo inguzanyo yakoreshejwe mu bintu "
+                            + "bitandukanye n’ibyo yasabiwe.");
+
+            lettered(
+                    document,
+                    "b",
+                    "Ubukererwe mu kwishyura burenze "
+                            + "iminsi itatu.");
+
+            lettered(
+                    document,
+                    "c",
+                    "Habayeho kubeshya mu byo Ugurijwe "
+                            + "yabwiye NLS cyangwa "
+                            + "kutubahiriza zimwe "
+                            + "mu nshingano Ugurijwe "
+                            + "afitanye na NLS.");
+
+            lettered(
+                    document,
+                    "d",
+                    "Ibibazo bituruka ku kwanga "
+                            + "kwandikisha ingwate "
+                            + "k’Umwanditsi Mukuru, "
+                            + "kutajya kwa noteri, "
+                            + "gutakaza agaciro kose "
+                            + "cyangwa k’igice k’ingwate, "
+                            + "cyangwa umwishingizi "
+                            + "watanzwe ku mwenda "
+                            + "n’ibindi byose yasabwa na NLS.");
+
+            lettered(
+                    document,
+                    "e",
+                    "Guhomba, iburira ry’igihombo, "
+                            + "imenyekanisha ry’igihombo "
+                            + "n’ikurikirana mu Nkiko "
+                            + "bigamije ihungabana "
+                            + "ry’umutungo cyangwa "
+                            + "ry’Ugurijwe.");
 
             paragraph(
-                    doc,
-                    "Amafaranga yo gukurikirana inguzanyo: "
-                            + pct(management)
-                            + " ku kwezi ku mushoro usigaye. "
-                            + "Ikigereranyo ku mushoro w’ibanze: "
-                            + money(monthlyManagement, currency) + ".");
+                    document,
+                    "Hashingiwe ku byavuzwe mu gika "
+                            + "cyo hejuru, kuba NLS yaba "
+                            + "izi impamvu yagatumye isesa "
+                            + "aya masezerano maze "
+                            + "igakomeza ikagira igikorwa "
+                            + "ikora kirebana no kubahiriza "
+                            + "aya masezerano, ntabwo "
+                            + "bivuga ko itafata icyemezo "
+                            + "cyo kuyasesa nta nteguza "
+                            + "nk’uko byavuzwe haruguru.");
+
+            // ARTICLE 6
+            article(
+                    document,
+                    "INGINGO YA 6",
+                    "Inshingano zo kwishyura n’ingwate");
 
             paragraph(
-                    doc,
-                    "Igipimo cy’igihano cy’ubukererwe "
-                            + "kibitswe kuri iyi nguzanyo: "
-                            + pct(loan.getPenaltyRateDecimal())
-                            + ". Igihano gikoreshwa hakurikijwe "
-                            + "amasezerano yemejwe, politiki "
-                            + "n’amategeko akurikizwa.");
-
-            section(doc, "4. GAHUNDA YO KWISHYURA");
-
-            paragraph(
-                    doc,
-                    "Ugurizwa azishyura inguzanyo hakurikijwe "
-                            + "gahunda yemejwe.");
-
-            addSchedule(doc, schedules, currency);
+                    document,
+                    "Uwagurijwe yemeye kubahiriza "
+                            + "gahunda yo kwishyura "
+                            + "nk’uko yakabaye. Iyo "
+                            + "akererewe iminsi itatu "
+                            + "birahagije ko aburiwe "
+                            + "bwa nyuma kandi yirengera "
+                            + "ingaruka zose ziteganywa "
+                            + "n’amategeko ndetse "
+                            + "n’aya masezerano.");
 
             paragraph(
-                    doc,
-                    "Konti yo kwishyuriraho igomba kugenzurwa "
-                            + "n’umukozi ubifitiye ububasha mbere "
-                            + "yo kohereza amasezerano.");
+                    document,
+                    "Uretse uburenganzira “UGURIJE” "
+                            + "ari we NLS afite ku ngwate "
+                            + "zose Ugurijwe atanze no kuba "
+                            + "yagurishwa mu cyamunara "
+                            + "hakurikijwe amategeko "
+                            + "abigenga mu rwego rwo "
+                            + "kugaruza umwenda waba "
+                            + "usigaye ndetse "
+                            + "n’ibiwukomokaho, NLS "
+                            + "inafite kandi uburenganzira "
+                            + "bwo kuregera iyindi mitungo "
+                            + "ye cyangwa iy’umwishingizi "
+                            + "we yaba iyimukanwa ndetse "
+                            + "n’itimukanwa, amafaranga "
+                            + "ye abikije mu bigo by’imari "
+                            + "byose, byishingira inguzanyo "
+                            + "yose mu kwishyura NLS "
+                            + "mu gihe Ugurijwe azaba "
+                            + "yananiwe kwishyura cyangwa "
+                            + "ingwate yagurishijwe "
+                            + "ntihaboneke amafaranga "
+                            + "yo kurangiza umwenda "
+                            + "wose waba usigaye, "
+                            + "kandi ku ngwate zatanzwe, "
+                            + "NLS iza imbere ku bandi "
+                            + "ugurijwe abereyemo imyenda "
+                            + "iyo ingwate yatanzwe "
+                            + "ku mwanya wa mbere muri NLS.");
 
-            section(doc, "5. INSHINGANO Z’UGURIZWA");
-
-            paragraph(
-                    doc,
-                    "Ugurizwa yiyemeza kwishyura ku matariki "
-                            + "yateganyijwe, gutanga amakuru y’ukuri, "
-                            + "no kumenyesha NLS impinduka zikomeye "
-                            + "ku bushobozi bwo kwishyura cyangwa "
-                            + "ku makuru ye.");
-
-            section(doc, "6. UBUTINDE N’INGARUKA ZABWO");
-
-            paragraph(
-                    doc,
-                    "Iyo ubwishyu bukerewe, ibihano n’izindi "
-                            + "ngamba zikoreshwa gusa hakurikijwe "
-                            + "ibipimo n’uburyo byemejwe mu "
-                            + "masezerano n’amategeko akurikizwa.");
-
-            section(doc, "7. AMAKURU Y’INGUZANYO");
-
-            paragraph(
-                    doc,
-                    "Amakuru ajyanye n’inguzanyo ashobora "
-                            + "gutangwa ku nzego zibifitiye "
-                            + "ububasha hakurikijwe amategeko "
-                            + "agenga amakuru n’inguzanyo.");
-
-            section(doc, "8. GUHINDURA AMASEZERANO");
-
-            paragraph(
-                    doc,
-                    "Impinduka ku mubare w’inguzanyo, ibipimo, "
-                            + "amafaranga cyangwa gahunda yo "
-                            + "kwishyura zigomba kwandikwa no "
-                            + "kwemezwa n’impande bireba.");
-
-            section(doc, "9. GUKEMURA AMAKIMBIRANE");
+            // ARTICLE 7
+            article(
+                    document,
+                    "INGINGO YA 7",
+                    "Gutanga amakuru ku nguzanyo");
 
             paragraph(
-                    doc,
-                    "Impande zizabanza kugerageza gukemura "
-                            + "amakimbirane mu bwumvikane. "
-                            + "Iyo bidashobotse, hakurikizwa "
-                            + "amategeko y’u Rwanda.");
+                    document,
+                    "Uwagurijwe ahaye NLS uburenganzira "
+                            + "bwo gutanga amakuru arebana "
+                            + "n’imyenda ye mu Kigo "
+                            + "gishinzwe ibijyanye n’imyenda "
+                            + "«Credit Reference Bureau "
+                            + "Africa Ltd (CRB Africa)». "
+                            + "Iryo menyekanisha "
+                            + "ntirishobora gufatwa "
+                            + "nko kumena amabanga kuri NLS. "
+                            + "Ugurijwe afite uburenganzira "
+                            + "bwo kubaza, igihe icyo ari cyo "
+                            + "cyose, mu Kigo gishinzwe "
+                            + "ibijyanye n’imyenda "
+                            + "«Credit Reference Bureau "
+                            + "Africa Limited» uko umwenda "
+                            + "we wamenyekanishijwe na NLS "
+                            + "uteye. Igihe Ugurijwe abonye "
+                            + "mu imenyekanisha ryakozwe "
+                            + "na NLS harabayemo ikosa, "
+                            + "ahita abimenyesha NLS "
+                            + "hagakorwa ikosora.");
 
-            section(doc, "10. KWEMERA NO GUSINYA");
+            // ARTICLE 8
+            article(
+                    document,
+                    "INGINGO YA 8",
+                    "Amafaranga n’imenyesha");
 
             paragraph(
-                    doc,
-                    "Impande zemeza ko zasomye kandi "
-                            + "zasobanukiwe ibikubiye muri aya "
-                            + "masezerano mbere yo kuyasinya.");
+                    document,
+                    "Amafaranga yose n’ibihembo "
+                            + "bizakoreshwa mu kubahiriza "
+                            + "aya masezerano n’ingaruka "
+                            + "zizayakomokaho kimwe "
+                            + "n’azagenda ku ngwate ndetse "
+                            + "n’ayo NLS yakoresha kugira ngo "
+                            + "igaruze inguzanyo cyangwa "
+                            + "ingwate zatanzwe, yishyurwa "
+                            + "n’Ugurijwe kandi akayatanga "
+                            + "akiyabazwa nta yandi mananiza.");
 
             paragraph(
-                    doc,
+                    document,
+                    "Ugurijwe agomba kumenyesha NLS, "
+                            + "mu nyandiko, igihe bibaye "
+                            + "ngombwa ko ahinduye aho "
+                            + "yari atuye mu gihe aya "
+                            + "masezerano acyubahirijwe. "
+                            + "NLS yemerewe koherereza "
+                            + "inyandiko Ugurijwe aho "
+                            + "atuye cyangwa ku murongo "
+                            + "wa interineti.");
+
+            // ARTICLE 9
+            article(
+                    document,
+                    "INGINGO YA 9",
+                    "Kwemera amasezerano");
+
+            paragraph(
+                    document,
+                    "Uwagurijwe yemeye ko "
+                            + "asobanukiwe akanemera "
+                            + "ibikubiye muri aya "
+                            + "masezerano ashyiraho umukono.");
+
+            // ARTICLE 10
+            article(
+                    document,
+                    "INGINGO YA 10",
+                    "Gukemura impaka");
+
+            paragraph(
+                    document,
+                    "Impaka zose zaturuka kuri aya "
+                            + "masezerano zizakemurwa "
+                            + "n’Inkiko zibifitiye "
+                            + "ububasha zo mu Rwanda.");
+
+            prominent(
+                    document,
                     "Bikorewe Kigali, kuwa "
-                            + LocalDate.now().format(DATE) + ".");
+                            + LocalDate.now().format(DATE)
+                            + ".");
 
-            signatureTable(
-                    doc,
-                    str(borrower.getFirstName()) + " "
-                            + str(borrower.getLastName()));
+            signatures(document, borrower);
 
-            paragraph(
-                    doc,
-                    "ICYITONDERWA: Iyi nyandiko ni umushinga "
-                            + "utarasinywa kandi ntabwo yemeza "
-                            + "ko amafaranga y’inguzanyo yatanzwe.");
-
-            doc.getProperties()
+            document.getProperties()
                     .getCoreProperties()
                     .setTitle(
-                            "NLS Loan Agreement - " + reference);
+                            "Amasezerano y'iguriza - "
+                                    + value(
+                                            loan.getReferenceNumber()));
 
-            doc.write(out);
-            return out.toByteArray();
+            document.write(output);
+            return output.toByteArray();
 
         } catch (Exception ex) {
             throw new IllegalStateException(
-                    "Failed to generate branded NLS contract.",
+                    "Failed to generate the Noble Loan "
+                            + "Solutions contract from Java.",
                     ex);
         }
     }
 
-    private static void configurePage(XWPFDocument doc) {
-        var section = doc.getDocument()
+    // =========================================================
+    // PAGE DESIGN
+    // =========================================================
+
+    private static void configurePage(XWPFDocument document) {
+        CTSectPr section = document.getDocument()
                 .getBody()
                 .isSetSectPr()
-                        ? doc.getDocument().getBody().getSectPr()
-                        : doc.getDocument().getBody().addNewSectPr();
+                        ? document.getDocument().getBody().getSectPr()
+                        : document.getDocument().getBody().addNewSectPr();
 
-        var margins = section.isSetPgMar()
+        CTPageMar margins = section.isSetPgMar()
                 ? section.getPgMar()
                 : section.addNewPgMar();
 
-        margins.setTop(BigInteger.valueOf(1900));
+        margins.setTop(BigInteger.valueOf(1950));
         margins.setBottom(BigInteger.valueOf(1100));
         margins.setLeft(BigInteger.valueOf(1100));
         margins.setRight(BigInteger.valueOf(1100));
@@ -330,22 +589,23 @@ final class LoanContractTemplateRenderer {
         margins.setFooter(BigInteger.valueOf(400));
     }
 
-    private static void createHeader(XWPFDocument doc)
-            throws Exception {
+    private static void createHeader(
+            XWPFDocument document) throws Exception {
 
-        XWPFHeader header = doc.createHeader(HeaderFooterType.DEFAULT);
+        XWPFHeader header = document.createHeader(HeaderFooterType.DEFAULT);
 
         XWPFParagraph logoParagraph = header.createParagraph();
 
         logoParagraph.setAlignment(
                 ParagraphAlignment.CENTER);
+        logoParagraph.setSpacingAfter(40);
 
-        try (
-                InputStream logo = LoanContractTemplateRenderer.class
-                        .getResourceAsStream(LOGO_RESOURCE)) {
+        try (InputStream logo = LoanContractTemplateRenderer.class
+                .getResourceAsStream(LOGO_RESOURCE)) {
+
             if (logo == null) {
                 throw new IllegalStateException(
-                        "Missing required NLS logo: "
+                        "Original company logo is missing: "
                                 + LOGO_RESOURCE);
             }
 
@@ -361,32 +621,35 @@ final class LoanContractTemplateRenderer {
 
         XWPFParagraph brand = header.createParagraph();
         brand.setAlignment(ParagraphAlignment.CENTER);
+        brand.setSpacingAfter(25);
 
         XWPFRun brandRun = brand.createRun();
-        brandRun.setText("NOBLE LOAN SOLUTIONS LTD");
+        brandRun.setText(
+                "NOBLE LOAN SOLUTIONS LTD");
         brandRun.setBold(true);
-        brandRun.setFontSize(11);
-        brandRun.setFontFamily("Aptos");
+        brandRun.setFontFamily(FONT);
+        brandRun.setFontSize(10);
         brandRun.setColor(NAVY);
 
-        XWPFParagraph classification = header.createParagraph();
+        XWPFParagraph confidential = header.createParagraph();
 
-        classification.setAlignment(
+        confidential.setAlignment(
                 ParagraphAlignment.CENTER);
 
-        XWPFRun classificationRun = classification.createRun();
+        XWPFRun confidentialRun = confidential.createRun();
 
-        classificationRun.setText(
-                "IBANGA • CONFIDENTIAL");
-        classificationRun.setBold(true);
-        classificationRun.setFontSize(8);
-        classificationRun.setColor(GOLD);
+        confidentialRun.setText(
+                "IBANGA  •  CONFIDENTIAL");
+        confidentialRun.setFontFamily(FONT);
+        confidentialRun.setFontSize(8);
+        confidentialRun.setBold(true);
+        confidentialRun.setColor(GOLD);
     }
 
     private static void createFooter(
-            XWPFDocument doc,
-            String reference) {
-        XWPFFooter footer = doc.createFooter(HeaderFooterType.DEFAULT);
+            XWPFDocument document,
+            Loan loan) {
+        XWPFFooter footer = document.createFooter(HeaderFooterType.DEFAULT);
 
         XWPFParagraph paragraph = footer.createParagraph();
 
@@ -394,62 +657,194 @@ final class LoanContractTemplateRenderer {
                 ParagraphAlignment.CENTER);
 
         XWPFRun run = paragraph.createRun();
-        run.setFontFamily("Aptos");
+        run.setFontFamily(FONT);
         run.setFontSize(8);
         run.setColor(MUTED);
 
         run.setText(
-                "NOBLE LOAN SOLUTIONS LTD"
+                "NLS  •  "
+                        + value(loan.getReferenceNumber())
                         + "  •  CONFIDENTIAL"
-                        + "  •  " + reference
-                        + "  •  DRAFT / NOT SIGNED");
+                        + "  •  DRAFT / NOT SIGNED"
+                        + "  •  Page ");
+
+        // Word automatically calculates the current page.
+        paragraph.getCTP()
+                .addNewFldSimple()
+                .setInstr("PAGE");
     }
 
     private static void title(
-            XWPFDocument doc,
+            XWPFDocument document,
             String text) {
-        XWPFParagraph paragraph = doc.createParagraph();
+        XWPFParagraph paragraph = document.createParagraph();
 
         paragraph.setAlignment(
                 ParagraphAlignment.CENTER);
-        paragraph.setSpacingBefore(150);
-        paragraph.setSpacingAfter(150);
+        paragraph.setSpacingBefore(180);
+        paragraph.setSpacingAfter(190);
 
         XWPFRun run = paragraph.createRun();
         run.setText(text);
+        run.setFontFamily(FONT);
+        run.setFontSize(15);
         run.setBold(true);
-        run.setFontFamily("Aptos Display");
-        run.setFontSize(16);
         run.setColor(NAVY);
     }
 
-    private static void centered(
-            XWPFDocument doc,
-            String text,
-            int size,
-            String color,
-            boolean bold) {
-        XWPFParagraph paragraph = doc.createParagraph();
+    private static void contractMetadata(
+            XWPFDocument document,
+            Loan loan) {
+        XWPFTable table = document.createTable(2, 2);
 
-        paragraph.setAlignment(
-                ParagraphAlignment.CENTER);
+        cell(
+                table, 0, 0,
+                "INOMERO Y’INGUZANYO",
+                true);
+        cell(
+                table, 0, 1,
+                "ITARIKI Y’AMASEZERANO",
+                true);
+        cell(
+                table, 1, 0,
+                value(loan.getReferenceNumber()),
+                false);
+        cell(
+                table, 1, 1,
+                LocalDate.now().format(DATE),
+                false);
 
-        XWPFRun run = paragraph.createRun();
-        run.setText(text);
-        run.setFontFamily("Aptos");
-        run.setFontSize(size);
-        run.setColor(color);
-        run.setBold(bold);
+        document.createParagraph();
     }
 
-    private static void section(
-            XWPFDocument doc,
+    private static void article(
+            XWPFDocument document,
+            String number,
+            String subtitle) {
+        XWPFParagraph heading = document.createParagraph();
+
+        heading.setSpacingBefore(250);
+        heading.setSpacingAfter(70);
+
+        keepWithNext(heading);
+
+        XWPFRun run = heading.createRun();
+        run.setText(number);
+        run.setFontFamily(FONT);
+        run.setFontSize(12);
+        run.setBold(true);
+        run.setColor(GOLD);
+
+        if (subtitle != null && !subtitle.isBlank()) {
+            XWPFParagraph p = document.createParagraph();
+
+            p.setSpacingAfter(120);
+            keepWithNext(p);
+
+            XWPFRun subtitleRun = p.createRun();
+            subtitleRun.setText(subtitle);
+            subtitleRun.setFontFamily(FONT);
+            subtitleRun.setFontSize(11);
+            subtitleRun.setBold(true);
+            subtitleRun.setColor(NAVY);
+        }
+    }
+
+    private static void subsection(
+            XWPFDocument document,
             String text) {
-        XWPFParagraph paragraph = doc.createParagraph();
+        XWPFParagraph p = document.createParagraph();
+        p.setSpacingBefore(140);
+        p.setSpacingAfter(90);
+        keepWithNext(p);
 
-        paragraph.setSpacingBefore(230);
-        paragraph.setSpacingAfter(90);
+        XWPFRun run = p.createRun();
+        run.setText(text);
+        run.setBold(true);
+        run.setFontFamily(FONT);
+        run.setFontSize(10);
+        run.setColor(NAVY);
+    }
 
+    private static void paragraph(
+            XWPFDocument document,
+            String text) {
+        XWPFParagraph p = document.createParagraph();
+        p.setAlignment(ParagraphAlignment.BOTH);
+        p.setSpacingAfter(115);
+
+        XWPFRun run = p.createRun();
+        run.setText(text);
+        run.setFontFamily(FONT);
+        run.setFontSize(10);
+        run.setColor(TEXT);
+    }
+
+    private static void prominent(
+            XWPFDocument document,
+            String text) {
+        XWPFParagraph p = document.createParagraph();
+        p.setSpacingBefore(160);
+        p.setSpacingAfter(140);
+        keepWithNext(p);
+
+        XWPFRun run = p.createRun();
+        run.setText(text);
+        run.setFontFamily(FONT);
+        run.setFontSize(11);
+        run.setBold(true);
+        run.setColor(NAVY);
+    }
+
+    private static void importantParagraph(
+            XWPFDocument document,
+            String text) {
+        XWPFParagraph p = document.createParagraph();
+
+        p.setSpacingBefore(140);
+        p.setSpacingAfter(140);
+
+        XWPFRun run = p.createRun();
+        run.setText(text);
+        run.setFontFamily(FONT);
+        run.setFontSize(10);
+        run.setBold(true);
+        run.setColor(NAVY);
+    }
+
+    private static void bullet(
+            XWPFDocument document,
+            String text) {
+        XWPFParagraph p = document.createParagraph();
+        p.setIndentationLeft(360);
+        p.setIndentationHanging(180);
+        p.setSpacingAfter(110);
+        p.setAlignment(ParagraphAlignment.BOTH);
+
+        XWPFRun run = p.createRun();
+        run.setText("•  " + text);
+        run.setFontFamily(FONT);
+        run.setFontSize(10);
+        run.setColor(TEXT);
+    }
+
+    private static void lettered(
+            XWPFDocument document,
+            String letter,
+            String text) {
+        XWPFParagraph p = document.createParagraph();
+        p.setIndentationLeft(360);
+        p.setIndentationHanging(180);
+        p.setSpacingAfter(80);
+
+        XWPFRun run = p.createRun();
+        run.setText(letter + ")  " + text);
+        run.setFontFamily(FONT);
+        run.setFontSize(10);
+        run.setColor(TEXT);
+    }
+
+    private static void keepWithNext(XWPFParagraph paragraph) {
         var properties = paragraph.getCTP().isSetPPr()
                 ? paragraph.getCTP().getPPr()
                 : paragraph.getCTP().addNewPPr();
@@ -457,60 +852,51 @@ final class LoanContractTemplateRenderer {
         if (!properties.isSetKeepNext()) {
             properties.addNewKeepNext();
         }
-
-        XWPFRun run = paragraph.createRun();
-        run.setText(text);
-        run.setBold(true);
-        run.setFontSize(11);
-        run.setFontFamily("Aptos");
-        run.setColor(NAVY);
     }
 
-    private static void paragraph(
-            XWPFDocument doc,
-            String text) {
-        XWPFParagraph paragraph = doc.createParagraph();
+    // =========================================================
+    // REPAYMENT SCHEDULE
+    // =========================================================
 
-        paragraph.setAlignment(
-                ParagraphAlignment.BOTH);
-        paragraph.setSpacingAfter(110);
-
-        XWPFRun run = paragraph.createRun();
-        run.setText(text);
-        run.setFontFamily("Aptos");
-        run.setFontSize(10);
-        run.setColor(BODY);
-    }
-
-    private static void addSchedule(
-            XWPFDocument doc,
+    private static void repaymentSchedule(
+            XWPFDocument document,
             List<PaymentSchedule> schedules,
-            String currency) {
+            Loan loan) {
         if (schedules == null || schedules.isEmpty()) {
-            paragraph(
-                    doc,
+            importantParagraph(
+                    document,
                     "[GAHUNDA YO KWISHYURA NTIRABONEKA "
                             + "— NTIMWOHEREZE AMASEZERANO]");
             return;
         }
 
-        XWPFTable table = doc.createTable(schedules.size() + 1, 3);
+        XWPFTable table = document.createTable(
+                schedules.size() + 2,
+                3);
 
-        setCell(table, 0, 0, "Igice", true);
-        setCell(table, 0, 1, "Itariki", true);
-        setCell(table, 0, 2, "Amafaranga", true);
+        cell(table, 0, 0, "IGICE", true);
+        cell(table, 0, 1, "ITARIKI", true);
+        cell(table, 0, 2, "AMAFARANGA", true);
 
-        int row = 1;
+        BigDecimal total = BigDecimal.ZERO;
+        boolean incomplete = false;
 
-        for (PaymentSchedule schedule : schedules) {
-            setCell(
+        for (int index = 0; index < schedules.size(); index++) {
+            PaymentSchedule schedule = schedules.get(index);
+            int row = index + 1;
+
+            cell(
                     table,
                     row,
                     0,
-                    str(schedule.getInstallmentNumber()),
+                    value(schedule.getInstallmentNumber()),
                     false);
 
-            setCell(
+            if (schedule.getDueDate() == null) {
+                incomplete = true;
+            }
+
+            cell(
                     table,
                     row,
                     1,
@@ -519,85 +905,177 @@ final class LoanContractTemplateRenderer {
                             : schedule.getDueDate().format(DATE),
                     false);
 
-            setCell(
+            BigDecimal amount = schedule.getInstallmentAmount();
+
+            if (amount == null || amount.signum() <= 0) {
+                incomplete = true;
+            } else {
+                total = total.add(amount);
+            }
+
+            cell(
                     table,
                     row,
                     2,
-                    numericMoney(
-                            schedule.getInstallmentAmount(),
-                            currency),
+                    numericMoney(amount, loan.getCurrency()),
                     false);
-
-            row++;
         }
 
-        doc.createParagraph();
+        int lastRow = schedules.size() + 1;
+
+        cell(
+                table,
+                lastRow,
+                0,
+                "IGITERANYO",
+                true);
+
+        cell(
+                table,
+                lastRow,
+                1,
+                "",
+                true);
+
+        cell(
+                table,
+                lastRow,
+                2,
+                numericMoney(total, loan.getCurrency()),
+                true);
+
+        BigDecimal repayable = loan.getTotalRepayableDecimal();
+
+        if (repayable == null
+                || total.setScale(2, RoundingMode.HALF_UP)
+                        .compareTo(repayable.setScale(
+                                2,
+                                RoundingMode.HALF_UP)) != 0) {
+            incomplete = true;
+        }
+
+        if (incomplete) {
+            importantParagraph(
+                    document,
+                    "[KUZUZA] Gahunda yo kwishyura "
+                            + "ifite amakuru atuzuye "
+                            + "cyangwa igiteranyo cyayo "
+                            + "ntigihuye n’amafaranga "
+                            + "yose ateganyijwe kwishyurwa. "
+                            + "Ntimuwohereze.");
+        }
+
+        paragraph(
+                document,
+                "Amafaranga ya buri gice "
+                        + "agaragajwe muri iyi gahunda "
+                        + "agomba guhuza n’amakuru "
+                        + "yemejwe kandi abitswe "
+                        + "muri sisitemu.");
     }
 
-    private static void setCell(
+    private static void cell(
             XWPFTable table,
             int row,
             int column,
-            String value,
+            String text,
             boolean heading) {
         XWPFTableCell cell = table.getRow(row).getCell(column);
 
-        XWPFParagraph paragraph = cell.getParagraphs().get(0);
+        if (heading) {
+            cell.setColor(LIGHT);
+        }
 
-        XWPFRun run = paragraph.createRun();
-        run.setText(value);
-        run.setFontFamily("Aptos");
+        XWPFParagraph p = cell.getParagraphs().get(0);
+
+        XWPFRun run = p.createRun();
+        run.setText(text);
+        run.setFontFamily(FONT);
         run.setFontSize(9);
         run.setBold(heading);
-        run.setColor(heading ? NAVY : BODY);
+        run.setColor(heading ? NAVY : TEXT);
     }
 
-    private static void signatureTable(
-            XWPFDocument doc,
-            String borrowerName) {
-        XWPFTable table = doc.createTable(4, 2);
+    // =========================================================
+    // SIGNATURES
+    // =========================================================
 
-        setCell(table, 0, 0, "UGURIJWE", true);
-        setCell(table, 0, 1, "UGURIJE", true);
+    private static void signatures(
+            XWPFDocument document,
+            Borrower borrower) {
+        XWPFTable table = document.createTable(4, 2);
 
-        setCell(table, 1, 0, borrowerName, false);
-        setCell(
-                table,
-                1,
-                1,
-                "Noble Loan Solutions Ltd",
+        cell(table, 0, 0, "UGURIJWE", true);
+        cell(table, 0, 1, "UGURIJE", true);
+
+        cell(
+                table, 1, 0,
+                value(borrower.getFirstName())
+                        + " "
+                        + value(borrower.getLastName()),
                 false);
 
-        setCell(
-                table,
-                2,
-                0,
-                "Umukono: __________________",
+        cell(
+                table, 1, 1,
+                "TUYISENGE Annuarite\n"
+                        + "Umuyobozi Mukuru\n"
+                        + "Noble Loan Solutions Ltd",
                 false);
 
-        setCell(
-                table,
-                2,
-                1,
-                "Umukono: __________________",
+        cell(
+                table, 2, 0,
+                "Umukono: _____________________",
+                false);
+        cell(
+                table, 2, 1,
+                "Umukono: _____________________",
                 false);
 
-        setCell(
-                table,
-                3,
-                0,
-                "Itariki: __________________",
+        cell(
+                table, 3, 0,
+                "Itariki: _____________________",
+                false);
+        cell(
+                table, 3, 1,
+                "Itariki: _____________________",
                 false);
 
-        setCell(
-                table,
-                3,
-                1,
-                "Itariki: __________________",
-                false);
+        document.createParagraph();
     }
 
-    private static String money(
+    // =========================================================
+    // FINANCIAL VALUES AND KINYARWANDA NUMBER WORDING
+    // =========================================================
+
+    private static BigDecimal calculateRate(
+            BigDecimal principal,
+            BigDecimal rate,
+            BigDecimal divisor) {
+        if (principal == null || rate == null) {
+            return null;
+        }
+
+        return principal.multiply(rate)
+                .divide(
+                        divisor,
+                        2,
+                        RoundingMode.HALF_UP);
+    }
+
+    private static String numericMoney(
+            BigDecimal amount,
+            String currency) {
+        if (amount == null) {
+            return "[KUZUZA]";
+        }
+
+        return value(currency) + " "
+                + amount.setScale(
+                        2,
+                        RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private static String moneyInWords(
             BigDecimal amount,
             String currency) {
         if (amount == null) {
@@ -611,68 +1089,196 @@ final class LoanContractTemplateRenderer {
 
         BigDecimal normalized = amount.setScale(2, RoundingMode.HALF_UP);
 
-        if (normalized.stripTrailingZeros().scale() > 0) {
+        if (!"RWF".equalsIgnoreCase(currency)) {
             return numericMoney(normalized, currency);
         }
 
-        return rwfWords(normalized.toBigIntegerExact())
-                + " ("
-                + str(currency)
-                + " "
-                + normalized.toBigIntegerExact()
+        BigInteger whole = normalized.toBigInteger();
+
+        int cents = normalized.remainder(BigDecimal.ONE)
+                .movePointRight(2)
+                .intValue();
+
+        String words = numberWords(whole)
+                + " z’amafaranga y’u Rwanda";
+
+        if (cents > 0) {
+            words += " n’amasente "
+                    + numberWords(BigInteger.valueOf(cents));
+        }
+
+        return words + " (RWF "
+                + normalized.toPlainString()
                 + ")";
     }
 
-    private static String numericMoney(
-            BigDecimal amount,
-            String currency) {
-        if (amount == null) {
-            return "[KUZUZA]";
+    private static String numberWords(
+            BigInteger number) {
+        if (number.signum() < 0) {
+            throw new IllegalArgumentException(
+                    "Negative number.");
         }
 
-        return str(currency)
-                + " "
-                + amount.setScale(
-                        2,
-                        RoundingMode.HALF_UP).toPlainString();
+        if (number.signum() == 0) {
+            return "zeru";
+        }
+
+        if (number.compareTo(
+                new BigInteger("999999999999999")) > 0) {
+            throw new IllegalArgumentException(
+                    "Amount exceeds supported range.");
+        }
+
+        String[] scales = {
+                "",
+                "ibihumbi",
+                "miliyoni",
+                "miliyari",
+                "tiriyoni"
+        };
+
+        List<String> groups = new ArrayList<>();
+
+        BigInteger thousand = BigInteger.valueOf(1000);
+
+        int scale = 0;
+
+        while (number.signum() > 0) {
+            int group = number.mod(thousand).intValue();
+
+            if (group != 0) {
+                String words;
+
+                if (scale == 0) {
+                    words = underThousand(group);
+
+                } else if (group == 1) {
+                    if (scale == 1) {
+                        words = "igihumbi kimwe";
+                    } else {
+                        words = scales[scale] + " imwe";
+                    }
+
+                } else if (scale == 1 && group == 2) {
+                    words = "ibihumbi bibiri";
+
+                } else if (scale >= 2 && group == 2) {
+                    words = scales[scale] + " ebyiri";
+
+                } else {
+                    words = scales[scale]
+                            + " " + underThousand(group);
+                }
+
+                groups.add(0, words);
+            }
+
+            number = number.divide(thousand);
+            scale++;
+        }
+
+        return String.join(" na ", groups);
     }
 
-    private static String rwfWords(BigInteger amount) {
-        if (amount.signum() == 0) {
-            return "zeru y’amafaranga y’u Rwanda";
+    private static String underThousand(int number) {
+        if (number < 0 || number > 999) {
+            throw new IllegalArgumentException(
+                    "Expected number between 0 and 999.");
         }
 
-        if (amount.equals(
-                BigInteger.valueOf(10_000_000L))) {
-            return "miliyoni icumi z’amafaranga y’u Rwanda";
+        if (number == 0) {
+            return "zeru";
         }
 
-        if (amount.equals(
-                BigInteger.valueOf(1_000_000L))) {
-            return "miliyoni imwe y’amafaranga y’u Rwanda";
+        String[] units = {
+                "",
+                "rimwe",
+                "abiri",
+                "atatu",
+                "ane",
+                "atanu",
+                "atandatu",
+                "arindwi",
+                "umunani",
+                "icyenda"
+        };
+
+        String[] tens = {
+                "",
+                "icumi",
+                "makumyabiri",
+                "mirongo itatu",
+                "mirongo ine",
+                "mirongo itanu",
+                "mirongo itandatu",
+                "mirongo irindwi",
+                "mirongo inani",
+                "mirongo icyenda"
+        };
+
+        String[] hundreds = {
+                "",
+                "ijana",
+                "magana abiri",
+                "magana atatu",
+                "magana ane",
+                "magana atanu",
+                "magana atandatu",
+                "magana arindwi",
+                "magana inani",
+                "magana icyenda"
+        };
+
+        List<String> parts = new ArrayList<>();
+
+        if (number >= 100) {
+            parts.add(hundreds[number / 100]);
         }
 
-        return "amafaranga y’u Rwanda "
-                + amount.toString();
+        int remainder = number % 100;
+
+        if (remainder >= 20) {
+            String text = tens[remainder / 10];
+
+            if (remainder % 10 > 0) {
+                text += " na " + units[remainder % 10];
+            }
+
+            parts.add(text);
+
+        } else if (remainder >= 10) {
+            parts.add(
+                    remainder == 10
+                            ? "icumi"
+                            : "cumi na "
+                                    + units[remainder - 10]);
+
+        } else if (remainder > 0) {
+            parts.add(units[remainder]);
+        }
+
+        return String.join(" na ", parts);
     }
 
-    private static String pct(BigDecimal rate) {
+    private static String percent(BigDecimal rate) {
         return rate == null
                 ? "[KUZUZA]"
                 : rate.stripTrailingZeros()
-                        .toPlainString() + "%";
+                        .toPlainString()
+                        + "%";
     }
 
-    private static BigDecimal nz(BigDecimal value) {
-        return value == null
-                ? BigDecimal.ZERO
-                : value;
-    }
-
-    private static String str(Object value) {
+    private static String value(Object value) {
         return value == null
                 || value.toString().isBlank()
                         ? "[KUZUZA]"
+                        : value.toString().trim();
+    }
+
+    private static String optional(Object value) {
+        return value == null
+                || value.toString().isBlank()
+                        ? "Nta makuru yatanzwe"
                         : value.toString().trim();
     }
 
@@ -696,7 +1302,7 @@ final class LoanContractTemplateRenderer {
         }
 
         return joiner.length() == 0
-                ? str(borrower.getAddress())
+                ? value(borrower.getAddress())
                 : joiner.toString();
     }
 }
