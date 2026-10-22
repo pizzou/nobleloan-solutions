@@ -103,7 +103,6 @@ public class BorrowerFileController {
 
         /** Attachment download — forces "Save As". */
         @GetMapping("/download/{fileId}")
-        @org.springframework.transaction.annotation.Transactional(readOnly = true)
         public ResponseEntity<byte[]> download(@PathVariable Long fileId) {
                 return serveFile(fileId, "attachment", "DOCUMENT_DOWNLOADED", "Downloaded");
         }
@@ -113,7 +112,6 @@ public class BorrowerFileController {
          * images/PDFs directly.
          */
         @GetMapping("/preview/{fileId}")
-        @org.springframework.transaction.annotation.Transactional(readOnly = true)
         public ResponseEntity<byte[]> preview(@PathVariable Long fileId) {
                 return serveFile(fileId, "inline", "DOCUMENT_PREVIEWED", "Previewed");
         }
