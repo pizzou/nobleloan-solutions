@@ -1,9 +1,8 @@
+
 package com.patrick.fintech.loan_backend.service;
 
-import com.patrick.fintech.loan_backend.model.Borrower;
 import com.patrick.fintech.loan_backend.model.Loan;
 import com.patrick.fintech.loan_backend.model.LoanContract;
-import com.patrick.fintech.loan_backend.model.PaymentSchedule;
 import com.patrick.fintech.loan_backend.model.User;
 import com.patrick.fintech.loan_backend.repository.LoanContractRepository;
 import com.patrick.fintech.loan_backend.repository.PaymentScheduleRepository;
@@ -14,15 +13,10 @@ import org.apache.poi.xwpf.usermodel.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.ByteArrayOutputStream;
 import java.io.ByteArrayInputStream;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -31,8 +25,8 @@ import java.util.Locale;
 @RequiredArgsConstructor
 @Slf4j
 public class LoanContractService {
+
     private static final String DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     private final LoanContractRepository contractRepository;
     private final PaymentScheduleRepository paymentScheduleRepository;
@@ -41,50 +35,83 @@ public class LoanContractService {
     private final NotificationService notificationService;
     private final MailService mailService;
 
-    /**
-     * Creates the initial draft after the loan's product terms are persisted. The
-     * file is
-     * not an executed contract and is not proof that the borrower accepted the
-     * terms.
-     */
     @Transactional
     public LoanContract generateForNewLoan(Loan loan, User actor) {
-        if (loan == null || loan.getId() == null || loan.getOrganization() == null
-                || loan.getOrganization().getId() == null || loan.getBorrower() == null) {
+        if (loan == null
+                || loan.getId() == null
+                || loan.getOrganization() == null
+                || loan.getOrganization().getId() == null
+                || loan.getBorrower() == null) {
             throw new IllegalArgumentException(
-                    "A saved loan, organization and borrower are required to generate a contract.");
+                    "A saved loan, organization and borrower are required.");
         }
 
-        byte[] bytes = buildDraftDocument(loan);
-        String currentHash = sha256(bytes);
-        String currentFingerprint = textFingerprint(bytes);
-        var existing = contractRepository.findByLoan_IdAndOrganization_Id(
-                loan.getId(), loan.getOrganization().getId());
+        byte[] documentBytes = buildDraftDocument(loan);
+        String documentHash = sha256(documentBytes);
+        String termsFingerprint = textFingerprint(documentBytes);
+
+        var existing = contractRepository
+                .findByLoan_IdAndOrganization_Id(
+                        loan.getId(),
+                        loan.getOrganization().getId());
+
         if (existing.isPresent()) {
             LoanContract prior = existing.get();
-            String priorFingerprint = textFingerprint(prior.getDocumentData());
+
             if (prior.getStatus() == LoanContract.ContractStatus.SENT_TO_BORROWER) {
-                if (!currentFingerprint.equals(priorFingerprint)) {
+
+                String previousTerms = textFingerprint(prior.getDocumentData());
+
+                if (!termsFingerprint.equals(previousTerms)) {
                     throw new IllegalStateException(
-                            "The contract was already sent to the borrower, but the loan terms have changed. Do not overwrite the sent copy; create and approve a formal revised contract before dispatching new terms.");
+                            "This contract has already been sent. "
+                                    + "The terms have changed. A formally "
+                                    + "approved revised contract is required.");
                 }
+
+                // Never replace an already-sent document.
                 return prior;
             }
-            if (currentFingerprint.equals(priorFingerprint))
+
+            // Compare complete DOCX bytes, not just body text.
+            // This detects new headers, footers, images and styles.
+            String storedHash = sha256(prior.getDocumentData());
+
+            if (documentHash.equals(storedHash)) {
                 return prior;
+            }
+
             String previousHash = prior.getSha256();
-            prior.setDocumentData(bytes);
-            prior.setSha256(currentHash);
-            prior.setFileName("NLS-Loan-Contract-" + safeFilePart(loan.getReferenceNumber()) + "-DRAFT.docx");
+
+            prior.setDocumentData(documentBytes);
+            prior.setSha256(documentHash);
+            prior.setContentType(DOCX_TYPE);
+            prior.setFileName(
+                    contractFileName(loan.getReferenceNumber()));
             prior.setGeneratedBy(actor);
             prior.setGeneratedAt(LocalDateTime.now());
+
             LoanContract refreshed = contractRepository.save(prior);
-            auditService.log(loan.getOrganization(), actor,
-                    "LOAN_CONTRACT_DRAFT_REFRESHED", "LOAN_CONTRACT",
+
+            auditService.log(
+                    loan.getOrganization(),
+                    actor,
+                    "LOAN_CONTRACT_DRAFT_REFRESHED",
+                    "LOAN_CONTRACT",
                     String.valueOf(refreshed.getId()),
-                    "Refreshed unsent draft from the current loan terms. Previous draft hash="
-                            + previousHash + "; current hash=" + currentHash,
-                    null, null, "Loan Contracts");
+                    "Refreshed unsent contract document. Previous hash="
+                            + previousHash
+                            + "; current hash=" + documentHash,
+                    null,
+                    null,
+                    "Loan Contracts");
+
+            log.info(
+                    "Loan contract refreshed. loanId={}, contractId={}, hash={}",
+                    loan.getId(),
+                    refreshed.getId(),
+                    documentHash);
+
             return refreshed;
         }
 
@@ -92,211 +119,203 @@ public class LoanContractService {
                 .organization(loan.getOrganization())
                 .loan(loan)
                 .status(LoanContract.ContractStatus.DRAFT)
-                .fileName("NLS-Loan-Contract-" + safeFilePart(loan.getReferenceNumber()) + "-DRAFT.docx")
+                .fileName(contractFileName(loan.getReferenceNumber()))
                 .contentType(DOCX_TYPE)
-                .documentData(bytes)
-                .sha256(currentHash)
+                .documentData(documentBytes)
+                .sha256(documentHash)
                 .generatedBy(actor)
                 .generatedAt(LocalDateTime.now())
                 .build();
+
         LoanContract saved = contractRepository.save(contract);
 
         List<User> recipients;
+
         if (loan.getLoanOfficer() != null) {
             recipients = List.of(loan.getLoanOfficer());
         } else {
-            recipients = userRepository.findByOrganization(loan.getOrganization()).stream()
-                    .filter(user -> user.getRole() != null && user.getRole().getName() != null)
+            recipients = userRepository
+                    .findByOrganization(loan.getOrganization())
+                    .stream()
+                    .filter(user -> user.getRole() != null
+                            && user.getRole().getName() != null)
                     .filter(user -> {
-                        String role = user.getRole().getName().toUpperCase(Locale.ROOT);
-                        return role.equals("LOAN_OFFICER") || role.equals("ADMIN") || role.equals("MANAGER");
-                    }).toList();
+                        String role = user.getRole()
+                                .getName()
+                                .toUpperCase(Locale.ROOT);
+
+                        return role.equals("LOAN_OFFICER")
+                                || role.equals("ADMIN")
+                                || role.equals("MANAGER");
+                    })
+                    .toList();
+
             if (recipients.isEmpty() && actor != null) {
                 recipients = List.of(actor);
             }
         }
+
         if (!recipients.isEmpty()) {
             notificationService.notifyUsers(
                     recipients,
                     "Loan contract draft ready",
-                    "A draft contract was generated for loan " + loan.getReferenceNumber()
-                            + ". Download it, review it, and send the draft to the borrower for review and signature.",
+                    "A draft contract was generated for loan "
+                            + loan.getReferenceNumber()
+                            + ". Review the document before sending.",
                     "LOAN_CONTRACT_DRAFT",
                     "/dashboard/loans/" + loan.getId());
         }
+
         auditService.log(
-                loan.getOrganization(), actor,
-                "LOAN_CONTRACT_DRAFT_GENERATED", "LOAN_CONTRACT",
+                loan.getOrganization(),
+                actor,
+                "LOAN_CONTRACT_DRAFT_GENERATED",
+                "LOAN_CONTRACT",
                 String.valueOf(saved.getId()),
-                "Generated draft contract for loan " + loan.getReferenceNumber()
-                        + "; draft requires review and signature.",
-                null, null, "Loan Contracts");
-        log.info("Draft contract generated. loanId={}, contractId={}, sha256={}",
-                loan.getId(), saved.getId(), saved.getSha256());
+                "Generated contract draft for loan "
+                        + loan.getReferenceNumber(),
+                null,
+                null,
+                "Loan Contracts");
+
+        log.info(
+                "Loan contract generated. loanId={}, contractId={}, hash={}",
+                loan.getId(),
+                saved.getId(),
+                documentHash);
+
         return saved;
     }
 
     @Transactional(readOnly = true)
-    public LoanContract getForOrganization(Long loanId, Long organizationId) {
-        if (loanId == null || loanId <= 0 || organizationId == null || organizationId <= 0) {
-            throw new IllegalArgumentException("Loan and organization identifiers are required.");
+    public LoanContract getForOrganization(
+            Long loanId,
+            Long organizationId) {
+        if (loanId == null
+                || loanId <= 0
+                || organizationId == null
+                || organizationId <= 0) {
+            throw new IllegalArgumentException(
+                    "Valid loan and organization identifiers are required.");
         }
-        return contractRepository.findByLoan_IdAndOrganization_Id(loanId, organizationId)
-                .orElseThrow(() -> new IllegalArgumentException("Contract not found for this loan."));
+
+        return contractRepository
+                .findByLoan_IdAndOrganization_Id(
+                        loanId,
+                        organizationId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Contract not found for this loan."));
     }
 
-    /**
-     * Staff records that they have sent the downloaded draft through their approved
-     * channel.
-     * The platform then notifies the borrower's email; it does not claim the
-     * contract was signed.
-     */
     @Transactional
-    public LoanContract markSent(Long loanId, Long organizationId, User actor, boolean termsReviewed) {
-        if (actor == null || actor.getOrganization() == null
+    public LoanContract markSent(
+            Long loanId,
+            Long organizationId,
+            User actor,
+            boolean termsReviewed) {
+        if (actor == null
+                || actor.getOrganization() == null
                 || actor.getOrganization().getId() == null
-                || !actor.getOrganization().getId().equals(organizationId)) {
-            throw new IllegalArgumentException("You are not authorized for this organization's contract.");
+                || !actor.getOrganization().getId()
+                        .equals(organizationId)) {
+            throw new IllegalArgumentException(
+                    "You are not authorized for this organization's contract.");
         }
+
         LoanContract contract = getForOrganization(loanId, organizationId);
-        if (contract.getStatus() == LoanContract.ContractStatus.SENT_TO_BORROWER)
+
+        if (contract.getStatus() == LoanContract.ContractStatus.SENT_TO_BORROWER) {
             return contract;
+        }
+
         if (!termsReviewed) {
             throw new IllegalArgumentException(
-                    "The loan officer must explicitly confirm that borrower details, rates, fees, penalty terms and the repayment schedule were reviewed before dispatch.");
+                    "Staff must confirm review of borrower details, "
+                            + "rates, fees, penalties and repayment schedule.");
         }
-        String contractText = extractDocumentText(contract.getDocumentData()).toLowerCase(Locale.ROOT);
-        if (contractText.contains("gahunda yo kwishyura ntiraboneka muri sisitemu") || contractText.contains("[kuzuza]")
-                || contractText.contains("[itariki ibura]")) {
-            throw new IllegalStateException(
-                    "The draft does not contain a repayment schedule. Generate the schedule, refresh the draft, and review it before sending the contract to the borrower.");
-        }
-        // The attachment is the exact immutable document bytes already persisted
-        // on this contract, not a newly rendered copy with potentially changed terms.
-        // A provider rejection must not transition the contract to SENT_TO_BORROWER.
-        mailService.sendLoanContractDraftWithAttachment(
-                contract.getLoan(), contract.getFileName(), contract.getDocumentData());
 
-        contract.setStatus(LoanContract.ContractStatus.SENT_TO_BORROWER);
+        String documentText = extractDocumentText(contract.getDocumentData())
+                .toLowerCase(Locale.ROOT);
+
+        if (documentText.contains("gahunda yo kwishyura ntiraboneka")
+                || documentText.contains("ntimwohereze amasezerano")
+                || documentText.contains("[kuzuza]")
+                || documentText.contains("[itariki ibura]")) {
+            throw new IllegalStateException(
+                    "The contract contains incomplete information. "
+                            + "Correct the loan data and regenerate the draft.");
+        }
+
+        // Send the exact stored attachment.
+        mailService.sendLoanContractDraftWithAttachment(
+                contract.getLoan(),
+                contract.getFileName(),
+                contract.getDocumentData());
+
+        contract.setStatus(
+                LoanContract.ContractStatus.SENT_TO_BORROWER);
         contract.setSentBy(actor);
         contract.setSentAt(LocalDateTime.now());
-        // Provider acceptance is not proof of inbox delivery or borrower reading.
         contract.setBorrowerNotifiedAt(LocalDateTime.now());
+
         LoanContract saved = contractRepository.save(contract);
+
         auditService.log(
-                contract.getOrganization(), actor,
-                "LOAN_CONTRACT_DRAFT_SENT", "LOAN_CONTRACT",
-                String.valueOf(contract.getId()),
-                "Email provider accepted the draft DOCX attachment for loan "
+                contract.getOrganization(),
+                actor,
+                "LOAN_CONTRACT_DRAFT_SENT",
+                "LOAN_CONTRACT",
+                String.valueOf(saved.getId()),
+                "Email provider accepted the contract attachment for loan "
                         + contract.getLoan().getReferenceNumber()
-                        + "; staff confirmed review; borrower signature and delivery are not confirmed.",
-                null, null, "Loan Contracts");
+                        + ". Borrower signature is not confirmed.",
+                null,
+                null,
+                "Loan Contracts");
+
         return saved;
     }
 
-    /**
-     * Generates the contract document entirely in Java. No DOCX template or other
-     * contract file is loaded from application resources.
-     */
-
     private byte[] buildDraftDocument(Loan loan) {
         return LoanContractTemplateRenderer.render(
-                loan, paymentScheduleRepository.findByLoanIdOrderByInstallmentNumberAsc(loan.getId()));
+                loan,
+                paymentScheduleRepository
+                        .findByLoanIdOrderByInstallmentNumberAsc(
+                                loan.getId()));
     }
 
-    private static BigDecimal zeroIfNull(BigDecimal value) {
-        return value == null ? BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP) : value;
-    }
-
-    private static void paragraph(XWPFDocument doc, String text) {
-        XWPFParagraph p = doc.createParagraph();
-        p.setSpacingAfter(100);
-        p.createRun().setText(text);
-    }
-
-    private static void heading(XWPFDocument doc, String text) {
-        XWPFParagraph p = doc.createParagraph();
-        p.setSpacingBefore(120);
-        p.setSpacingAfter(60);
-        XWPFRun r = p.createRun();
-        r.setBold(true);
-        r.setFontSize(11);
-        r.setText(text);
-    }
-
-    private static void addTable(XWPFDocument doc, String[] headers, String[][] rows) {
-        XWPFTable table = doc.createTable(rows.length + 1, headers.length);
-        for (int c = 0; c < headers.length; c++) {
-            XWPFRun run = table.getRow(0).getCell(c).getParagraphs().get(0).createRun();
-            run.setBold(true);
-            run.setText(headers[c]);
-        }
-        for (int r = 0; r < rows.length; r++) {
-            for (int c = 0; c < headers.length; c++) {
-                table.getRow(r + 1).getCell(c).getParagraphs().get(0).createRun()
-                        .setText(rows[r][c] == null ? "" : rows[r][c]);
-            }
-        }
-        doc.createParagraph();
-    }
-
-    private static String fullName(Borrower b) {
-        return ((value(b.getFirstName()) + " " + value(b.getLastName())).trim());
-    }
-
-    private static String address(Borrower b) {
-        StringBuilder s = new StringBuilder();
-        for (String part : List.of(value(b.getAddressLine1()), value(b.getAddressLine2()),
-                value(b.getPhysicalAddressVillage()), value(b.getPhysicalAddressCell()),
-                value(b.getPhysicalAddressSector()), value(b.getPhysicalAddressDistrict()),
-                value(b.getCity()), value(b.getCountry()))) {
-            if (!part.equals("—") && !s.toString().contains(part)) {
-                if (s.length() > 0)
-                    s.append(", ");
-                s.append(part);
-            }
-        }
-        return s.length() == 0 ? value(b.getAddress()) : s.toString();
-    }
-
-    private static String value(Object value) {
-        if (value == null || value.toString().isBlank())
-            return "—";
-        return value.toString().trim();
-    }
-
-    private static boolean notBlank(String value) {
-        return value != null && !value.isBlank();
-    }
-
-    private static String date(LocalDate date) {
-        return date == null ? "—" : date.format(DATE);
-    }
-
-    private static String money(BigDecimal amount, String currency) {
-        if (amount == null)
-            return "—";
-        return value(currency) + " " + amount.setScale(2, RoundingMode.HALF_UP).toPlainString();
-    }
-
-    private static String percent(BigDecimal amount) {
-        return amount == null ? "—" : amount.stripTrailingZeros().toPlainString() + "%";
+    private static String contractFileName(String reference) {
+        return "NLS-Loan-Contract-"
+                + safeFilePart(reference)
+                + "-DRAFT.docx";
     }
 
     private static String safeFilePart(String input) {
-        return (input == null ? "LOAN" : input.replaceAll("[^A-Za-z0-9_-]", "-"));
+        return input == null
+                ? "LOAN"
+                : input.replaceAll("[^A-Za-z0-9_-]", "-");
     }
 
-    private static String textFingerprint(byte[] documentBytes) {
-        return sha256(extractDocumentText(documentBytes).getBytes(StandardCharsets.UTF_8));
+    private static String textFingerprint(byte[] bytes) {
+        return sha256(
+                extractDocumentText(bytes)
+                        .getBytes(StandardCharsets.UTF_8));
     }
 
-    private static String extractDocumentText(byte[] documentBytes) {
-        try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(documentBytes))) {
+    private static String extractDocumentText(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) {
+            throw new IllegalStateException(
+                    "Contract document is missing.");
+        }
+
+        try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(bytes))) {
+
             StringBuilder content = new StringBuilder();
+
             for (XWPFParagraph paragraph : document.getParagraphs()) {
                 content.append(paragraph.getText()).append('\n');
             }
+
             for (XWPFTable table : document.getTables()) {
                 for (XWPFTableRow row : table.getRows()) {
                     for (XWPFTableCell cell : row.getTableCells()) {
@@ -305,17 +324,32 @@ public class LoanContractService {
                     content.append('\n');
                 }
             }
+
             return content.toString();
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to read the generated loan contract document.", e);
+
+        } catch (Exception ex) {
+            throw new IllegalStateException(
+                    "Unable to read loan contract DOCX.",
+                    ex);
         }
     }
 
     private static String sha256(byte[] bytes) {
+        if (bytes == null) {
+            throw new IllegalArgumentException(
+                    "Cannot hash a null contract document.");
+        }
+
         try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to calculate contract checksum.", e);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+
+            return HexFormat.of().formatHex(
+                    digest.digest(bytes));
+
+        } catch (Exception ex) {
+            throw new IllegalStateException(
+                    "Unable to calculate contract SHA-256.",
+                    ex);
         }
     }
 }
