@@ -1606,6 +1606,19 @@ public class AccountingService {
                                         "Loan ID is required");
                 }
 
+                // An approved commitment is not a receivable. Only a loan whose
+                // disbursement has succeeded may enter the general ledger.
+                // Keep this guard here, not only in LoanService, so future
+                // callers cannot accidentally post an approval as disbursement.
+                if (loan.getStatus() != com.patrick.fintech.loan_backend.model.LoanStatus.ACTIVE
+                                || loan.getDisbursedAt() == null
+                                || loan.getDisbursedAmountDecimal() == null
+                                || loan.getDisbursedAmountDecimal().compareTo(BigDecimal.ZERO) <= 0) {
+                        throw new IllegalStateException(
+                                        "Cannot post loan disbursement before successful disbursement: loan="
+                                                        + loan.getId() + ", status=" + loan.getStatus());
+                }
+
                 Organization org = loan.getOrganization();
 
                 requireOrganization(org);
