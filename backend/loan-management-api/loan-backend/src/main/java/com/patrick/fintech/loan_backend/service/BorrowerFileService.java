@@ -179,20 +179,25 @@ public class BorrowerFileService {
                 .orElseThrow(() -> new RuntimeException("File not found: " + fileId));
     }
 
-    /**
-     * Get file ensuring organization ownership.
-     */
+    @Transactional(readOnly = true)
     public BorrowerFile getByIdForOrg(Long fileId, Long orgId) {
 
-        BorrowerFile file = getById(fileId);
+        if (fileId == null || orgId == null) {
+            throw new RuntimeException("File not found.");
+        }
 
-        if (file.getBorrower() == null
-                || file.getBorrower().getOrganization() == null
-                || !file.getBorrower()
-                        .getOrganization()
-                        .getId()
-                        .equals(orgId)) {
+        BorrowerFile file = fileRepository.findById(fileId)
+                .orElseThrow(() -> new RuntimeException("File not found."));
 
+        Borrower borrower = file.getBorrower();
+
+        if (borrower == null) {
+            throw new RuntimeException("File not found.");
+        }
+
+        if (borrower.getOrganization() == null
+                || borrower.getOrganization().getId() == null
+                || !orgId.equals(borrower.getOrganization().getId())) {
             throw new RuntimeException("File not found.");
         }
 
