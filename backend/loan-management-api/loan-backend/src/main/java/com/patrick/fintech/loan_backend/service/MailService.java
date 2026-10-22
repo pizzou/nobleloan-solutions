@@ -17,6 +17,7 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.math.BigDecimal;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -56,6 +57,45 @@ public class MailService {
 
         public boolean isMailEnabled() {
                 return mailEnabled;
+        }
+
+        /**
+         * Send the persisted, reviewed DOCX as a Brevo attachment. Unlike general
+         * notifications this is synchronous: callers must not record dispatch when
+         * the provider rejects the message.
+         */
+        public void sendLoanContractDraftWithAttachment(Loan loan, String fileName, byte[] document) {
+                if (!mailEnabled) {
+                        throw new IllegalStateException("Contract email is disabled; the draft was not sent.");
+                }
+                if (loan == null || loan.getBorrower() == null || loan.getBorrower().getEmail() == null
+                                || loan.getBorrower().getEmail().isBlank()) {
+                        throw new IllegalStateException("The borrower must have an email address before dispatch.");
+                }
+                if (document == null || document.length == 0) {
+                        throw new IllegalStateException("The stored contract document is missing or empty.");
+                }
+                if (document.length > 10 * 1024 * 1024) {
+                        throw new IllegalStateException("The contract exceeds the 10 MB email attachment limit.");
+                }
+                if (fileName == null || !fileName.toLowerCase(java.util.Locale.ROOT).endsWith(".docx")) {
+                        throw new IllegalStateException("The contract must have a DOCX filename.");
+                }
+                String reference = escapeHtml(loan.getReferenceNumber());
+                String body = "<p>Dear " + escapeHtml(loan.getBorrower().getFullName()) + ",</p>"
+                                + "<p>Please find attached your <strong>draft loan agreement</strong> for reference <strong>"
+                                + reference + "</strong>.</p>"
+                                + "<p>Review the borrower details, interest, fees, penalties, repayment schedule and all conditions. "
+                                + "Contact Noble Loan Solutions Ltd before signing if any information is incorrect.</p>"
+                                + "<p><strong>CONFIDENTIAL — DRAFT, NOT SIGNED.</strong> This email is not confirmation "
+                                + "of loan approval or disbursement.</p>"
+                                + "<p>Regards,<br/>Noble Loan Solutions Ltd</p>";
+                if (!send(loan.getBorrower().getEmail(),
+                                "Confidential Draft Loan Agreement — " + loan.getReferenceNumber(),
+                                body, fileName, document)) {
+                        throw new IllegalStateException(
+                                        "The email provider did not accept the contract attachment; dispatch was not recorded.");
+                }
         }
 
         @Async("mailAsyncExecutor")
@@ -1115,7 +1155,44 @@ public class MailService {
          * methods. Therefore Brevo network latency does not block the login HTTP
          * request.
          */
+
+        /** Shared, table-based branding for all transactional HTML emails. */
+        private String brandEmailHtml(String content) {
+                String base = frontendUrl == null ? "" : frontendUrl.trim();
+                while (base.endsWith("/")) {
+                        base = base.substring(0, base.length() - 1);
+                }
+                // Public HTTPS image URL: data URIs and local file paths are not reliable in
+                // email.
+                String logoUrl = base.startsWith("https://")
+                                ? base + "/branding/nls-logo.png"
+                                : "";
+                String logo = logoUrl.isEmpty()
+                                ? "<span style=\"font-family:Arial,sans-serif;font-size:22px;font-weight:700;color:#b58a28;\">NOBLE</span>"
+                                : "<img src=\"" + escapeHtml(logoUrl)
+                                                + "\" alt=\"Noble Loan Solutions Ltd\" width=\"205\" style=\"display:block;width:205px;max-width:100%;height:auto;border:0;\">";
+                return "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\">"
+                                + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>"
+                                + "<body style=\"margin:0;padding:0;background:#f3f5f8;font-family:Arial,Helvetica,sans-serif;color:#263445;\">"
+                                + "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"background:#f3f5f8;\"><tr><td align=\"center\" style=\"padding:32px 14px;\">"
+                                + "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"600\" style=\"width:100%;max-width:600px;background:#ffffff;border:1px solid #e3e7ee;\">"
+                                + "<tr><td style=\"height:5px;background:#b58a28;font-size:1px;line-height:1px;\">&nbsp;</td></tr>"
+                                + "<tr><td style=\"padding:28px 36px 23px;border-bottom:1px solid #e7ebf1;\">" + logo
+                                + "<div style=\"font-size:10px;letter-spacing:2px;font-weight:700;color:#68758a;margin-top:14px;\">OFFICIAL CUSTOMER COMMUNICATION</div></td></tr>"
+                                + "<tr><td style=\"padding:30px 36px 34px;font-size:15px;line-height:1.8;color:#263445;\">"
+                                + content + "</td></tr>"
+                                + "<tr><td style=\"background:#10263e;padding:24px 36px;color:#e8edf3;font-size:12px;line-height:1.7;\">"
+                                + "<strong style=\"color:#e2bb66;letter-spacing:.4px;\">NOBLE LOAN SOLUTIONS LTD</strong><br>"
+                                + "Kigali, Rwanda &nbsp;|&nbsp; <a href=\"https://nobleloansolutions.rw\" style=\"color:#e2bb66;text-decoration:none;\">nobleloansolutions.rw</a><br>"
+                                + "<span style=\"color:#b9c4d2;\">Confidential. Intended only for the named recipient. Do not share your password or verification code.</span>"
+                                + "</td></tr></table></td></tr></table></body></html>";
+        }
+
         private boolean send(String to, String subject, String html) {
+                return send(to, subject, html, null, null);
+        }
+
+        private boolean send(String to, String subject, String html, String attachmentName, byte[] attachmentData) {
                 if (to == null || to.isBlank() || subject == null || subject.isBlank() || html == null
                                 || brevoApiKey == null || brevoApiKey.isBlank()
                                 || from == null || from.isBlank()) {
@@ -1133,11 +1210,16 @@ public class MailService {
                         headers.set("api-key", brevoApiKey);
 
                         Map<String, Object> sender = Map.of("email", from.trim(), "name", senderName);
-                        Map<String, Object> payload = Map.of(
-                                        "sender", sender,
-                                        "to", List.of(Map.of("email", to.trim())),
-                                        "subject", subject,
-                                        "htmlContent", html);
+                        Map<String, Object> payload = new java.util.HashMap<>();
+                        payload.put("sender", sender);
+                        payload.put("to", List.of(Map.of("email", to.trim())));
+                        payload.put("subject", subject);
+                        payload.put("htmlContent", brandEmailHtml(html));
+                        if (attachmentData != null && attachmentData.length > 0) {
+                                payload.put("attachment", List.of(Map.of(
+                                                "name", attachmentName,
+                                                "content", Base64.getEncoder().encodeToString(attachmentData))));
+                        }
 
                         ResponseEntity<String> response = restTemplate.exchange(
                                         BREVO_URL, HttpMethod.POST,

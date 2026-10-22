@@ -171,34 +171,26 @@ public class LoanContractService {
             throw new IllegalStateException(
                     "The draft does not contain a repayment schedule. Generate the schedule, refresh the draft, and review it before sending the contract to the borrower.");
         }
+        // The attachment is the exact immutable document bytes already persisted
+        // on this contract, not a newly rendered copy with potentially changed terms.
+        // A provider rejection must not transition the contract to SENT_TO_BORROWER.
+        mailService.sendLoanContractDraftWithAttachment(
+                contract.getLoan(), contract.getFileName(), contract.getDocumentData());
+
         contract.setStatus(LoanContract.ContractStatus.SENT_TO_BORROWER);
         contract.setSentBy(actor);
         contract.setSentAt(LocalDateTime.now());
+        // Provider acceptance is not proof of inbox delivery or borrower reading.
+        contract.setBorrowerNotifiedAt(LocalDateTime.now());
         LoanContract saved = contractRepository.save(contract);
         auditService.log(
                 contract.getOrganization(), actor,
                 "LOAN_CONTRACT_DRAFT_SENT", "LOAN_CONTRACT",
                 String.valueOf(contract.getId()),
-                "Recorded dispatch of draft contract for loan "
+                "Email provider accepted the draft DOCX attachment for loan "
                         + contract.getLoan().getReferenceNumber()
-                        + "; staff explicitly confirmed review of borrower details, rates, fees, penalty terms and repayment schedule; this does not represent borrower signature.",
+                        + "; staff confirmed review; borrower signature and delivery are not confirmed.",
                 null, null, "Loan Contracts");
-
-        if (mailService.isMailEnabled()) {
-            try {
-                mailService.sendLoanContractDraftNotice(contract.getLoan());
-                // This timestamp records queueing, not proof of inbox delivery or borrower
-                // reading.
-                saved.setBorrowerNotifiedAt(LocalDateTime.now());
-                saved = contractRepository.save(saved);
-            } catch (RuntimeException e) {
-                log.error("Could not queue borrower contract notice. loanId={}", loanId, e);
-            }
-        } else {
-            log.warn(
-                    "Contract dispatch recorded but borrower email notice was not queued because app.mail.enabled=false. loanId={}",
-                    loanId);
-        }
         return saved;
     }
 
