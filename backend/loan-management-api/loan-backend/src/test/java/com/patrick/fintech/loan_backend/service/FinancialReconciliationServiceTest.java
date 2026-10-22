@@ -116,41 +116,23 @@ class FinancialReconciliationServiceTest {
         }
 
         @Test
-        void reconciliationIncludesRecycledLoanBalanceWhenLedgerHistoryIsRetained() {
+        void reconciliationExcludesRecycledLoanAndItsJournalFromActiveScope() {
                 ChartOfAccount loansReceivable = account("1100", "Loans Receivable");
                 ChartOfAccount cash = account("1000", "Cash and Bank");
 
-                JournalEntry disbursement = entry(22L, "LOAN_DISBURSEMENT", "recycled-loan", false);
-                disbursement.addLine(line(loansReceivable, "20000000.00", "0.00"));
-                disbursement.addLine(line(cash, "0.00", "20000000.00"));
-
-                Loan recycled = new Loan();
-                recycled.setId(222L);
-                recycled.setOrganization(organization);
-                recycled.setStatus(LoanStatus.ACTIVE);
-                recycled.setAmount(new BigDecimal("20000000.00"));
-                recycled.setPrincipalPaid(BigDecimal.ZERO);
-                recycled.setOutstandingBalance(new BigDecimal("20000000.00"));
-                recycled.setTotalInterest(BigDecimal.ZERO);
-                recycled.setInterestPaid(BigDecimal.ZERO);
-                recycled.setInterestOutstanding(BigDecimal.ZERO);
-                recycled.setManagementFee(BigDecimal.ZERO);
-                recycled.setManagementFeePaid(BigDecimal.ZERO);
-                recycled.setManagementFeeOutstanding(BigDecimal.ZERO);
-                recycled.setApplicationFee(BigDecimal.ZERO);
-                recycled.setApplicationFeePaid(BigDecimal.ZERO);
-                recycled.setDisbursedAt(java.time.LocalDateTime.of(2026, 1, 1, 10, 0));
-
-                stub(List.of(loansReceivable, cash), List.of(disbursement), List.of());
-                when(loanRepository.findRecycledForReconciliationByOrganizationId(1L))
-                                .thenReturn(List.of(recycled));
+                // Recycled journals are retained in the database but must not appear
+                // in the active-scope repository query used by reconciliation.
+                stub(List.of(loansReceivable, cash), List.of(), List.of());
 
                 var report = service.reconcile(1L, LocalDate.of(2026, 8, 24));
 
-                assertEquals(new BigDecimal("20000000.00"),
+                assertEquals(new BigDecimal("0.00"),
                                 report.subledger().get("1100").operationalBalance());
-                assertEquals(new BigDecimal("20000000.00"),
+                assertEquals(new BigDecimal("0.00"),
                                 report.subledger().get("1100").glBalance());
+                assertTrue(report.subledger().get("1100").reconciles());
+                org.mockito.Mockito.verify(loanRepository, org.mockito.Mockito.never())
+                                .findRecycledForReconciliationByOrganizationId(org.mockito.ArgumentMatchers.anyLong());
         }
 
         @Test
