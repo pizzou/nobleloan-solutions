@@ -44,17 +44,24 @@ final class LoanContractTemplateRenderer {
                 .divide(annual ? new BigDecimal("1200") : new BigDecimal("100"), 2, RoundingMode.HALF_UP);
         BigDecimal monthlyManagement = principal.multiply(management).divide(new BigDecimal("100"), 2,
                 RoundingMode.HALF_UP);
-        BigDecimal applicationFee = loan.getApplicationFeeDecimal() == null
-                ? principal.multiply(application).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP)
-                : loan.getApplicationFeeDecimal();
+        // A newly created loan may store applicationFee=0 until disbursement.
+        // The contract must show the AGREED one-time 2% fee, not a misleading zero.
+        BigDecimal applicationFee = principal.multiply(application)
+                .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+        BigDecimal assessedFee = loan.getApplicationFeeDecimal();
+        if (assessedFee != null && assessedFee.signum() > 0
+                && assessedFee.setScale(2, RoundingMode.HALF_UP).compareTo(applicationFee) != 0) {
+            throw new IllegalStateException("Application fee assessed on this loan does not match its saved rate. "
+                    + "Review the loan fee terms before issuing a contract.");
+        }
         Map<String, String> values = new LinkedHashMap<>();
         values.put("BORROWER_NAME", str(b.getFirstName()) + " " + str(b.getLastName()));
         values.put("NATIONAL_ID", str(b.getNationalId()));
-        values.put("ID_ISSUED_AT", "[AHO INDANGAMUNTU YATANGIWE: KUZUZA]");
+
         values.put("PHONE", str(b.getPhone()));
         values.put("EMAIL", str(b.getEmail()));
-        values.put("SPOUSE_NAME", str(b.getSpouseFullName()));
-        values.put("SPOUSE_ID", str(b.getSpouseNationalId()));
+        values.put("SPOUSE_NAME", optional(b.getSpouseFullName()));
+        values.put("SPOUSE_ID", optional(b.getSpouseNationalId()));
         values.put("ADDRESS", address(b));
         values.put("PRINCIPAL", money(principal, loan.getCurrency()));
         values.put("PURPOSE", str(loan.getPurpose()));
@@ -76,27 +83,27 @@ final class LoanContractTemplateRenderer {
             XWPFHeader header = doc.createHeader(HeaderFooterType.DEFAULT);
             XWPFParagraph brand = header.createParagraph();
             brand.setAlignment(ParagraphAlignment.CENTER);
-            brand.setSpacingAfter(30);
+            brand.setSpacingAfter(10);
             try (java.io.InputStream logoStream = LoanContractTemplateRenderer.class
                     .getResourceAsStream(LOGO_RESOURCE)) {
                 if (logoStream == null)
                     throw new IllegalStateException("Original NLS logo is not packaged: " + LOGO_RESOURCE);
                 brand.createRun().addPicture(logoStream, Document.PICTURE_TYPE_PNG,
-                        "nls-original-logo.png", Units.toEMU(150), Units.toEMU(50));
+                        "nls-original-logo.png", Units.toEMU(165), Units.toEMU(55));
             }
             XWPFParagraph brandName = header.createParagraph();
             brandName.setAlignment(ParagraphAlignment.CENTER);
             brandName.setSpacingAfter(25);
             XWPFRun brandNameRun = brandName.createRun();
-            brandNameRun.setText("NOBLE LOAN SOLUTIONS LTD");
+            brandNameRun.setText("AMASEZERANO Y’INGUZANYO  •  RWANDA");
             brandNameRun.setBold(true);
             brandNameRun.setFontFamily("Aptos");
-            brandNameRun.setFontSize(10);
+            brandNameRun.setFontSize(8);
             brandNameRun.setColor("17324D");
             XWPFParagraph classification = header.createParagraph();
             classification.setAlignment(ParagraphAlignment.CENTER);
             XWPFRun classificationRun = classification.createRun();
-            classificationRun.setText("IBANGA • CONFIDENTIAL | LOAN AGREEMENT");
+            classificationRun.setText("IBANGA  •  CONFIDENTIAL  •  NLS");
             classificationRun.setFontFamily("Aptos");
             classificationRun.setFontSize(8);
             classificationRun.setBold(true);
@@ -107,30 +114,21 @@ final class LoanContractTemplateRenderer {
                     ? doc.getDocument().getBody().getSectPr()
                     : doc.getDocument().getBody().addNewSectPr();
             var margins = sect.isSetPgMar() ? sect.getPgMar() : sect.addNewPgMar();
-            margins.setTop(java.math.BigInteger.valueOf(2200));
-            margins.setBottom(java.math.BigInteger.valueOf(1100));
+            margins.setTop(java.math.BigInteger.valueOf(2400));
+            margins.setBottom(java.math.BigInteger.valueOf(1050));
             margins.setLeft(java.math.BigInteger.valueOf(1150));
             margins.setRight(java.math.BigInteger.valueOf(1150));
             margins.setHeader(java.math.BigInteger.valueOf(260));
             margins.setFooter(java.math.BigInteger.valueOf(400));
 
-            XWPFParagraph meta = doc.createParagraph();
-            meta.setAlignment(ParagraphAlignment.CENTER);
-            meta.setSpacingAfter(220);
-            XWPFRun metaRun = meta.createRun();
-            metaRun.setFontFamily("Aptos");
-            metaRun.setFontSize(9);
-            metaRun.setColor("536173");
-            metaRun.setText("REFERENCE: " + str(loan.getReferenceNumber())
-                    + "    |    DATE: " + LocalDate.now().format(DATE)
-                    + "    |    STATUS: DRAFT — NOT SIGNED");
+            addIdentityCard(doc, loan);
 
             add(doc, replace("AMASEZERANO Y’IGURIZA NA NOBLE LOAN SOLUTIONS LTD", values), true);
             add(doc, replace(
                     "NOBLE LOAN SOLUTIONS LTD,yemerewe kugurizanya ifite icyemezo cya  Banki  nkuru y’u Rwanda (BNR)  No 7420/2025- 00211/7000 BNR, ifite icyicaro Gisozi,  ihagarariwe na Madamu Annuarite Tuyisenge, Umuyobozi Mukuru wa NLS yitwa “Noble loan Solutions Ltd   ”muri aya masezerano ku ruhande rumwe,",
                     values), false);
             add(doc, replace(
-                    "Bwana {{BORROWER_NAME}}, ufite indangamuntu No: {{NATIONAL_ID}}, yatangiwe {{ID_ISSUED_AT}}, Telephone: {{PHONE}}, email: {{EMAIL}}. Uwo bashakanye: {{SPOUSE_NAME}}, indangamuntu No: {{SPOUSE_ID}}. Aho atuye: {{ADDRESS}}.",
+                    "Bwana/Madamu {{BORROWER_NAME}}, ufite indangamuntu No: {{NATIONAL_ID}}, Telephone: {{PHONE}}, email: {{EMAIL}}. Uwo bashakanye (niba ahari): {{SPOUSE_NAME}}, indangamuntu No: {{SPOUSE_ID}}. Aho atuye: {{ADDRESS}}.",
                     values), false);
             add(doc, replace("Muri aya masezerano akaba yitwa “Ugurijwe”, ku rundi ruhande.", values), false);
             add(doc, replace("HEMERANYIJWE IBI BIKURIKIRA:", values), true);
@@ -139,15 +137,17 @@ final class LoanContractTemplateRenderer {
             add(doc, replace(
                     "Muri aya masezerano, aya magambo, asobanuwe mu buryo bukurikira, uretse aho aya masezerano abiteganya ukundi:",
                     values), false);
-            add(doc, replace("“Noble loan solutions Ltd” isobanura  “ugurije” Campany yemerewe kuguriza", values),
+            add(doc, replace("1.1 “Noble loan solutions Ltd” isobanura “ugurije” Campany yemerewe kuguriza", values),
                     false);
-            add(doc, replace("“Ugurijwe”: ni umuntu cyangwa company bigaragara muri aya masezerano ahabanza", values),
+            add(doc, replace("1.2 “Ugurijwe”: ni umuntu cyangwa company bigaragara muri aya masezerano ahabanza",
+                    values),
                     false);
-            add(doc, replace("NLS  biri mu mpine ariko bisobanura Noble loan solutions Ltd", values), false);
+            add(doc, replace("1.3 NLS biri mu mpine ariko bisobanura Noble loan solutions Ltd", values), false);
             add(doc, replace("INGINGO YA 2", values), true);
             add(doc, replace(
                     "NLS ihaye inguzanyo ugurijwe, ikurikije amategeko-ngenga yayo, Politiki y’inguzanyo, ndetse n’aya masezerano, inguzanyo y’amafaranga angana na {{PRINCIPAL}} yo gukoresha mu rwego rwa {{PURPOSE}}. Inomero y’inguzanyo: {{REFERENCE}}.",
                     values), false);
+            addFinancialOverview(doc, loan, monthlyInterest, monthlyManagement, applicationFee);
             add(doc, replace(
                     "INGINGO YA 3: Inyungu ku nguzanyo , amafaranga yo gukurikirana  inguzanyo n’umufuragiro ku nguzanyo",
                     values), true);
@@ -220,12 +220,7 @@ final class LoanContractTemplateRenderer {
                     "Impaka zose zaturuka kuri aya masezerano zizakemurwa n’Inkiko zibifitiye ububasha zo mu Rwanda.",
                     values), false);
             add(doc, replace("Bikorewe Kigali, kuwa {{DATE}}.", values), false);
-            add(doc, replace(
-                    "UGURIJWE	                                                                                  UGURIJE",
-                    values), true);
-            add(doc, replace("_________________________                         TUYISENGE Annuarite", values), false);
-            add(doc, replace("Umuyobozi Mukuru", values), false);
-            add(doc, replace("Noble Loan Solutions Ltd", values), false);
+            addSignatureTable(doc, b);
             XWPFFooter footer = doc.createFooter(org.apache.poi.wp.usermodel.HeaderFooterType.DEFAULT);
             XWPFParagraph footerParagraph = footer.createParagraph();
             footerParagraph.setAlignment(ParagraphAlignment.CENTER);
@@ -250,24 +245,21 @@ final class LoanContractTemplateRenderer {
         XWPFParagraph p = doc.createParagraph();
         boolean section = text.startsWith("INGINGO YA ");
         boolean title = text.startsWith("AMASEZERANO Y’IGURIZA");
-        p.setSpacingBefore(section ? 220 : (title ? 140 : 0));
-        p.setSpacingAfter(title ? 210 : (heading ? 130 : 105));
+        p.setSpacingBefore(section ? 245 : (title ? 120 : 0));
+        p.setSpacingAfter(title ? 215 : (heading ? 120 : 112));
         p.setAlignment(title ? ParagraphAlignment.CENTER
                 : heading ? ParagraphAlignment.LEFT : ParagraphAlignment.BOTH);
         if (heading) {
-            // Apache POI XWPFParagraph has no setKeepWithNext(boolean) method.
-            // WordprocessingML keepNext prevents a heading from being orphaned.
-            var paragraphProperties = p.getCTP().isSetPPr()
+            var properties = p.getCTP().isSetPPr()
                     ? p.getCTP().getPPr()
                     : p.getCTP().addNewPPr();
-            if (!paragraphProperties.isSetKeepNext()) {
-                paragraphProperties.addNewKeepNext();
-            }
+            if (!properties.isSetKeepNext())
+                properties.addNewKeepNext();
         }
         XWPFRun r = p.createRun();
-        r.setFontFamily("Aptos");
+        r.setFontFamily("Carlito");
         r.setFontSize(title ? 15 : section ? 11 : 10);
-        r.setColor(title || section ? "17324D" : "253346");
+        r.setColor(title ? "17324D" : section ? "926D25" : "253346");
         r.setBold(heading);
         String[] parts = text.split("\n", -1);
         for (int i = 0; i < parts.length; i++) {
@@ -275,6 +267,53 @@ final class LoanContractTemplateRenderer {
                 r.addBreak();
             r.setText(parts[i]);
         }
+    }
+
+    private static void addIdentityCard(XWPFDocument doc, Loan loan) {
+        XWPFTable table = doc.createTable(2, 3);
+        String[] labels = { "INOMERO Y’INGUZANYO", "ITARIKI", "IMITERERE" };
+        String[] values = { str(loan.getReferenceNumber()), LocalDate.now().format(DATE), "DRAFT / NTIRASINYWA" };
+        for (int c = 0; c < 3; c++) {
+            setCell(table, 0, c, labels[c], true);
+            setCell(table, 1, c, values[c], false);
+        }
+        doc.createParagraph().setSpacingAfter(60);
+    }
+
+    private static void addFinancialOverview(XWPFDocument doc, Loan loan, BigDecimal monthlyInterest,
+            BigDecimal monthlyManagement, BigDecimal applicationFee) {
+        XWPFParagraph p = doc.createParagraph();
+        p.setSpacingBefore(110);
+        p.setSpacingAfter(75);
+        XWPFRun heading = p.createRun();
+        heading.setText("INCAMAKE Y’INGUZANYO  /  LOAN SUMMARY");
+        heading.setBold(true);
+        heading.setFontFamily("Carlito");
+        heading.setFontSize(10);
+        heading.setColor("926D25");
+        XWPFTable table = doc.createTable(2, 3);
+        String[] labels = { "UMUSHORO (RWF)", "IGIHE", "AYO KWISHYURA YOSE" };
+        String[] values = { shortMoney(loan.getAmountDecimal(), loan.getCurrency()),
+                str(loan.getDurationMonths()) + " amezi",
+                shortMoney(loan.getTotalRepayableDecimal(), loan.getCurrency()) };
+        for (int c = 0; c < 3; c++) {
+            setCell(table, 0, c, labels[c], true);
+            setCell(table, 1, c, values[c], false);
+        }
+        doc.createParagraph().setSpacingAfter(75);
+    }
+
+    private static void addSignatureTable(XWPFDocument doc, Borrower borrower) {
+        add(doc, "IMIKONO Y’ABAGIRANYE AMASEZERANO", true);
+        XWPFTable table = doc.createTable(4, 2);
+        setCell(table, 0, 0, "UGURIJWE / BORROWER", true);
+        setCell(table, 0, 1, "UGURIJE / LENDER", true);
+        setCell(table, 1, 0, str(borrower.getFirstName()) + " " + str(borrower.getLastName()), false);
+        setCell(table, 1, 1, "TUYISENGE Annuarite — Umuyobozi Mukuru", false);
+        setCell(table, 2, 0, "Umukono: _______________________", false);
+        setCell(table, 2, 1, "Umukono: _______________________", false);
+        setCell(table, 3, 0, "Itariki: _________________________", false);
+        setCell(table, 3, 1, "Itariki: _________________________", false);
     }
 
     private static String replace(String s, Map<String, String> values) {
@@ -370,44 +409,44 @@ final class LoanContractTemplateRenderer {
     }
 
     /** Repayment breakdown from the database, never a fabricated schedule. */
+    /** Schedule values are always read from saved PaymentSchedule rows. */
     private static void addSchedule(XWPFDocument doc, List<PaymentSchedule> schedules,
             String currency, BigDecimal totalRepayable) {
         if (schedules == null || schedules.isEmpty()) {
             add(doc, "[GAHUNDA YO KWISHYURA NTIRABONEKA — NTIMWOHEREZE AMASEZERANO]", false);
             return;
         }
-        XWPFTable table = doc.createTable(schedules.size() + 2, 6);
-        String[] headers = { "IGICE", "ITARIKI", "UMUSHORO", "INYUNGU", "GUKURIKIRANA", "YOSE HAMWE" };
+        XWPFTable table = doc.createTable(schedules.size() + 2, 4);
+        String[] headers = { "IGICE", "ITARIKI", "UMUSHORO", "YOSE HAMWE" };
         for (int c = 0; c < headers.length; c++)
             setCell(table, 0, c, headers[c], true);
+        table.getRow(0).getCtRow().addNewTrPr().addNewTblHeader();
         BigDecimal sum = BigDecimal.ZERO;
         boolean incomplete = false;
         for (int i = 0; i < schedules.size(); i++) {
             PaymentSchedule item = schedules.get(i);
             int row = i + 1;
             setCell(table, row, 0, str(item.getInstallmentNumber()), false);
-            setCell(table, row, 1, item.getDueDate() == null ? "[ITARIKI IBURA]" : item.getDueDate().format(DATE),
-                    false);
+            setCell(table, row, 1,
+                    item.getDueDate() == null ? "[ITARIKI IBURA]" : item.getDueDate().format(DATE), false);
             setCell(table, row, 2, shortMoney(item.getPrincipalAmount(), currency), false);
-            setCell(table, row, 3, shortMoney(item.getInterestAmount(), currency), false);
-            setCell(table, row, 4, shortMoney(item.getManagementFeeAmount(), currency), false);
-            setCell(table, row, 5, shortMoney(item.getInstallmentAmount(), currency), false);
+            setCell(table, row, 3, shortMoney(item.getInstallmentAmount(), currency), false);
             if (item.getDueDate() == null || item.getInstallmentAmount() == null
-                    || item.getInstallmentAmount().signum() <= 0)
+                    || item.getInstallmentAmount().signum() <= 0 || item.getPrincipalAmount() == null)
                 incomplete = true;
             if (item.getInstallmentAmount() != null)
                 sum = sum.add(item.getInstallmentAmount());
         }
         int last = schedules.size() + 1;
         setCell(table, last, 0, "IGITERANYO", true);
-        for (int c = 1; c < 5; c++)
-            setCell(table, last, c, "", true);
-        setCell(table, last, 5, shortMoney(sum, currency), true);
-        if (totalRepayable == null || sum.compareTo(totalRepayable) != 0)
+        setCell(table, last, 1, "", true);
+        setCell(table, last, 2, "", true);
+        setCell(table, last, 3, shortMoney(sum, currency), true);
+        if (totalRepayable == null || sum.setScale(2, RoundingMode.HALF_UP)
+                .compareTo(totalRepayable.setScale(2, RoundingMode.HALF_UP)) != 0)
             incomplete = true;
         if (incomplete)
-            add(doc,
-                    "[KUZUZA] Gahunda yo kwishyura ntihuye n’amafaranga yose ateganyijwe cyangwa ifite amakuru atuzuye. Ntimuwohereze.",
+            add(doc, "[KUZUZA] Gahunda yo kwishyura ntihuye n’amafaranga yose ateganyijwe cyangwa ifite amakuru atuzuye. Ntimuwohereze.",
                     false);
         doc.createParagraph();
     }
@@ -421,13 +460,17 @@ final class LoanContractTemplateRenderer {
     private static void setCell(XWPFTable table, int row, int col, String text, boolean header) {
         XWPFTableCell cell = table.getRow(row).getCell(col);
         if (header)
-            cell.setColor("F0EEE6");
+            cell.setColor("F3EBD7");
         XWPFRun r = cell.getParagraphs().get(0).createRun();
         r.setText(text);
-        r.setFontFamily("Aptos");
-        r.setFontSize(8);
+        r.setFontFamily("Carlito");
+        r.setFontSize(header ? 8 : 9);
         r.setBold(header);
         r.setColor(header ? "17324D" : "253346");
+    }
+
+    private static String optional(Object v) {
+        return v == null || v.toString().isBlank() ? "ntabwo byatanzwe" : v.toString().trim();
     }
 
     private static String address(Borrower b) {

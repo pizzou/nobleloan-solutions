@@ -168,7 +168,7 @@ public class LoanController {
         // ================================================================
 
         @PostMapping("/{id}/contract/generate")
-        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER')")
+        @PreAuthorize("hasAnyRole('ADMIN','MANAGER','LOAN_OFFICER','BUSINESS_OWNER')")
         public ResponseEntity<ApiResponse<Map<String, Object>>> generateLoanContractDraft(@PathVariable Long id) {
                 User user = currentUserUtil.getCurrentUser();
                 Long organizationId = user.getOrganization().getId();

@@ -74,10 +74,12 @@ public class LoanContractService {
                 }
                 return prior;
             }
-            // A body-text fingerprint omits headers, footers and embedded logos.
-            // For unsent drafts, compare the full DOCX bytes so a branding
-            // correction is not discarded as an unchanged draft.
-            if (currentHash.equals(sha256(prior.getDocumentData())))
+            // Compare every substantive DOCX ZIP entry, including the repeating
+            // logo/header, table and styles. Ignore only volatile core metadata:
+            // Word assigns different creation timestamps on each render.
+            // This prevents both stale branding AND unnecessary draft rewrites.
+            if (contractContentFingerprint(bytes).equals(
+                    contractContentFingerprint(prior.getDocumentData())))
                 return prior;
             String previousHash = prior.getSha256();
             prior.setDocumentData(bytes);
@@ -362,6 +364,41 @@ public class LoanContractService {
         if (!hasHeader || !hasOriginalImage) {
             throw new IllegalStateException("The stored contract is missing the approved "
                     + "NLS logo or repeating Word header. Regenerate the unsent draft before dispatch.");
+        }
+    }
+
+    /**
+     * Stable fingerprint of substantive Word document parts.
+     * Includes headers, footers, embedded media, schedules, all tables and styles;
+     * ignores docProps/core.xml timestamps generated automatically by Apache POI.
+     */
+    private static String contractContentFingerprint(byte[] documentBytes) {
+        if (documentBytes == null || documentBytes.length == 0) {
+            throw new IllegalStateException("The persisted contract document is missing.");
+        }
+        try {
+            var sections = new java.util.TreeMap<String, byte[]>();
+            try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(documentBytes))) {
+                ZipEntry entry;
+                while ((entry = zip.getNextEntry()) != null) {
+                    if (!entry.isDirectory() && !"docProps/core.xml".equals(entry.getName())) {
+                        sections.put(entry.getName(), zip.readAllBytes());
+                    }
+                }
+            }
+            if (!sections.containsKey("word/document.xml")) {
+                throw new IllegalStateException("The loan agreement is not a valid DOCX document.");
+            }
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            for (var part : sections.entrySet()) {
+                digest.update(part.getKey().getBytes(StandardCharsets.UTF_8));
+                digest.update((byte) 0);
+                digest.update(part.getValue());
+                digest.update((byte) 0);
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (java.io.IOException | java.security.NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("Unable to inspect saved loan contract contents.", ex);
         }
     }
 
