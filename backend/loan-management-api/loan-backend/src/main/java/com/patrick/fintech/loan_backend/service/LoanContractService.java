@@ -16,6 +16,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.util.Arrays;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
@@ -57,14 +61,12 @@ public class LoanContractService {
 
         byte[] bytes = buildDraftDocument(loan);
         String currentHash = sha256(bytes);
-        String currentFingerprint = textFingerprint(bytes); // contract-body fingerprint for sent-term safety
-        String currentDraftFingerprint = draftFingerprint(bytes); // also detects header/footer/logo/schema changes
+        String currentFingerprint = textFingerprint(bytes);
         var existing = contractRepository.findByLoan_IdAndOrganization_Id(
                 loan.getId(), loan.getOrganization().getId());
         if (existing.isPresent()) {
             LoanContract prior = existing.get();
             String priorFingerprint = textFingerprint(prior.getDocumentData());
-            String priorDraftFingerprint = draftFingerprint(prior.getDocumentData());
             if (prior.getStatus() == LoanContract.ContractStatus.SENT_TO_BORROWER) {
                 if (!currentFingerprint.equals(priorFingerprint)) {
                     throw new IllegalStateException(
@@ -72,10 +74,14 @@ public class LoanContractService {
                 }
                 return prior;
             }
-            if (currentDraftFingerprint.equals(priorDraftFingerprint))
+            // A body-text fingerprint omits headers, footers and embedded logos.
+            // For unsent drafts, compare the full DOCX bytes so a branding
+            // correction is not discarded as an unchanged draft.
+            if (currentHash.equals(sha256(prior.getDocumentData())))
                 return prior;
             String previousHash = prior.getSha256();
             prior.setDocumentData(bytes);
+            prior.setContentType(DOCX_TYPE);
             prior.setSha256(currentHash);
             prior.setFileName("NLS-Loan-Contract-" + safeFilePart(loan.getReferenceNumber()) + "-DRAFT.docx");
             prior.setGeneratedBy(actor);
@@ -168,18 +174,22 @@ public class LoanContractService {
                     "The loan officer must explicitly confirm that borrower details, rates, fees, penalty terms and the repayment schedule were reviewed before dispatch.");
         }
         String contractText = extractDocumentText(contract.getDocumentData()).toLowerCase(Locale.ROOT);
-        if (contractText.contains("gahunda yo kwishyura ntiraboneka muri sisitemu")
+        if (contractText.contains("gahunda yo kwishyura ntiraboneka")
                 || contractText.contains("ntimwohereze amasezerano")
                 || contractText.contains("[kuzuza]")
                 || contractText.contains("[itariki ibura]")) {
             throw new IllegalStateException(
                     "The draft does not contain a repayment schedule. Generate the schedule, refresh the draft, and review it before sending the contract to the borrower.");
         }
-        if (contractText.contains("[igipimo ntikiriho]")
-                || contractText.contains("[amafaranga ntarashyirwaho]")) {
+        // Do not dispatch an old unbranded draft, even if its body text is correct.
+        ensureApprovedLogoAndRepeatingHeader(contract.getDocumentData());
+        if (!textFingerprint(buildDraftDocument(contract.getLoan()))
+                .equals(textFingerprint(contract.getDocumentData()))) {
             throw new IllegalStateException(
-                    "The draft is missing one or more contractual rates or monetary amounts. Correct the saved loan terms, regenerate the draft, and review it before sending the contract to the borrower.");
+                    "Loan terms or the repayment schedule changed after drafting. "
+                            + "Regenerate and review the contract before sending it.");
         }
+
         // The attachment is the exact immutable document bytes already persisted
         // on this contract, not a newly rendered copy with potentially changed terms.
         // A provider rejection must not transition the contract to SENT_TO_BORROWER.
@@ -297,42 +307,22 @@ public class LoanContractService {
     }
 
     private static String textFingerprint(byte[] documentBytes) {
-        return sha256(extractBodyText(documentBytes).getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static String draftFingerprint(byte[] documentBytes) {
         return sha256(extractDocumentText(documentBytes).getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static String extractBodyText(byte[] documentBytes) {
-        try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(documentBytes))) {
-            StringBuilder content = new StringBuilder();
-            appendDocumentText(content, document.getParagraphs(), document.getTables());
-            return content.toString();
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to read the generated loan contract document.", e);
-        }
     }
 
     private static String extractDocumentText(byte[] documentBytes) {
         try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(documentBytes))) {
             StringBuilder content = new StringBuilder();
-            // Include the hidden renderer schema in the fingerprint. Layout-only
-            // changes (for example moving the logo into the header) must refresh an
-            // unsent draft even when all legal body text remains identical.
-            if (document.getProperties() != null && document.getProperties().getCoreProperties() != null) {
-                content.append("\n[CONTRACT_SCHEMA:")
-                        .append(document.getProperties().getCoreProperties().getDescription())
-                        .append("]\n");
+            for (XWPFParagraph paragraph : document.getParagraphs()) {
+                content.append(paragraph.getText()).append('\n');
             }
-            appendDocumentText(content, document.getParagraphs(), document.getTables());
-            for (XWPFHeader header : document.getHeaderList()) {
-                content.append("\n[HEADER]\n");
-                appendDocumentText(content, header.getParagraphs(), header.getTables());
-            }
-            for (XWPFFooter footer : document.getFooterList()) {
-                content.append("\n[FOOTER]\n");
-                appendDocumentText(content, footer.getParagraphs(), footer.getTables());
+            for (XWPFTable table : document.getTables()) {
+                for (XWPFTableRow row : table.getRows()) {
+                    for (XWPFTableCell cell : row.getTableCells()) {
+                        content.append(cell.getText()).append('\t');
+                    }
+                    content.append('\n');
+                }
             }
             return content.toString();
         } catch (Exception e) {
@@ -340,18 +330,38 @@ public class LoanContractService {
         }
     }
 
-    private static void appendDocumentText(StringBuilder content,
-            List<XWPFParagraph> paragraphs, List<XWPFTable> tables) {
-        for (XWPFParagraph paragraph : paragraphs) {
-            content.append(paragraph.getText()).append('\n');
+    /**
+     * Reject persisted DOCX attachments missing the exact approved logo or Word
+     * header.
+     */
+    private static void ensureApprovedLogoAndRepeatingHeader(byte[] documentBytes) {
+        byte[] approvedLogo;
+        try (InputStream logo = LoanContractService.class.getResourceAsStream("/branding/nls-logo.png")) {
+            if (logo == null)
+                throw new IllegalStateException("Approved NLS logo resource is missing.");
+            approvedLogo = logo.readAllBytes();
+        } catch (java.io.IOException ex) {
+            throw new IllegalStateException("Could not read the approved NLS logo.", ex);
         }
-        for (XWPFTable table : tables) {
-            for (XWPFTableRow row : table.getRows()) {
-                for (XWPFTableCell cell : row.getTableCells()) {
-                    content.append(cell.getText()).append('\t');
+        boolean hasHeader = false;
+        boolean hasOriginalImage = false;
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(documentBytes))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                String path = entry.getName();
+                if (path.matches("word/header\\d+\\.xml"))
+                    hasHeader = true;
+                if (path.startsWith("word/media/") && path.endsWith(".png")
+                        && Arrays.equals(approvedLogo, zip.readAllBytes())) {
+                    hasOriginalImage = true;
                 }
-                content.append('\n');
             }
+        } catch (java.io.IOException ex) {
+            throw new IllegalStateException("The persisted contract DOCX cannot be inspected.", ex);
+        }
+        if (!hasHeader || !hasOriginalImage) {
+            throw new IllegalStateException("The stored contract is missing the approved "
+                    + "NLS logo or repeating Word header. Regenerate the unsent draft before dispatch.");
         }
     }
 
