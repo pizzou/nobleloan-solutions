@@ -110,8 +110,9 @@ final class LoanContractTemplateRenderer {
                 logoEncoded.append(part);
             }
             byte[] logo = Base64.getDecoder().decode(logoEncoded.toString());
-            brand.createRun().addPicture(new java.io.ByteArrayInputStream(logo), Document.PICTURE_TYPE_PNG,
-                    "noble-logo.png", Units.toEMU(310), Units.toEMU(105));
+            XWPFRun logoRun = brand.createRun();
+            logoRun.addPicture(new java.io.ByteArrayInputStream(logo), Document.PICTURE_TYPE_PNG,
+                    "noble-logo.png", Units.toEMU(290), Units.toEMU(97));
             add(doc, replace("AMASEZERANO Y’IGURIZA NA NOBLE LOAN SOLUTIONS LTD", values), true);
             add(doc, replace(
                     "NOBLE LOAN SOLUTIONS LTD,yemerewe kugurizanya ifite icyemezo cya  Banki  nkuru y’u Rwanda (BNR)  No 7420/2025- 00211/7000 BNR, ifite icyicaro Gisozi,  ihagarariwe na Madamu Annuarite Tuyisenge, Umuyobozi Mukuru wa NLS yitwa “Noble loan Solutions Ltd   ”muri aya masezerano ku ruhande rumwe,",
@@ -253,7 +254,52 @@ final class LoanContractTemplateRenderer {
     }
 
     private static String money(BigDecimal n, String c) {
-        return n == null ? "[KUZUZA]" : str(c) + " " + n.setScale(2, RoundingMode.HALF_UP).toPlainString();
+        if (n == null)
+            return "[KUZUZA]";
+        BigDecimal amount = n.setScale(2, RoundingMode.HALF_UP);
+        if (amount.signum() < 0)
+            throw new IllegalArgumentException("Negative contract amount: " + amount);
+        if (amount.stripTrailingZeros().scale() > 0) {
+            return amount.toPlainString() + " (" + str(c) + ")"; // fractions must not be misrepresented as whole francs
+        }
+        return rwfWords(amount.toBigIntegerExact()) + " (" + String.format(java.util.Locale.US, "%,.0f", amount) + " "
+                + str(c) + ")";
+    }
+
+    private static String rwfWords(java.math.BigInteger value) {
+        if (value.signum() == 0)
+            return "amafaranga y’u Rwanda zeru";
+        if (value.compareTo(new java.math.BigInteger("999999999999999")) > 0)
+            throw new IllegalArgumentException("Amount too large for words");
+        String[] units = { "", "rimwe", "abiri", "atatu", "ane", "atanu", "atandatu", "arindwi", "umunani", "icyenda" };
+        String[] tens = { "", "icumi", "makumyabiri", "mirongo itatu", "mirongo ine", "mirongo itanu",
+                "mirongo itandatu", "mirongo irindwi", "mirongo inani", "mirongo icyenda" };
+        String[] hundreds = { "", "ijana", "magana abiri", "magana atatu", "magana ane", "magana atanu",
+                "magana atandatu", "magana arindwi", "magana inani", "magana icyenda" };
+        String[] scales = { "", "ibihumbi", "miliyoni", "miliyari", "tiriyoni" };
+        java.util.List<String> groups = new java.util.ArrayList<>();
+        int group = 0;
+        while (value.signum() > 0) {
+            int n = value.mod(java.math.BigInteger.valueOf(1000)).intValue();
+            if (n > 0) {
+                java.util.List<String> parts = new java.util.ArrayList<>();
+                if (n >= 100)
+                    parts.add(hundreds[n / 100]);
+                int rem = n % 100;
+                if (rem >= 20) {
+                    parts.add(tens[rem / 10]);
+                    if (rem % 10 > 0)
+                        parts.add(units[rem % 10]);
+                } else if (rem >= 10) {
+                    parts.add(rem == 10 ? "icumi" : "cumi na " + units[rem - 10]);
+                } else if (rem > 0)
+                    parts.add(units[rem]);
+                groups.add(0, (group > 0 ? scales[group] + " " : "") + String.join(" ", parts));
+            }
+            value = value.divide(java.math.BigInteger.valueOf(1000));
+            group++;
+        }
+        return "amafaranga y’u Rwanda " + String.join(" ", groups);
     }
 
     private static String address(Borrower b) {
