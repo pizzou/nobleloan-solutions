@@ -342,7 +342,7 @@ public class Loan {
         @Column(name = "penalty_rate", precision = 19, scale = 9, nullable = false)
         @Builder.Default
         @JsonProperty("penaltyRate")
-        private BigDecimal penaltyRate = new BigDecimal("10.00");
+        private BigDecimal penaltyRate = new BigDecimal("15.00");
 
         @Column(name = "penalties_assessed", precision = 19, scale = 2, nullable = false)
         @Builder.Default
@@ -628,7 +628,7 @@ public class Loan {
                 }
 
                 if (penaltyRate == null) {
-                        penaltyRate = new BigDecimal("10.00");
+                        penaltyRate = new BigDecimal("15.00");
                 }
 
                 penaltyRate = penaltyRate.setScale(
@@ -1164,7 +1164,7 @@ public class Loan {
         @JsonIgnore
         public BigDecimal getPenaltyRateDecimal() {
                 return penaltyRate == null
-                                ? new BigDecimal("10.00")
+                                ? new BigDecimal("15.00")
                                 : penaltyRate.setScale(9, RoundingMode.HALF_UP);
         }
 

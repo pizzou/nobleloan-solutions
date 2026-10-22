@@ -433,7 +433,8 @@ public class PublicPortalService {
          *
          * 5% monthly interest
          * 5% monthly management fee
-         * 10% daily penalty after a 3-day grace period when overdue
+         * 15% monthly penalty prorated by actual calendar days after a 3-day grace
+         * period when overdue
          *
          * Interest and management fee accrue on the outstanding
          * principal balance.
