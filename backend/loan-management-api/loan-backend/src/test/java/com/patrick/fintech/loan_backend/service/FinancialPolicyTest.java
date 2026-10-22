@@ -30,7 +30,7 @@ class FinancialPolicyTest {
 
                 /*
                  * Compatibility alias intentionally remains equal to the monthly
-                 * penalty rate. It does NOT mean that 10% is charged every day.
+                 * penalty rate. It does NOT mean that 15% is charged every day.
                  */
                 assertEquals(
                                 FinancialPolicy.MONTHLY_PENALTY_RATE,
@@ -41,7 +41,7 @@ class FinancialPolicyTest {
                                 FinancialPolicy.PENALTY_GRACE_DAYS);
 
                 assertEquals(
-                                new BigDecimal("15.00"),
+                                new BigDecimal("10.00"),
                                 FinancialPolicy.EXTENSION_FEE_RATE);
         }
 
@@ -61,7 +61,7 @@ class FinancialPolicyTest {
                                 .add(FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE);
 
                 assertEquals(
-                                new BigDecimal("15.00"),
+                                new BigDecimal("10.00"),
                                 combinedMonthlyRate);
         }
 
@@ -166,7 +166,7 @@ class FinancialPolicyTest {
         }
 
         @Test
-        void penaltyHasThreeDayGraceAndThenChargesTenPercentPerMonthProratedDaily() {
+        void penaltyHasThreeDayGraceAndThenChargesFifteenPercentPerMonthProratedDaily() {
                 BigDecimal principal = new BigDecimal("1000000.00");
 
                 LocalDate firstChargeableDate = LocalDate.of(2026, 1, 5);
@@ -182,15 +182,15 @@ class FinancialPolicyTest {
                 /*
                  * January has 31 calendar days.
                  *
-                 * Monthly penalty = 10%
-                 * Daily fraction = 10% / 31
+                 * Monthly penalty = 15%
+                 * Daily fraction = 15% / 31
                  *
                  * One chargeable day:
-                 * 1,000,000 × 0.10 / 31 = 3,225.806451...
-                 * HALF_UP = 3,225.81
+                 * 1,000,000 × 0.15 / 31 = 4,838.709677...
+                 * HALF_UP = 4,838.71
                  */
                 assertEquals(
-                                new BigDecimal("3225.81"),
+                                new BigDecimal("4838.71"),
                                 FinancialPolicy.dailyPenalty(
                                                 principal,
                                                 4,
@@ -199,11 +199,11 @@ class FinancialPolicyTest {
 
                 /*
                  * Three chargeable days:
-                 * 3 × 3,225.806451... = 9,677.419354...
-                 * HALF_UP = 9,677.42
+                 * 3 × 4,838.709677... = 14,516.129032...
+                 * HALF_UP = 14,516.13
                  */
                 assertEquals(
-                                new BigDecimal("9677.42"),
+                                new BigDecimal("14516.13"),
                                 FinancialPolicy.dailyPenalty(
                                                 principal,
                                                 6,
@@ -286,19 +286,19 @@ class FinancialPolicyTest {
 
                 /*
                  * Jan 5:
-                 * 1,000,000 × 10% / 31 = 3,225.806451...
+                 * 1,000,000 × 15% / 31 = 4,838.709677...
                  *
                  * Jan 6:
-                 * 700,000 × 10% / 31 = 2,258.064516...
+                 * 700,000 × 15% / 31 = 3,387.096774...
                  *
                  * Jan 7:
-                 * 700,000 × 10% / 31 = 2,258.064516...
+                 * 700,000 × 15% / 31 = 3,387.096774...
                  *
-                 * Total = 7,741.935483...
-                 * HALF_UP = 7,741.94
+                 * Total = 11,612.903225...
+                 * HALF_UP = 11,612.90
                  */
                 assertEquals(
-                                new BigDecimal("7741.94"),
+                                new BigDecimal("11612.90"),
                                 penalty);
         }
 }

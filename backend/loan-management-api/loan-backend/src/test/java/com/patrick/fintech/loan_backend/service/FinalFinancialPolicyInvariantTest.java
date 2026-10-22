@@ -8,152 +8,108 @@ import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-/**
- * Final regression tests for the platform-wide lending policy.
- *
- * These tests deliberately exercise the canonical policy rather than individual
- * controllers so that interest, management fee, extension fee and penalty rules
- * cannot silently diverge between loan creation, schedules, payments and reports.
- */
 class FinalFinancialPolicyInvariantTest {
 
-    @Test
-    void contractualChargesUseOpeningOutstandingPrincipal() {
-        BigDecimal balance = new BigDecimal("1000000.00");
+        @Test
+        void contractualChargesUseOpeningOutstandingPrincipal() {
+                BigDecimal balance = new BigDecimal("1000000.00");
 
-        assertEquals(
-                new BigDecimal("50000.00"),
-                FinancialPolicy.contractualMonthlyCharge(
-                        balance,
-                        FinancialPolicy.MONTHLY_INTEREST_RATE));
-
-        assertEquals(
-                new BigDecimal("50000.00"),
-                FinancialPolicy.contractualMonthlyCharge(
-                        balance,
-                        FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE));
-    }
-
-    @Test
-    void extensionFeeIsExactlyTenPercentOfOutstandingPrincipal() {
-        assertEquals(
-                new BigDecimal("123456.79"),
-                FinancialPolicy.extensionFee(
-                        new BigDecimal("1234567.89")));
-    }
-
-    @Test
-    void penaltyIsZeroForThreeGraceDaysThenTenPercentPerMonthProratedDaily() {
-        BigDecimal outstanding = new BigDecimal("1000000.00");
-
-        LocalDate firstChargeableDate = LocalDate.of(2026, 1, 5);
-
-        assertEquals(
-                new BigDecimal("0.00"),
-                FinancialPolicy.dailyPenalty(
-                        outstanding,
-                        0,
-                        FinancialPolicy.MONTHLY_PENALTY_RATE,
-                        firstChargeableDate));
-
-        assertEquals(
-                new BigDecimal("0.00"),
-                FinancialPolicy.dailyPenalty(
-                        outstanding,
-                        3,
-                        FinancialPolicy.MONTHLY_PENALTY_RATE,
-                        firstChargeableDate));
-
-        // January has 31 calendar days.
-        // 10% monthly / 31 = 0.322580645...% per chargeable day.
-        //
-        // Day 4 = RWF 1,000,000 × 10% / 31 = RWF 3,225.81
-        assertEquals(
-                new BigDecimal("3225.81"),
-                FinancialPolicy.dailyPenalty(
-                        outstanding,
-                        4,
-                        FinancialPolicy.MONTHLY_PENALTY_RATE,
-                        firstChargeableDate));
-
-        // Two chargeable days:
-        // 2 × 3,225.806451... = 6,451.612903...
-        // HALF_UP = 6,451.61
-        assertEquals(
-                new BigDecimal("6451.61"),
-                FinancialPolicy.dailyPenalty(
-                        outstanding,
-                        5,
-                        FinancialPolicy.MONTHLY_PENALTY_RATE,
-                        firstChargeableDate));
-
-        // Three chargeable days:
-        // 3 × 3,225.806451... = 9,677.419354...
-        // HALF_UP = 9,677.42
-        assertEquals(
-                new BigDecimal("9677.42"),
-                FinancialPolicy.dailyPenalty(
-                        outstanding,
-                        6,
-                        FinancialPolicy.MONTHLY_PENALTY_RATE,
-                        firstChargeableDate));
-    }
-
-    @Test
-    void decliningThreeMonthScheduleUsesOutstandingBalanceForEveryMonth() {
-        BigDecimal balance = new BigDecimal("1000000.00");
-        BigDecimal interest = BigDecimal.ZERO;
-        BigDecimal management = BigDecimal.ZERO;
-
-        for (int i = 1; i <= 3; i++) {
-            FinancialPolicy.ScheduleLine line =
-                    FinancialPolicy.contractualScheduleLine(
-                            balance,
-                            3 - i + 1,
-                            FinancialPolicy.MONTHLY_INTEREST_RATE,
-                            FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE);
-
-            interest = interest.add(line.interest());
-            management = management.add(line.managementFee());
-            balance = line.remainingBalance();
+                assertEquals(new BigDecimal("50000.00"),
+                                FinancialPolicy.contractualMonthlyCharge(balance,
+                                                FinancialPolicy.MONTHLY_INTEREST_RATE));
+                assertEquals(new BigDecimal("50000.00"),
+                                FinancialPolicy.contractualMonthlyCharge(balance,
+                                                FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE));
         }
 
-        assertEquals(new BigDecimal("100000.00"), interest);
-        assertEquals(new BigDecimal("100000.00"), management);
-        assertEquals(new BigDecimal("0.00"), balance);
-    }
-    @Test
-    void paymentAllocationChargesInterestAndManagementBeforePrincipal() {
-        PaymentAllocationService service = new PaymentAllocationService();
+        @Test
+        void extensionFeeIsExactlyTenPercentOfOutstandingPrincipal() {
+                assertEquals(new BigDecimal("123456.79"),
+                                FinancialPolicy.extensionFee(new BigDecimal("1234567.89")));
+        }
 
-        PaymentAllocationService.Allocation allocation = service.allocate(
-                new BigDecimal("1200000.00"),
-                new BigDecimal("100000.00"),
-                new BigDecimal("200000.00"),
-                new BigDecimal("500000.00"),
-                new BigDecimal("500000.00"),
-                new BigDecimal("10000000.00"));
+        @Test
+        void penaltyIsZeroForThreeGraceDaysThenFifteenPercentPerMonthProratedDaily() {
+                BigDecimal outstanding = new BigDecimal("1000000.00");
+                LocalDate firstChargeableDate = LocalDate.of(2026, 1, 5);
 
-        assertEquals(new BigDecimal("500000.00"), allocation.interest());
-        assertEquals(new BigDecimal("500000.00"), allocation.managementFee());
-        assertEquals(new BigDecimal("200000.00"), allocation.principal());
-        assertEquals(new BigDecimal("0.00"), allocation.extensionFee());
-        assertEquals(new BigDecimal("0.00"), allocation.penalty());
-        assertEquals(new BigDecimal("0.00"), allocation.overpayment());
-    }
+                assertEquals(new BigDecimal("15.00"), FinancialPolicy.MONTHLY_PENALTY_RATE);
 
-    @Test
-    void extensionFeeDoesNotIncreasePrincipalOrFutureMonthlyCharges() {
-        BigDecimal principal = new BigDecimal("800000.00");
-        BigDecimal extensionFee = FinancialPolicy.extensionFee(principal);
+                assertEquals(new BigDecimal("0.00"),
+                                FinancialPolicy.dailyPenalty(outstanding, 0,
+                                                FinancialPolicy.MONTHLY_PENALTY_RATE, firstChargeableDate));
+                assertEquals(new BigDecimal("0.00"),
+                                FinancialPolicy.dailyPenalty(outstanding, 3,
+                                                FinancialPolicy.MONTHLY_PENALTY_RATE, firstChargeableDate));
 
-        assertEquals(new BigDecimal("80000.00"), extensionFee);
-        assertEquals(new BigDecimal("40000.00"),
-                FinancialPolicy.contractualMonthlyCharge(
-                        principal, FinancialPolicy.MONTHLY_INTEREST_RATE));
-        assertEquals(new BigDecimal("40000.00"),
-                FinancialPolicy.contractualMonthlyCharge(
-                        principal, FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE));
-    }
+                // January has 31 days. After three grace days, the rate is 15% / 31 per day.
+                // Day 4: 1,000,000 * 0.15 / 31 = 4,838.71 RWF.
+                assertEquals(new BigDecimal("4838.71"),
+                                FinancialPolicy.dailyPenalty(outstanding, 4,
+                                                FinancialPolicy.MONTHLY_PENALTY_RATE, firstChargeableDate));
 
+                // Day 5: two chargeable days, rounded after multiplication.
+                assertEquals(new BigDecimal("9677.42"),
+                                FinancialPolicy.dailyPenalty(outstanding, 5,
+                                                FinancialPolicy.MONTHLY_PENALTY_RATE, firstChargeableDate));
+
+                // Day 6: three chargeable days, rounded after multiplication.
+                assertEquals(new BigDecimal("14516.13"),
+                                FinancialPolicy.dailyPenalty(outstanding, 6,
+                                                FinancialPolicy.MONTHLY_PENALTY_RATE, firstChargeableDate));
+        }
+
+        @Test
+        void decliningThreeMonthScheduleUsesOutstandingBalanceForEveryMonth() {
+                BigDecimal balance = new BigDecimal("1000000.00");
+                BigDecimal interest = BigDecimal.ZERO;
+                BigDecimal management = BigDecimal.ZERO;
+
+                for (int i = 1; i <= 3; i++) {
+                        FinancialPolicy.ScheduleLine line = FinancialPolicy.contractualScheduleLine(
+                                        balance, 3 - i + 1,
+                                        FinancialPolicy.MONTHLY_INTEREST_RATE,
+                                        FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE);
+                        interest = interest.add(line.interest());
+                        management = management.add(line.managementFee());
+                        balance = line.remainingBalance();
+                }
+
+                assertEquals(new BigDecimal("100000.00"), interest);
+                assertEquals(new BigDecimal("100000.00"), management);
+                assertEquals(new BigDecimal("0.00"), balance);
+        }
+
+        @Test
+        void paymentAllocationChargesInterestAndManagementBeforePrincipal() {
+                PaymentAllocationService service = new PaymentAllocationService();
+                PaymentAllocationService.Allocation allocation = service.allocate(
+                                new BigDecimal("1200000.00"),
+                                new BigDecimal("100000.00"),
+                                new BigDecimal("200000.00"),
+                                new BigDecimal("500000.00"),
+                                new BigDecimal("500000.00"),
+                                new BigDecimal("10000000.00"));
+
+                assertEquals(new BigDecimal("500000.00"), allocation.interest());
+                assertEquals(new BigDecimal("500000.00"), allocation.managementFee());
+                assertEquals(new BigDecimal("200000.00"), allocation.principal());
+                assertEquals(new BigDecimal("0.00"), allocation.extensionFee());
+                assertEquals(new BigDecimal("0.00"), allocation.penalty());
+                assertEquals(new BigDecimal("0.00"), allocation.overpayment());
+        }
+
+        @Test
+        void extensionFeeDoesNotIncreasePrincipalOrFutureMonthlyCharges() {
+                BigDecimal principal = new BigDecimal("800000.00");
+                BigDecimal extensionFee = FinancialPolicy.extensionFee(principal);
+
+                assertEquals(new BigDecimal("80000.00"), extensionFee);
+                assertEquals(new BigDecimal("40000.00"),
+                                FinancialPolicy.contractualMonthlyCharge(principal,
+                                                FinancialPolicy.MONTHLY_INTEREST_RATE));
+                assertEquals(new BigDecimal("40000.00"),
+                                FinancialPolicy.contractualMonthlyCharge(principal,
+                                                FinancialPolicy.MONTHLY_MANAGEMENT_FEE_RATE));
+        }
 }
