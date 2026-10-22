@@ -76,7 +76,7 @@ const LOAN_TYPES = [
  * Institutional pricing is fixed by the lending contract. Products may differ
  * by name, amount and term, but not by the core financial rates.
  * 5% monthly interest, 5% monthly management fee, 2% one-time application fee
- * and 10% monthly penalty prorated daily after the 3-day grace period.
+ * and 15% monthly penalty prorated daily after the 3-day grace period.
  */
 const DEFAULT_INTEREST_RATE = 5;
 const DEFAULT_MANAGEMENT_FEE = 5;
