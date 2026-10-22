@@ -1,17 +1,19 @@
+
 package com.patrick.fintech.loan_backend.repository;
 
 import com.patrick.fintech.loan_backend.model.Organization;
 import com.patrick.fintech.loan_backend.model.User;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
-import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.Modifying;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -30,13 +32,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
         /**
          * Explicit pessimistic-lock query.
-         *
-         * The method name "findByIdForUpdate" cannot be a Spring Data derived query
-         * because
-         * Spring Data would interpret "ForUpdate" as a property traversal after "id".
-         *
-         * Using @Query makes the intended query unambiguous while @Lock applies
-         * PESSIMISTIC_WRITE at the database level.
+         * 
+         * @Lock applies PESSIMISTIC_WRITE at the database level.
          */
         @Lock(LockModeType.PESSIMISTIC_WRITE)
         @Query("select u from User u where u.id = :id")
@@ -49,8 +46,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
         /**
          * Counts active BUSINESS_OWNER accounts inside one tenant.
-         * The tenant and status predicates are evaluated in SQL so the last
-         * active business owner cannot be removed by a stale in-memory list.
          */
         long countByOrganization_IdAndRole_NameAndStatus(
                         Long organizationId,
@@ -61,9 +56,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
         Optional<User> findByEmailIgnoreCase(String email);
 
         /**
-         * Atomically consumes a valid login OTP. This avoids holding a pessimistic
-         * row lock for the whole HTTP login request while still guaranteeing that
-         * only one concurrent request can redeem the same OTP.
+         * Atomically consumes a valid login OTP.
          */
         @Modifying(clearAutomatically = true, flushAutomatically = true)
         @Transactional
@@ -87,41 +80,43 @@ public interface UserRepository extends JpaRepository<User, Long> {
                         + "case when coalesce(u.loginOtpAttempts, 0) + 1 > :maxAttempts "
                         + "then :maxAttempts else coalesce(u.loginOtpAttempts, 0) + 1 end "
                         + "where u.id = :id and u.loginOtpHash = :otpHash "
-                        + "and u.loginOtpExpiresAt > :now and coalesce(u.loginOtpAttempts, 0) < :maxAttempts")
+                        + "and u.loginOtpExpiresAt > :now "
+                        + "and coalesce(u.loginOtpAttempts, 0) < :maxAttempts")
         int incrementLoginOtpAttempts(
                         @Param("id") Long id,
                         @Param("otpHash") String otpHash,
                         @Param("now") java.time.LocalDateTime now,
                         @Param("maxAttempts") int maxAttempts);
 
-        /** Clears an exhausted/expired login OTP. */
+        /** Clears an exhausted or expired login OTP. */
         @Modifying(clearAutomatically = true, flushAutomatically = true)
         @Transactional
-        @Query("update User u set u.loginOtpHash = null, u.loginOtpExpiresAt = null, u.loginOtpAttempts = 0 "
+        @Query("update User u set u.loginOtpHash = null, "
+                        + "u.loginOtpExpiresAt = null, u.loginOtpAttempts = 0 "
                         + "where u.id = :id")
         int clearLoginOtp(@Param("id") Long id);
 
         /**
-         * User details are returned by several admin/security flows.
-         * Explicitly load the stable identity associations.
+         * Explicitly loads stable identity associations.
          */
         @Override
         @EntityGraph(attributePaths = { "role", "organization", "branch" })
         Optional<User> findById(Long id);
 
         /**
-         * Security-boundary lookup: the organization predicate is part of the SQL
-         * query, not merely a controller-side check.
+         * Organization-scoped security lookup.
          */
         @EntityGraph(attributePaths = { "role", "organization", "branch" })
-        @Query("select u from User u where u.id = :id and u.organization.id = :organizationId")
+        @Query("select u from User u "
+                        + "where u.id = :id and u.organization.id = :organizationId")
         Optional<User> findByIdAndOrganizationId(
                         @Param("id") Long id,
                         @Param("organizationId") Long organizationId);
 
         @Lock(LockModeType.PESSIMISTIC_WRITE)
         @EntityGraph(attributePaths = { "role", "organization", "branch" })
-        @Query("select u from User u where u.id = :id and u.organization.id = :organizationId")
+        @Query("select u from User u "
+                        + "where u.id = :id and u.organization.id = :organizationId")
         Optional<User> findByIdAndOrganizationIdForUpdate(
                         @Param("id") Long id,
                         @Param("organizationId") Long organizationId);
@@ -138,37 +133,72 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
         @Lock(LockModeType.PESSIMISTIC_WRITE)
         @EntityGraph(attributePaths = { "role", "organization", "branch" })
-        @Query("select u from User u where u.deletedAt is not null and u.purgedAt is null "
-                        + "and u.purgeAfter <= :cutoff order by u.purgeAfter asc, u.id asc")
+        @Query("select u from User u "
+                        + "where u.deletedAt is not null and u.purgedAt is null "
+                        + "and u.purgeAfter <= :cutoff "
+                        + "order by u.purgeAfter asc, u.id asc")
         List<User> findExpiredDeletedUsersForUpdate(
-                        @Param("cutoff") java.time.LocalDateTime cutoff, Pageable pageable);
+                        @Param("cutoff") java.time.LocalDateTime cutoff,
+                        Pageable pageable);
 
         /**
-         * Locks active users of a role in stable ID order. The Business Owner
-         * deletion path uses this to serialize concurrent attempts to remove the
-         * last active owner; an aggregate COUNT alone is vulnerable to races.
+         * Locks active users of a role in stable ID order. Retained for the
+         * Business Owner deletion workflow and its concurrency protection.
          */
         @Lock(LockModeType.PESSIMISTIC_WRITE)
         @EntityGraph(attributePaths = { "role", "organization", "branch" })
-        @Query("select u from User u where u.organization.id = :organizationId "
+        @Query("select u from User u "
+                        + "where u.organization.id = :organizationId "
                         + "and upper(u.role.name) = upper(:roleName) "
-                        + "and u.status = :status and u.deletedAt is null order by u.id asc")
+                        + "and u.status = :status and u.deletedAt is null "
+                        + "order by u.id asc")
         List<User> findActiveByOrganizationAndRoleForUpdate(
                         @Param("organizationId") Long organizationId,
                         @Param("roleName") String roleName,
                         @Param("status") User.UserStatus status);
 
+        /**
+         * Fetches matching users with database-level pagination.
+         *
+         * Pageable is essential: it limits the SQL result before Hibernate
+         * attempts to convert it into a single User.
+         */
         @EntityGraph(attributePaths = { "role", "organization", "branch" })
-        @Query("select u from User u where u.organization.id = :organizationId "
+        @Query("select u from User u "
+                        + "where u.organization.id = :organizationId "
                         + "and upper(u.role.name) = upper(:roleName) "
-                        + "and u.status = :status order by u.id asc")
-        Optional<User> findFirstActiveByOrganizationAndRole(
+                        + "and u.status = :status "
+                        + "order by u.id asc")
+        List<User> findActiveUsersByOrganizationAndRole(
                         @Param("organizationId") Long organizationId,
                         @Param("roleName") String roleName,
-                        @Param("status") User.UserStatus status);
+                        @Param("status") User.UserStatus status,
+                        Pageable pageable);
+
+        /**
+         * Compatibility method for existing workflow callers.
+         * Selects the lowest-ID matching user, with the limit applied in SQL.
+         */
+        default Optional<User> findFirstActiveByOrganizationAndRole(
+                        Long organizationId,
+                        String roleName,
+                        User.UserStatus status) {
+                return findActiveUsersByOrganizationAndRole(
+                                organizationId,
+                                roleName,
+                                status,
+                                PageRequest.of(0, 1))
+                                .stream()
+                                .findFirst();
+        }
 
         /** Convenience query used by durable workflow-task assignment. */
-        default Optional<User> findFirstActiveByOrganizationAndRole(Long organizationId, String roleName) {
-                return findFirstActiveByOrganizationAndRole(organizationId, roleName, User.UserStatus.ACTIVE);
+        default Optional<User> findFirstActiveByOrganizationAndRole(
+                        Long organizationId,
+                        String roleName) {
+                return findFirstActiveByOrganizationAndRole(
+                                organizationId,
+                                roleName,
+                                User.UserStatus.ACTIVE);
         }
 }
