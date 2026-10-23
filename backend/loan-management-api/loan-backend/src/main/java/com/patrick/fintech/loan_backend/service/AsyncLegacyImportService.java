@@ -50,7 +50,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Slf4j
 public class AsyncLegacyImportService {
 
-        private static final long MAX_ROWS = 100_000L;
+        private static final long MAX_ROWS = 10_000L;
         private static final int PROGRESS_UPDATE_EVERY = 100;
         private static final int MAX_STORED_ROW_RESULTS = 10_000;
 
@@ -272,6 +272,13 @@ public class AsyncLegacyImportService {
                                                                                 .build();
                                                         }
 
+                                                        if (result != null) {
+                                                                result.setSourceSheet(row.get("__source_sheet"));
+                                                                result.setDuplicateRowsIgnored(
+                                                                                Integer.parseInt(row.getOrDefault(
+                                                                                                "__duplicate_count",
+                                                                                                "0")));
+                                                        }
                                                         if (result != null && result.isSuccess()) {
                                                                 success.incrementAndGet();
                                                         } else {

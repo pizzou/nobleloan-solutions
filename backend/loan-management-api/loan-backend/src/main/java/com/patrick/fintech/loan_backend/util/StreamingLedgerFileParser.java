@@ -39,6 +39,9 @@ public final class StreamingLedgerFileParser {
     private static final int MAX_COLUMNS = 256;
     private static final int MONTHLY_MIN_COLUMNS = 30;
     private static final int CREDIT_MIN_COLUMNS = 35;
+    // Preview also keeps row results in memory; cap candidate count for the
+    // production host's 256 MiB JVM instead of accepting unbounded worksheets.
+    private static final long MAX_RECONCILIATION_CANDIDATES = 10_000;
 
     private static final List<DateTimeFormatter> DATE_FORMATS = List.of(
             DateTimeFormatter.ISO_LOCAL_DATE,
@@ -132,16 +135,14 @@ public final class StreamingLedgerFileParser {
             long maxRows,
             RowConsumer consumer) throws IOException {
 
-        Set<String> seen = new HashSet<>();
-        long emitted = 0;
+        List<PendingRecord> candidates = new ArrayList<>();
 
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(input, StandardCharsets.UTF_8), 64 * 1024)) {
 
             String headerLine = LedgerFileParser.readLogicalLine(reader);
-            if (headerLine == null) {
+            if (headerLine == null)
                 return 0;
-            }
 
             List<String> headers = LedgerFileParser.splitForStreaming(headerLine).stream()
                     .map(LedgerFileParser::normalizeHeader)
@@ -152,39 +153,31 @@ public final class StreamingLedgerFileParser {
             long physicalRow = 1;
             while ((line = LedgerFileParser.readLogicalLine(reader)) != null) {
                 physicalRow++;
-                if (line.isBlank()) {
+                if (line.isBlank())
                     continue;
-                }
 
                 List<String> cells = LedgerFileParser.splitForStreaming(line);
                 Map<String, String> row = new LinkedHashMap<>();
                 for (int i = 0; i < headers.size(); i++) {
                     row.put(headers.get(i), i < cells.size() ? normalizeStreamValue(cells.get(i)) : "");
                 }
-
                 row = canonicalizeRow(row);
-                if (isBlank(row)) {
+                if (isBlank(row))
                     continue;
+                if (candidates.size() >= MAX_RECONCILIATION_CANDIDATES) {
+                    throw new IOException("CSV contains more than " + MAX_RECONCILIATION_CANDIDATES
+                            + " loan candidates. Split it into smaller reviewed files.");
                 }
-
-                if (!seen.add(duplicateKey(row))) {
-                    continue;
-                }
-
-                if (++emitted > maxRows) {
-                    throw new IllegalArgumentException(
-                            "Import exceeds the maximum row limit of " + maxRows + ".");
-                }
-
-                try {
-                    consumer.accept(physicalRow, row);
-                } catch (Exception e) {
-                    throw new IOException("Import row application failed at row " + physicalRow + ".", e);
-                }
+                candidates.add(new PendingRecord(physicalRow, row, "CSV", false));
+            }
+            try {
+                return reconcileAndEmit(candidates, maxRows, consumer);
+            } catch (IOException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new IOException("CSV row import failed.", e);
             }
         }
-
-        return emitted;
     }
 
     // ---------------------------------------------------------------------
@@ -202,20 +195,16 @@ public final class StreamingLedgerFileParser {
             StylesTable styles = reader.getStylesTable();
             ReadOnlySharedStringsTable sharedStrings = new ReadOnlySharedStringsTable(packageHandle);
 
-            Set<String> seen = new HashSet<>();
+            List<PendingRecord> ledgerRows = new ArrayList<>();
             List<PendingRecord> pendingCreditRows = new ArrayList<>();
             boolean[] authoritativeLedgerSeen = { false };
-            long[] emitted = { 0L };
 
             XSSFReader.SheetIterator sheets = (XSSFReader.SheetIterator) reader.getSheetsData();
             while (sheets.hasNext()) {
                 try (InputStream sheetInput = sheets.next()) {
+                    String sheetName = sheets.getSheetName();
                     StreamingHandler handler = new StreamingHandler(
-                            maxRows,
-                            consumer,
-                            seen,
-                            emitted,
-                            pendingCreditRows,
+                            sheetName, ledgerRows, pendingCreditRows,
                             authoritativeLedgerSeen);
 
                     XMLReader xmlReader = XMLReaderFactory.createXMLReader();
@@ -232,20 +221,12 @@ public final class StreamingLedgerFileParser {
                 }
             }
 
-            // Credit/portfolio worksheets are a fallback source only. If the
-            // workbook has no real loan-ledger sheet, emit their rows now.
+            // Credit portfolio rows are not a second disbursement ledger.
+            // They are eligible only when no monthly/standard ledger was found.
             if (!authoritativeLedgerSeen[0]) {
-                for (PendingRecord pending : pendingCreditRows) {
-                    emitPending(
-                            pending,
-                            maxRows,
-                            seen,
-                            emitted,
-                            consumer);
-                }
+                ledgerRows.addAll(pendingCreditRows);
             }
-
-            return emitted[0];
+            return reconcileAndEmit(ledgerRows, maxRows, consumer);
         } catch (IOException e) {
             throw e;
         } catch (Exception e) {
@@ -253,44 +234,105 @@ public final class StreamingLedgerFileParser {
         }
     }
 
-    private static void emitPending(
-            PendingRecord pending,
-            long maxRows,
-            Set<String> seen,
-            long[] emitted,
+    /**
+     * Resolve repeated sheets BEFORE emitting any rows. This matters for
+     * asynchronous commits: a late conflicting sheet must not be discovered
+     * after the earlier copy has already been persisted.
+     */
+    private static long reconcileAndEmit(List<PendingRecord> rows, long maxRows,
             RowConsumer consumer) throws Exception {
+        Map<String, List<PendingRecord>> groups = new LinkedHashMap<>();
+        boolean hasMaster = rows.stream().anyMatch(record -> record.master);
+        long unknown = 0;
+        for (PendingRecord record : rows) {
+            String key = LegacyLoanIdentity.candidateKey(record.row);
+            // Unknown identities must not be merged; the row service will
+            // reject invalid national IDs / dates using existing validations.
+            if (key == null)
+                key = "UNVERIFIED|" + (++unknown);
+            groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(record);
+        }
+        // A mistaken national ID can put copies of one loan in different
+        // strong-identity groups. Cross-check names + date ONLY to flag review;
+        // names are never trusted as an automatic merge key.
+        Map<String, Set<String>> identitiesByName = new HashMap<>();
+        Map<String, List<String>> locationsByName = new HashMap<>();
+        for (PendingRecord record : rows) {
+            String weak = LegacyLoanIdentity.weakNameDateKey(record.row);
+            if (weak == null)
+                continue;
+            String nationalId = record.row.getOrDefault("national_id", "").replaceAll("\\s+", "");
+            if (nationalId.isBlank())
+                continue;
+            identitiesByName.computeIfAbsent(weak, ignored -> new HashSet<>()).add(nationalId);
+            locationsByName.computeIfAbsent(weak, ignored -> new ArrayList<>()).add(record.location());
+        }
 
-        String key = duplicateKey(pending.row);
-        if (!seen.add(key)) {
-            return;
+        long emitted = 0;
+        for (List<PendingRecord> group : groups.values()) {
+            PendingRecord chosen = group.stream().filter(r -> r.master).findFirst().orElse(group.get(0));
+            Map<String, String> candidate = new LinkedHashMap<>(chosen.row);
+            candidate.put("__source_sheet", chosen.sheetName);
+            candidate.put("__duplicate_count", Integer.toString(group.size() - 1));
+            String weak = LegacyLoanIdentity.weakNameDateKey(chosen.row);
+            if (weak != null && identitiesByName.getOrDefault(weak, Set.of()).size() > 1) {
+                candidate.put("__import_issue", "Potential borrower national_id discrepancy "
+                        + "for the same name and start date across "
+                        + String.join(", ", locationsByName.get(weak).stream().distinct().limit(4).toList())
+                        + ". Verify the original identity documents; no loan is imported for this match.");
+            }
+            if (hasMaster && !chosen.master && !candidate.containsKey("__import_issue")) {
+                candidate.put("__import_issue", "Loan found only in supporting worksheet "
+                        + chosen.location() + ". Verify it against the master portfolio "
+                        + "and import it through a reviewed master ledger.");
+            }
+            for (PendingRecord other : group) {
+                if (other == chosen)
+                    continue;
+                List<String> different = LegacyLoanIdentity.differingFields(chosen.row, other.row);
+                if (!different.isEmpty()) {
+                    candidate.put("__import_issue", "Possible duplicate with conflicting "
+                            + String.join(", ", different) + " between " + chosen.location()
+                            + " and " + other.location()
+                            + ". Verify the original contract and balances; "
+                            + "no loan will be imported from this ambiguous group.");
+                    break;
+                }
+            }
+            if (++emitted > maxRows) {
+                throw new IllegalArgumentException("Import exceeds the maximum row limit of " + maxRows + ".");
+            }
+            consumer.accept(chosen.rowNumber, candidate);
         }
-        if (emitted[0] >= maxRows) {
-            throw new IllegalArgumentException(
-                    "Import exceeds the maximum row limit of " + maxRows + ".");
-        }
-        emitted[0]++;
-        consumer.accept(pending.rowNumber, pending.row);
+        return emitted;
     }
 
     private static final class PendingRecord {
         private final long rowNumber;
         private final Map<String, String> row;
+        private final String sheetName;
+        private final boolean master;
 
-        private PendingRecord(long rowNumber, Map<String, String> row) {
+        private PendingRecord(long rowNumber, Map<String, String> row,
+                String sheetName, boolean master) {
             this.rowNumber = rowNumber;
             this.row = row;
+            this.sheetName = sheetName;
+            this.master = master;
+        }
+
+        private String location() {
+            return "'" + sheetName.replace("'", "") + "' row " + rowNumber;
         }
     }
 
     private static final class StreamingHandler implements XSSFSheetXMLHandler.SheetContentsHandler {
-        private final long maxRows;
-        private final RowConsumer consumer;
-        private final Set<String> seen;
-        private final long[] emitted;
+        private final String sheetName;
+        private final List<PendingRecord> ledgerRows;
         private final List<PendingRecord> pendingCreditRows;
         private final boolean[] authoritativeLedgerSeen;
-
         private final List<Map<Integer, String>> probeRows = new ArrayList<>();
+        private final List<Long> probeRowNumbers = new ArrayList<>();
         private Map<Integer, String> current;
         private long physicalRow;
         private Layout layout = Layout.UNKNOWN;
@@ -298,17 +340,12 @@ public final class StreamingLedgerFileParser {
         private int headerRow = -1;
         private boolean probeComplete;
 
-        private StreamingHandler(
-                long maxRows,
-                RowConsumer consumer,
-                Set<String> seen,
-                long[] emitted,
+        private StreamingHandler(String sheetName,
+                List<PendingRecord> ledgerRows,
                 List<PendingRecord> pendingCreditRows,
                 boolean[] authoritativeLedgerSeen) {
-            this.maxRows = maxRows;
-            this.consumer = consumer;
-            this.seen = seen;
-            this.emitted = emitted;
+            this.sheetName = sheetName;
+            this.ledgerRows = ledgerRows;
             this.pendingCreditRows = pendingCreditRows;
             this.authoritativeLedgerSeen = authoritativeLedgerSeen;
         }
@@ -327,6 +364,7 @@ public final class StreamingLedgerFileParser {
 
             if (!probeComplete) {
                 probeRows.add(new LinkedHashMap<>(current));
+                probeRowNumbers.add(physicalRow);
                 determineLayout(false);
 
                 if (layout != Layout.UNKNOWN || probeRows.size() >= LAYOUT_SCAN_ROWS) {
@@ -339,10 +377,10 @@ public final class StreamingLedgerFileParser {
                     // to 60 rows and therefore remains safe for large workbooks.
                     for (int i = 0; i < probeRows.size(); i++) {
                         Map<Integer, String> probe = probeRows.get(i);
-                        long rowNumber = i + 1L;
-                        emitMapped(rowNumber, probe);
+                        emitMapped(probeRowNumbers.get(i), probe);
                     }
                     probeRows.clear();
+                    probeRowNumbers.clear();
                 }
                 return;
             }
@@ -458,27 +496,18 @@ public final class StreamingLedgerFileParser {
                 return;
             }
 
-            if (layout == Layout.CREDIT) {
-                pendingCreditRows.add(new PendingRecord(rowNumber, mapped));
-                return;
-            }
-
-            String key = duplicateKey(mapped);
-            if (!seen.add(key)) {
-                return;
-            }
-
-            if (emitted[0] >= maxRows) {
+            // The "NO" column on positional Noble sheets restarts in each
+            // worksheet. It is not a durable loan reference and MUST NOT be
+            // used as an idempotency key or a public NLS number.
+            boolean master = sheetName.toUpperCase(Locale.ROOT).matches(".*\\bPORTFOLIO\\s*(20[0-9]{2})\\b.*");
+            PendingRecord record = new PendingRecord(rowNumber, mapped, sheetName, master);
+            List<PendingRecord> target = layout == Layout.CREDIT ? pendingCreditRows : ledgerRows;
+            if ((long) ledgerRows.size() + pendingCreditRows.size() >= MAX_RECONCILIATION_CANDIDATES) {
                 throw new IllegalArgumentException(
-                        "Import exceeds the maximum row limit of " + maxRows + ".");
+                        "Workbook has too many loan candidates for safe reconciliation (maximum "
+                                + MAX_RECONCILIATION_CANDIDATES + "). Split it into reviewed files.");
             }
-
-            emitted[0]++;
-            try {
-                consumer.accept(rowNumber, mapped);
-            } catch (Exception e) {
-                throw new ImportRowRuntimeException(rowNumber, e);
-            }
+            target.add(record);
         }
 
         private Map<String, String> mapStandard(Map<Integer, String> row) {
@@ -561,7 +590,9 @@ public final class StreamingLedgerFileParser {
             out.put("next_due_date", normalizeDate(row.get(15)));
             out.put("status", monthlyStatus(row));
             out.put("currency", "RWF");
-            out.put("loan_reference", clean(row.get(0)));
+            // The local NO column restarts on each worksheet; no genuine source ID.
+            out.put("loan_reference", "");
+            out.put("__source_local_no", clean(row.get(0)));
             out.put("total_paid", totalPaid.toPlainString());
             out.put("outstanding_balance", money(principalOutstanding).toPlainString());
             out.put("total_repayable", totalRepayable.toPlainString());
@@ -619,7 +650,9 @@ public final class StreamingLedgerFileParser {
             out.put("start_date", normalizeDate(row.get(21)));
             out.put("status", "ACTIVE");
             out.put("currency", "RWF");
-            out.put("loan_reference", clean(row.get(0)));
+            // The local NO column restarts on each worksheet; no genuine source ID.
+            out.put("loan_reference", "");
+            out.put("__source_local_no", clean(row.get(0)));
             out.put("notes",
                     "Imported from Noble Loan credit/portfolio workbook layout; historical financial components were not available in this worksheet.");
             return out;

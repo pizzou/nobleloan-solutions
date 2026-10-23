@@ -476,6 +476,11 @@ public class Loan {
         @Column(name = "legacy_import_fingerprint", length = 64)
         private String legacyImportFingerprint;
 
+        /** Canonical identity independent of changing historical payment balances. */
+        @JsonIgnore
+        @Column(name = "legacy_loan_identity", length = 64)
+        private String legacyLoanIdentity;
+
         @Column(name = "import_batch_id")
         private Long importBatchId;
 

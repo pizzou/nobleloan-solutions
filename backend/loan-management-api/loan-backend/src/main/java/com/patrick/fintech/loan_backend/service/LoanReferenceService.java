@@ -5,13 +5,17 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.Locale;
+import java.time.LocalDate;
+import java.util.List;
+import com.patrick.fintech.loan_backend.security.HmacIndexer;
 import java.util.Map;
 
 /**
  * One globally shared, PostgreSQL-backed sequence for every NEW loan reference.
  * A database sequence, rather than MAX(reference_number) + 1, is safe with
  * simultaneous users, multiple backend instances and asynchronous imports.
- * Existing loan references are never renumbered (they may be on posted ledgers).
+ * Existing loan references are never renumbered (they may be on posted
+ * ledgers).
  */
 @Service
 @RequiredArgsConstructor
@@ -28,7 +32,9 @@ public class LoanReferenceService {
         return format(number);
     }
 
-    /** Read-only, NON-RESERVING preview; concurrent creation may change the result. */
+    /**
+     * Read-only, NON-RESERVING preview; concurrent creation may change the result.
+     */
     public long firstAvailableForPreview() {
         Map<String, Object> state = jdbc.queryForMap(
                 "SELECT last_value, is_called FROM public.nls_loan_reference_seq");
@@ -49,28 +55,49 @@ public class LoanReferenceService {
      * the database unique indexes, which resolve concurrent duplicate imports.
      */
     public boolean previouslyImported(Long organizationId,
-                                      String originalSourceReference,
-                                      String sourceFingerprint,
-                                      String oldDeterministicReference) {
+            String originalSourceReference,
+            String sourceFingerprint,
+            String oldDeterministicReference,
+            String stableIdentity,
+            String nationalId,
+            String disbursementDate) {
+        List<String> possibleHashes = HmacIndexer.candidates(nationalId);
+        String currentHash = possibleHashes.isEmpty() ? null : possibleHashes.get(0);
+        String previousHash = possibleHashes.size() < 2 ? null : possibleHashes.get(1);
+        LocalDate loanDate = LocalDate.parse(disbursementDate);
         Boolean exists = jdbc.queryForObject("""
                 SELECT EXISTS (
                     SELECT 1 FROM public.loans
                     WHERE organization_id = ?
                       AND (
                         legacy_import_fingerprint = ?
+                        OR legacy_loan_identity = ?
                         OR LOWER(BTRIM(legacy_source_reference)) = LOWER(CAST(? AS TEXT))
                         OR (COALESCE(imported, FALSE) = TRUE
                             AND LOWER(BTRIM(reference_number)) = LOWER(CAST(? AS TEXT)))
                         OR (COALESCE(imported, FALSE) = TRUE
                             AND LOWER(BTRIM(reference_number)) = LOWER(CAST(? AS TEXT)))
                       )
+                ) OR EXISTS (
+                    SELECT 1
+                      FROM public.loans historical
+                      JOIN public.borrowers person ON person.id = historical.borrower_id
+                     WHERE historical.organization_id = ?
+                       AND COALESCE(historical.imported, FALSE) = TRUE
+                       AND person.national_id_hash IN (?, ?)
+                       AND historical.start_date = ?
                 )
                 """, Boolean.class,
                 organizationId,
                 sourceFingerprint,
+                stableIdentity,
                 originalSourceReference,
                 oldDeterministicReference,
-                originalSourceReference);
+                originalSourceReference,
+                organizationId,
+                currentHash,
+                previousHash,
+                loanDate);
         return Boolean.TRUE.equals(exists);
     }
 }

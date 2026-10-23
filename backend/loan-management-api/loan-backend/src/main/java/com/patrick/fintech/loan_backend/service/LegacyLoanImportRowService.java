@@ -177,6 +177,16 @@ public class LegacyLoanImportRowService {
                                         sessionBorrowers,
                                         sessionLoanReferences);
 
+                        // Sheet reconciliation is completed before any write; do
+                        // not create borrowers, NLS numbers or GL journals for
+                        // ambiguous cross-sheet copies.
+                        if (row.containsKey("__import_issue")) {
+                                ImportRowResult blocked = fail(rowNumber, row.get("__import_issue"));
+                                blocked.setBorrowerName((row.getOrDefault("first_name", "") + " "
+                                                + row.getOrDefault("last_name", "")).trim());
+                                return blocked;
+                        }
+
                         // Capture the workbook identity SEPARATELY from the new
                         // sequential public loan number. An upload retry must not
                         // manufacture a second loan just because its NLS number
@@ -185,12 +195,17 @@ public class LegacyLoanImportRowService {
                         String sourceReference = suppliedReference == null || suppliedReference.isBlank()
                                         ? null
                                         : normalizeReference(suppliedReference);
+                        String loanIdentity = com.patrick.fintech.loan_backend.util.LegacyLoanIdentity
+                                        .stableIdentity(org.getId(), row);
                         String fingerprint = legacyRowFingerprint(row, org);
                         String olderSystemReference = resolveImportReference(row, org);
-                        if (sessionLoanReferences.alreadySeen(fingerprint, sourceReference)
+                        if (loanIdentity != null && (sessionLoanReferences.alreadySeen(fingerprint, sourceReference)
+                                        || sessionLoanReferences.alreadySeenIdentity(loanIdentity)
                                         || loanReferenceService.previouslyImported(
                                                         org.getId(), sourceReference, fingerprint,
-                                                        olderSystemReference)) {
+                                                        olderSystemReference, loanIdentity,
+                                                        row.get("national_id").replaceAll("\\s+", ""),
+                                                        row.get("start_date")))) {
                                 return fail(rowNumber,
                                                 "This legacy loan already exists or appears twice in this workbook. "
                                                                 + "Check the original loan_reference and previous imports before retrying.");
@@ -1107,6 +1122,11 @@ public class LegacyLoanImportRowService {
                         // Allocate only after the row has passed financial and
                         // identity validation. A failed preview row consumes no
                         // preview number; a commit uses nextval atomically.
+                        if (loanIdentity == null) {
+                                return fail(rowNumber, "A verified 16-digit national_id, contractual "
+                                                + "start_date and positive principal are required "
+                                                + "before importing a historical loan.");
+                        }
                         String referenceNumber = commit
                                         ? loanReferenceService.allocate()
                                         : sessionLoanReferences.previewReference(loanReferenceService);
@@ -1318,6 +1338,30 @@ public class LegacyLoanImportRowService {
                                                                         importedRateType)
                                                                         + " Historical NLS financial balances were imported as opening loan state; no historical accounting journal was reposted, preventing double-counting."
                                                                         + " Initial arrears classification was derived from next_due_date and the imported remaining receivable."
+                                                                        + (row.containsKey("__source_sheet")
+                                                                                        ? " Source worksheet: "
+                                                                                                        + row.get("__source_sheet")
+                                                                                                                        .replaceAll("[\\r\\n]",
+                                                                                                                                        " ")
+                                                                                                                        .substring(0, Math
+                                                                                                                                        .min(80, row.get(
+                                                                                                                                                        "__source_sheet")
+                                                                                                                                                        .length()))
+                                                                                                        + ", row "
+                                                                                                        + rowNumber
+                                                                                                        + "."
+                                                                                        : "")
+                                                                        + (row.containsKey("__source_local_no")
+                                                                                        ? " Worksheet local NO: "
+                                                                                                        + row.get("__source_local_no")
+                                                                                                                        .replaceAll("[\\r\\n]",
+                                                                                                                                        " ")
+                                                                                                                        .substring(0, Math
+                                                                                                                                        .min(40, row.get(
+                                                                                                                                                        "__source_local_no")
+                                                                                                                                                        .length()))
+                                                                                                        + "."
+                                                                                        : "")
                                                                         + (businessOwnerOnly
                                                                                         ? " This loan is Business-Owner-only and must remain excluded from ordinary reporting and access scopes."
                                                                                         : ""))
@@ -1330,6 +1374,7 @@ public class LegacyLoanImportRowService {
                                                         true)
                                         .legacySourceReference(sourceReference)
                                         .legacyImportFingerprint(fingerprint)
+                                        .legacyLoanIdentity(loanIdentity)
 
                                         .importBatchId(
                                                         importBatchId);
@@ -1342,7 +1387,7 @@ public class LegacyLoanImportRowService {
 
                         if (!commit) {
 
-                                sessionLoanReferences.recordSuccess(fingerprint, sourceReference);
+                                sessionLoanReferences.recordSuccess(fingerprint, sourceReference, loanIdentity);
 
                                 return ImportRowResult.builder()
                                                 .rowNumber(
@@ -1398,7 +1443,7 @@ public class LegacyLoanImportRowService {
                         // accounting does not replay historical cash movements.
                         accountingService.postHistoricalLoanOpening(loan);
 
-                        sessionLoanReferences.recordSuccess(fingerprint, sourceReference);
+                        sessionLoanReferences.recordSuccess(fingerprint, sourceReference, loanIdentity);
 
                         // Only cache a newly-created borrower after both the loan
                         // and its opening accounting entry have succeeded.
@@ -2389,14 +2434,8 @@ public class LegacyLoanImportRowService {
          * derived from the organization and the complete normalized row.
          */
         private String legacyRowFingerprint(Map<String, String> row, Organization org) {
-                String stableInput = String.valueOf(org.getId()) + "|" + new TreeMap<>(row);
-                try {
-                        byte[] hash = java.security.MessageDigest.getInstance("SHA-256")
-                                        .digest(stableInput.getBytes(StandardCharsets.UTF_8));
-                        return java.util.HexFormat.of().formatHex(hash);
-                } catch (java.security.NoSuchAlgorithmException e) {
-                        throw new IllegalStateException("SHA-256 is not available", e);
-                }
+                return com.patrick.fintech.loan_backend.util.LegacyLoanIdentity
+                                .originalRowFingerprint(org.getId(), row);
         }
 
         private String resolveImportReference(
@@ -2408,7 +2447,12 @@ public class LegacyLoanImportRowService {
                         return normalizeReference(suppliedReference);
                 }
 
-                String stableInput = String.valueOf(org.getId()) + "|" + new TreeMap<>(row);
+                java.util.TreeMap<String, String> originalRow = new java.util.TreeMap<>();
+                row.forEach((key, value) -> {
+                        if (!key.startsWith("__"))
+                                originalRow.put(key, value);
+                });
+                String stableInput = String.valueOf(org.getId()) + "|" + originalRow;
                 String stableToken = UUID.nameUUIDFromBytes(
                                 stableInput.getBytes(StandardCharsets.UTF_8))
                                 .toString()

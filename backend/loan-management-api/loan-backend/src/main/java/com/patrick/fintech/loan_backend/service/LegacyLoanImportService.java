@@ -232,6 +232,9 @@ public class LegacyLoanImportService {
                                         sessionLoanReferences);
 
                         if (result != null) {
+                                result.setSourceSheet(row.get("__source_sheet"));
+                                result.setDuplicateRowsIgnored(
+                                                Integer.parseInt(row.getOrDefault("__duplicate_count", "0")));
                                 results.add(result);
                         } else {
                                 results.add(
@@ -295,9 +298,10 @@ public class LegacyLoanImportService {
 
                 try {
 
-                        rows = LedgerFileParser.parse(
-                                        safeFilename,
-                                        in);
+                        final List<Map<String, String>> streamed = new ArrayList<>();
+                        StreamingLedgerFileParser.stream(safeFilename, in, MAX_IMPORT_ROWS,
+                                        (sourceRowNumber, row) -> streamed.add(row));
+                        rows = streamed;
 
                 } catch (IOException e) {
 

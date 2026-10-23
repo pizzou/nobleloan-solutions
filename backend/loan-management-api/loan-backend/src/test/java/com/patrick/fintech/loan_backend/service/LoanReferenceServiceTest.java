@@ -43,7 +43,7 @@ class LoanReferenceServiceTest {
         LegacyImportReferenceSession preview = new LegacyImportReferenceSession();
 
         assertThat(preview.previewReference(numbers)).isEqualTo("NLS-000007");
-        preview.recordSuccess("loan-a", null);
+        preview.recordSuccess("loan-a", null, "identity-a");
         // Invalid row never calls previewReference or recordSuccess.
         assertThat(preview.previewReference(numbers)).isEqualTo("NLS-000008");
         assertThat(preview.alreadySeen("loan-a", null)).isTrue();
@@ -60,8 +60,9 @@ class LoanReferenceServiceTest {
     @Test
     void repeatedSourceReferencesAreRejectedWithinAWorkbook() {
         LegacyImportReferenceSession session = new LegacyImportReferenceSession();
-        session.recordSuccess("one-fingerprint", "NLS-OLD-42");
+        session.recordSuccess("one-fingerprint", "NLS-OLD-42", "stable-identity");
         assertThat(session.alreadySeen("another-fingerprint", "nls-old-42")).isTrue();
         assertThat(session.alreadySeen("one-fingerprint", null)).isTrue();
+        assertThat(session.alreadySeenIdentity("stable-identity")).isTrue();
     }
 }

@@ -13,6 +13,8 @@ import { Pill } from "../../../components/ui/Badge";
 
 interface RowResult {
   rowNumber: number;
+  sourceSheet?: string;
+  duplicateRowsIgnored?: number;
   success: boolean;
   borrowerAction?: string;
   borrowerName?: string;
@@ -388,6 +390,15 @@ export default function ImportLegacyLoansPage() {
      ========================================================== */
 
   const previewRows = preview || [];
+
+  const repeatedSourceRows = previewRows.reduce(
+    (sum, row) => sum + (row.duplicateRowsIgnored || 0),
+    0,
+  );
+
+  const conflictingCandidates = previewRows.filter((row) =>
+    (row.error || "").includes("Possible duplicate with conflicting"),
+  ).length;
 
   const successfulRows = previewRows.filter((row) => row.success);
 
@@ -880,6 +891,17 @@ export default function ImportLegacyLoansPage() {
                   </div>
                 </div>
 
+                <p className="mt-3 text-xs text-slate-600">
+                  {repeatedSourceRows} matching worksheet copies were grouped
+                  and will not become extra loans.
+                  {conflictingCandidates > 0 && (
+                    <span className="ml-1 font-semibold text-red-700">
+                      {conflictingCandidates} conflicting loan groups require
+                      manual verification and are blocked.
+                    </span>
+                  )}
+                </p>
+
                 {/* ==================================================
                     RESULT TABLE
                     ================================================== */}
@@ -931,7 +953,7 @@ export default function ImportLegacyLoansPage() {
                         ) : (
                           visiblePreviewRows.map((row) => (
                             <tr
-                              key={row.rowNumber}
+                              key={`${row.sourceSheet || "source"}-${row.rowNumber}-${row.loanReferenceNumber || row.error || ""}`}
                               className={
                                 row.success
                                   ? "transition hover:bg-[#FAFBFC]"
@@ -939,7 +961,15 @@ export default function ImportLegacyLoansPage() {
                               }
                             >
                               <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                                {row.rowNumber}
+                                <span>{row.rowNumber}</span>
+                                {row.sourceSheet && (
+                                  <span
+                                    className="mt-1 block max-w-36 truncate text-[10px] text-slate-500"
+                                    title={row.sourceSheet}
+                                  >
+                                    {row.sourceSheet}
+                                  </span>
+                                )}
                               </td>
 
                               <td className="px-4 py-3">
@@ -955,6 +985,13 @@ export default function ImportLegacyLoansPage() {
                                   {row.borrowerName || "—"}
                                 </div>
 
+                                {(row.duplicateRowsIgnored || 0) > 0 &&
+                                  row.success && (
+                                    <div className="mt-1 text-[11px] text-amber-700">
+                                      {row.duplicateRowsIgnored} matching
+                                      worksheet copies ignored
+                                    </div>
+                                  )}
                                 {row.success && (
                                   <div className="mt-1 text-[11px] text-gray-400">
                                     {isNewBorrowerAction(row.borrowerAction)
