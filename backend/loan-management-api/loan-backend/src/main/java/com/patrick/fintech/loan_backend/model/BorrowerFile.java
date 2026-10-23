@@ -93,6 +93,12 @@ public class BorrowerFile {
 
     private LocalDateTime uploadedAt;
 
+    @Transient
+    private java.time.LocalDate documentReviewDueAt;
+
+    @Transient
+    private boolean updateRequired;
+
     @PrePersist
     protected void onCreate() {
         uploadedAt = LocalDateTime.now();

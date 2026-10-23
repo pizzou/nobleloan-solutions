@@ -175,12 +175,8 @@ export const verifyFile = async (
 ): Promise<BorrowerFile> => {
   const id = normalizeFileId(fileId);
 
-  if (
-    (status === "REJECTED" || status === "REPLACEMENT_REQUESTED") &&
-    (!Number.isSafeInteger(loanId) || (loanId as number) <= 0)
-  ) {
-    throw new Error("A valid loan ID is required for this review action.");
-  }
+  // Document reviews are borrower-scoped. An optional loan ID is useful
+  // for navigation but must not block a reviewer working in the borrower file.
 
   try {
     const response = await API.patch(`/files/${id}/verify`, {

@@ -27,6 +27,12 @@ function ApplyPageContent() {
   const [reference, setReference] = useState("");
   const [error, setError] = useState("");
   const [docsComplete, setDocsComplete] = useState(false);
+  const [reuseExistingDocuments, setReuseExistingDocuments] = useState(false);
+  const [reuseChallengeId, setReuseChallengeId] = useState("");
+  const [reuseOtp, setReuseOtp] = useState("");
+  const [reuseProof, setReuseProof] = useState("");
+  const [reuseVerificationBusy, setReuseVerificationBusy] = useState(false);
+  const [reuseVerificationMessage, setReuseVerificationMessage] = useState("");
   const [cameraOpen, setCameraOpen] = useState(false);
   const [applicationDocuments, setApplicationDocuments] = useState<
     Record<string, File | null>
@@ -327,7 +333,15 @@ function ApplyPageContent() {
       const file = applicationDocuments[type];
       return !file || file.size <= 0;
     });
-    if (missing.length) {
+    if (missing.length && reuseExistingDocuments && !reuseProof) {
+      setError(
+        "To reuse existing documents, verify the code sent to your registered email first.",
+      );
+      setSaving(false);
+      setStep(4);
+      return;
+    }
+    if (missing.length && !reuseExistingDocuments) {
       setError(
         `Please upload all mandatory documents before submitting: ${missing.map((d) => d.replace(/_/g, " ")).join(", ")}.`,
       );
@@ -335,10 +349,13 @@ function ApplyPageContent() {
       setStep(4);
       return;
     }
+    // The server independently matches phone + National ID to the same borrower,
+    // then checks freshness, verification status and file contents. This checkbox
+    // never authorizes access to documents or bypasses server-side validation.
 
     if (!online) {
       setError(
-        "You must be online to submit because all mandatory documents must be uploaded before the loan is created.",
+        "You must be online to submit the application and validate existing documents.",
       );
       setSaving(false);
       return;
@@ -358,7 +375,12 @@ function ApplyPageContent() {
       const multipart = new FormData();
       multipart.append(
         "application",
-        JSON.stringify({ ...form, nationality, tenantSlug: slug }),
+        JSON.stringify({
+          ...form,
+          nationality,
+          tenantSlug: slug,
+          ...(reuseExistingDocuments && reuseProof ? { reuseProof } : {}),
+        }),
       );
 
       const documentPartNames: Record<string, string> = {
@@ -395,6 +417,15 @@ function ApplyPageContent() {
       setSubmitted(true);
       idempotencyKeyRef.current = null;
     } catch (e: any) {
+      // Server-side validation failed and no loan was accepted. A corrected
+      // retry needs a fresh idempotency key; preserve the key for network errors.
+      if (
+        responseStatus !== null &&
+        responseStatus >= 400 &&
+        responseStatus < 500
+      ) {
+        idempotencyKeyRef.current = null;
+      }
       if (responseStatus === 413) {
         setError(
           "One or more documents are too large. Each document must be 8MB or less.",
@@ -407,6 +438,73 @@ function ApplyPageContent() {
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const requestReuseCode = async () => {
+    if (!isPhoneValid(form.phone) || !isNationalIdValid(form.nationalId)) {
+      setReuseVerificationMessage(
+        "Enter your registered phone number and National ID first.",
+      );
+      return;
+    }
+    setReuseVerificationBusy(true);
+    try {
+      const response = await fetch(
+        `${getApiBaseUrl()}/public/borrower/document-reuse/start`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tenantSlug: slug,
+            phone: form.phone,
+            nationalId: form.nationalId,
+          }),
+        },
+      );
+      const json = await response.json();
+      if (!response.ok || json.success === false || !json.data?.challengeId) {
+        throw new Error(json.message || "Could not request verification code.");
+      }
+      setReuseChallengeId(json.data.challengeId);
+      setReuseProof("");
+      setReuseVerificationMessage(
+        "If your details match our records, a verification code was emailed to the address on file.",
+      );
+    } catch (err: any) {
+      setReuseVerificationMessage(err?.message || "Unable to request a code.");
+    } finally {
+      setReuseVerificationBusy(false);
+    }
+  };
+
+  const verifyReuseCode = async () => {
+    setReuseVerificationBusy(true);
+    try {
+      const response = await fetch(
+        `${getApiBaseUrl()}/public/borrower/document-reuse/verify`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            challengeId: reuseChallengeId,
+            otp: reuseOtp,
+          }),
+        },
+      );
+      const json = await response.json();
+      if (!response.ok || json.success === false || !json.data?.proof) {
+        throw new Error(json.message || "Invalid or expired code.");
+      }
+      setReuseProof(json.data.proof);
+      setReuseVerificationMessage(
+        "Your identity was confirmed. Valid existing documents can be reused.",
+      );
+    } catch (err: any) {
+      setReuseProof("");
+      setReuseVerificationMessage(err?.message || "Invalid verification code.");
+    } finally {
+      setReuseVerificationBusy(false);
     }
   };
 
@@ -1323,9 +1421,83 @@ function ApplyPageContent() {
                   Mandatory Documents
                 </h3>
                 <p className="text-sm text-amber-800 mb-4">
-                  The loan will not be created until every required document is
-                  uploaded.
+                  First-time borrowers upload all required documents. Returning
+                  borrowers can reuse existing valid documents; only missing,
+                  outdated or rejected documents need replacing.
                 </p>
+                <label className="flex items-start gap-3 rounded-xl border border-amber-300 bg-white p-3 mb-4 text-sm text-gray-800">
+                  <input
+                    type="checkbox"
+                    checked={reuseExistingDocuments}
+                    onChange={(event) =>
+                      setReuseExistingDocuments(event.target.checked)
+                    }
+                    className="mt-1 h-4 w-4"
+                  />
+                  <span>
+                    <strong>I am an existing borrower.</strong> Reuse my
+                    documents already on file if they are still valid. I will
+                    only upload documents that need to be updated. The lender
+                    verifies my existing record before reusing any document.
+                  </span>
+                </label>
+                {reuseExistingDocuments && (
+                  <div className="rounded-xl border border-gray-200 bg-white p-4 mb-4 space-y-3">
+                    <p className="text-sm font-semibold text-gray-900">
+                      Verify your existing borrower account
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      For your security, we email a one-time code to your
+                      address already on file. Your previously uploaded
+                      documents are never displayed in this public form.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void requestReuseCode()}
+                      disabled={reuseVerificationBusy}
+                      className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold"
+                    >
+                      Send verification code
+                    </button>
+                    {reuseChallengeId && !reuseProof && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          aria-label="Existing borrower verification code"
+                          value={reuseOtp}
+                          onChange={(event) =>
+                            setReuseOtp(
+                              event.target.value.replace(/\D/g, "").slice(0, 6),
+                            )
+                          }
+                          inputMode="numeric"
+                          placeholder="6-digit code"
+                          maxLength={6}
+                          className="rounded-lg border border-gray-300 p-2 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void verifyReuseCode()}
+                          disabled={
+                            reuseVerificationBusy || reuseOtp.length !== 6
+                          }
+                          className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold"
+                        >
+                          Confirm code
+                        </button>
+                      </div>
+                    )}
+                    {reuseVerificationMessage && (
+                      <p role="status" className="text-xs text-gray-700">
+                        {reuseVerificationMessage}
+                      </p>
+                    )}
+                    {reuseProof && (
+                      <p className="text-xs font-semibold text-green-700">
+                        Verified ✓
+                      </p>
+                    )}
+                  </div>
+                )}
                 <div className="space-y-3">
                   {[
                     ["NATIONAL_ID", "National ID"],
@@ -1378,7 +1550,11 @@ function ApplyPageContent() {
                           <span
                             className={`text-xs font-bold ${file ? "text-green-700" : "text-red-600"}`}
                           >
-                            {file ? "Uploaded ✓" : "Required"}
+                            {file
+                              ? "Selected ✓"
+                              : reuseExistingDocuments
+                                ? "Reused if valid"
+                                : "Required"}
                           </span>
                         </div>
                         {key === "SELFIE" ? (

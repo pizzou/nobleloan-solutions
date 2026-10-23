@@ -31,6 +31,8 @@ const MAX_COMMENT_LENGTH = 2000;
  */
 type BorrowerFileWithContent = BorrowerFile & {
   contentAvailable?: boolean;
+  updateRequired?: boolean;
+  documentReviewDueAt?: string | null;
 };
 
 export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
@@ -240,16 +242,8 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
       return;
     }
 
-    if (
-      (action === "REJECTED" || action === "REPLACEMENT_REQUESTED") &&
-      !hasValidLoanId
-    ) {
-      toast(
-        "error",
-        "The loan reference could not be determined. Refresh the loan page and try again.",
-      );
-      return;
-    }
+    // Document review is available from the borrower profile without
+    // selecting a specific loan. The backend scopes access by organization.
 
     setBusyFileId(fileId);
 
@@ -399,6 +393,7 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
              */
             const fileWithContent = f as BorrowerFileWithContent;
             const contentAvailable = fileWithContent.contentAvailable !== false;
+            const updateRequired = fileWithContent.updateRequired === true;
 
             const isSelfie =
               f.documentType === "SELFIE" ||
@@ -489,6 +484,18 @@ export default function DocumentsPanel({ borrowerId }: { borrowerId: number }) {
                       Download
                     </button>
 
+                    {updateRequired && (
+                      <span
+                        className="px-2 py-1 rounded bg-amber-50 text-amber-800 text-xs font-semibold border border-amber-200"
+                        title={
+                          fileWithContent.documentReviewDueAt
+                            ? `Review due: ${fileWithContent.documentReviewDueAt}`
+                            : "The document needs replacement or staff review."
+                        }
+                      >
+                        Needs update
+                      </span>
+                    )}
                     {!contentAvailable && (
                       <span
                         className="text-amber-700 text-xs font-medium border border-amber-200 bg-amber-50 px-3 py-1.5 rounded-lg whitespace-nowrap"

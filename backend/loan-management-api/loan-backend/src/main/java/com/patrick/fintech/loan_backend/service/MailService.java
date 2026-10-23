@@ -215,6 +215,20 @@ public class MailService {
          * request has bounded connect/read timeouts in this service's RestTemplate.
          * This method logs no recipient address or OTP value.
          */
+        /** Synchronous email OTP for safe reuse of existing borrower's KYC. */
+        public boolean sendBorrowerDocumentReuseOtp(Borrower borrower, String code) {
+                if (!mailEnabled || borrower == null || borrower.getEmail() == null
+                                || borrower.getEmail().isBlank() || code == null || !code.matches("[0-9]{6}")) {
+                        return false;
+                }
+                return send(borrower.getEmail(), "Noble Loan Solutions — verify document reuse",
+                                "<p>We received a request to reuse documents already held by Noble Loan Solutions Ltd "
+                                                + "for a new loan application.</p>"
+                                                + "<p>Your verification code is <strong>" + safe(code)
+                                                + "</strong>.</p>"
+                                                + "<p>It expires in 5 minutes. If you did not request this, ignore this message.</p>");
+        }
+
         public boolean sendLoginOtp(User user, String code) {
                 if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
                         log.warn("Login OTP delivery skipped because the user email is missing");

@@ -9,10 +9,16 @@ import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 import org.springframework.stereotype.Repository;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface BorrowerFileRepository extends JpaRepository<BorrowerFile, Long> {
         List<BorrowerFile> findByBorrowerId(Long borrowerId);
+
+        // Only the latest borrower-level copy determines second-loan KYC eligibility.
+        // A rejected newer document must not be bypassed by an old verified file.
+        Optional<BorrowerFile> findFirstByBorrowerIdAndDocumentTypeAndLoanIsNullOrderByUploadedAtDescIdDesc(
+                        Long borrowerId, com.patrick.fintech.loan_backend.model.DocumentType documentType);
 
         List<BorrowerFile> findByLoan_IdAndDocumentTypeOrderByUploadedAtDesc(
                         Long loanId, com.patrick.fintech.loan_backend.model.DocumentType documentType);

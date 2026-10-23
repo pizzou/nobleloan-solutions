@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -164,10 +165,27 @@ public class BorrowerFileService {
             boolean available = file.getData() != null && file.getData().length > 0;
             entityManager.detach(file);
             file.setContentAvailable(available);
+            file.setDocumentReviewDueAt(BorrowerDocumentReusePolicy.reviewDueAt(file));
+            file.setUpdateRequired(BorrowerDocumentReusePolicy.reviewerUpdateRequired(file, LocalDate.now()));
             file.setData(null);
         }
 
         return files;
+    }
+
+    /**
+     * Checks the latest stored borrower-level copy for a new application.
+     * A rejected/replacement-requested newer file cannot be bypassed by choosing
+     * an older verified copy. This method never exposes the files publicly.
+     */
+    @Transactional(readOnly = true)
+    public boolean hasReusableBorrowerDocument(Long borrowerId, DocumentType type) {
+        if (borrowerId == null || type == null)
+            return false;
+        return fileRepository
+                .findFirstByBorrowerIdAndDocumentTypeAndLoanIsNullOrderByUploadedAtDescIdDesc(borrowerId, type)
+                .map(f -> BorrowerDocumentReusePolicy.reusable(f, LocalDate.now()))
+                .orElse(false);
     }
 
     /**
@@ -215,6 +233,12 @@ public class BorrowerFileService {
 
         BorrowerFile file = getByIdForOrg(fileId, orgId);
 
+        if (status == VerificationStatus.VERIFIED
+                && BorrowerDocumentReusePolicy.reviewerUpdateRequired(file, LocalDate.now())) {
+            throw new IllegalArgumentException(
+                    "This document is outdated, has missing content, or is loan-specific. "
+                            + "Request an updated document instead of verifying it.");
+        }
         file.setVerificationStatus(status);
         file.setOfficerComment(comment);
         file.setVerifiedByName(officerName);
