@@ -25,104 +25,117 @@ import {
 import { loanApi, taskApi } from "@/services/api";
 import { useAuth } from "@/hooks/useAuth";
 
-/* =========================================================
+/* ============================================================
    NOBLE LOAN SOLUTIONS
-   FINANCE COMMAND CENTER
+   PREMIUM FINANCE COMMAND CENTER
+   ============================================================ */
 
-   Authenticated role-specific portfolio reporting.
-   Backend controls owner-only visibility.
+type Money = number | string | null | undefined;
 
-   No synthetic financial or accounting figures.
-   ========================================================= */
-
-type Amount = string | number | null | undefined;
-
-type CashflowRow = {
+interface CashflowMonth {
   month?: string;
   label?: string;
-  disbursed?: Amount;
-  collected?: Amount;
-};
+  disbursed?: Money;
+  collected?: Money;
+}
 
-type AgingRow = {
+interface PortfolioAging {
   label: string;
-  percentage?: Amount;
-  principal?: Amount;
-};
+  percentage?: Money;
+  principal?: Money;
+}
 
-type IncomeSummary = {
-  interestIncome?: Amount;
-  managementFeeIncome?: Amount;
-  applicationFeeIncome?: Amount;
-  penaltyIncome?: Amount;
-  operatingExpenses?: Amount;
-  impairmentExpense?: Amount;
-  operatingResult?: Amount;
-};
+interface FinancialIncome {
+  interestIncome?: Money;
+  managementFeeIncome?: Money;
+  applicationFeeIncome?: Money;
+  penaltyIncome?: Money;
+  operatingExpenses?: Money;
+  impairmentExpense?: Money;
+  operatingResult?: Money;
+}
 
-type RecentLoan = {
+interface RecentLoan {
   id?: string | number;
   referenceNumber?: string;
   borrowerName?: string;
-  amount?: Amount;
+  amount?: Money;
   status?: string;
+  nextDueDate?: string;
   createdAt?: string;
-  startDate?: string;
   borrower?: {
     firstName?: string;
     lastName?: string;
   };
-};
+}
 
-type FinanceData = {
+interface DashboardData {
   reportingScope?: string;
   asOfDate?: string;
   currency?: string;
 
-  totalLoans?: Amount;
-  totalBorrowers?: Amount;
-  activeLoans?: Amount;
-  pendingLoans?: Amount;
-  overdueLoans?: Amount;
-  defaultedLoans?: Amount;
-  completedLoans?: Amount;
-  latePaymentsCount?: Amount;
+  totalLoans?: Money;
+  totalBorrowers?: Money;
+  activeLoans?: Money;
+  pendingLoans?: Money;
+  overdueLoans?: Money;
+  defaultedLoans?: Money;
+  completedLoans?: Money;
 
-  totalDisbursed?: Amount;
-  disbursedThisMonth?: Amount;
-  totalCollected?: Amount;
-  historicalCollected?: Amount;
-  collectedThisMonth?: Amount;
+  totalDisbursed?: Money;
+  disbursedThisMonth?: Money;
+  totalCollected?: Money;
+  collectedThisMonth?: Money;
+  historicalCollected?: Money;
+  outstandingBalance?: Money;
+  totalReceivables?: Money;
 
-  outstandingBalance?: Amount;
-  totalReceivables?: Amount;
-  portfolioAtRiskPct?: Amount;
-  portfolioAtRiskAmount?: Amount;
-  applicationFeesCollected?: Amount;
+  portfolioAtRiskPct?: Money;
+  portfolioAtRiskAmount?: Money;
+  applicationFeesCollected?: Money;
+  latePaymentsCount?: Money;
 
-  ownerOnlyOutstanding?: Amount;
-  ownerOnlyLoanCount?: Amount;
+  ownerOnlyOutstanding?: Money;
+  ownerOnlyLoanCount?: Money;
 
-  cashflowTrend?: CashflowRow[];
-  portfolioAging?: AgingRow[];
-  incomeSummary?: IncomeSummary;
+  // Optional extensions from the financial reporting API.
+  cashflowTrend?: CashflowMonth[];
+  portfolioAging?: PortfolioAging[];
+  incomeSummary?: FinancialIncome;
+
+  collectionEfficiencyPct?: Money;
+  principalGrowthPct?: Money;
+  disbursementGrowthPct?: Money;
+
+  kycRenewalsDue?: Money;
+  glReconciliationExceptions?: Money;
 
   recentLoans?: RecentLoan[];
+}
+
+interface WorkflowKpi {
+  openTasks?: Money;
+  urgentTasks?: Money;
+  overdueTasks?: Money;
+}
+
+const THEME = {
+  navy: "#102A46",
+  blue: "#214B76",
+  gold: "#CCA252",
+  green: "#249778",
+  amber: "#D5A250",
+  orange: "#DD8D59",
+  red: "#C65E68",
 };
 
-type TaskData = {
-  openTasks?: Amount;
-  overdueTasks?: Amount;
-  urgentTasks?: Amount;
-};
+const RISK_COLORS = [THEME.green, THEME.gold, THEME.orange, THEME.red];
 
-const NAVY = "#102B4A";
-const GOLD = "#D0A853";
-const GREEN = "#299579";
-const ORANGE = "#D88354";
-const RED = "#C45C64";
+/* ============================================================
+   SAFE FINANCIAL FORMATTERS
+   ============================================================ */
 
-function numeric(value: Amount): number {
+function numberValue(value: Money): number {
   if (value === null || value === undefined || value === "") {
     return 0;
   }
@@ -132,7 +145,7 @@ function numeric(value: Amount): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function exists(value: Amount): boolean {
+function hasNumber(value: Money): boolean {
   return (
     value !== null &&
     value !== undefined &&
@@ -141,67 +154,71 @@ function exists(value: Amount): boolean {
   );
 }
 
-function formatRwf(value: Amount, currency = "RWF"): string {
-  if (!exists(value)) return "—";
+function formatCount(value: Money): string {
+  if (!hasNumber(value)) return "—";
 
-  return `${currency} ${numeric(value).toLocaleString("en-RW", {
-    minimumFractionDigits: 0,
+  return numberValue(value).toLocaleString("en-RW", {
+    maximumFractionDigits: 0,
+  });
+}
+
+function formatMoney(value: Money, currency: string = "RWF"): string {
+  if (!hasNumber(value)) return "—";
+
+  return `${currency} ${numberValue(value).toLocaleString("en-RW", {
     maximumFractionDigits: 2,
   })}`;
 }
 
-function compact(value: Amount): string {
-  if (!exists(value)) return "—";
+function compactMoney(value: Money): string {
+  if (!hasNumber(value)) return "—";
 
-  const n = numeric(value);
-  const abs = Math.abs(n);
+  const n = numberValue(value);
+  const absolute = Math.abs(n);
 
-  if (abs >= 1_000_000_000) {
+  if (absolute >= 1_000_000_000) {
     return `${(n / 1_000_000_000).toFixed(2)}B`;
   }
 
-  if (abs >= 1_000_000) {
+  if (absolute >= 1_000_000) {
     return `${(n / 1_000_000).toFixed(2)}M`;
   }
 
-  if (abs >= 1_000) {
+  if (absolute >= 1_000) {
     return `${(n / 1_000).toFixed(1)}K`;
   }
 
   return n.toLocaleString("en-RW");
 }
 
-function count(value: Amount): string {
-  if (!exists(value)) return "—";
-  return numeric(value).toLocaleString("en-RW");
+function percentage(value: Money): string {
+  return hasNumber(value) ? `${numberValue(value).toFixed(2)}%` : "—";
 }
 
-function unwrapDashboard(result: unknown): FinanceData {
-  if (!result || typeof result !== "object") return {};
+function unwrapDashboard(response: unknown): DashboardData {
+  let current: unknown = response;
 
-  let current: unknown = result;
-
-  // Supports direct responses and API wrappers.
+  // Supports direct API responses and normal response wrappers.
   for (let i = 0; i < 3; i++) {
     if (!current || typeof current !== "object") break;
 
-    const object = current as Record<string, unknown>;
+    const value = current as Record<string, unknown>;
 
     if (
-      "totalLoans" in object ||
-      "outstandingBalance" in object ||
-      "totalDisbursed" in object
+      "totalLoans" in value ||
+      "totalDisbursed" in value ||
+      "outstandingBalance" in value
     ) {
-      return object as FinanceData;
+      return value as DashboardData;
     }
 
-    current = object.data;
+    current = value.data;
   }
 
-  return {};
+  throw new Error("Dashboard API did not return financial data.");
 }
 
-function getAuthenticatedOwner(auth: unknown): boolean {
+function isOwnerAccount(auth: unknown): boolean {
   if (!auth || typeof auth !== "object") return false;
 
   const context = auth as {
@@ -214,24 +231,73 @@ function getAuthenticatedOwner(auth: unknown): boolean {
 
   if (context.isBusinessOwner === true) return true;
 
-  const user = context.user;
-  if (!user) return false;
-
   const roles = [
-    user.role ?? "",
-    ...(user.roles ?? []).map((role) =>
-      typeof role === "string" ? role : (role.name ?? ""),
+    context.user?.role || "",
+    ...(context.user?.roles || []).map((r) =>
+      typeof r === "string" ? r : r.name || "",
     ),
   ];
 
   return roles.some(
-    (role) => role.toUpperCase().replace(/[\s-]+/g, "_") === "BUSINESS_OWNER",
+    (role) =>
+      role
+        .trim()
+        .toUpperCase()
+        .replace(/[\s-]+/g, "_") === "BUSINESS_OWNER",
   );
 }
 
-/* =========================================================
-   SHARED FINANCE UI
-   ========================================================= */
+/* ============================================================
+   UI COMPONENTS
+   ============================================================ */
+
+function FinanceCard({
+  label,
+  value,
+  note,
+  trend,
+  symbol,
+  accent,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  trend?: string;
+  symbol: string;
+  accent: string;
+}) {
+  return (
+    <article className="relative min-w-0 overflow-hidden rounded-xl border border-[#DFE7F0] bg-white p-5 shadow-[0_4px_20px_rgba(15,34,60,0.035)]">
+      <div
+        className="absolute inset-x-0 top-0 h-[3px]"
+        style={{ backgroundColor: accent }}
+      />
+
+      <div className="flex items-start justify-between gap-3">
+        <span className="max-w-[175px] text-[12px] font-bold leading-5 text-[#677A92]">
+          {label}
+        </span>
+
+        <span
+          aria-hidden="true"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#F0F4F9] text-xl font-bold"
+          style={{ color: accent }}
+        >
+          {symbol}
+        </span>
+      </div>
+
+      <div className="mt-5 break-words text-[clamp(1.35rem,2vw,1.95rem)] font-black tracking-tight text-[#142C49]">
+        {value}
+      </div>
+
+      <p className="mt-3 text-[11px] leading-5 text-[#8392A4]">
+        {trend && <strong className="mr-2 text-[#23876C]">{trend}</strong>}
+        {note}
+      </p>
+    </article>
+  );
+}
 
 function Panel({
   title,
@@ -248,19 +314,14 @@ function Panel({
 }) {
   return (
     <section
-      className={[
-        "min-w-0 overflow-hidden rounded-xl",
-        "border border-[#E0E7EF] bg-white",
-        "shadow-[0_5px_22px_rgba(14,35,64,0.035)]",
-        className,
-      ].join(" ")}
+      className={`min-w-0 overflow-hidden rounded-xl border border-[#DFE7F0] bg-white shadow-[0_4px_20px_rgba(15,34,60,0.03)] ${className}`}
     >
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#EDF1F5] px-5 py-4">
         <div>
-          <h2 className="text-[13px] font-extrabold text-[#142B46]">{title}</h2>
+          <h2 className="text-[14px] font-extrabold text-[#18334F]">{title}</h2>
 
           {subtitle && (
-            <p className="mt-1 text-[11px] leading-5 text-slate-500">
+            <p className="mt-1.5 text-[11px] leading-5 text-[#8292A5]">
               {subtitle}
             </p>
           )}
@@ -274,179 +335,170 @@ function Panel({
   );
 }
 
-function Metric({
-  title,
+function FinancialLine({
+  label,
   value,
-  description,
-  symbol,
-  accent,
+  total = false,
 }: {
-  title: string;
+  label: string;
   value: string;
-  description: string;
-  symbol: string;
-  accent: string;
-}) {
-  return (
-    <article className="relative min-w-0 overflow-hidden rounded-xl border border-[#E0E7EF] bg-white p-4 shadow-[0_5px_22px_rgba(14,35,64,0.035)]">
-      <div
-        className="absolute bottom-0 left-0 top-0 w-[3px]"
-        style={{ backgroundColor: accent }}
-      />
-
-      <div className="flex items-start justify-between gap-2">
-        <p className="min-h-8 text-[11px] font-bold leading-5 text-[#697C92]">
-          {title}
-        </p>
-
-        <span
-          aria-hidden="true"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#F2F5F9] text-lg font-black"
-          style={{ color: accent }}
-        >
-          {symbol}
-        </span>
-      </div>
-
-      <p className="mt-2 break-words text-[clamp(1.2rem,1.9vw,1.8rem)] font-black tracking-tight text-[#152E4B]">
-        {value}
-      </p>
-
-      <p className="mt-2 text-[10px] leading-5 text-[#8593A4]">{description}</p>
-    </article>
-  );
-}
-
-function FinancialRow({
-  title,
-  value,
-  emphasis = false,
-}: {
-  title: string;
-  value: string;
-  emphasis?: boolean;
+  total?: boolean;
 }) {
   return (
     <div
-      className={[
-        "flex items-center justify-between gap-4 py-2.5",
-        "border-b border-[#EEF2F5] last:border-0",
-        emphasis ? "font-extrabold" : "",
-      ].join(" ")}
+      className={
+        total
+          ? "mt-3 flex items-center justify-between gap-3 rounded-lg bg-[#EDF7F2] px-4 py-3.5"
+          : "flex items-center justify-between gap-3 border-b border-[#EEF1F5] py-3"
+      }
     >
-      <span className="text-xs text-[#65778D]">{title}</span>
-
       <span
         className={
-          emphasis
-            ? "text-right text-[15px] font-black text-[#238267]"
-            : "text-right text-[12px] font-extrabold text-[#193553]"
+          total
+            ? "text-xs font-extrabold text-[#2D6957]"
+            : "text-xs text-[#697B92]"
+        }
+      >
+        {label}
+      </span>
+
+      <strong
+        className={
+          total
+            ? "text-right text-lg font-black text-[#188768]"
+            : "text-right text-[13px] font-extrabold text-[#203B56]"
         }
       >
         {value}
-      </span>
+      </strong>
     </div>
   );
 }
 
-function NoData({ title, detail }: { title: string; detail: string }) {
+function Unavailable({ title, detail }: { title: string; detail: string }) {
   return (
-    <div className="flex min-h-48 flex-col items-center justify-center px-4 text-center">
-      <span
-        aria-hidden="true"
-        className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[#F2F5F9] text-xl text-[#7A8FA7]"
-      >
-        ▥
+    <div className="flex min-h-[190px] flex-col items-center justify-center px-4 text-center">
+      <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#F0F4F9] text-2xl text-[#8396AA]">
+        ▤
       </span>
-      <p className="text-xs font-bold text-[#647890]">{title}</p>
-      <p className="mt-2 max-w-sm text-[11px] leading-5 text-[#91A0AF]">
+
+      <p className="mt-4 text-sm font-bold text-[#556E86]">{title}</p>
+
+      <p className="mt-2 max-w-sm text-[11px] leading-5 text-[#90A0B1]">
         {detail}
       </p>
     </div>
   );
 }
 
-function StatusPill({ value }: { value?: string }) {
-  const status = (value || "UNKNOWN").toUpperCase();
-
-  let classes = "bg-[#EFF3F7] text-[#41617F]";
-
-  if (status === "ACTIVE") {
-    classes = "bg-emerald-50 text-emerald-700";
-  } else if (status === "OVERDUE" || status === "DEFAULTED") {
-    classes = "bg-red-50 text-red-700";
-  } else if (
-    status === "PAID" ||
-    status === "COMPLETED" ||
-    status === "CLOSED"
-  ) {
-    classes = "bg-blue-50 text-blue-700";
-  }
-
+function ActionItem({
+  title,
+  detail,
+  value,
+  urgent,
+  onClick,
+}: {
+  title: string;
+  detail: string;
+  value: string;
+  urgent?: boolean;
+  onClick: () => void;
+}) {
   return (
-    <span
-      className={`inline-flex rounded-md px-2.5 py-1.5 text-[10px] font-extrabold ${classes}`}
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex w-full items-center justify-between gap-4 border-b border-[#EDF1F5] py-4 text-left last:border-0 hover:bg-[#FAFBFD] focus-visible:rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#CCA252]"
     >
-      {status.replaceAll("_", " ")}
-    </span>
+      <div className="min-w-0">
+        <p className="text-[12px] font-extrabold text-[#183552]">{title}</p>
+
+        <p className="mt-1.5 text-[11px] text-[#8595A6]">{detail}</p>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2">
+        <span
+          className={
+            urgent
+              ? "rounded-lg bg-[#FFF0ED] px-3 py-2 text-xs font-extrabold text-[#B95859]"
+              : "rounded-lg bg-[#F0F4F8] px-3 py-2 text-xs font-extrabold text-[#365672]"
+          }
+        >
+          {value}
+        </span>
+
+        <span className="text-slate-400 transition-transform group-hover:translate-x-1">
+          →
+        </span>
+      </div>
+    </button>
   );
 }
 
-/* =========================================================
-   MAIN DASHBOARD
-   ========================================================= */
+/* ============================================================
+   DASHBOARD PAGE
+   ============================================================ */
 
 export default function DashboardPage() {
   const router = useRouter();
   const auth = useAuth();
 
-  const authenticatedOwner = getAuthenticatedOwner(auth);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [workflow, setWorkflow] = useState<WorkflowKpi>({});
 
-  const [stats, setStats] = useState<FinanceData | null>(null);
-  const [tasks, setTasks] = useState<TaskData>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+
   const [months, setMonths] = useState<6 | 12>(6);
   const [retrievedAt, setRetrievedAt] = useState<Date | null>(null);
 
-  const currency = stats?.currency || auth.currency || "RWF";
+  const authenticatedOwner = isOwnerAccount(auth);
+
+  // Reporting scope MUST originate from the backend.
+  const consolidatedView =
+    authenticatedOwner &&
+    data?.reportingScope === "BUSINESS_OWNER_CONSOLIDATED";
+
+  const currency = data?.currency || auth.currency || "RWF";
 
   const money = useCallback(
-    (value: Amount) => formatRwf(value, currency),
+    (value: Money) => formatMoney(value, currency),
     [currency],
   );
 
+  /* ==========================================================
+     LOAD AUTHORITATIVE DASHBOARD DATA
+     ========================================================== */
+
   const load = useCallback(async (refresh = false) => {
-    if (refresh) setRefreshing(true);
-    else setLoading(true);
+    if (refresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
 
     setError("");
 
     try {
-      // The API determines the authorized financial scope.
-      // Never send includeOwnerOnly=true from the browser.
+      // No client-supplied includeOwnerOnly parameter.
       const response = await loanApi.dashboard();
-      const result = unwrapDashboard(response);
+      const payload = unwrapDashboard(response);
 
-      if (Object.keys(result).length === 0) {
-        throw new Error("The dashboard API returned no financial data.");
-      }
-
-      setStats(result);
+      setData(payload);
       setRetrievedAt(new Date());
 
       try {
         const taskResult = await taskApi.kpi();
-        setTasks(taskResult as TaskData);
+        setWorkflow(taskResult as WorkflowKpi);
       } catch {
-        // Financial results remain visible if workflow KPIs fail.
+        // Task service failure must not hide financial data.
       }
     } catch (err: unknown) {
       setError(
         err instanceof Error
           ? err.message
-          : "Unable to load the financial dashboard.",
+          : "Unable to retrieve dashboard financial data.",
       );
     } finally {
       setLoading(false);
@@ -458,121 +510,98 @@ export default function DashboardPage() {
     void load();
   }, [load]);
 
-  const ownerView =
-    authenticatedOwner &&
-    stats?.reportingScope === "BUSINESS_OWNER_CONSOLIDATED";
+  /* ==========================================================
+     CHART SERIES
+     ========================================================== */
 
-  const snapshot = useMemo(() => {
-    const data = stats;
-
-    return {
-      outstanding: data?.outstandingBalance,
-      receivables: data?.totalReceivables,
-      disbursed: data?.totalDisbursed,
-      disbursedMonth: data?.disbursedThisMonth,
-      collected: data?.totalCollected,
-      collectedMonth: data?.collectedThisMonth,
-      historicalCollected: data?.historicalCollected,
-      riskPct: data?.portfolioAtRiskPct,
-      riskAmount: data?.portfolioAtRiskAmount,
-
-      totalLoans: data?.totalLoans,
-      borrowers: data?.totalBorrowers,
-      active: data?.activeLoans,
-      pending: data?.pendingLoans,
-      overdue: data?.overdueLoans,
-      defaulted: data?.defaultedLoans,
-      completed: data?.completedLoans,
-      latePayments: data?.latePaymentsCount,
-    };
-  }, [stats]);
-
-  /*
-   * MONTHLY CASH FLOW
-   *
-   * Prefer backend month-grouped transactions.
-   *
-   * Until those are supplied, use an accurately labeled
-   * cumulative disbursement vs collection chart.
-   * The cumulative fallback does NOT claim monthly figures.
-   */
-  const hasMonthlyTrend =
-    Array.isArray(stats?.cashflowTrend) && stats.cashflowTrend.length > 0;
+  const hasMonthlyData =
+    Array.isArray(data?.cashflowTrend) && data.cashflowTrend.length > 0;
 
   const cashflow = useMemo(() => {
-    if (stats?.cashflowTrend?.length) {
-      return stats.cashflowTrend.slice(-months).map((row) => ({
-        period: row.month || row.label || "Period",
-        disbursed: numeric(row.disbursed),
-        collected: numeric(row.collected),
+    if (data?.cashflowTrend?.length) {
+      return data.cashflowTrend.slice(-months).map((item) => ({
+        period: item.month || item.label || "Period",
+        disbursed: numberValue(item.disbursed),
+        collected: numberValue(item.collected),
       }));
     }
 
-    if (exists(stats?.totalDisbursed) || exists(stats?.totalCollected)) {
+    // Fallback shows true cumulative values, not fake months.
+    if (hasNumber(data?.totalDisbursed) || hasNumber(data?.totalCollected)) {
       return [
         {
           period: "To date",
-          disbursed: numeric(stats?.totalDisbursed),
-          collected: numeric(stats?.totalCollected),
+          disbursed: numberValue(data?.totalDisbursed),
+          collected: numberValue(data?.totalCollected),
         },
       ];
     }
 
     return [];
-  }, [stats, months]);
+  }, [data, months]);
 
-  /*
-   * RISK CHART
-   *
-   * Four aging segments when the API supplies them.
-   * Otherwise use backend portfolio at risk vs not at risk.
-   */
-  const agingAvailable =
-    Array.isArray(stats?.portfolioAging) && stats.portfolioAging.length > 0;
+  const hasAging =
+    Array.isArray(data?.portfolioAging) && data.portfolioAging.length > 0;
 
-  const riskPercent = Math.min(100, Math.max(0, numeric(snapshot.riskPct)));
+  const portfolioRisk = Math.max(
+    0,
+    Math.min(100, numberValue(data?.portfolioAtRiskPct)),
+  );
 
-  const riskChart = useMemo(() => {
-    if (stats?.portfolioAging?.length) {
-      const values = stats.portfolioAging
-        .map((row) => ({
-          name: row.label,
-          value: Math.max(0, numeric(row.percentage)),
-        }))
-        .filter((row) => row.value > 0);
+  const agingData = useMemo(() => {
+    if (hasAging && data?.portfolioAging) {
+      const outstanding = numberValue(data.outstandingBalance);
 
-      return values;
+      return data.portfolioAging
+        .map((item) => {
+          let value = 0;
+
+          if (hasNumber(item.percentage)) {
+            value = numberValue(item.percentage);
+          } else if (hasNumber(item.principal) && outstanding > 0) {
+            value = (numberValue(item.principal) / outstanding) * 100;
+          }
+
+          return {
+            name: item.label,
+            value: Math.max(0, value),
+          };
+        })
+        .filter((item) => item.value > 0);
     }
 
-    if (!exists(stats?.portfolioAtRiskPct)) return [];
+    if (!hasNumber(data?.portfolioAtRiskPct)) {
+      return [];
+    }
 
     return [
       {
-        name: "Current / Not at risk",
-        value: 100 - riskPercent,
+        name: "Not at risk",
+        value: 100 - portfolioRisk,
       },
       {
         name: "At risk",
-        value: riskPercent,
+        value: portfolioRisk,
       },
-    ].filter((row) => row.value > 0);
-  }, [stats, riskPercent]);
+    ].filter((item) => item.value > 0);
+  }, [data, hasAging, portfolioRisk]);
 
-  const riskColors = agingAvailable ? [GREEN, GOLD, ORANGE, RED] : [GREEN, RED];
+  const riskColors = hasAging ? RISK_COLORS : [THEME.green, THEME.red];
 
-  const ownerOnly = numeric(stats?.ownerOnlyOutstanding);
+  const income = data?.incomeSummary;
+
+  const incomeAvailable =
+    !!income && Object.values(income).some((value) => hasNumber(value));
+
+  const ownerOnly = numberValue(data?.ownerOnlyOutstanding);
+
   const normalOutstanding = Math.max(
     0,
-    numeric(stats?.outstandingBalance) - ownerOnly,
+    numberValue(data?.outstandingBalance) - ownerOnly,
   );
 
-  const income = stats?.incomeSummary;
-
-  const hasAccounting =
-    !!income && Object.values(income).some((value) => exists(value));
-
-  const dateText =
-    stats?.asOfDate ??
+  const snapshotDate =
+    data?.asOfDate ||
     (retrievedAt
       ? retrievedAt.toLocaleDateString("en-RW", {
           day: "2-digit",
@@ -581,103 +610,113 @@ export default function DashboardPage() {
         })
       : "—");
 
-  if (loading && !stats) {
+  /* ==========================================================
+     LOADING AND ERROR STATES
+     ========================================================== */
+
+  if (loading && !data) {
     return (
-      <div role="status" className="min-h-screen space-y-5 bg-[#F3F6FA] p-5">
-        <div className="h-24 animate-pulse rounded-xl bg-slate-200" />
+      <main role="status" className="min-h-screen space-y-5 bg-[#F4F7FB] p-5">
+        <div className="h-28 animate-pulse rounded-xl bg-[#E5EBF3]" />
+
         <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
           {[1, 2, 3, 4].map((item) => (
             <div
               key={item}
-              className="h-32 animate-pulse rounded-xl bg-slate-200"
+              className="h-36 animate-pulse rounded-xl bg-[#E5EBF3]"
             />
           ))}
         </div>
-        <div className="h-72 animate-pulse rounded-xl bg-slate-200" />
-        <p className="text-xs text-slate-500">
-          Loading the financial command center…
-        </p>
-      </div>
-    );
-  }
 
-  if (!stats) {
-    return (
-      <main className="flex min-h-[65vh] items-center justify-center bg-[#F3F6FA] p-5">
-        <div className="max-w-md rounded-xl border border-slate-200 bg-white p-8 text-center">
-          <p className="text-3xl text-red-500">!</p>
-          <h1 className="mt-4 text-lg font-black text-[#142B46]">
-            Financial Dashboard Unavailable
-          </h1>
-          <p className="mt-3 text-xs leading-5 text-slate-500">
-            {error || "Unable to retrieve financial statistics."}
-          </p>
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="mt-6 rounded-lg bg-[#102B4A] px-5 py-2.5 text-xs font-extrabold text-white"
-          >
-            Retry
-          </button>
-        </div>
+        <div className="h-80 animate-pulse rounded-xl bg-[#E5EBF3]" />
+
+        <p className="text-xs text-slate-500">
+          Loading financial command center…
+        </p>
       </main>
     );
   }
 
-  return (
-    <main className="min-h-screen bg-[#F3F6FA] text-[#142B46]">
-      <div className="mx-auto max-w-[1600px] space-y-4 p-4 md:p-5 xl:p-7">
-        {/* ===================================================
-            DASHBOARD HEADER — MATCHES ORIGINAL PREVIEW
-           =================================================== */}
+  if (!data) {
+    return (
+      <main className="flex min-h-[70vh] items-center justify-center bg-[#F4F7FB] p-6">
+        <section className="max-w-md rounded-xl border border-[#E0E7F0] bg-white p-9 text-center">
+          <div className="text-3xl text-red-600">!</div>
 
-        <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#A17D36]">
-              <span className="h-2 w-2 rounded-full bg-[#CCA454]" />
-              Noble Loan Solutions · Financial Intelligence
+          <h1 className="mt-4 text-xl font-black text-[#142C49]">
+            Financial Dashboard Unavailable
+          </h1>
+
+          <p className="mt-3 text-sm leading-6 text-slate-500">{error}</p>
+
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="mt-6 rounded-lg bg-[#102A46] px-5 py-3 text-xs font-extrabold text-white"
+          >
+            Try Again
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  /* ==========================================================
+     PREMIUM FINANCE COMMAND CENTER
+     ========================================================== */
+
+  return (
+    <main className="min-h-screen bg-[#F4F7FB] text-[#172E49]">
+      <div className="mx-auto max-w-[1600px] space-y-4 px-4 py-6 lg:px-7 lg:py-8">
+        {/* ================= HEADER ================= */}
+
+        <header className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-2xl">
+            <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#AB8438]">
+              Executive Financial Intelligence
             </p>
 
-            <h1 className="text-[25px] font-black tracking-[-0.035em] text-[#102B4A] md:text-[29px]">
-              Financial Command Center
+            <h1 className="text-[28px] font-black tracking-[-0.04em] text-[#102A46] md:text-[34px]">
+              Finance Command Center
             </h1>
 
-            <p className="mt-2 text-[12px] text-[#7D8CA0]">
-              Portfolio performance, lending income, credit risk and operational
-              priorities
+            <p className="mt-2 text-[12px] leading-6 text-[#74849B]">
+              Financial performance, portfolio quality, collections, and the
+              priorities that matter today.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-lg border border-[#DEE6EF] bg-white px-3 py-2.5 text-[11px] font-bold text-[#38536F]">
-              ◷ {dateText}
-            </span>
-
-            <span className="rounded-lg border border-[#DEE6EF] bg-white px-3 py-2.5 text-[11px] font-bold text-[#38536F]">
-              {ownerView
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-lg border border-[#DFE6EF] bg-white px-3 py-2.5 text-[11px] font-bold text-[#435B76]">
+              {consolidatedView
                 ? "Business Owner · Consolidated"
                 : authenticatedOwner
-                  ? "Business Owner"
+                  ? "Business Owner · Authorized view"
                   : "Normal Portfolio"}
+            </span>
+
+            <span className="rounded-lg border border-[#DFE6EF] bg-white px-3 py-2.5 text-[11px] font-bold text-[#435B76]">
+              {snapshotDate}
             </span>
 
             <button
               type="button"
-              onClick={() => void load(true)}
               disabled={refreshing}
-              className="rounded-lg bg-[#102B4A] px-4 py-2.5 text-[11px] font-extrabold text-white hover:bg-[#193D62] disabled:opacity-60"
+              onClick={() => void load(true)}
+              className="rounded-lg bg-[#102A46] px-4 py-2.5 text-[11px] font-extrabold text-white hover:bg-[#204263] disabled:opacity-50"
             >
               {refreshing ? "Refreshing…" : "↻ Refresh"}
             </button>
           </div>
         </header>
 
-        <div className="flex flex-wrap justify-between gap-2 text-[10px] text-slate-500">
+        <div className="flex flex-wrap justify-between gap-3 text-[10px] font-semibold text-[#8897AA]">
           <span>
             <span className="mr-1 text-emerald-600">●</span>
-            Authenticated financial snapshot
+            Authenticated financial reporting
           </span>
-          <span>Currency: {currency}</span>
+
+          <span>RWF financial reporting · Backend-controlled scope</span>
         </div>
 
         {error && (
@@ -685,179 +724,167 @@ export default function DashboardPage() {
             role="alert"
             className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"
           >
-            Refresh failed. Previously retrieved financial figures remain
-            visible.
-            <button
-              type="button"
-              onClick={() => void load(true)}
-              className="ml-2 font-extrabold underline"
-            >
-              Retry
-            </button>
+            Financial refresh failed. Previously loaded figures remain visible.
           </div>
         )}
 
-        {/* ===================================================
-            FOUR FINANCIAL KPI CARDS
-           =================================================== */}
+        {/* ============= OWNER CONSOLIDATION ============= */}
 
-        <section
-          aria-label="Financial overview"
-          className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"
-        >
-          <Metric
-            title="Gross Outstanding Principal"
-            value={compact(snapshot.outstanding)}
-            description={`${currency} · Current principal exposure`}
-            symbol="▣"
-            accent={GOLD}
-          />
+        {consolidatedView && (
+          <section className="overflow-hidden rounded-xl border border-[#E9D5A1] bg-[#FFFBF0] p-4">
+            <h2 className="text-xs font-black text-[#815E21]">
+              ◈ Business Owner · Consolidated Portfolio
+            </h2>
 
-          <Metric
-            title={
-              exists(snapshot.disbursedMonth)
-                ? "Disbursed This Month"
-                : "Cumulative Disbursements"
-            }
-            value={compact(
-              exists(snapshot.disbursedMonth)
-                ? snapshot.disbursedMonth
-                : snapshot.disbursed,
-            )}
-            description={
-              exists(snapshot.disbursedMonth)
-                ? `${currency} · Current-month principal`
-                : `${currency} · All recorded disbursements`
-            }
-            symbol="↗"
-            accent={NAVY}
-          />
+            <p className="mt-1 text-[11px] leading-5 text-[#92794A]">
+              Owner-only loans are included in management figures and remain
+              excluded from normal staff, accounting, BNR and CRB reporting.
+            </p>
 
-          <Metric
-            title="Cash Collected This Month"
-            value={compact(snapshot.collectedMonth)}
-            description={`${currency} · Cash payments received`}
-            symbol="↙"
-            accent={GREEN}
-          />
-
-          <Metric
-            title="Portfolio at Risk"
-            value={
-              exists(snapshot.riskPct) ? `${riskPercent.toFixed(2)}%` : "—"
-            }
-            description={
-              exists(snapshot.riskAmount)
-                ? `Exposure: ${money(snapshot.riskAmount)}`
-                : "No risk exposure data available"
-            }
-            symbol="!"
-            accent={RED}
-          />
-        </section>
-
-        {/* ===================================================
-            BUSINESS OWNER CONSOLIDATED BREAKDOWN
-           =================================================== */}
-
-        {ownerView && (
-          <section className="overflow-hidden rounded-xl border border-[#E9D8AF] bg-white">
-            <div className="border-b border-[#E9D8AF] bg-[#FFF9EA] px-5 py-4">
-              <h2 className="text-xs font-extrabold text-[#81612A]">
-                Business Owner — Confidential Portfolio Consolidation
-              </h2>
-              <p className="mt-1 text-[11px] leading-5 text-[#987E4D]">
-                Owner-only loans are included in the consolidated management
-                view but excluded from ordinary staff and regulatory reporting.
-              </p>
-            </div>
-
-            {exists(stats.ownerOnlyOutstanding) ? (
-              <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-3">
-                <div className="rounded-lg bg-[#F3F6FA] p-4">
-                  <p className="text-[11px] text-[#8190A0]">
+            {hasNumber(data.ownerOnlyOutstanding) && (
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="rounded-lg border border-[#EDE3CE] bg-white p-4">
+                  <p className="text-[11px] text-[#7C8A99]">
                     Normal outstanding
                   </p>
-                  <p className="mt-2 break-words text-xl font-black text-[#102B4A]">
+
+                  <p className="mt-2 break-words text-lg font-black text-[#193A58]">
                     {money(normalOutstanding)}
                   </p>
                 </div>
 
-                <div className="rounded-lg bg-[#FFF6E4] p-4">
-                  <p className="text-[11px] text-[#987637]">
+                <div className="rounded-lg border border-[#EDE3CE] bg-[#FFF4DC] p-4">
+                  <p className="text-[11px] text-[#9A7A3F]">
                     Owner-only outstanding
                   </p>
-                  <p className="mt-2 break-words text-xl font-black text-[#94702C]">
+
+                  <p className="mt-2 break-words text-lg font-black text-[#92702D]">
                     {money(ownerOnly)}
                   </p>
                 </div>
 
-                <div className="rounded-lg bg-[#F3F6FA] p-4">
-                  <p className="text-[11px] text-[#8190A0]">
+                <div className="rounded-lg border border-[#EDE3CE] bg-white p-4">
+                  <p className="text-[11px] text-[#7C8A99]">
                     Consolidated outstanding
                   </p>
-                  <p className="mt-2 break-words text-xl font-black text-[#102B4A]">
-                    {money(snapshot.outstanding)}
-                  </p>
-                  <p className="mt-2 text-[10px] text-slate-500">
-                    Owner-only loans: {count(stats.ownerOnlyLoanCount)}
+
+                  <p className="mt-2 break-words text-lg font-black text-[#193A58]">
+                    {money(data.outstandingBalance)}
                   </p>
                 </div>
               </div>
-            ) : (
-              <p className="p-5 text-xs text-slate-500">
-                Consolidated portfolio totals are available. A separate
-                owner-only breakdown has not yet been returned by the dashboard
-                API.
-              </p>
             )}
           </section>
         )}
 
-        {/* ===================================================
-            MONTHLY CASH FLOW AND PORTFOLIO QUALITY
-           =================================================== */}
+        {/* ================= FINANCIAL KPIS ================= */}
+
+        <section
+          aria-label="Financial performance"
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"
+        >
+          <FinanceCard
+            label="Outstanding Principal"
+            value={compactMoney(data.outstandingBalance)}
+            note={`${currency} · Current loan principal exposure`}
+            trend={
+              hasNumber(data.principalGrowthPct)
+                ? `${percentage(data.principalGrowthPct)} change`
+                : undefined
+            }
+            symbol="▣"
+            accent={THEME.gold}
+          />
+
+          <FinanceCard
+            label={
+              hasNumber(data.disbursedThisMonth)
+                ? "Disbursed This Month"
+                : "Total Disbursements"
+            }
+            value={compactMoney(
+              hasNumber(data.disbursedThisMonth)
+                ? data.disbursedThisMonth
+                : data.totalDisbursed,
+            )}
+            note={
+              hasNumber(data.disbursedThisMonth)
+                ? `${currency} · Monthly gross principal`
+                : `${currency} · Cumulative disbursements`
+            }
+            trend={
+              hasNumber(data.disbursementGrowthPct)
+                ? `${percentage(data.disbursementGrowthPct)} change`
+                : undefined
+            }
+            symbol="↗"
+            accent={THEME.blue}
+          />
+
+          <FinanceCard
+            label="Collections This Month"
+            value={compactMoney(data.collectedThisMonth)}
+            note={`${currency} · Cash actually received`}
+            trend={
+              hasNumber(data.collectionEfficiencyPct)
+                ? `${percentage(data.collectionEfficiencyPct)} efficiency`
+                : undefined
+            }
+            symbol="↙"
+            accent={THEME.green}
+          />
+
+          <FinanceCard
+            label="Portfolio at Risk"
+            value={percentage(data.portfolioAtRiskPct)}
+            note={`At-risk exposure: ${money(data.portfolioAtRiskAmount)}`}
+            symbol="!"
+            accent={THEME.red}
+          />
+        </section>
+
+        {/* ================= PRIMARY CHARTS ================= */}
 
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-5">
           <Panel
             className="xl:col-span-3"
             title="Disbursements & Collections"
             subtitle={
-              hasMonthlyTrend
-                ? "Monthly cash-flow activity · RWF"
-                : "Cumulative portfolio cash flow · RWF"
+              hasMonthlyData
+                ? "Monthly trend · RWF"
+                : "Cumulative financial movement · RWF"
             }
             right={
               <select
                 value={months}
+                disabled={!hasMonthlyData}
                 onChange={(event) =>
                   setMonths(Number(event.target.value) as 6 | 12)
                 }
-                disabled={!hasMonthlyTrend}
-                aria-label="Cash-flow period"
-                className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-[11px] font-bold text-[#36516B] disabled:opacity-50"
+                aria-label="Reporting period"
+                className="rounded-lg border border-[#E0E7F0] bg-white px-3 py-2 text-[11px] font-bold text-[#435B76] disabled:opacity-50"
               >
-                <option value={6}>Last 6 months</option>
-                <option value={12}>Last 12 months</option>
+                <option value={6}>Last 6 Months</option>
+                <option value={12}>Last 12 Months</option>
               </select>
             }
           >
-            {cashflow.length ? (
-              <div className="h-[240px] w-full">
+            {cashflow.length > 0 ? (
+              <div className="h-[270px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={cashflow}
                     margin={{
                       top: 10,
-                      right: 10,
-                      bottom: 5,
-                      left: -12,
+                      right: 8,
+                      bottom: 4,
+                      left: -10,
                     }}
-                    barGap={4}
+                    barGap={5}
                   >
                     <CartesianGrid
+                      stroke="#EDF1F5"
                       vertical={false}
-                      stroke="#EAF0F5"
                       strokeDasharray="3 3"
                     />
 
@@ -866,8 +893,8 @@ export default function DashboardPage() {
                       axisLine={false}
                       tickLine={false}
                       tick={{
-                        fill: "#8190A3",
-                        fontSize: 10,
+                        fill: "#8292A5",
+                        fontSize: 11,
                       }}
                     />
 
@@ -875,16 +902,16 @@ export default function DashboardPage() {
                       axisLine={false}
                       tickLine={false}
                       tick={{
-                        fill: "#8190A3",
+                        fill: "#8292A5",
                         fontSize: 10,
                       }}
-                      tickFormatter={(value) => compact(value)}
+                      tickFormatter={(value) => compactMoney(value)}
                     />
 
                     <Tooltip
-                      formatter={(value) => money(value as Amount)}
+                      formatter={(value) => money(value as Money)}
                       contentStyle={{
-                        border: "1px solid #E1E8EF",
+                        border: "1px solid #E0E7F0",
                         borderRadius: 10,
                         fontSize: 12,
                       }}
@@ -892,53 +919,55 @@ export default function DashboardPage() {
 
                     <Legend
                       verticalAlign="top"
-                      height={35}
+                      height={38}
                       wrapperStyle={{
                         fontSize: 11,
                       }}
                     />
 
                     <Bar
-                      dataKey="disbursed"
                       name="Disbursed"
-                      fill={NAVY}
-                      maxBarSize={35}
+                      dataKey="disbursed"
+                      fill={THEME.blue}
                       radius={[4, 4, 0, 0]}
+                      maxBarSize={32}
                     />
 
                     <Bar
-                      dataKey="collected"
                       name="Collected"
-                      fill={GOLD}
-                      maxBarSize={35}
+                      dataKey="collected"
+                      fill={THEME.gold}
                       radius={[4, 4, 0, 0]}
+                      maxBarSize={32}
                     />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             ) : (
-              <NoData
-                title="Cash-flow history unavailable"
-                detail="No successful disbursement or collection figures were returned."
+              <Unavailable
+                title="Cash-flow figures unavailable"
+                detail="No successful disbursement or posted collection totals were returned."
               />
             )}
 
-            <div className="mt-4 flex flex-wrap justify-between gap-4 border-t border-slate-100 pt-4">
+            <div className="mt-4 grid grid-cols-1 gap-4 border-t border-[#EDF1F5] pt-4 sm:grid-cols-2">
               <div>
-                <p className="text-[10px] text-slate-500">
+                <p className="text-[11px] text-[#8292A5]">
                   Cumulative disbursed
                 </p>
-                <p className="mt-1 text-sm font-extrabold text-[#173553]">
-                  {money(snapshot.disbursed)}
+
+                <p className="mt-1 text-sm font-black text-[#183552]">
+                  {money(data.totalDisbursed)}
                 </p>
               </div>
 
-              <div className="text-right">
-                <p className="text-[10px] text-slate-500">
+              <div className="sm:text-right">
+                <p className="text-[11px] text-[#8292A5]">
                   Cumulative collected
                 </p>
-                <p className="mt-1 text-sm font-extrabold text-[#173553]">
-                  {money(snapshot.collected)}
+
+                <p className="mt-1 text-sm font-black text-[#183552]">
+                  {money(data.totalCollected)}
                 </p>
               </div>
             </div>
@@ -948,28 +977,33 @@ export default function DashboardPage() {
             className="xl:col-span-2"
             title="Portfolio Quality"
             subtitle={
-              agingAvailable
-                ? "Outstanding principal by days past due"
-                : "Current portfolio risk classification"
+              hasAging
+                ? "Outstanding principal by delinquency category"
+                : "Current credit-risk classification"
+            }
+            right={
+              <span className="text-[10px] font-extrabold uppercase tracking-wide text-[#A77E38]">
+                Credit Risk
+              </span>
             }
           >
-            {riskChart.length ? (
-              <div className="flex flex-col items-center gap-4 sm:flex-row xl:flex-col 2xl:flex-row">
-                <div className="relative h-[190px] w-[190px] shrink-0">
+            {agingData.length > 0 ? (
+              <div className="flex flex-col items-center justify-center gap-4 sm:flex-row xl:flex-col 2xl:flex-row">
+                <div className="relative h-[200px] w-[200px] shrink-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={riskChart}
-                        nameKey="name"
+                        data={agingData}
                         dataKey="value"
-                        innerRadius={62}
-                        outerRadius={84}
+                        nameKey="name"
+                        innerRadius={66}
+                        outerRadius={90}
                         stroke="#FFFFFF"
                         strokeWidth={3}
                       >
-                        {riskChart.map((segment, index) => (
+                        {agingData.map((item, index) => (
                           <Cell
-                            key={`${segment.name}-${index}`}
+                            key={`${item.name}-${index}`}
                             fill={riskColors[index % riskColors.length]}
                           />
                         ))}
@@ -977,142 +1011,129 @@ export default function DashboardPage() {
 
                       <Tooltip
                         formatter={(value) =>
-                          `${numeric(value as Amount).toFixed(2)}%`
+                          `${numberValue(value as Money).toFixed(2)}%`
                         }
                       />
                     </PieChart>
                   </ResponsiveContainer>
 
                   <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                    <strong className="text-[24px] font-black text-[#BF5760]">
-                      {riskPercent.toFixed(1)}%
+                    <strong className="text-3xl font-black text-[#C15B65]">
+                      {percentage(data.portfolioAtRiskPct)}
                     </strong>
-                    <span className="text-[10px] text-slate-500">At risk</span>
+
+                    <span className="mt-1 text-[11px] text-[#8795A5]">
+                      At risk
+                    </span>
                   </div>
                 </div>
 
                 <div className="w-full flex-1 space-y-3">
-                  {riskChart.map((segment, index) => (
+                  {agingData.map((item, index) => (
                     <div
-                      key={`${segment.name}-${index}`}
-                      className="flex items-center justify-between gap-3"
+                      key={`${item.name}-${index}`}
+                      className="flex items-center justify-between gap-3 text-[11px]"
                     >
-                      <span className="flex items-center gap-2 text-[11px] text-[#728297]">
+                      <span className="flex items-center gap-2 text-[#6F8197]">
                         <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                          className="h-2.5 w-2.5 rounded-sm"
                           style={{
                             backgroundColor:
                               riskColors[index % riskColors.length],
                           }}
                         />
-                        {segment.name}
+                        {item.name}
                       </span>
 
-                      <strong className="text-[11px] text-[#183552]">
-                        {segment.value.toFixed(1)}%
+                      <strong className="text-[#1D3854]">
+                        {item.value.toFixed(1)}%
                       </strong>
                     </div>
                   ))}
                 </div>
               </div>
             ) : (
-              <NoData
-                title="Portfolio quality unavailable"
-                detail="The financial API did not return a risk classification."
+              <Unavailable
+                title="Credit-risk data unavailable"
+                detail="Portfolio quality metrics were not returned."
               />
             )}
 
-            <div className="mt-5 rounded-lg border border-[#F4DEDA] bg-[#FFF5F3] p-3">
-              <p className="text-[11px] leading-5 text-[#A15C58]">
-                <strong>Credit watch:</strong> At-risk exposure is{" "}
-                {money(snapshot.riskAmount)}. Review delinquent loans and
-                provisioning requirements.
-              </p>
+            <div className="mt-5 rounded-lg border border-[#F3DFDA] bg-[#FFF4F1] p-3 text-[11px] leading-5 text-[#A75D59]">
+              <strong>Credit watch:</strong> At-risk principal exposure is{" "}
+              {money(data.portfolioAtRiskAmount)}. Review recovery and
+              provisioning requirements.
             </div>
           </Panel>
         </div>
 
-        {/* ===================================================
-            ACCOUNTING INCOME AND ATTENTION QUEUE
-           =================================================== */}
+        {/* ================= FINANCE & OPERATIONS ================= */}
 
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           <Panel
             title="Income & Operating Result"
             subtitle="Recognized general-ledger performance"
             right={
-              <span className="text-[10px] font-bold text-slate-400">
+              <span className="text-[10px] font-bold text-[#9BA5B2]">
                 {currency}
               </span>
             }
           >
-            {hasAccounting ? (
+            {incomeAvailable ? (
               <>
-                <FinancialRow
-                  title="Interest income"
+                <FinancialLine
+                  label="Interest income"
                   value={money(income?.interestIncome)}
                 />
 
-                <FinancialRow
-                  title="Management fee income"
+                <FinancialLine
+                  label="Management fee income"
                   value={money(income?.managementFeeIncome)}
                 />
 
-                <FinancialRow
-                  title="Application fee income · GL 4100"
+                <FinancialLine
+                  label="Application fee income · GL 4100"
                   value={money(income?.applicationFeeIncome)}
                 />
 
-                <FinancialRow
-                  title="Penalty income"
+                <FinancialLine
+                  label="Penalty income"
                   value={money(income?.penaltyIncome)}
                 />
 
-                <FinancialRow
-                  title="Operating expenses"
+                <FinancialLine
+                  label="Operating expenses"
                   value={money(income?.operatingExpenses)}
                 />
 
-                <FinancialRow
-                  title="Impairment / provision expense"
+                <FinancialLine
+                  label="Impairment / provision expense"
                   value={money(income?.impairmentExpense)}
                 />
 
-                <div className="mt-3 rounded-lg bg-[#EFF7F3] px-3">
-                  <FinancialRow
-                    title="Operating result"
-                    value={money(income?.operatingResult)}
-                    emphasis
-                  />
-                </div>
-
-                <p className="mt-3 text-[10px] leading-5 text-slate-500">
-                  Recognized GL figures exclude owner-only loans from ordinary
-                  company accounting.
-                </p>
+                <FinancialLine
+                  label="Operating result"
+                  value={money(income?.operatingResult)}
+                  total
+                />
               </>
             ) : (
               <>
-                <NoData
-                  title="GL income series not yet available"
-                  detail="Recognized interest income, management fees, application fees, expenses and provisions must be supplied by the accounting service."
+                <Unavailable
+                  title="Accounting results not yet available"
+                  detail="Recognized income, operating expenses and impairment must be provided by the general ledger. Cash collections are not treated as profit."
                 />
 
-                <div className="border-t border-slate-100 pt-3">
-                  <FinancialRow
-                    title="Cash collected this month"
-                    value={money(snapshot.collectedMonth)}
+                <div className="border-t border-[#EDF1F5] pt-2">
+                  <FinancialLine
+                    label="Collections this month"
+                    value={money(data.collectedThisMonth)}
                   />
 
-                  <FinancialRow
-                    title="Total cash collected"
-                    value={money(snapshot.collected)}
+                  <FinancialLine
+                    label="Total collections"
+                    value={money(data.totalCollected)}
                   />
-
-                  <p className="mt-3 text-[10px] text-slate-500">
-                    Cash collections are displayed for reference, not treated as
-                    accounting revenue or profit.
-                  </p>
                 </div>
               </>
             )}
@@ -1120,192 +1141,178 @@ export default function DashboardPage() {
 
           <Panel
             title="Requires Attention"
-            subtitle="Prioritized daily lending operations"
+            subtitle="High-priority financial operations"
             right={
-              <span className="rounded-md bg-[#FFF3E1] px-2.5 py-1 text-[10px] font-extrabold text-[#A47632]">
-                ACTION QUEUE
+              <span className="rounded-md bg-[#FFF2E1] px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide text-[#A67934]">
+                Action Queue
               </span>
             }
           >
-            {[
-              {
-                name: "Overdue repayments",
-                subtitle: "Collection follow-up required",
-                value: count(snapshot.overdue),
-                url: "/dashboard/loans",
-                danger: true,
-              },
-              {
-                name: "Pending loan applications",
-                subtitle: "Awaiting lending decision",
-                value: count(snapshot.pending),
-                url: "/dashboard/loans",
-                danger: false,
-              },
-              {
-                name: "Open workflow tasks",
-                subtitle: "Assigned operational work",
-                value: count(tasks.openTasks),
-                url: "/dashboard/tasks",
-                danger: false,
-              },
-              {
-                name: "Borrower documents",
-                subtitle: "Review borrower KYC and documentation",
-                value: "Review",
-                url: "/dashboard/borrowers",
-                danger: false,
-              },
-            ].map((action) => (
-              <button
-                type="button"
-                key={action.name}
-                onClick={() => router.push(action.url)}
-                className="group flex w-full items-center justify-between gap-3 border-b border-[#EDF1F5] px-1 py-4 text-left last:border-0 hover:bg-[#F8FAFC]"
-              >
-                <div className="min-w-0">
-                  <p className="text-xs font-bold text-[#193553]">
-                    {action.name}
-                  </p>
+            <ActionItem
+              title="Overdue Repayments"
+              detail="Review aging and recovery assignments"
+              value={`${formatCount(data.overdueLoans)} loans`}
+              urgent={numberValue(data.overdueLoans) > 0}
+              onClick={() => router.push("/dashboard/loans")}
+            />
 
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    {action.subtitle}
-                  </p>
-                </div>
+            <ActionItem
+              title="Pending Lending Approvals"
+              detail="Applications awaiting credit decisions"
+              value={`${formatCount(data.pendingLoans)} loans`}
+              onClick={() => router.push("/dashboard/loans")}
+            />
 
-                <div className="flex shrink-0 items-center gap-3">
-                  <span
-                    className={
-                      action.danger && numeric(snapshot.overdue) > 0
-                        ? "rounded-md bg-red-50 px-2.5 py-1.5 text-[11px] font-extrabold text-red-700"
-                        : "rounded-md bg-[#EEF2F7] px-2.5 py-1.5 text-[11px] font-extrabold text-[#3D5874]"
-                    }
-                  >
-                    {action.value}
-                  </span>
+            <ActionItem
+              title="Open Workflow Tasks"
+              detail="Assigned operational work"
+              value={formatCount(workflow.openTasks)}
+              urgent={numberValue(workflow.urgentTasks) > 0}
+              onClick={() => router.push("/dashboard/tasks")}
+            />
 
-                  <span className="text-slate-400 transition-transform group-hover:translate-x-1">
-                    →
-                  </span>
-                </div>
-              </button>
-            ))}
+            <ActionItem
+              title="KYC Documents Requiring Renewal"
+              detail="Expired, missing or rejected borrower documents"
+              value={
+                hasNumber(data.kycRenewalsDue)
+                  ? `${formatCount(data.kycRenewalsDue)} files`
+                  : "Review"
+              }
+              onClick={() => router.push("/dashboard/borrowers")}
+            />
 
-            <div className="mt-4 rounded-lg bg-[#F4F7FA] p-3 text-[11px] leading-5 text-[#7A899B]">
-              Select an item to open its related operational workspace. Counts
-              come from the authenticated loan and task services.
-            </div>
+            <ActionItem
+              title="GL Reconciliation Exceptions"
+              detail="Review differences between finance systems"
+              value={formatCount(data.glReconciliationExceptions)}
+              urgent={numberValue(data.glReconciliationExceptions) > 0}
+              onClick={() => router.push("/dashboard/accounting")}
+            />
           </Panel>
         </div>
 
-        {/* ===================================================
-            ADDITIONAL FINANCE STATISTICS
-           =================================================== */}
+        {/* ================= SECONDARY METRICS ================= */}
 
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric
-            title="Total Receivables"
-            value={compact(snapshot.receivables)}
-            description={`${currency} · Contractual amounts receivable`}
+        <section
+          aria-label="Portfolio summary"
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"
+        >
+          <FinanceCard
+            label="Total Loan Receivables"
+            value={compactMoney(data.totalReceivables)}
+            note={`${currency} · Total contractual receivables`}
             symbol="◈"
-            accent={NAVY}
+            accent={THEME.blue}
           />
 
-          <Metric
-            title="Active Loans"
-            value={count(snapshot.active)}
-            description="Loans currently in active status"
+          <FinanceCard
+            label="Active Loans"
+            value={formatCount(data.activeLoans)}
+            note="Current active lending accounts"
             symbol="✓"
-            accent={GREEN}
+            accent={THEME.green}
           />
 
-          <Metric
-            title="Borrowers"
-            value={count(snapshot.borrowers)}
-            description="Reported borrowers in this portfolio"
+          <FinanceCard
+            label="Borrowers"
+            value={formatCount(data.totalBorrowers)}
+            note="Borrowers in the authorized portfolio"
             symbol="♙"
-            accent={GOLD}
+            accent={THEME.gold}
           />
 
-          <Metric
-            title="Defaulted Loans"
-            value={count(snapshot.defaulted)}
-            description="Accounts classified as defaulted"
+          <FinanceCard
+            label="Defaulted Loans"
+            value={formatCount(data.defaultedLoans)}
+            note="Accounts requiring recovery"
             symbol="!"
-            accent={RED}
+            accent={THEME.red}
           />
         </section>
 
-        {/* ===================================================
-            RECENT LOANS
-           =================================================== */}
+        {/* ================= RECENT LENDING ================= */}
 
         <Panel
           title="Recent Lending Activity"
-          subtitle="Recent loans visible in your authorized portfolio"
+          subtitle="Latest loan records within your authorized reporting scope"
           right={
             <button
               type="button"
               onClick={() => router.push("/dashboard/loans")}
-              className="text-[11px] font-extrabold text-[#99742E] hover:underline"
+              className="text-[11px] font-extrabold text-[#A27A34] hover:underline"
             >
-              View loans →
+              View Portfolio →
             </button>
           }
         >
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] text-left">
+            <table className="w-full min-w-[700px] text-left">
               <thead>
-                <tr className="bg-[#F3F6FA] text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                <tr className="bg-[#F4F7FA] text-[10px] font-extrabold uppercase tracking-wide text-[#77899C]">
                   <th className="px-4 py-3">Loan Reference</th>
                   <th className="px-4 py-3">Borrower</th>
                   <th className="px-4 py-3 text-right">Principal</th>
                   <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Due Date</th>
                 </tr>
               </thead>
 
               <tbody>
-                {(stats.recentLoans ?? []).length === 0 ? (
+                {(data.recentLoans || []).length === 0 ? (
                   <tr>
                     <td
                       colSpan={5}
-                      className="px-4 py-10 text-center text-xs text-slate-400"
+                      className="px-4 py-12 text-center text-xs text-slate-400"
                     >
                       No recent lending activity is available.
                     </td>
                   </tr>
                 ) : (
-                  (stats.recentLoans ?? []).map((loan, index) => {
-                    const borrower =
+                  data.recentLoans?.map((loan, index) => {
+                    const borrowerName =
                       loan.borrowerName ||
                       [loan.borrower?.firstName, loan.borrower?.lastName]
                         .filter(Boolean)
                         .join(" ") ||
                       "Borrower";
 
+                    const loanStatus = (loan.status || "UNKNOWN").toUpperCase();
+
+                    const overdue =
+                      loanStatus === "OVERDUE" || loanStatus === "DEFAULTED";
+
                     return (
                       <tr
                         key={String(loan.id ?? index)}
-                        className="border-b border-slate-100 text-xs last:border-0 hover:bg-[#F9FBFD]"
+                        className="border-b border-[#EDF1F5] text-xs last:border-0 hover:bg-[#F9FBFD]"
                       >
-                        <td className="px-4 py-4 font-bold text-[#24496F]">
+                        <td className="px-4 py-4 font-extrabold text-[#285580]">
                           {loan.referenceNumber || "—"}
                         </td>
 
-                        <td className="px-4 py-4 text-[#183552]">{borrower}</td>
+                        <td className="px-4 py-4 font-semibold text-[#415B74]">
+                          {borrowerName}
+                        </td>
 
-                        <td className="px-4 py-4 text-right font-extrabold text-[#183552]">
+                        <td className="px-4 py-4 text-right font-extrabold text-[#1C3954]">
                           {money(loan.amount)}
                         </td>
 
                         <td className="px-4 py-4">
-                          <StatusPill value={loan.status} />
+                          <span
+                            className={
+                              overdue
+                                ? "rounded-md bg-[#FFF0ED] px-2.5 py-1.5 text-[10px] font-black text-[#BD5C59]"
+                                : "rounded-md bg-[#EAF7F0] px-2.5 py-1.5 text-[10px] font-black text-[#168063]"
+                            }
+                          >
+                            {loanStatus.replaceAll("_", " ")}
+                          </span>
                         </td>
 
-                        <td className="px-4 py-4 text-slate-500">
-                          {(loan.createdAt || loan.startDate)?.slice(0, 10) ??
-                            "—"}
+                        <td className="px-4 py-4 text-[#64798E]">
+                          {loan.nextDueDate?.slice(0, 10) || "—"}
                         </td>
                       </tr>
                     );
@@ -1316,19 +1323,15 @@ export default function DashboardPage() {
           </div>
         </Panel>
 
-        {/* ===================================================
-            FOOTER
-           =================================================== */}
+        {/* ================= FOOTER ================= */}
 
-        <footer className="flex flex-col justify-between gap-2 border-t border-[#E0E7EF] pt-4 text-[10px] text-slate-500 sm:flex-row">
+        <footer className="flex flex-col justify-between gap-2 border-t border-[#E1E8F0] pt-4 text-[10px] text-[#8999AB] sm:flex-row">
           <span>Noble Loan Solutions Ltd · Finance Command Center</span>
 
           <span>
-            {ownerView
-              ? "Consolidated management scope"
-              : "Standard reporting scope"}
-            {" · "}
-            Financial figures supplied by the backend
+            {consolidatedView
+              ? "Business Owner consolidated management reporting"
+              : "Authorized standard portfolio reporting"}
           </span>
         </footer>
       </div>
