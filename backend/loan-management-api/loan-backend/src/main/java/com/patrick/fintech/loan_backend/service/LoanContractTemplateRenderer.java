@@ -181,15 +181,9 @@ final class LoanContractTemplateRenderer {
             add(doc, replace(
                     "NLS   ifite uburenganzira bwo gusesa aya masezerano nta nteguza cyangwa kandi igahita yishyuza amafaranga yose ako kanya ibinyujije mu ibaruwa ishinganye cyangwa mu gihe bidashobotse, ibaruwa igashyikirizwa ugurijwe aho atuye iyo bigaragaye ko :",
                     values), false);
-            // The original approved agreement includes five explicit default triggers.
-            add(doc, "a) Iyo inguzanyo yakoreshejwe mu bintu bitandukanye n'ibyo yasabiwe.", false);
-            add(doc, "b) Ubukererwe mu kwishyura burenze iminsi itatu.", false);
-            add(doc, "c) Habayeho kubeshya mu byo Ugurijwe yabwiye NLS cyangwa kutubahiriza zimwe mu nshingano Ugurijwe afitanye na NLS.",
-                    false);
-            add(doc, "d) Ibibazo bituruka ku kwanga kwandikisha ingwate k’Umwanditsi Mukuru, kutajya kwa noteri, gutakaza agaciro kose cyangwa k’igice k’ingwate, cyangwa umwishingizi watanzwe ku mwenda n’ibindi byose yasabwa na NLS.",
-                    false);
-            add(doc, "e) Guhomba, iburira ry’igihombo, imenyekanisha ry’igihombo n’ikurikirana mu Nkiko bigamije ihungabana ry’umutungo cyangwa ry’Ugurijwe.",
-                    false);
+            // Owner-approved Article 5: show all five original grounds
+            // without reducing or silently modifying the legal provisions.
+            addArticleFiveConditionsTable(doc);
             add(doc, replace(
                     "Hashingiwe ku byavuzwe mu gika cyo hejuru, kuba NLS  yaba izi impamvu yagatumye isesa aya masezerano maze igakomeza ikagira igikorwa ikora kirebana no kubahiriza aya masezerano, ntabwo bivuga ko itafata icyemezo cyo kuyasesa nta nteguza nk’uko byavuzwe haruguru.",
                     values), false);
@@ -220,7 +214,7 @@ final class LoanContractTemplateRenderer {
                     "Impaka zose zaturuka kuri aya masezerano zizakemurwa n’Inkiko zibifitiye ububasha zo mu Rwanda.",
                     values), false);
             add(doc, replace("Bikorewe Kigali, kuwa {{DATE}}.", values), false);
-            addSignatureTable(doc, b);
+            addOpenSignaturesForNotary(doc, b);
             XWPFFooter footer = doc.createFooter(org.apache.poi.wp.usermodel.HeaderFooterType.DEFAULT);
             XWPFParagraph footerParagraph = footer.createParagraph();
             footerParagraph.setAlignment(ParagraphAlignment.CENTER);
@@ -303,17 +297,97 @@ final class LoanContractTemplateRenderer {
         doc.createParagraph().setSpacingAfter(75);
     }
 
-    private static void addSignatureTable(XWPFDocument doc, Borrower borrower) {
+    /**
+     * Five Article 5 default conditions from the company's approved agreement.
+     * Their legal text is presented as a two-column table (letter / condition).
+     */
+    private static void addArticleFiveConditionsTable(XWPFDocument doc) {
+        String[][] conditions = {
+                { "a", "Iyo inguzanyo yakoreshejwe mu bintu bitandukanye n’ibyo yasabiwe" },
+                { "b", "Ubukererwe mu kwishyura burenze iminsi itatu" },
+                { "c", "Habayeho kubeshya mubyo Ugurijwe yabwiye NLS cyangwa kutubahiriza zimwe mu nshingano Ugurijwe afitanye na NLS" },
+                { "d", "Ibibazo bituruka ku kwanga kwandikisha ingwate k’Umwanditsi Mukuru, kutajya kwa noteri, gutakaza agaciro kose cyangwa k’igice k’ingwate, cyangwa umwishingizi watanzwe ku mwenda n’ibindi byose yasabwa na NLS" },
+                { "e", "Guhomba, iburira ry’igihombo, imenyekanisha ry’igihombo n’ikurikirana mu Nkiko bigamije ihungabana ry’umutungo cyangwa ry’Ugurijwe" }
+        };
+        XWPFTable table = doc.createTable(conditions.length, 2);
+        table.setWidth("100%");
+        // Word/LibreOffice prioritize table grid widths over cell widths.
+        // Reserve just 10% for the a)-e) markers.
+        var grid = table.getCTTbl().getTblGrid();
+        if (grid == null)
+            grid = table.getCTTbl().addNewTblGrid();
+        while (grid.sizeOfGridColArray() < 2)
+            grid.addNewGridCol();
+        grid.getGridColArray(0).setW(java.math.BigInteger.valueOf(950));
+        grid.getGridColArray(1).setW(java.math.BigInteger.valueOf(8550));
+        for (int i = 0; i < conditions.length; i++) {
+            setCell(table, i, 0, conditions[i][0] + ")", true);
+            setCell(table, i, 1, conditions[i][1], false);
+            // A narrow condition marker column and a wide legal-text column.
+            table.getRow(i).getCell(0).setWidth("10%");
+            table.getRow(i).getCell(1).setWidth("90%");
+            table.getRow(i).getCell(0).setColor("F3EBD7");
+            if (i % 2 == 1) {
+                table.getRow(i).getCell(1).setColor("F8F9FB");
+            }
+        }
+        doc.createParagraph().setSpacingAfter(90);
+    }
+
+    /**
+     * Owner-approved signing arrangement: ordinary paragraphs, NOT a table.
+     * Keep the borrower and lender signatures visually aligned, then reserve a
+     * clean, unobstructed area where a notary can sign and affix an official seal.
+     */
+    private static void addOpenSignaturesForNotary(XWPFDocument doc, Borrower borrower) {
         add(doc, "IMIKONO Y’ABAGIRANYE AMASEZERANO", true);
-        XWPFTable table = doc.createTable(4, 2);
-        setCell(table, 0, 0, "UGURIJWE / BORROWER", true);
-        setCell(table, 0, 1, "UGURIJE / LENDER", true);
-        setCell(table, 1, 0, str(borrower.getFirstName()) + " " + str(borrower.getLastName()), false);
-        setCell(table, 1, 1, "TUYISENGE Annuarite — Umuyobozi Mukuru", false);
-        setCell(table, 2, 0, "Umukono: _______________________", false);
-        setCell(table, 2, 1, "Umukono: _______________________", false);
-        setCell(table, 3, 0, "Itariki: _________________________", false);
-        setCell(table, 3, 1, "Itariki: _________________________", false);
+
+        // Tab stops are paragraph formatting, not table cells or borders.
+        // This retains the side-by-side signature arrangement of the owner's
+        // original agreement while leaving the paper free for stamps.
+        addSignaturePair(doc, "UGURIJWE / BORROWER", "UGURIJE / LENDER", true, 105);
+        addSignaturePair(doc,
+                str(borrower.getFirstName()) + " " + str(borrower.getLastName()),
+                "TUYISENGE Annuarite", false, 45);
+        addSignaturePair(doc, "", "Umuyobozi Mukuru — Noble Loan Solutions Ltd", false, 140);
+        addSignaturePair(doc, "Umukono: ______________________", "Umukono: ______________________", false, 200);
+        addSignaturePair(doc, "Itariki: ________________________", "Itariki: ________________________", false, 180);
+
+        // No drawn rectangle, table, or artwork in this section: an official
+        // notarial stamp may overlap the blank paper below the signatures.
+        XWPFParagraph notary = doc.createParagraph();
+        notary.setSpacingBefore(170);
+        notary.setSpacingAfter(65);
+        XWPFRun label = notary.createRun();
+        label.setText("AHA HAGENEWE KASHE N’UMUKONO BYA NOTERI");
+        label.setFontFamily("Carlito");
+        label.setFontSize(10);
+        label.setBold(true);
+        label.setColor("17324D");
+
+        // Reserved vertical whitespace for handwritten notarization and seal.
+        // No table outlines or preprinted seal that could obstruct a real stamp.
+        XWPFParagraph stampSpace = doc.createParagraph();
+        stampSpace.setSpacingAfter(1900);
+    }
+
+    private static void addSignaturePair(XWPFDocument doc, String left, String right,
+            boolean emphasis, int spacingAfter) {
+        XWPFParagraph p = doc.createParagraph();
+        p.setSpacingAfter(spacingAfter);
+        var properties = p.getCTP().isSetPPr() ? p.getCTP().getPPr() : p.getCTP().addNewPPr();
+        var tabs = properties.isSetTabs() ? properties.getTabs() : properties.addNewTabs();
+        var tab = tabs.addNewTab();
+        tab.setVal(org.openxmlformats.schemas.wordprocessingml.x2006.main.STTabJc.LEFT);
+        tab.setPos(java.math.BigInteger.valueOf(4900));
+        XWPFRun r = p.createRun();
+        r.setFontFamily("Carlito");
+        r.setFontSize(9);
+        r.setColor(emphasis ? "17324D" : "253346");
+        r.setBold(emphasis);
+        r.setText(left);
+        r.addTab();
+        r.setText(right);
     }
 
     private static String replace(String s, Map<String, String> values) {
@@ -346,8 +420,12 @@ final class LoanContractTemplateRenderer {
         // Words are applicable to RWF; other currencies remain numerical.
         if (!"RWF".equalsIgnoreCase(currency))
             return str(currency) + " " + figure;
-        if (amount.stripTrailingZeros().scale() > 0)
-            return "RWF " + figure + " (including cents)";
+        if (amount.stripTrailingZeros().scale() > 0) {
+            java.math.BigInteger francs = amount.toBigInteger();
+            int cents = amount.remainder(BigDecimal.ONE).movePointRight(2).intValueExact();
+            return rwfWords(francs) + " n’amasente " + underThousand(cents)
+                    + " (RWF " + figure + ")";
+        }
         return rwfWords(amount.toBigIntegerExact()) + " (RWF "
                 + String.format(Locale.US, "%,.0f", amount) + ")";
     }
@@ -377,6 +455,8 @@ final class LoanContractTemplateRenderer {
                     part = scale == 1 ? "igihumbi kimwe" : scales[scale] + " imwe";
                 else if (scale == 1 && group == 2)
                     part = "ibihumbi bibiri";
+                else if (scale >= 2 && group == 2)
+                    part = scales[scale] + " ebyiri";
                 else
                     part = scales[scale] + " " + underThousand(group);
                 pieces.add(0, part);

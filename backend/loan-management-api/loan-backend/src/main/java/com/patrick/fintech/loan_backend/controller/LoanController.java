@@ -205,7 +205,7 @@ public class LoanController {
 
                 // Verify tenant-scoped loan access before returning contract bytes.
                 loanService.getLoanForOrg(id, organizationId);
-                LoanContract contract = loanContractService.getForOrganization(id, organizationId);
+                LoanContract contract = loanContractService.refreshDraftForDownload(id, organizationId, user);
                 auditService.log(
                                 contract.getOrganization(), user,
                                 "LOAN_CONTRACT_DRAFT_DOWNLOADED", "LOAN_CONTRACT",

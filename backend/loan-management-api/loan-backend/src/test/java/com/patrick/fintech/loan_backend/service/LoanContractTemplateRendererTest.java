@@ -128,4 +128,56 @@ class LoanContractTemplateRendererTest {
         method.setAccessible(true);
         assertEquals(method.invoke(null, (Object) a), method.invoke(null, (Object) b));
     }
+
+    @Test
+    void articleFiveRetainsEveryApprovedConditionAsProfessionalTable() throws Exception {
+        byte[] data = LoanContractTemplateRenderer.render(sampleLoan(), sampleSchedule());
+        try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(data))) {
+            org.apache.poi.xwpf.usermodel.XWPFTable articleFive = doc.getTables().stream()
+                    .filter(table -> table.getNumberOfRows() == 5)
+                    .filter(table -> table.getRow(0).getCell(0).getText().contains("a)"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("Missing approved Article 5 table"));
+            assertEquals(5, articleFive.getNumberOfRows());
+            assertTrue(articleFive.getRow(0).getCell(1).getText().contains("inguzanyo yakoreshejwe"));
+            assertTrue(articleFive.getRow(1).getCell(1).getText().contains("iminsi itatu"));
+            assertTrue(articleFive.getRow(2).getCell(1).getText().contains("kubeshya"));
+            assertTrue(articleFive.getRow(3).getCell(1).getText().contains("ingwate"));
+            assertTrue(articleFive.getRow(4).getCell(1).getText().contains("Guhomba"));
+        }
+    }
+
+    @Test
+    void signatureSectionUsesNoTableAndReservesSpaceForNotaryStamp() throws Exception {
+        byte[] docx = LoanContractTemplateRenderer.render(sampleLoan(), sampleSchedule());
+        try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(docx))) {
+            String text = doc.getParagraphs().stream()
+                    .map(XWPFParagraph::getText)
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            assertTrue(text.contains("IMIKONO Y’ABAGIRANYE AMASEZERANO"));
+            assertTrue(text.contains("UGURIJWE / BORROWER"));
+            assertTrue(text.contains("UGURIJE / LENDER"));
+            assertTrue(text.contains("AHA HAGENEWE KASHE N’UMUKONO BYA NOTERI"));
+            assertTrue(text.contains("TUYISENGE Annuarite"));
+            assertTrue(
+                    doc.getTables().stream()
+                            .noneMatch(table -> table.getRows().stream()
+                                    .anyMatch(row -> row.getTableCells().stream()
+                                            .anyMatch(cell -> cell.getText().contains("UGURIJWE / BORROWER")
+                                                    || cell.getText().contains("UGURIJE / LENDER")))),
+                    "Signature blocks must not be enclosed inside a Word table");
+        }
+    }
+
+    @Test
+    void monetaryFractionsAreExpressedInKinyarwandaNotEnglish() throws Exception {
+        Method method = LoanContractTemplateRenderer.class
+                .getDeclaredMethod("money", BigDecimal.class, String.class);
+        method.setAccessible(true);
+        String words = (String) method.invoke(null, new BigDecimal("1234.50"), "RWF");
+        assertTrue(words.contains("n’amasente"));
+        assertTrue(words.contains("RWF 1,234.50"));
+        assertFalse(words.contains("including cents"));
+    }
+
 }

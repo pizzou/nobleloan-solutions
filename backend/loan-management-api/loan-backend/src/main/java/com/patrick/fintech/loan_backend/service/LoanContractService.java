@@ -156,6 +156,47 @@ public class LoanContractService {
     }
 
     /**
+     * Refresh the complete generated attachment when an authorized user downloads
+     * an UNSENT draft. Existing SENT_TO_BORROWER contracts remain immutable.
+     * This prevents a previously stored unbranded generic DOCX being downloaded
+     * after the new Java renderer is deployed.
+     *
+     * Unlike an ordinary status read, this method has a write transaction.
+     */
+    @Transactional
+    public LoanContract refreshDraftForDownload(Long loanId, Long organizationId, User actor) {
+        LoanContract contract = getForOrganization(loanId, organizationId);
+        if (contract.getStatus() != LoanContract.ContractStatus.DRAFT) {
+            return contract;
+        }
+        Loan loan = contract.getLoan();
+        byte[] updated = buildDraftDocument(loan);
+        // Generate-first also protects the saved document if resource loading
+        // or data validation fails.
+        ensureApprovedLogoAndRepeatingHeader(updated);
+        byte[] stored = contract.getDocumentData();
+        if (stored != null && stored.length > 0
+                && contractContentFingerprint(updated).equals(contractContentFingerprint(stored))) {
+            return contract;
+        }
+        String previousHash = contract.getSha256();
+        contract.setDocumentData(updated);
+        contract.setSha256(sha256(updated));
+        contract.setContentType(DOCX_TYPE);
+        contract.setFileName("NLS-Loan-Contract-" + safeFilePart(loan.getReferenceNumber()) + "-DRAFT.docx");
+        contract.setGeneratedBy(actor);
+        contract.setGeneratedAt(LocalDateTime.now());
+        LoanContract refreshed = contractRepository.save(contract);
+        auditService.log(loan.getOrganization(), actor,
+                "LOAN_CONTRACT_DRAFT_REFRESHED_ON_DOWNLOAD", "LOAN_CONTRACT",
+                String.valueOf(refreshed.getId()),
+                "Updated obsolete unsent draft including company logo, header, original legal text and schedule. "
+                        + "Previous hash=" + previousHash + "; new hash=" + refreshed.getSha256(),
+                null, null, "Loan Contracts");
+        return refreshed;
+    }
+
+    /**
      * Staff records that they have sent the downloaded draft through their approved
      * channel.
      * The platform then notifies the borrower's email; it does not claim the
