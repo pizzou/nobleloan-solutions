@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class StreamingLedgerFileParserTest {
 
     private void appendMonthly(Sheet sheet, int rowIndex, String sourceNo,
-                               String nationalId, String start, int amount) {
+            String nationalId, String start, int amount) {
         Row row = sheet.createRow(rowIndex);
         String[] columns = new String[30];
         java.util.Arrays.fill(columns, "0");
@@ -51,7 +51,8 @@ class StreamingLedgerFileParserTest {
         return result;
     }
 
-    @Test void identicalSupportingSheetsProduceOnlyOneLoanCandidate() throws Exception {
+    @Test
+    void identicalSupportingSheetsProduceOnlyOneLoanCandidate() throws Exception {
         try (XSSFWorkbook book = new XSSFWorkbook()) {
             appendMonthly(book.createSheet("PORTFOLIO 2025"), 2, "1", "1198880004126183", "2025-10-30", 5000000);
             appendMonthly(book.createSheet("Sheet1"), 0, "1", "1198880004126183", "2025-10-30", 5000000);
@@ -64,7 +65,8 @@ class StreamingLedgerFileParserTest {
         }
     }
 
-    @Test void conflictingCopiesAreBlockedBeforeAnyImportRowIsEmitted() throws Exception {
+    @Test
+    void conflictingCopiesAreBlockedBeforeAnyImportRowIsEmitted() throws Exception {
         try (XSSFWorkbook book = new XSSFWorkbook()) {
             appendMonthly(book.createSheet("PORTFOLIO 2025"), 2, "1", "1198880004126183", "2025-10-30", 8000000);
             appendMonthly(book.createSheet("Sheet1"), 0, "1", "1198880004126183", "2025-10-30", 2000000);
@@ -75,7 +77,8 @@ class StreamingLedgerFileParserTest {
         }
     }
 
-    @Test void separateLoanOnAnotherDateIsPreserved() throws Exception {
+    @Test
+    void separateLoanOnAnotherDateIsPreserved() throws Exception {
         try (XSSFWorkbook book = new XSSFWorkbook()) {
             Sheet master = book.createSheet("PORTFOLIO 2025");
             appendMonthly(master, 2, "1", "1198880004126183", "2025-10-30", 5000000);
@@ -84,23 +87,30 @@ class StreamingLedgerFileParserTest {
         }
     }
 
-    @Test void conflictingNationalIdsAcrossSheetsAreBlocked() throws Exception {
+    @Test
+    void conflictingNationalIdsAcrossSheetsAreBlocked() throws Exception {
         try (XSSFWorkbook book = new XSSFWorkbook()) {
             appendMonthly(book.createSheet("PORTFOLIO 2025"), 2, "1", "1198880004126183", "2025-10-30", 5000000);
             appendMonthly(book.createSheet("Sheet1"), 0, "1", "1198880004126184", "2025-10-30", 5000000);
             List<Map<String, String>> result = parse(book);
             assertThat(result).hasSize(2);
-            assertThat(result).allSatisfy(row ->
-                    assertThat(row.get("__import_issue")).contains("national_id discrepancy"));
+            assertThat(result)
+                    .allSatisfy(row -> assertThat(row.get("__import_issue")).contains("national_id discrepancy"));
         }
     }
 
-    @Test void supportingOnlyLoanRequiresReviewWhenMasterExists() throws Exception {
+    @Test
+    void supportingOnlyLoanRequiresReviewWhenMasterExists() throws Exception {
         try (XSSFWorkbook book = new XSSFWorkbook()) {
             appendMonthly(book.createSheet("PORTFOLIO 2025"), 2, "1", "1198880004126183", "2025-10-30", 5000000);
-            appendMonthly(book.createSheet("Sheet1"), 0, "2", "1198880004126184", "2025-10-30", 5000000);
+            // Different date ensures this is a distinct supporting-only loan,
+            // not a conflicting national ID on the SAME borrower's loan date.
+            // The latter safety rule is tested separately above.
+            appendMonthly(book.createSheet("Sheet1"), 0, "2", "1198880004126184", "2025-11-30", 5000000);
             List<Map<String, String>> result = parse(book);
             assertThat(result).hasSize(2);
+            assertThat(result.get(0)).doesNotContainKey("__import_issue");
+            assertThat(result.get(1).get("__source_sheet")).isEqualTo("Sheet1");
             assertThat(result.get(1).get("__import_issue")).contains("supporting worksheet");
         }
     }
