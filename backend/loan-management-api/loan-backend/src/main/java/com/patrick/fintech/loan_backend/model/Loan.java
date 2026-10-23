@@ -466,6 +466,16 @@ public class Loan {
         @Builder.Default
         private Boolean imported = false;
 
+        /** The original Excel/source loan reference, NOT the new public reference. */
+        @JsonIgnore
+        @Column(name = "legacy_source_reference", length = 100)
+        private String legacySourceReference;
+
+        /** Stable fingerprint used to reject a re-upload of the same legacy row. */
+        @JsonIgnore
+        @Column(name = "legacy_import_fingerprint", length = 64)
+        private String legacyImportFingerprint;
+
         @Column(name = "import_batch_id")
         private Long importBatchId;
 

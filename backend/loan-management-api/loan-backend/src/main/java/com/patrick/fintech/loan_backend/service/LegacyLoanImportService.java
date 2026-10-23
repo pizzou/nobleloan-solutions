@@ -184,7 +184,7 @@ public class LegacyLoanImportService {
                 validateParsedRows(rows);
 
                 Map<String, Borrower> sessionBorrowers = new HashMap<>();
-                Set<String> sessionLoanReferences = new HashSet<>();
+                LegacyImportReferenceSession sessionLoanReferences = new LegacyImportReferenceSession();
 
                 /*
                  * Preload all existing borrowers referenced by this file once.
@@ -375,7 +375,7 @@ public class LegacyLoanImportService {
                                 importedBy.getId());
 
                 Map<String, Borrower> sessionBorrowers = new HashMap<>();
-                Set<String> sessionLoanReferences = new HashSet<>();
+                LegacyImportReferenceSession sessionLoanReferences = new LegacyImportReferenceSession();
 
                 List<ImportRowResult> results = new ArrayList<>(
                                 Math.min(

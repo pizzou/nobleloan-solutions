@@ -140,6 +140,8 @@ public class LegacyLoanImportRowService {
 
         private final LoanService loanService;
 
+        private final LoanReferenceService loanReferenceService;
+
         private final AccountingService accountingService;
 
         private final Validator validator;
@@ -156,7 +158,7 @@ public class LegacyLoanImportRowService {
                         Long importBatchId,
                         boolean commit,
                         Map<String, Borrower> sessionBorrowers,
-                        Set<String> sessionLoanReferences) {
+                        LegacyImportReferenceSession sessionLoanReferences) {
 
                 String borrowerAction = null;
                 boolean borrowerCreatedInThisRow = false;
@@ -175,28 +177,23 @@ public class LegacyLoanImportRowService {
                                         sessionBorrowers,
                                         sessionLoanReferences);
 
-                        // Resolve and check the reference before any borrower is
-                        // created. References generated for a row without a legacy
-                        // reference are deterministic, so submitting the same
-                        // source row again cannot silently create a second loan.
-                        String originalReference = opt(row, "loan_reference", null);
-                        String referenceNumber = resolveImportReference(row, org);
-                        boolean referenceAlreadyExists = loanRepo.findByReferenceNumber(referenceNumber).isPresent();
-                        if (!referenceAlreadyExists
-                                        && originalReference != null
-                                        && !originalReference.isBlank()) {
-                                // Also recognize references saved by older system
-                                // versions before NLS- was made mandatory.
-                                referenceAlreadyExists = loanRepo
-                                                .findByReferenceNumber(originalReference.trim())
-                                                .isPresent();
-                        }
-                        if (referenceAlreadyExists || sessionLoanReferences.contains(referenceNumber)) {
-                                return fail(
-                                                rowNumber,
-                                                "Loan reference " + referenceNumber
-                                                                + " already exists. This row appears to have been imported before; "
-                                                                + "reconcile the existing loan instead of importing it again.");
+                        // Capture the workbook identity SEPARATELY from the new
+                        // sequential public loan number. An upload retry must not
+                        // manufacture a second loan just because its NLS number
+                        // would be different on the next run.
+                        String suppliedReference = opt(row, "loan_reference", null);
+                        String sourceReference = suppliedReference == null || suppliedReference.isBlank()
+                                        ? null
+                                        : normalizeReference(suppliedReference);
+                        String fingerprint = legacyRowFingerprint(row, org);
+                        String olderSystemReference = resolveImportReference(row, org);
+                        if (sessionLoanReferences.alreadySeen(fingerprint, sourceReference)
+                                        || loanReferenceService.previouslyImported(
+                                                        org.getId(), sourceReference, fingerprint,
+                                                        olderSystemReference)) {
+                                return fail(rowNumber,
+                                                "This legacy loan already exists or appears twice in this workbook. "
+                                                                + "Check the original loan_reference and previous imports before retrying.");
                         }
 
                         // ========================================================
@@ -1107,6 +1104,13 @@ public class LegacyLoanImportRowService {
                         // BUILD LOAN
                         // ========================================================
 
+                        // Allocate only after the row has passed financial and
+                        // identity validation. A failed preview row consumes no
+                        // preview number; a commit uses nextval atomically.
+                        String referenceNumber = commit
+                                        ? loanReferenceService.allocate()
+                                        : sessionLoanReferences.previewReference(loanReferenceService);
+
                         Loan.LoanBuilder builder = Loan.builder()
                                         .referenceNumber(
                                                         referenceNumber)
@@ -1324,6 +1328,8 @@ public class LegacyLoanImportRowService {
 
                                         .imported(
                                                         true)
+                                        .legacySourceReference(sourceReference)
+                                        .legacyImportFingerprint(fingerprint)
 
                                         .importBatchId(
                                                         importBatchId);
@@ -1336,7 +1342,7 @@ public class LegacyLoanImportRowService {
 
                         if (!commit) {
 
-                                sessionLoanReferences.add(referenceNumber);
+                                sessionLoanReferences.recordSuccess(fingerprint, sourceReference);
 
                                 return ImportRowResult.builder()
                                                 .rowNumber(
@@ -1360,11 +1366,13 @@ public class LegacyLoanImportRowService {
 
                         try {
 
-                                loan = loanRepo.save(
+                                loan = loanRepo.saveAndFlush(
                                                 loan);
 
                         } catch (DataIntegrityViolationException e) {
-
+                                // PostgreSQL has rejected this transaction; roll
+                                // back any borrower changes made earlier in the row.
+                                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                                 log.warn(
                                                 "Legacy loan import database constraint violation. "
                                                                 + "rowNumber={}, organizationId={}, referenceNumber={}",
@@ -1390,7 +1398,7 @@ public class LegacyLoanImportRowService {
                         // accounting does not replay historical cash movements.
                         accountingService.postHistoricalLoanOpening(loan);
 
-                        sessionLoanReferences.add(referenceNumber);
+                        sessionLoanReferences.recordSuccess(fingerprint, sourceReference);
 
                         // Only cache a newly-created borrower after both the loan
                         // and its opening accounting entry have succeeded.
@@ -1449,7 +1457,9 @@ public class LegacyLoanImportRowService {
                                         .build();
 
                 } catch (IllegalArgumentException e) {
-
+                        if (commit) {
+                                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+                        }
                         log.warn(
                                         "Legacy loan import validation failure. "
                                                         + "rowNumber={}, organizationId={}, error={}",
@@ -1464,7 +1474,9 @@ public class LegacyLoanImportRowService {
                                         e.getMessage());
 
                 } catch (Exception e) {
-
+                        if (commit) {
+                                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+                        }
                         log.error(
                                         "Unexpected legacy loan import failure. "
                                                         + "rowNumber={}, organizationId={}",
@@ -1568,7 +1580,7 @@ public class LegacyLoanImportRowService {
                         Organization org,
                         Long importBatchId,
                         Map<String, Borrower> sessionBorrowers,
-                        Set<String> sessionLoanReferences) {
+                        LegacyImportReferenceSession sessionLoanReferences) {
 
                 if (row == null) {
 
@@ -2371,13 +2383,22 @@ public class LegacyLoanImportRowService {
         }
 
         /**
-         * Resolves the reference used by a legacy-import row. A supplied source
-         * reference is preserved after adding the NLS prefix. If the legacy
-         * workbook has no reference column/value, derive a stable reference from
-         * the organization and the complete normalized row. This makes a repeat
-         * upload of the same row collide with the existing record rather than
-         * creating a second loan under a fresh random reference.
+         * Reconstructs the historical reference ONLY for duplicate detection.
+         * New imports always receive the next numeric NLS reference instead.
+         * Older imports without a source reference used a deterministic UUID
+         * derived from the organization and the complete normalized row.
          */
+        private String legacyRowFingerprint(Map<String, String> row, Organization org) {
+                String stableInput = String.valueOf(org.getId()) + "|" + new TreeMap<>(row);
+                try {
+                        byte[] hash = java.security.MessageDigest.getInstance("SHA-256")
+                                        .digest(stableInput.getBytes(StandardCharsets.UTF_8));
+                        return java.util.HexFormat.of().formatHex(hash);
+                } catch (java.security.NoSuchAlgorithmException e) {
+                        throw new IllegalStateException("SHA-256 is not available", e);
+                }
+        }
+
         private String resolveImportReference(
                         Map<String, String> row,
                         Organization org) {

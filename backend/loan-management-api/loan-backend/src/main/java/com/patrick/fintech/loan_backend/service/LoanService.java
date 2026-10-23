@@ -53,7 +53,6 @@ import java.util.Map;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -83,6 +82,7 @@ public class LoanService {
         private final PaymentTransactionRepository paymentTransactionRepo;
         private final DashboardService dashboardService;
         private final LoanAdministrationService loanAdministrationService;
+        private final LoanReferenceService loanReferenceService;
 
         @Value("${app.environment:development}")
         private String applicationEnvironment;
@@ -3439,16 +3439,10 @@ public class LoanService {
         // REFERENCE NUMBER
         // ================================================================
 
-        private String generateRef(
-                        Organization org) {
-                String random = UUID.randomUUID().toString().replace("-", "")
-                                .substring(0, 12).toUpperCase(Locale.ROOT);
-
-                // Noble Loan Solution reference numbers use one stable prefix
-                // across organizations, origination paths and imported loans.
-                // The random suffix remains globally collision-resistant, while
-                // the database unique constraint is the final concurrency guard.
-                return "NLS-" + random;
+        private String generateRef(Organization org) {
+                // Use the SAME atomic PostgreSQL sequence as all legacy imports.
+                // No caller may invent a reference or calculate MAX + 1 in Java.
+                return loanReferenceService.allocate();
         }
 
         // ================================================================

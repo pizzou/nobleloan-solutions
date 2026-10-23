@@ -197,7 +197,7 @@ public class AsyncLegacyImportService {
                 AtomicInteger failed = new AtomicInteger(0);
                 List<ImportRowResult> storedResults = new ArrayList<>();
                 Map<String, Borrower> sessionBorrowers = new HashMap<>();
-                Set<String> sessionLoanReferences = new HashSet<>();
+                LegacyImportReferenceSession sessionLoanReferences = new LegacyImportReferenceSession();
 
                 // ---------------------------------------------------------------
                 // PASS 1 — COUNT UNIQUE SUPPORTED RECORDS

@@ -884,6 +884,13 @@ export default function ImportLegacyLoansPage() {
                     RESULT TABLE
                     ================================================== */}
 
+                <p className="mt-4 text-xs text-slate-600">
+                  Loan references below are proposed NLS numbers for valid rows
+                  only. The final number is allocated securely when the loan is
+                  saved; another user's loan creation may change a proposed
+                  number.
+                </p>
+
                 <div className="mt-5 overflow-hidden rounded-2xl border border-gray-200">
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[850px] text-sm">

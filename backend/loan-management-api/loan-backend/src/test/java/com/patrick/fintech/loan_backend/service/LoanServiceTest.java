@@ -113,6 +113,9 @@ class LoanServiceTest {
         @Mock
         WorkflowTaskService workflowTaskService;
 
+        @Mock
+        LoanReferenceService loanReferenceService;
+
         @InjectMocks
         LoanService loanService;
 
@@ -205,6 +208,8 @@ class LoanServiceTest {
                                 1L,
                                 true))
                                 .thenReturn(List.of());
+
+                when(loanReferenceService.allocate()).thenReturn("NLS-000007");
 
                 when(loanRepository.save(any(Loan.class)))
                                 .thenReturn(savedLoan);
